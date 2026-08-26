@@ -1,0 +1,36 @@
+{
+  "name": "virtugene-mobile",
+  "version": "2.0.2",
+  "type": "module",
+  "description": "VirtuGene 手机版（Capacitor Android）— Unlock Your Digital Soul",
+  "author": "VirtuGene",
+  "scripts": {
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "mobile:init": "node scripts/mobile-init.mjs",
+    "mobile:sync": "npm run build:renderer && npx cap sync android",
+    "mobile:build": "npm run mobile:sync && cd android && gradlew.bat assembleDebug",
+    "release": "node scripts/gh-release.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@tanstack/react-virtual": "^3.14.9",
+    "dexie": "^4.0.11",
+    "pinyin-pro": "^3.29.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.5"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.2"
+  }
+}

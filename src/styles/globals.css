@@ -1,0 +1,310 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-gene-purple: #6C5CE7;
+  --color-life-cyan: #00CEC9;
+
+  /* Light theme */
+  --bg: #FFFFFF;
+  --bg-panel: #F8F7FF;
+  --bg-surface: rgba(0, 0, 0, 0.04);
+  --bg-surface-strong: rgba(0, 0, 0, 0.07);
+  --bg-glass: rgba(255, 255, 255, 0.6);
+  --text: #1A1A2E;
+  --text-secondary: #6B7280;
+  --border: #E5E7EB;
+  --border-strong: #D1D5DB;
+  --msg-ai: #F3F4F6;
+  --msg-ai-text: #1A1A2E;
+}
+
+.dark {
+  --bg: #0F0F1A;
+  --bg-panel: #1A1A2E;
+  --bg-surface: rgba(255, 255, 255, 0.05);
+  --bg-surface-strong: rgba(255, 255, 255, 0.10);
+  --bg-glass: rgba(15, 15, 26, 0.7);
+  --text: #F0EDFF;
+  --text-secondary: #9CA3AF;
+  --border: #2A2A4A;
+  --border-strong: #3A3A5C;
+  --msg-ai: #1E1E36;
+  --msg-ai-text: #E5E7EB;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* 页面底色跟随主题；html 兜底深色（状态栏/刘海区域、加载期），避免白屏/白条 */
+html {
+  background: #0F0F1A;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 手机端安全区通用工具类 */
+.safe-top { padding-top: env(safe-area-inset-top); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Glass card base */
+.glass-card {
+  background: var(--bg-glass);
+  backdrop-filter: blur(24px);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(15, 15, 26, 0.10), 0 0 0 1px rgba(108, 92, 231, 0.04);
+}
+
+/* ============ 1.1.2 沉浸光感 ============ */
+
+/* 氛围光背景层：极慢漂移的紫青光晕（主题感知） */
+:root {
+  --aurora-a: rgba(108, 92, 231, 0.14);
+  --aurora-b: rgba(0, 206, 201, 0.11);
+  --aurora-c: rgba(108, 92, 231, 0.10);
+}
+.dark {
+  --aurora-a: rgba(108, 92, 231, 0.24);
+  --aurora-b: rgba(0, 206, 201, 0.16);
+  --aurora-c: rgba(0, 206, 201, 0.10);
+}
+.aurora {
+  background:
+    radial-gradient(ellipse 55% 45% at 12% 18%, var(--aurora-a), transparent 60%),
+    radial-gradient(ellipse 45% 40% at 88% 28%, var(--aurora-b), transparent 60%),
+    radial-gradient(ellipse 70% 55% at 50% 95%, var(--aurora-c), transparent 65%),
+    radial-gradient(ellipse 40% 35% at 70% 75%, rgba(108, 92, 231, 0.06), transparent 60%);
+  animation: auroraDrift 20s ease-in-out infinite alternate;
+}
+@keyframes auroraDrift {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(1.5%, 1%) scale(1.04); }
+  100% { transform: translate(-1.5%, -0.8%) scale(1.01); }
+}
+
+/* DNA 点阵底纹（极淡，缓慢漂移） */
+.dna-dots {
+  background-image: radial-gradient(rgba(108, 92, 231, 0.10) 1px, transparent 1.5px);
+  background-size: 26px 26px;
+  animation: dotsDrift 40s linear infinite;
+}
+@keyframes dotsDrift {
+  from { background-position: 0 0; }
+  to   { background-position: 52px 52px; }
+}
+
+/* 「正在输入」光点呼吸 */
+@keyframes dotGlow {
+  0%, 100% { box-shadow: 0 0 4px rgba(0, 206, 201, 0.20); }
+  50%      { box-shadow: 0 0 10px rgba(0, 206, 201, 0.65); }
+}
+.typing-glow { animation: dotGlow 1.2s ease-in-out infinite; }
+
+/* 点击涟漪（配合 ripple-host 使用） */
+.ripple-host { position: relative; overflow: hidden; }
+@keyframes ripple {
+  from { transform: scale(0); opacity: 0.35; }
+  to   { transform: scale(4); opacity: 0; }
+}
+.ripple-ink {
+  position: absolute;
+  border-radius: 9999px;
+  background: currentColor;
+  pointer-events: none;
+  animation: ripple 0.55s ease-out forwards;
+}
+
+/* 最新一条消息的光晕扫过 */
+@keyframes messageSweep {
+  0%   { box-shadow: 0 0 0 rgba(108, 92, 231, 0); }
+  35%  { box-shadow: 0 0 22px rgba(108, 92, 231, 0.35); }
+  100% { box-shadow: 0 0 0 rgba(108, 92, 231, 0); }
+}
+.animate-message-sweep { animation: messageSweep 1.6s ease-out; }
+
+/* 情绪曲线：最新数据点脉冲呼吸 */
+@keyframes pointPulse {
+  0% { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+.animate-point-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pointPulse 1.8s ease-out infinite;
+}
+
+/* DNA helix background pattern */
+.dna-bg {
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(108, 92, 231, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 70%, rgba(0, 206, 201, 0.06) 0%, transparent 50%);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(108, 92, 231, 0.3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(108, 92, 231, 0.5);
+}
+
+/* 左栏联系人面板滚动条：比全局略宽（8px），微信式 */
+.contacts-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.contacts-scroll::-webkit-scrollbar-thumb {
+  background: rgba(108, 92, 231, 0.35);
+  border-radius: 4px;
+}
+
+.contacts-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(108, 92, 231, 0.55);
+}
+
+/* Title bar drag region */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Modal fade-in animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Message bubble arrival animation */
+@keyframes messageIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-message-in {
+  animation: messageIn 0.18s ease-out;
+}
+
+/* Tab 切换淡入（手机端底部导航切换） */
+@keyframes tabIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-tab-in {
+  animation: tabIn 0.22s ease-out;
+}
+
+/* Emotion chart polygon appear */
+@keyframes chartAppear {
+  from { opacity: 0; transform-origin: center; transform: scale(0.5); }
+  to { opacity: 1; transform-origin: center; transform: scale(1); }
+}
+
+/* Emotion chart tooltip fade-in */
+@keyframes tooltipIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Splash DNA helix — rungs contract to simulate rotation */
+@keyframes dnaRung {
+  0%, 100% { transform: scaleX(1); opacity: 1; }
+  50% { transform: scaleX(0.15); opacity: 0.35; }
+}
+
+.dna-rung {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dnaRung 1.8s ease-in-out infinite;
+}
+
+/* Relation milestone toast — slide in + spring overshoot + glow */
+@keyframes milestoneIn {
+  0% { opacity: 0; transform: translateY(-24px) scale(0.7); }
+  60% { opacity: 1; transform: translateY(0) scale(1.05); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes milestoneGlow {
+  0%, 100% { box-shadow: 0 0 16px rgba(108, 92, 231, 0.35), 0 0 32px rgba(0, 206, 201, 0.12); }
+  50% { box-shadow: 0 0 28px rgba(108, 92, 231, 0.55), 0 0 56px rgba(0, 206, 201, 0.28); }
+}
+
+@keyframes milestoneParticle {
+  0% { transform: translateY(0) scale(1); opacity: 0.9; }
+  100% { transform: translateY(-24px) scale(0); opacity: 0; }
+}
+
+.milestone-toast {
+  animation: milestoneIn 0.5s cubic-bezier(0.22, 1, 0.36, 1), milestoneGlow 2.8s ease-in-out;
+}
+
+.milestone-level {
+  background: linear-gradient(90deg, #6C5CE7, #00CEC9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.milestone-particle {
+  position: absolute;
+  bottom: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #00CEC9;
+  animation: milestoneParticle 1.6s ease-out infinite;
+  pointer-events: none;
+}
+
+/* Notification cloud — fluid float-in (blur dissolve → settle) */
+@keyframes cloudIn {
+  0% { opacity: 0; transform: translateY(-18px) scale(0.9); filter: blur(6px); }
+  60% { opacity: 1; transform: translateY(2px) scale(1.02); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+.animate-cloud-in {
+  animation: cloudIn 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 流体云：顶部流光扫过（仅限云朵上半部分，避免盖住/冲淡文字） */
+@keyframes cloudShine {
+  0% { transform: translateX(-130%) skewX(-18deg); }
+  55%, 100% { transform: translateX(240%) skewX(-18deg); }
+}
+.cloud-shine {
+  position: absolute;
+  top: 0;
+  height: 46%;
+  width: 38%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.25), rgba(0, 206, 201, 0.10), transparent);
+  animation: cloudShine 3.6s ease-in-out infinite;
+  pointer-events: none;
+}

@@ -1,0 +1,29 @@
+node_modules/
+dist/
+dist-electron/
+release/
+.env
+*.log
+.DS_Store
+Thumbs.db
+
+# Android 构建产物（本地生成，不入库）
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/capacitor-cordova-android-plugins/build/
+android/**/build/
+*.apk
+
+# 本地凭据
+.capgo
+
+# Claude Code local overrides
+.claude/settings.local.json
+
+# Dev / backup assets
+resources/icon-original.png
+resources/icon-preview.png
+resources/resources/
+scripts/make-icon.py
