@@ -14,6 +14,7 @@ import { IS_MOBILE } from './lib/platform';
 import { diaryRepo, todayStr } from './db/diary-repo';
 import { getChangelog, LAST_SEEN_VERSION_KEY } from './lib/changelog';
 import { initSeedCharacters } from './lib/seed-init';
+import { notifyLocal, requestNotificationPermission } from './lib/notify';
 
 // 手账按需加载：首次进入才拉取日记相关代码，加快主聊天页启动
 const DiaryPage = lazy(() => import('./pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
@@ -72,6 +73,10 @@ export default function App() {
   useEffect(() => {
     if (!isLoggedIn) return;
     const KEY = 'virtugene-diary-reminder-last';
+    // 手机端首次启用提醒时请求通知权限
+    if (IS_MOBILE && useSettingsStore.getState().diaryReminderEnabled) {
+      void requestNotificationPermission();
+    }
     const check = () => {
       const { diaryReminderEnabled, diaryReminderTime } = useSettingsStore.getState();
       if (!diaryReminderEnabled) return;
@@ -85,7 +90,12 @@ export default function App() {
       const userId = useAuthStore.getState().userId ?? '';
       diaryRepo.getByDate(userId, today).then((list) => {
         if (list.length > 0) return;
-        void ipc.app.notify('📓 我的手账', '今天还没有写日记，要不要记下点什么？');
+        // 手机端走系统本地通知；桌面端走 Electron 通知
+        if (IS_MOBILE) {
+          void notifyLocal('📓 我的手账', '今天还没有写日记，要不要记下点什么？');
+        } else {
+          void ipc.app.notify('📓 我的手账', '今天还没有写日记，要不要记下点什么？');
+        }
         localStorage.setItem(KEY, today);
       });
     };

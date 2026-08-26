@@ -10,6 +10,7 @@ import { encryptApiKey, verifyPassword } from '../../lib/crypto';
 import { ipc } from '../../lib/ipc-client';
 import { resetDiaryUnlock } from '../../lib/diary-unlock';
 import { SyncSection } from './SyncSection';
+import { BackupSection } from './BackupSection';
 import { IS_ELECTRON, IS_MOBILE } from '../../lib/platform';
 
 interface SettingsPanelProps {
@@ -216,6 +217,9 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
           {/* 局域网同步：手机端作为客户端直连桌面端同步服务 */}
           {IS_MOBILE && <SyncSection />}
+
+          {/* 数据备份 / 一键恢复（手机端，卸载不丢数据） */}
+          {IS_MOBILE && <BackupSection />}
 
           {/* App update（仅桌面端支持自动更新） */}
           {IS_ELECTRON && (

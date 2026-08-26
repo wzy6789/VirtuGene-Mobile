@@ -19,12 +19,15 @@ export const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/
 
 /**
  * APK 下载镜像列表（按顺序尝试）：
- *  - 每个模板里的 {url} 会被替换成官方下载地址
- *  - 先试国内镜像（快），再试官方（兜底）
+ *  - 每个模板把官方下载地址拼到镜像前缀后
+ *  - 先测每个镜像连通性+耗时，选最快可用的打开；全部失败才用官方
+ *  - 镜像按实测速度排序（2026-08 实测：gh.ddlc.top 最快，gh-proxy.com 次之）
  */
 export const DOWNLOAD_MIRRORS: ((officialUrl: string) => string)[] = [
-  // ghproxy 系镜像（国内常用加速）
+  (url) => `https://gh.ddlc.top/${url}`,
   (url) => `https://gh-proxy.com/${url}`,
+  (url) => `https://ghps.cc/${url}`,
+  (url) => `https://ghproxy.net/${url}`,
   (url) => `https://ghfast.top/${url}`,
   // 官方直连兜底
   (url) => url,

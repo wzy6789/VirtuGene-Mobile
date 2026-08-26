@@ -20,6 +20,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
   const [copied, setCopied] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!menu) return;
@@ -81,6 +82,19 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
             >
               {message.replyToContent}
             </div>
+          )}
+          {message.image && (
+            <img
+              src={message.image}
+              alt="图片"
+              onClick={(e) => {
+                e.stopPropagation();
+                setPreviewImage(message.image!);
+              }}
+              className={`max-w-[220px] max-h-[260px] rounded-xl object-cover cursor-zoom-in ${
+                message.content ? 'mb-2' : ''
+              }`}
+            />
           )}
           {message.content}
         </div>
@@ -166,6 +180,21 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                 </button>
               </>
             )}
+          </div>,
+          document.body,
+        )}
+
+      {/* 全屏图片预览 */}
+      {previewImage &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[80] bg-black/90 flex items-center justify-center"
+            onClick={() => setPreviewImage(null)}
+          >
+            <img src={previewImage} alt="预览" className="max-w-full max-h-full object-contain" />
+            <button className="absolute top-[max(env(safe-area-inset-top),16px)] right-4 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-white text-xl hover:bg-white/20 transition-colors">
+              ✕
+            </button>
           </div>,
           document.body,
         )}

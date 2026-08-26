@@ -42,6 +42,10 @@ interface ChatState {
   deleteCharacterWithSessions: (id: string) => Promise<void>;
   deleteCharacter: (id: string) => Promise<void>;
   deleteMessage: (id: string) => Promise<void>;
+  /** 清除某角色的全部会话与消息（保留角色、记忆、关系）——微信式「删除会话」 */
+  clearSessionsForCharacter: (id: string) => Promise<void>;
+  /** 标为已读（不清除选中态，不进聊天） */
+  markCharacterRead: (id: string) => Promise<void>;
   togglePin: (id: string) => Promise<void>;
   /** 从聊天会话列表隐藏该角色（仅隐藏列表项，角色与消息数据全部保留） */
   hideFromChatList: (id: string) => Promise<void>;
@@ -402,6 +406,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await messageRepo.deleteById(id);
     set((s) => ({ messages: s.messages.filter((m) => m.id !== id) }));
     await get().refreshPreviews();
+  },
+
+  clearSessionsForCharacter: async (id) => {
+    const userId = useAuthStore.getState().userId ?? '';
+    const sessions = await sessionRepo.getByCharacter(id, userId);
+    const sessionIds = sessions.map((s) => s.id);
+    if (sessionIds.length > 0) {
+      // 删除情绪快照（按会话关联）
+      await db.emotionSnapshots.where('sessionId').anyOf(sessionIds).delete();
+    }
+    for (const sid of sessionIds) {
+      await sessionRepo.deleteById(sid); // 级联删除消息
+    }
+    // 若当前正与该角色聊天，清除选中态
+    if (get().selectedCharacterId === id) {
+      set({ selectedCharacterId: null, currentSessionId: null, messages: [], hasMoreMessages: false });
+    }
+    await get().refreshPreviews();
+  },
+
+  markCharacterRead: async (id) => {
+    const userId = useAuthStore.getState().userId ?? '';
+    const sessions = await sessionRepo.getByCharacter(id, userId);
+    for (const s of sessions) {
+      await sessionRepo.clearUnread(s.id);
+    }
+    const { unreadByCharacter } = get();
+    unreadByCharacter[id] = 0;
+    set({ unreadByCharacter: { ...unreadByCharacter } });
   },
 
   togglePin: async (id) => {

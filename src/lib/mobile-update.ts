@@ -75,25 +75,29 @@ export async function checkUpdate(): Promise<UpdateInfo | null> {
 }
 
 /**
- * 用系统下载器打开 APK（镜像优先，失败自动换下一个）。
- * 返回实际采用的下载地址（便于提示用户）。
+ * 用系统下载器打开 APK：并行测速所有镜像，选最快可用的打开。
+ * - 同时发 HEAD 请求到各镜像，记录耗时，取成功且最快的地址
+ * - 5 秒总超时：超时未选出就用官方地址兜底
+ * - 返回实际采用的下载地址（便于提示用户）
  */
 export async function openApkDownload(apkUrl: string): Promise<string | null> {
-  for (let i = 0; i < DOWNLOAD_MIRRORS.length; i++) {
-    const url = DOWNLOAD_MIRRORS[i](apkUrl);
-    try {
-      // 镜像可用性探测：HEAD 请求，成功则用该地址
-      const probe = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(6000) });
-      if (probe.ok || probe.status === 200) {
-        // 交给系统下载器（WebView 打开会触发 Android 下载）
-        window.open(url, '_system');
-        return url;
+  const candidates = DOWNLOAD_MIRRORS.map((fn) => fn(apkUrl));
+  const results = await Promise.all(
+    candidates.map(async (url) => {
+      const start = Date.now();
+      try {
+        const probe = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+        const ok = probe.ok || probe.status === 200;
+        return { url, ok, ms: Date.now() - start };
+      } catch {
+        return { url, ok: false, ms: Date.now() - start };
       }
-    } catch {
-      /* 镜像不可用 → 试下一个 */
-    }
-  }
-  // 全挂：直接打开官方地址（可能很慢，但至少试了）
-  window.open(apkUrl, '_system');
-  return apkUrl;
+    }),
+  );
+  // 选最快可用的；若无可用（可能全部超时），退回官方地址
+  const fastest = results.filter((r) => r.ok).sort((a, b) => a.ms - b.ms)[0];
+  const chosen = fastest?.url ?? apkUrl;
+  // 交给系统下载器（WebView 打开会触发 Android 下载）
+  window.open(chosen, '_system');
+  return chosen;
 }

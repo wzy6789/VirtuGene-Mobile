@@ -8,12 +8,45 @@ export interface ChatInputHandle {
 
 interface Props {
   onSend: (text: string) => void;
+  /** 发送图片消息（压缩后的 dataURL）；手机端「+」按钮触发 */
+  onSendImage?: (dataUrl: string) => void;
   disabled?: boolean;
 }
 
-export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, disabled }, ref) {
+/** 图片压缩：dataURL → canvas 缩放（最大边 1280）+ JPEG 0.82，减少 IndexedDB 占用 */
+function compressImage(dataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const MAX_EDGE = 1280;
+          const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) { resolve(dataUrl); return; }
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.82));
+        } catch {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    } catch {
+      resolve(dataUrl);
+    }
+  });
+}
+
+export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, onSendImage, disabled }, ref) {
   const [text, setText] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const ripple = useRipple();
 
   useImperativeHandle(ref, () => ({
@@ -40,6 +73,19 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }, [text, disabled, onSend]);
 
+  /** 选择图片 → 压缩 → 发送 */
+  const handlePickImage = async (files: FileList | null) => {
+    const f = files?.[0];
+    if (!f || !f.type.startsWith('image/') || !onSendImage) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const compressed = await compressImage(reader.result as string);
+      onSendImage(compressed);
+    };
+    reader.readAsDataURL(f);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -56,7 +102,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   return (
     <div className="border-t border-line p-4">
-      <div className="flex items-end gap-3 max-w-3xl mx-auto">
+      <div className="flex items-end gap-2 max-w-3xl mx-auto">
+        {/* 手机端「+」：相册发图（微信式） */}
+        {IS_MOBILE && onSendImage && (
+          <button
+            onClick={() => fileRef.current?.click()}
+            onPointerDown={ripple.onPointerDown}
+            disabled={disabled}
+            title="发送图片"
+            className="ripple-host shrink-0 w-10 h-10 rounded-xl bg-surface border border-line text-gray-500 flex items-center justify-center hover:text-ink transition-colors disabled:opacity-40"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <path d="m21 15-5-5L5 21" />
+            </svg>
+          </button>
+        )}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => void handlePickImage(e.target.files)}
+        />
         <textarea
           ref={inputRef}
           value={text}

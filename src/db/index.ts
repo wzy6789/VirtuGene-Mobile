@@ -71,6 +71,8 @@ export interface Message {
   content: string;
   createdAt: number;
   isProactive: boolean;
+  /** 图片消息（压缩后的 dataURL）；有值且 content 为空时气泡只显示图片 */
+  image?: string;
   /** 引用回复的目标消息 id */
   replyToId?: string;
   /** 引用回复的目标消息内容（用于气泡内展示） */

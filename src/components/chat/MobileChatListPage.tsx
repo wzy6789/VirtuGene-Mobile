@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
+import { SwipeActionItem } from '../ui/SwipeActionItem';
 import type { Character } from '../../db/index';
 
 /** 会话列表时间：今天 HH:MM / 昨天 / 今年 M月D日 / 更早 YYYY/M/D */
@@ -33,9 +34,13 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
   const togglePin = useChatStore((s) => s.togglePin);
   const hideFromChatList = useChatStore((s) => s.hideFromChatList);
   const unhideFromChatList = useChatStore((s) => s.unhideFromChatList);
+  const clearSessionsForCharacter = useChatStore((s) => s.clearSessionsForCharacter);
+  const markCharacterRead = useChatStore((s) => s.markCharacterRead);
 
   /** 长按菜单：目标角色 + 菜单位置 */
   const [menu, setMenu] = useState<{ char: Character; x: number; y: number } | null>(null);
+  /** 左滑删除确认 */
+  const [deleteTarget, setDeleteTarget] = useState<Character | null>(null);
 
   useEffect(() => {
     void loadCharacters();
@@ -132,47 +137,61 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
             {sorted.map((c) => {
               const preview = charPreviews[c.id];
               const unread = unreadByCharacter[c.id] ?? 0;
+              const actions = [
+                // 置顶/取消置顶（左滑第 2 个按钮）
+                {
+                  label: c.pinned ? '取消置顶' : '置顶',
+                  color: c.pinned ? 'bg-gray-400' : 'bg-amber-500',
+                  onClick: () => void togglePin(c.id),
+                },
+                // 删除会话（左滑第 1 个按钮，最右）
+                {
+                  label: '删除',
+                  color: 'bg-red-500',
+                  onClick: () => setDeleteTarget(c),
+                },
+              ];
               return (
-                <button
-                  key={c.id}
-                  onClick={() => handleItemClick(c)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    openMenu(c, e.clientX, e.clientY);
-                  }}
-                  onTouchStart={(e) => {
-                    const t = e.touches[0];
-                    startLongPress(c, t?.clientX ?? 0, t?.clientY ?? 0);
-                  }}
-                  onTouchEnd={cancelLongPress}
-                  onTouchMove={cancelLongPress}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-surface border border-line transition-colors active:bg-surface-strong"
-                >
-                  {c.avatar.startsWith('data:') ? (
-                    <img src={c.avatar} alt={c.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />
-                  ) : (
-                    <span className="w-12 h-12 rounded-xl bg-panel border border-line flex items-center justify-center text-2xl shrink-0">
-                      {c.avatar}
-                    </span>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      {c.pinned && <span className="text-[10px] text-gene-purple shrink-0">📌</span>}
-                      <span className="text-sm font-medium text-ink truncate">{c.name}</span>
-                      <span className="text-[10px] text-gray-400 shrink-0">
-                        {preview ? formatListTime(preview.createdAt) : ''}
+                <SwipeActionItem key={c.id} actions={actions} onClick={() => handleItemClick(c)}>
+                  <button
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      openMenu(c, e.clientX, e.clientY);
+                    }}
+                    onTouchStart={(e) => {
+                      const t = e.touches[0];
+                      startLongPress(c, t?.clientX ?? 0, t?.clientY ?? 0);
+                    }}
+                    onTouchEnd={cancelLongPress}
+                    onTouchMove={cancelLongPress}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-surface border border-line transition-colors active:bg-surface-strong"
+                  >
+                    {c.avatar.startsWith('data:') ? (
+                      <img src={c.avatar} alt={c.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                    ) : (
+                      <span className="w-12 h-12 rounded-xl bg-panel border border-line flex items-center justify-center text-2xl shrink-0">
+                        {c.avatar}
                       </span>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        {c.pinned && <span className="text-[10px] text-gene-purple shrink-0">📌</span>}
+                        <span className="text-sm font-medium text-ink truncate">{c.name}</span>
+                        <span className="text-[10px] text-gray-400 shrink-0">
+                          {preview ? formatListTime(preview.createdAt) : ''}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 truncate mt-0.5">
+                        {preview ? preview.content : '开始对话吧'}
+                      </p>
                     </div>
-                    <p className="text-xs text-gray-500 truncate mt-0.5">
-                      {preview ? preview.content : '开始对话吧'}
-                    </p>
-                  </div>
-                  {unread > 0 && (
-                    <span className="shrink-0 min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] flex items-center justify-center">
-                      {unread > 99 ? '99+' : unread}
-                    </span>
-                  )}
-                </button>
+                    {unread > 0 && (
+                      <span className="shrink-0 min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] flex items-center justify-center">
+                        {unread > 99 ? '99+' : unread}
+                      </span>
+                    )}
+                  </button>
+                </SwipeActionItem>
               );
             })}
           </div>
@@ -201,14 +220,64 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
             </button>
             <button
               onClick={() => {
-                void hideFromChatList(menu.char.id);
+                void markCharacterRead(menu.char.id);
+                setMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-sub hover:bg-surface transition-colors"
+            >
+              标为已读
+            </button>
+            <button
+              onClick={() => {
+                setDeleteTarget(menu.char);
                 setMenu(null);
               }}
               className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
             >
+              删除会话
+            </button>
+            <button
+              onClick={() => {
+                void hideFromChatList(menu.char.id);
+                setMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-sub hover:bg-surface transition-colors"
+            >
               从聊天列表移除
             </button>
             <p className="px-4 pt-1.5 pb-1 text-[10px] text-gray-400">移除仅隐藏列表项，角色与聊天记录保留</p>
+          </div>
+        </>
+      )}
+
+      {/* 删除会话确认（微信式） */}
+      {deleteTarget && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setDeleteTarget(null)} />
+          <div className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl bg-panel border-t border-line p-4 pb-[max(env(safe-area-inset-bottom),16px)] animate-fade-in">
+            <p className="text-sm font-medium text-ink text-center mb-1">
+              删除与「{deleteTarget.name}」的会话？
+            </p>
+            <p className="text-xs text-gray-500 text-center mb-4">
+              将清空与该角色的聊天记录，角色本身保留（可在角色页重新开始）。
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 py-3 rounded-xl bg-surface border border-line text-sm text-ink transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  void clearSessionsForCharacter(deleteTarget.id);
+                  setDeleteTarget(null);
+                }}
+                className="flex-1 py-3 rounded-xl bg-red-500 text-white text-sm font-medium transition-colors"
+              >
+                删除
+              </button>
+            </div>
           </div>
         </>
       )}

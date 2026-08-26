@@ -256,6 +256,28 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     await performSend(text, apiMessage, userMsg);
   };
 
+  /** 发送图片消息（微信式：图片为主，文字可选） */
+  const handleSendImage = async (dataUrl: string) => {
+    const sessionId = currentSessionId;
+    if (!sessionId || !character || !apiKey) return;
+    setError(null);
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      sessionId,
+      role: 'user',
+      content: '',
+      image: dataUrl,
+      createdAt: Date.now(),
+      isProactive: false,
+    };
+    await messageRepo.create(userMsg);
+    addMessage(userMsg);
+    await sessionRepo.touch(sessionId);
+    setReplyingTo(null);
+    // 图片消息也触发 AI 回复（角色会看到「你发了一张图片」）
+    await performSend('[图片]', '[图片]', userMsg);
+  };
+
   /** 微信式重发：点击失败消息的红色感叹号，重发原内容（复用同一消息记录） */
   const handleRetry = async (failedMsg: Message) => {
     if (!currentSessionId || !character || !apiKey || sending) return;
@@ -641,7 +663,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         </div>
       )}
 
-      <ChatInput ref={inputRef} onSend={handleSend} disabled={sending} />
+      <ChatInput ref={inputRef} onSend={handleSend} onSendImage={IS_MOBILE ? handleSendImage : undefined} disabled={sending} />
     </div>
     </SwipeBackView>
   );
