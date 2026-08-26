@@ -43,6 +43,10 @@ interface ChatState {
   deleteCharacter: (id: string) => Promise<void>;
   deleteMessage: (id: string) => Promise<void>;
   togglePin: (id: string) => Promise<void>;
+  /** 从聊天会话列表隐藏该角色（仅隐藏列表项，角色与消息数据全部保留） */
+  hideFromChatList: (id: string) => Promise<void>;
+  /** 恢复显示被隐藏的聊天列表项 */
+  unhideFromChatList: (id: string) => Promise<void>;
   deleteAccount: () => Promise<void>;
   triggerProactive: () => Promise<void>;
   /** 把一段文本（如日记）作为用户消息发给指定角色，切到该会话并等待 ChatWindow 触发 AI 回复 */
@@ -401,10 +405,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   togglePin: async (id) => {
-    const userId = useAuthStore.getState().userId ?? '';
     const char = await characterRepo.getById(id);
-    if (!char || char.isPreset || char.createdBy !== userId) return;
+    if (!char) return;
+    // 聊天列表置顶：所有角色（含预设）都可置顶；仅自定义角色在角色库侧边栏也有置顶语义
+    if (!char.isPreset) {
+      const userId = useAuthStore.getState().userId ?? '';
+      if (char.createdBy !== userId) return;
+    }
     await characterRepo.update(id, { pinned: !char.pinned });
+    await get().loadCharacters();
+  },
+
+  hideFromChatList: async (id) => {
+    const char = await characterRepo.getById(id);
+    if (!char) return;
+    await characterRepo.update(id, { chatListHidden: true });
+    await get().loadCharacters();
+    // 若当前正与该角色聊天，清除选中态（该角色已从列表隐藏，不应停留在它的聊天）
+    if (get().selectedCharacterId === id) {
+      set({ selectedCharacterId: null, currentSessionId: null, messages: [], hasMoreMessages: false });
+    }
+  },
+
+  unhideFromChatList: async (id) => {
+    await characterRepo.update(id, { chatListHidden: false });
     await get().loadCharacters();
   },
 

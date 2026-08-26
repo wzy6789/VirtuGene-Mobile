@@ -2,37 +2,43 @@
 /**
  * GitHub Releases 发布脚本（手机端 APK 自动更新）。
  *
- * 用法（在项目根目录，需要先创建 GitHub 仓库并设置 token）：
- *   1. 创建仓库（如你的账号/VirtuGene-Mobile），并填 src/lib/update-config.ts 里的 GITHUB_REPO
- *   2. 生成 GitHub Personal Access Token（Settings → Developer settings → Tokens，
- *      勾选 repo 权限），设置环境变量：
- *        $env:GITHUB_TOKEN = "ghp_xxx"
- *   3. 发布新版本：
- *        node scripts/gh-release.mjs 2.0.3   # 版本号
+ * 用法（在项目根目录）：
+ *   npm run release 2.0.3        # 发布版本 2.0.3
  *
  * 说明：
  *   - 自动执行 mobile:build 构建 debug APK
  *   - 用 GitHub API 创建 Release（tag: v{version}）并上传 APK
  *   - 之后手机端「我的 → 版本」点检查更新即可发现并下载
+ *   - Token 自动从 git 凭据子系统获取（Windows 凭据管理器 / .git-credentials），
+ *     也可用环境变量 GITHUB_TOKEN 覆盖
  */
 import { execSync } from 'node:child_process';
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const APK_PATH = resolve(ROOT, 'android/app/build/outputs/apk/debug/app-debug.apk');
 
-// 从 update-config.ts 读仓库（避免两处维护）
-const configSrc = readConfig();
-const repo = configSrc.GITHUB_REPO;
-
+const repo = getRepo();
 const version = process.argv[2];
-const token = process.env.GITHUB_TOKEN;
+const token = process.env.GITHUB_TOKEN || getGitToken();
 
-function readConfig() {
-  const src = require('node:fs').readFileSync(resolve(ROOT, 'src/lib/update-config.ts'), 'utf-8');
+function getRepo() {
+  const src = readFileSync(resolve(ROOT, 'src/lib/update-config.ts'), 'utf-8');
   const m = src.match(/GITHUB_REPO\s*=\s*'([^']+)'/);
-  return { GITHUB_REPO: m ? m[1] : 'YOUR_GITHUB_USERNAME/VirtuGene-Mobile' };
+  return m ? m[1] : 'wzy6789/VirtuGene-Mobile';
+}
+
+/** 从 git 凭据子系统拿 GitHub token（Windows 凭据管理器 / .git-credentials） */
+function getGitToken() {
+  try {
+    const input = 'protocol=https\nhost=github.com\n\n';
+    const out = execSync('git credential fill', { input, encoding: 'utf8' });
+    const m = out.match(/^password=(.+)$/m);
+    return m ? m[1].trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 if (!version) {
@@ -40,11 +46,7 @@ if (!version) {
   process.exit(1);
 }
 if (!token) {
-  console.error('❌ 未设置 GITHUB_TOKEN 环境变量（GitHub Settings → Developer settings → Personal access tokens，勾选 repo 权限）');
-  process.exit(1);
-}
-if (!repo || repo.startsWith('YOUR_')) {
-  console.error(`❌ 请先在 src/lib/update-config.ts 填写 GITHUB_REPO（当前: "${repo}"）`);
+  console.error('❌ 未获取到 GitHub token（设置 GITHUB_TOKEN 环境变量，或用 git credential 保存）');
   process.exit(1);
 }
 
@@ -94,7 +96,7 @@ if (!createRes.ok) {
       console.log(`ℹ️ Release v${version} 已存在，直接上传 APK`);
       await uploadApk(existing.id, token, repo);
       console.log(`✅ 完成！APK(${apkSize}MB) 已上传到 ${tag}`);
-      return;
+      process.exit(0);
     }
   }
   console.error(`❌ 创建 Release 失败: ${createRes.status} ${JSON.stringify(release)}`);
@@ -106,7 +108,7 @@ console.log(`   🔗 https://github.com/${repo}/releases/tag/${tag}`);
 console.log(`   手机端「我的 → 版本」检查更新即可下载。`);
 
 /** 上传 APK 到 release 资产 */
-async function uploadApk(releaseId: number, token: string, repo: string) {
+async function uploadApk(releaseId, token, repo) {
   const size = statSync(APK_PATH).size;
   const url = `https://uploads.github.com/repos/${repo}/releases/${releaseId}/assets?name=app-debug.apk`;
   const res = await fetch(url, {
@@ -117,7 +119,7 @@ async function uploadApk(releaseId: number, token: string, repo: string) {
       'Content-Type': 'application/vnd.android.package-archive',
       'Content-Length': String(size),
     },
-    body: createReadStream(APK_PATH) as unknown as BodyInit,
+    body: createReadStream(APK_PATH),
     duplex: 'half',
   });
   if (!res.ok) {

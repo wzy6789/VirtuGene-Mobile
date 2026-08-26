@@ -30,5 +30,8 @@ export const DOWNLOAD_MIRRORS: ((officialUrl: string) => string)[] = [
   (url) => url,
 ];
 
-/** 版本号：从 Android build.gradle 的 versionName 读取（脚本自动替换） */
-export const APP_VERSION = '__APP_VERSION__';
+/**
+ * 版本号：Vite define 注入的裸标识符（无引号才能被替换成 package.json version）
+ * 注意：不能写成字符串 '__APP_VERSION__'，否则不会替换
+ */
+export const APP_VERSION: string = __APP_VERSION__;

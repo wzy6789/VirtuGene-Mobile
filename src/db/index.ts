@@ -32,6 +32,8 @@ export interface Character {
   sourcePresetId?: string;
   /** 是否置顶（侧边栏会话列表，仅用户自有角色使用） */
   pinned?: boolean;
+  /** 是否从聊天会话列表隐藏（仅隐藏列表项，角色与消息数据保留） */
+  chatListHidden?: boolean;
 }
 
 export interface RelationMilestone {

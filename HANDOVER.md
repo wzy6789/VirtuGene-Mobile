@@ -229,3 +229,14 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - **用户待办**：① 创建 GitHub 仓库 ② 填 update-config.ts 的 GITHUB_REPO ③ 生成 GITHUB_TOKEN ④ `npm run release 2.0.3`
 - **注意**：GitHub 更新 = 每次用户点「检查更新」下载 APK 后需手动确认安装（系统要求），无法像 Capgo 静默；个人使用可接受
 - 验证：tsc 通过、mobile:build 成功，APK v2.0.2（约 7.9MB，14:26，已无 capgo 插件）
+
+## 二十一、本会话已完成（2026-08-26 GitHub 仓库 + 首次发布）
+
+- **仓库**：`wzy6789/VirtuGene-Mobile`（https://github.com/wzy6789/VirtuGene-Mobile）
+- **git 已初始化并推送**：main 分支，提交 `8a42b3a`（182 文件，无敏感内容）；`.gitignore` 已补 Android 构建产物/APK/.capgo
+- **`update-config.ts`** 已填 `GITHUB_REPO = 'wzy6789/VirtuGene-Mobile'`
+- **首次发布成功**：`npm run release 2.0.2` → Release `v2.0.2` + `app-debug.apk`(7.5MB) 已上传
+  - 地址：https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v2.0.2
+- **发布脚本改进**：`scripts/gh-release.mjs` 现在**自动从 git 凭据子系统取 token**（Windows 凭据管理器,无需手动设 GITHUB_TOKEN）；修复了 ESM 语法问题（去 TS 类型、统一 import）
+- **以后发版**：`npm run release <新版本号>` 一条命令完成（构建 → 建 Release → 传 APK）
+- 版本保持 2.0.2

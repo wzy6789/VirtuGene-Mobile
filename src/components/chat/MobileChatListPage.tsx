@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
 import type { Character } from '../../db/index';
@@ -18,9 +18,11 @@ function formatListTime(ts: number): string {
 }
 
 /**
- * 「聊天」tab 的微信式会话列表：每个角色一行（头像 / 名字 / 最近消息预览 / 时间 / 未读红点），
- * 点击进入聊天（推入层），返回时回到本列表——绝不跳「角色」页。
- * 排序：有对话的按最后消息时间倒序在前，没对话的按名字拼音排后。
+ * 「聊天」tab 的微信式会话列表：每个角色一行（头像 / 名字 / 最近消息预览 / 时间 / 未读红点）。
+ * - 点击进入聊天（推入层），返回回到本列表
+ * - 长按弹操作菜单：置顶/取消置顶、从列表隐藏/恢复（仅影响列表显示，不删角色与消息）
+ * - 排序：置顶在前，其余按最后消息时间倒序，没对话的按名字拼音排后
+ * - 已隐藏的角色不再出现在列表（可从「我的 → 设置」恢复，或角色页仍可进入聊天）
  */
 export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => void }) {
   const characters = useChatStore((s) => s.characters);
@@ -28,14 +30,23 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
   const unreadByCharacter = useChatStore((s) => s.unreadByCharacter);
   const loadCharacters = useChatStore((s) => s.loadCharacters);
   const fetchUnreadCounts = useChatStore((s) => s.fetchUnreadCounts);
+  const togglePin = useChatStore((s) => s.togglePin);
+  const hideFromChatList = useChatStore((s) => s.hideFromChatList);
+  const unhideFromChatList = useChatStore((s) => s.unhideFromChatList);
+
+  /** 长按菜单：目标角色 + 菜单位置 */
+  const [menu, setMenu] = useState<{ char: Character; x: number; y: number } | null>(null);
 
   useEffect(() => {
     void loadCharacters();
     void fetchUnreadCounts();
   }, [loadCharacters, fetchUnreadCounts]);
 
+  /** 过滤隐藏项 + 置顶优先 + 按时间/名字排序 */
   const sorted = useMemo(() => {
-    return [...characters].sort((a, b) => {
+    const visible = characters.filter((c) => !c.chatListHidden);
+    return [...visible].sort((a, b) => {
+      if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       const ta = charPreviews[a.id]?.createdAt ?? 0;
       const tb = charPreviews[b.id]?.createdAt ?? 0;
       if (ta && tb) return tb - ta;
@@ -45,7 +56,44 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
     });
   }, [characters, charPreviews]);
 
-  const hasAnyPreview = characters.some((c) => charPreviews[c.id]);
+  /** 长按弹菜单（桌面右键 / 手机长按） */
+  const openMenu = (c: Character, x: number, y: number) => {
+    setMenu({ char: c, x, y });
+  };
+
+  /** 长按计时引用：长按触发后阻止随后的 click（避免长按也进聊天） */
+  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 本次按压是否已触发长按菜单（独立标记，touchend 清理计时器但不影响抑制点击） */
+  const longPressedRef = useRef(false);
+
+  const startLongPress = (c: Character, clientX: number, clientY: number) => {
+    if (longPressRef.current) clearTimeout(longPressRef.current);
+    longPressedRef.current = false;
+    longPressRef.current = setTimeout(() => {
+      longPressedRef.current = true;
+      openMenu(c, clientX, clientY);
+    }, 600);
+  };
+
+  const cancelLongPress = () => {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
+  };
+
+  const handleItemClick = (c: Character) => {
+    // 长按刚触发 → 抑制本次点击，避免同时进聊天
+    if (longPressedRef.current) {
+      longPressedRef.current = false;
+      cancelLongPress();
+      return;
+    }
+    cancelLongPress();
+    onSelect(c);
+  };
+
+  const hiddenCount = characters.length - sorted.length;
 
   return (
     <div className="h-full flex flex-col">
@@ -54,10 +102,19 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
         <span className="text-base font-bold bg-gradient-to-r from-gene-purple to-life-cyan bg-clip-text text-transparent">
           聊天
         </span>
-        <span className="text-[10px] text-gray-400">{characters.length} 位灵魂</span>
+        <span className="text-[10px] text-gray-400">{sorted.length} 位灵魂</span>
+        {hiddenCount > 0 && (
+          <button
+            onClick={() => useUIStore.getState().setMobileTab('me')}
+            className="ml-auto text-[11px] text-life-cyan hover:underline"
+            title="查看已隐藏的会话"
+          >
+            已隐藏 {hiddenCount} 个
+          </button>
+        )}
       </div>
 
-      {/* 会话列表（微信式：每行圆角卡片，带间距） */}
+      {/* 会话列表 */}
       <div className="flex-1 overflow-y-auto py-1">
         {sorted.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-500 px-8 text-center">
@@ -72,18 +129,23 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
           </div>
         ) : (
           <div className="px-3 py-1 space-y-2">
-            {!hasAnyPreview && (
-              <div className="px-2 py-2 text-[11px] text-gray-500">
-                还没有聊天记录，点一个角色开始对话吧
-              </div>
-            )}
             {sorted.map((c) => {
               const preview = charPreviews[c.id];
               const unread = unreadByCharacter[c.id] ?? 0;
               return (
                 <button
                   key={c.id}
-                  onClick={() => onSelect(c)}
+                  onClick={() => handleItemClick(c)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    openMenu(c, e.clientX, e.clientY);
+                  }}
+                  onTouchStart={(e) => {
+                    const t = e.touches[0];
+                    startLongPress(c, t?.clientX ?? 0, t?.clientY ?? 0);
+                  }}
+                  onTouchEnd={cancelLongPress}
+                  onTouchMove={cancelLongPress}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-surface border border-line transition-colors active:bg-surface-strong"
                 >
                   {c.avatar.startsWith('data:') ? (
@@ -95,6 +157,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
+                      {c.pinned && <span className="text-[10px] text-gene-purple shrink-0">📌</span>}
                       <span className="text-sm font-medium text-ink truncate">{c.name}</span>
                       <span className="text-[10px] text-gray-400 shrink-0">
                         {preview ? formatListTime(preview.createdAt) : ''}
@@ -115,6 +178,40 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
           </div>
         )}
       </div>
+
+      {/* 长按操作菜单 */}
+      {menu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />
+          <div
+            className="fixed z-50 min-w-[150px] py-1.5 glass-card rounded-xl shadow-xl animate-fade-in"
+            style={{
+              left: Math.min(menu.x, window.innerWidth - 170),
+              top: Math.min(menu.y, window.innerHeight - 150),
+            }}
+          >
+            <button
+              onClick={() => {
+                void togglePin(menu.char.id);
+                setMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-sub hover:bg-surface transition-colors"
+            >
+              {menu.char.pinned ? '取消置顶' : '置顶聊天'}
+            </button>
+            <button
+              onClick={() => {
+                void hideFromChatList(menu.char.id);
+                setMenu(null);
+              }}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              从聊天列表移除
+            </button>
+            <p className="px-4 pt-1.5 pb-1 text-[10px] text-gray-400">移除仅隐藏列表项，角色与聊天记录保留</p>
+          </div>
+        </>
+      )}
     </div>
   );
 }

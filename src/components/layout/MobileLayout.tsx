@@ -89,29 +89,35 @@ export function MobileLayout() {
     return () => clearInterval(timer);
   }, [fetchUnreadCounts]);
 
-  // 键盘弹出检测：输入框/文本域聚焦 → 隐藏底部导航（微信式，四个 tab 不顶上来）。
-  // 用 visualViewport 高度变化判断键盘真实状态，比 focusin/focusout 更可靠
-  // （避免切换 tab 后 ChatInput 卸载导致导航残留隐藏）。
+  // 键盘/输入状态检测：输入框/文本域聚焦 → 立即隐藏底部导航（微信式，四个 tab 不顶上来）；
+  // 失焦延迟恢复（键盘收起动画期间保持隐藏）；visualViewport 兜底修正误判。
   useEffect(() => {
     const vv = window.visualViewport;
-    if (!vv) return;
-    const detect = () => {
-      const ratio = vv.height / window.innerHeight;
+    const detectByViewport = () => {
+      const ratio = vv ? vv.height / window.innerHeight : 1;
       setKeyboardOpen(ratio < 0.85);
     };
-    vv.addEventListener('resize', detect);
-    vv.addEventListener('scroll', detect);
-    // 兜底：focusin/focusout 也跟踪，但以视口高度为准
+    if (vv) {
+      vv.addEventListener('resize', detectByViewport);
+      vv.addEventListener('scroll', detectByViewport);
+    }
     const onFocusIn = (e: FocusEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) detect();
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) {
+        setKeyboardOpen(true);
+      }
     };
-    const onFocusOut = () => setTimeout(detect, 150);
+    const onFocusOut = () => {
+      // 延迟恢复：等键盘收起动画结束再显示导航
+      setTimeout(detectByViewport, 250);
+    };
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     return () => {
-      vv.removeEventListener('resize', detect);
-      vv.removeEventListener('scroll', detect);
+      if (vv) {
+        vv.removeEventListener('resize', detectByViewport);
+        vv.removeEventListener('scroll', detectByViewport);
+      }
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
     };

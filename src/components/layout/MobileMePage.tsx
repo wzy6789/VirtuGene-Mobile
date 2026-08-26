@@ -10,7 +10,6 @@ import { Avatar } from '../ui/Avatar';
 import { Modal } from '../ui/Modal';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { UserProfileModal } from '../settings/UserProfileModal';
-import { SyncSection } from '../settings/SyncSection';
 import { checkUpdate, openApkDownload } from '../../lib/mobile-update';
 
 /** 功能列表线性图标（SVG，克制不花哨） */
@@ -141,26 +140,42 @@ export function MobileMePage() {
           <span className="flex-1 text-left">深色模式</span>
           <span className="text-xs text-life-cyan">{theme === 'dark' ? '已开启' : '已关闭'}</span>
         </button>
-        <button className={rowCls} onClick={() => void checkForUpdate()}>
+        {/* 版本号（不可点）+ 下方「检查更新」入口 */}
+        <div className={rowCls}>
           <RowIcon name="version" />
-          <span className="flex-1 text-left">{updateState === 'checking' ? '检查更新中…' : '版本'}</span>
-          <span className="text-xs text-gray-400">
-            {updateState === 'checking'
-              ? ''
-              : updateState === 'found'
-                ? '发现新版本'
-                : updateState === 'downloading'
-                  ? '正在下载…'
-                  : updateState === 'error'
-                    ? '检查失败'
-                    : `v${version}`}
-          </span>
-        </button>
+          <span className="flex-1 text-left">版本</span>
+          <span className="text-xs text-gray-400">{version ? `v${version}` : ''}</span>
+        </div>
       </div>
 
-      {/* 局域网同步 */}
-      <div className="mx-4 mt-5">
-        <SyncSection />
+      {/* 检查更新（版本号下方单列入口） */}
+      <div className="mx-4 mt-2">
+        <button
+          onClick={() => void checkForUpdate()}
+          disabled={updateState === 'checking' || updateState === 'downloading'}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-surface border border-line text-sm text-ink transition-colors active:bg-surface-strong disabled:opacity-60"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-gene-purple/70 shrink-0">
+            <path d="M21 12a9 9 0 1 1-9-9" />
+            <path d="M21 3v6h-6" />
+          </svg>
+          <span className="flex-1 text-left">
+            {updateState === 'checking'
+              ? '检查更新中…'
+              : updateState === 'downloading'
+                ? '正在下载…'
+                : '检查更新'}
+          </span>
+          <span className="text-xs">
+            {updateState === 'found'
+              ? `发现新版本 v${updateVersion}`
+              : updateState === 'error'
+                ? '检查失败'
+                : updateState === 'downloading'
+                  ? '请稍候'
+                  : '›'}
+          </span>
+        </button>
       </div>
 
       {/* 退出登录 */}
