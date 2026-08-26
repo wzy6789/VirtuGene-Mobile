@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ipc } from '../../lib/ipc-client';
 import { hashPassword, decryptApiKey } from '../../lib/crypto';
+import { persistApiKey } from '../../lib/api-key-storage';
 import { userRepo } from '../../db/user-repo';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
 
@@ -47,6 +48,8 @@ export function LoginCard({ onSwitch }: Props) {
       );
 
       login(user.id, user.username, key, user.avatar ?? DEFAULT_USER_AVATAR);
+      // 同一台手机「记住登录」：API Key 加密持久化，下次启动自动恢复
+      void persistApiKey(key);
       ipc.window.setSize(1200, 800);
     } catch {
       setError('唤醒数字灵魂失败，请重试');

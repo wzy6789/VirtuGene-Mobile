@@ -164,7 +164,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
                     }}
                     onTouchEnd={cancelLongPress}
                     onTouchMove={cancelLongPress}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-surface border border-line transition-colors active:bg-surface-strong"
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-transparent transition-colors active:bg-surface-strong"
                   >
                     {c.avatar.startsWith('data:') ? (
                       <img src={c.avatar} alt={c.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />

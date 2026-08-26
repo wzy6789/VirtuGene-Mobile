@@ -81,7 +81,7 @@ export function SwipeActionItem({ children, actions, onClick, swipeDistance = 16
 
   return (
     <div className="relative overflow-hidden rounded-2xl">
-      {/* 底部操作按钮层 */}
+      {/* 底部操作按钮层（默认被不透明内容层完全遮住，左滑才露出） */}
       <div className="absolute inset-y-0 right-0 flex">
         {actions.map((a) => (
           <button
@@ -97,13 +97,13 @@ export function SwipeActionItem({ children, actions, onClick, swipeDistance = 16
           </button>
         ))}
       </div>
-      {/* 内容层（左滑移动） */}
+      {/* 内容层（左滑移动；必须用不透明背景盖住底层按钮） */}
       <div
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         onClick={handleClick}
-        className="relative bg-surface transition-transform duration-200 ease-out"
+        className="relative bg-panel border border-line rounded-2xl transition-transform duration-200 ease-out"
         style={{ transform: `translateX(${offset}px)` }}
       >
         {children}

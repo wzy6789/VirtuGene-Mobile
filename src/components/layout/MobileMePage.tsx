@@ -11,6 +11,7 @@ import { Modal } from '../ui/Modal';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { UserProfileModal } from '../settings/UserProfileModal';
 import { checkUpdate, openApkDownload } from '../../lib/mobile-update';
+import { clearPersistedApiKey } from '../../lib/api-key-storage';
 
 /** 功能列表线性图标（SVG，克制不花哨） */
 function RowIcon({ name }: { name: 'settings' | 'theme' | 'version' }) {
@@ -97,12 +98,13 @@ export function MobileMePage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('virtugene-auth');
+    // 登出：清除设备加密存储的 API Key（下次需重新输密码登录）
+    clearPersistedApiKey();
     useChatStore.getState().reset();
     useCharacterStateStore.getState().clear();
     useEmotionStore.getState().clearCurrent();
     resetDiaryUnlock();
-    logout();
+    logout(); // zustand persist 会同步清掉登录态
   };
 
   const rowCls =

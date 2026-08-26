@@ -15,6 +15,7 @@ import { diaryRepo, todayStr } from './db/diary-repo';
 import { getChangelog, LAST_SEEN_VERSION_KEY } from './lib/changelog';
 import { initSeedCharacters } from './lib/seed-init';
 import { notifyLocal, requestNotificationPermission } from './lib/notify';
+import { loadPersistedApiKey } from './lib/api-key-storage';
 
 // 手账按需加载：首次进入才拉取日记相关代码，加快主聊天页启动
 const DiaryPage = lazy(() => import('./pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
@@ -31,6 +32,24 @@ export default function App() {
 
   useEffect(() => {
     initSeedCharacters().finally(() => setReady(true));
+  }, []);
+
+  // 同一台手机「记住登录」：persist 恢复了登录态但 apiKey 在内存为 null，
+  // 启动时从设备加密存储恢复 API Key（微信/QQ 式，无需重复登录）。
+  // 恢复失败（如 Key 存储被清）→ 退出登录回登录页，避免"已登录但无法对话"。
+  useEffect(() => {
+    const s = useAuthStore.getState();
+    if (s.isLoggedIn && !s.apiKey) {
+      void loadPersistedApiKey().then((key) => {
+        if (key) {
+          s.setApiKey(key);
+        } else {
+          // 没有可恢复的 Key：退回登录页
+          useAuthStore.setState({ isLoggedIn: false, apiKey: null });
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Splash 淡出过渡：ready 后先淡出再卸载

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ipc } from '../../lib/ipc-client';
 import { hashPassword, encryptApiKey } from '../../lib/crypto';
+import { persistApiKey } from '../../lib/api-key-storage';
 import { userRepo } from '../../db/user-repo';
 import type { User } from '../../db/index';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
@@ -85,6 +86,8 @@ export function RegisterCard({ onSwitch }: Props) {
 
       await userRepo.create(user);
       login(user.id, user.username, apiKey.trim(), DEFAULT_USER_AVATAR);
+      // 同一台手机「记住登录」
+      void persistApiKey(apiKey.trim());
       ipc.window.setSize(1200, 800);
     } catch {
       setError('注册基因失败，请重试');

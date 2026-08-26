@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { IS_MOBILE } from '../lib/platform';
 
 export const DEFAULT_USER_AVATAR = '🧬';
 
@@ -36,16 +37,19 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'virtugene-auth',
-      partialize: (state) => ({
-        userId: state.userId,
-        username: state.username,
-      }),
-      merge: (persisted, current) => ({
-        ...current,
-        ...(persisted as Partial<AuthState>),
-        isLoggedIn: false,
-        apiKey: null,
-      }),
+      partialize: (state) => {
+        // 手机端：记住登录态（同一台手机不重复登录）
+        // 桌面端：仅记住用户名（每次仍需输密码解密 Key，保持原安全设计）
+        if (IS_MOBILE) {
+          return {
+            userId: state.userId,
+            username: state.username,
+            avatar: state.avatar,
+            isLoggedIn: state.isLoggedIn,
+          };
+        }
+        return { userId: state.userId, username: state.username };
+      },
     }
   )
 );
