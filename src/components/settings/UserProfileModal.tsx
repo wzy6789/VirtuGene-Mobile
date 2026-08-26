@@ -26,10 +26,38 @@ export function UserProfileModal({ open, onClose }: Props) {
     if (open) setPreview(avatar ?? DEFAULT_USER_AVATAR);
   }, [open, avatar]);
 
+  /** 读取图片 → 圆形裁剪 + 压缩（微信/QQ 式：居中截取方形中心为圆，输出小图清晰） */
   const readImage = (file: File) => {
     if (!file.type.startsWith('image/')) return;
     const reader = new FileReader();
-    reader.onload = () => setPreview(reader.result as string);
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const SIZE = 256;
+          const canvas = document.createElement('canvas');
+          canvas.width = SIZE;
+          canvas.height = SIZE;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+          // 取图片中心方形区域，等比裁剪
+          const side = Math.min(img.width, img.height);
+          const sx = (img.width - side) / 2;
+          const sy = (img.height - side) / 2;
+          ctx.drawImage(img, sx, sy, side, side, 0, 0, SIZE, SIZE);
+          // 圆形遮罩（透明背景圆头像）
+          ctx.globalCompositeOperation = 'destination-in';
+          ctx.beginPath();
+          ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, Math.PI * 2);
+          ctx.fill();
+          setPreview(canvas.toDataURL('image/png'));
+        } catch {
+          setPreview(reader.result as string);
+        }
+      };
+      img.onerror = () => setPreview(reader.result as string);
+      img.src = reader.result as string;
+    };
     reader.readAsDataURL(file);
   };
 

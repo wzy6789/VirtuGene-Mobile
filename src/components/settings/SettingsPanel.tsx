@@ -11,6 +11,7 @@ import { ipc } from '../../lib/ipc-client';
 import { resetDiaryUnlock } from '../../lib/diary-unlock';
 import { SyncSection } from './SyncSection';
 import { BackupSection } from './BackupSection';
+import { ChangePasswordSection } from './ChangePasswordSection';
 import { IS_ELECTRON, IS_MOBILE } from '../../lib/platform';
 
 interface SettingsPanelProps {
@@ -215,6 +216,16 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             </div>
           </div>
 
+          {/* 账号安全（手机端：修改密码） */}
+          {IS_MOBILE && (
+            <div>
+              <h3 className="text-sm font-medium text-ink mb-3">账号安全</h3>
+              <div className="p-1 rounded-xl bg-surface border border-line divide-y divide-line overflow-hidden">
+                <ChangePasswordSection />
+              </div>
+            </div>
+          )}
+
           {/* 局域网同步：手机端作为客户端直连桌面端同步服务 */}
           {IS_MOBILE && <SyncSection />}
 
@@ -265,6 +276,28 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 {updateChecking ? '检查中...' : '检查更新'}
               </button>
             </div>
+            </div>
+          )}
+
+          {/* 关于与帮助（手机端微信/QQ 式） */}
+          {IS_MOBILE && (
+            <div>
+              <h3 className="text-sm font-medium text-ink mb-3">关于</h3>
+              <div className="p-4 rounded-xl bg-surface border border-line space-y-1 divide-y divide-line">
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-sm text-sub">版本</span>
+                  <span className="text-sm text-ink font-mono">v{appVersion || '...'}</span>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-sm text-sub">口号</span>
+                  <span className="text-xs text-life-cyan">Unlock Your Digital Soul</span>
+                </div>
+                <div className="py-2">
+                  <p className="text-[11px] text-gray-500 leading-relaxed">
+                    VirtuGene 手机版：数据全部存储在本机，支持局域网同步与加密备份。
+                  </p>
+                </div>
+              </div>
             </div>
           )}
 

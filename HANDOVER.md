@@ -352,3 +352,15 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 图片发送：压缩存 IndexedDB（复用 DiaryChatPage 的 compressImage），气泡渲染 + 全屏预览
 - 删除会话 vs 删除角色：删除会话仅清空该角色会话记录（角色保留）；删除角色才连人带数据删
 - 备份加密：密码派生 AES-GCM（复用 crypto.ts 模式），不与登录密码强绑定（允许独立备份密码）
+
+## 二十七、本会话已完成（2026-08-26 v2.1.0 修复：左滑按钮透过 + 记住登录）
+
+- **Bug 修复：左滑按钮未滑就显示**——根因是 SwipeActionItem 内容层用 `bg-surface`（半透明），底层操作按钮透过来了。修复：内容层改不透明 `bg-panel` + 边框，列表项改透明背景
+- **记住登录（同一台手机不重复登录）**：
+  - 新增 `src/lib/api-key-storage.ts`：API Key 用**设备随机密钥 AES-GCM 加密**后存 localStorage（非明文；设备专属，清数据/换设备需重新登录）
+  - `auth-store.ts`：手机端(IS_MOBILE) persist 记住 userId/username/avatar/isLoggedIn；桌面端保持每次输密码（原安全设计）
+  - `App.tsx` 启动：persist 恢复登录态 → loadPersistedApiKey 恢复 Key；恢复失败则退回登录页（避免"已登录但无法对话"）
+  - LoginCard / RegisterCard：登录/注册后 `persistApiKey` 加密存 Key
+  - MobileMePage 登出：`clearPersistedApiKey()` 清除加密 Key
+- **发布**：v2.1.0 修复版 APK(5.0MB)已重新上传 GitHub Release；git 已推送 `59af0f2`
+- 验证：tsc 通过、mobile:build 成功

@@ -6,6 +6,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '2.1.1',
+    date: '2026-08-26',
+    notes: [
+      '角色页点击人物先打开资料卡，再选择开始聊天',
+      '聊天列表删除仅隐藏该项，重新聊天自动恢复显示',
+      '修复：关闭基因实验室误跳转聊天的问题',
+      '新增修改密码（验证原密码 + 新密码两次确认，自动重加密 API Key）',
+      '头像圆形截取更清晰；置顶/搜索/去表情包等细节优化',
+    ],
+  },
+  {
     version: '2.1.0',
     date: '2026-08-26',
     notes: [

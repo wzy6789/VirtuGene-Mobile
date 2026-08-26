@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat-store';
 import { useAuthStore } from '../../store/auth-store';
 import { CharacterAddModal } from './CharacterAddModal';
+import { CharacterProfileModal } from './CharacterProfileModal';
 import { Modal } from '../ui/Modal';
 import { getInitial, getSortKey, INDEX_LETTERS } from '../../lib/pinyin';
 import type { Character } from '../../db/index';
@@ -29,6 +30,7 @@ export function MobileCharacterPage({ onSelect }: Props) {
   const [showLab, setShowLab] = useState(false);
   const [editChar, setEditChar] = useState<Character | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Character | null>(null);
+  const [profileChar, setProfileChar] = useState<Character | null>(null);
   const [search, setSearch] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,8 +87,6 @@ export function MobileCharacterPage({ onSelect }: Props) {
       longPressedRef.current = true;
       // 自定义角色可编辑/删除；预设只提示不可编辑
       if (c.isPreset || c.createdBy !== userId) return;
-      setDeleteTarget(c);
-      // 简化：长按直接询问删除；编辑通过删除确认里的「编辑」入口
       setEditChar(c);
     }, 600);
   };
@@ -105,7 +105,8 @@ export function MobileCharacterPage({ onSelect }: Props) {
       return;
     }
     cancelLongPress();
-    void handleSelect(c.id);
+    // 点角色 → 打开资料卡（资料卡内再点「开始聊天」）
+    setProfileChar(c);
   };
 
   const isOwn = (c: Character) => !c.isPreset && c.createdBy === userId;
@@ -152,8 +153,10 @@ export function MobileCharacterPage({ onSelect }: Props) {
         >
           <span className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-white/15 blur-xl pointer-events-none" />
           <span className="absolute -bottom-8 -left-4 w-24 h-24 rounded-full bg-white/10 blur-2xl pointer-events-none" />
-          <span className="relative shrink-0 w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-xl">
-            🧬
+          <span className="relative shrink-0 w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 12c-2-2.5-5.5-4-8-4M12 12c2-2.5 5.5-4 8-4M12 12c-2 2.5-2 7.5 0 10M12 12c2 2.5 2 7.5 0 10M4 8c0-2 2-3 4-3M20 8c0-2-2-3-4-3M4 16c0 2 2 3 4 3M20 16c0 2-2 3-4 3" />
+            </svg>
           </span>
           <span className="relative min-w-0 flex-1">
             <span className="block text-sm font-semibold text-white">基因实验室</span>
@@ -204,9 +207,9 @@ export function MobileCharacterPage({ onSelect }: Props) {
           )}
         </div>
 
-        {/* 右侧字母索引条（微信通讯录式；搜索时隐藏） */}
+        {/* 右侧字母索引条（微信通讯录式；搜索时隐藏；略下移避开顶部搜索+基因实验室横条） */}
         {!search && filtered.length > 0 && (
-          <div className="absolute right-0 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-[2px] px-0.5 py-1 select-none">
+          <div className="absolute right-0 top-[58%] -translate-y-1/2 z-20 flex flex-col items-center gap-[1px] px-0.5 py-1 select-none">
             {INDEX_LETTERS.map((l) => {
               const has = availableLetters.has(l);
               return (
@@ -237,15 +240,14 @@ export function MobileCharacterPage({ onSelect }: Props) {
                 onClick={() => { setShowLab(true); setEditChar(null); }}
                 className="w-full py-3 rounded-xl bg-surface border border-line text-sm text-ink transition-colors"
               >
-                ✏️ 编辑基因
+                编辑基因
               </button>
               <button
                 onClick={() => { setDeleteTarget(editChar); setEditChar(null); }}
                 className="w-full py-3 rounded-xl bg-red-500/10 text-red-400 text-sm transition-colors"
               >
-                🗑️ 删除角色
-              </button>
-              <button
+                删除角色
+              </button>  <button
                 onClick={() => setEditChar(null)}
                 className="w-full py-3 rounded-xl bg-surface border border-line text-sm text-gray-500 transition-colors"
               >
@@ -275,6 +277,26 @@ export function MobileCharacterPage({ onSelect }: Props) {
           </div>
         </div>
       </Modal>
+
+      {/* 角色资料卡（点角色打开，微信/QQ 式） */}
+      {profileChar && (
+        <CharacterProfileModal
+          character={profileChar}
+          userId={userId}
+          onClose={() => setProfileChar(null)}
+          onChat={async (c) => {
+            setProfileChar(null);
+            await selectCharacter(c.id);
+            onSelect();
+          }}
+          onAdd={async (c) => {
+            setProfileChar(null);
+            // 添加预设/共享角色后直接开始聊天
+            await selectCharacter(c.id);
+            onSelect();
+          }}
+        />
+      )}
 
       <CharacterAddModal
         key={editChar?.id ?? 'new'}
@@ -316,9 +338,9 @@ function CharacterRow({ c, selected, unread, onSelect, onLongPress }: {
       className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-surface ${selected ? 'bg-gene-purple/8' : ''}`}
     >
       {c.avatar.startsWith('data:') ? (
-        <img src={c.avatar} alt={c.name} className="w-10 h-10 rounded-xl object-cover shrink-0" />
+        <img src={c.avatar} alt={c.name} className="w-10 h-10 rounded-full object-cover shrink-0" />
       ) : (
-        <span className="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-xl shrink-0">
+        <span className="w-10 h-10 rounded-full bg-surface flex items-center justify-center text-xl shrink-0">
           {c.avatar}
         </span>
       )}

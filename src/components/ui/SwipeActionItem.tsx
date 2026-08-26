@@ -14,6 +14,8 @@ interface Props {
   onClick?: () => void;
   /** 左滑距离（px），默认 160 */
   swipeDistance?: number;
+  /** 内容层额外样式（如置顶高亮背景） */
+  contentClassName?: string;
 }
 
 /**
@@ -21,7 +23,7 @@ interface Props {
  * - 左滑超过阈值展开，再次左滑/点其他关闭；点击主体执行 onClick
  * - 不拦截纵向滚动：纵向位移大于横向时不进入滑动
  */
-export function SwipeActionItem({ children, actions, onClick, swipeDistance = 160 }: Props) {
+export function SwipeActionItem({ children, actions, onClick, swipeDistance = 160, contentClassName = '' }: Props) {
   const [offset, setOffset] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const startRef = useRef<{ x: number; y: number; moved: boolean; dir: 'x' | 'y' | null } | null>(null);
@@ -103,7 +105,7 @@ export function SwipeActionItem({ children, actions, onClick, swipeDistance = 16
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         onClick={handleClick}
-        className="relative bg-panel border border-line rounded-2xl transition-transform duration-200 ease-out"
+        className={`relative bg-panel border border-line rounded-2xl transition-transform duration-200 ease-out ${contentClassName}`}
         style={{ transform: `translateX(${offset}px)` }}
       >
         {children}

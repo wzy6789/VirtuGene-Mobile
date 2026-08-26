@@ -162,6 +162,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   selectCharacter: async (id) => {
     const userId = useAuthStore.getState().userId ?? '';
+    // 重新进入某角色聊天 → 自动从「已删除列表」恢复显示（删除仅隐藏，重新聊天即重现）
+    const char = await characterRepo.getById(id);
+    if (char?.chatListHidden) {
+      await characterRepo.update(id, { chatListHidden: false });
+    }
     const existing = await sessionRepo.getByCharacter(id, userId);
     const session = await getOrCreateSession(id, userId);
     if (existing.length === 0) {
