@@ -416,3 +416,37 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 
 - 验证：tsc 通过、mobile:build 成功，APK 已重建（约 5.29MB）
 - 版本保持 2.1.1（未升）
+
+## 三十一、本会话已完成（2026-08-27 「有的角色放不出声音」根因修复）
+
+**用户反馈**：有的角色能朗读、有的不能。
+
+**根因（全量实测定位）**：Edge-TTS 服务端 **18 个中文音色里只有 7 个可用**，其余 11 个（Xiaoyou/Xiaohan/Xiaomeng/Xiaorui/Xiaomo/Xiaogui/Xiaozhen/Yunhao/Yunfeng/Yunze/Yunfan）连接挂起、服务器永不返回音频（实测 2 轮一致）。AI 给角色分配了死音色 → Edge 合成挂起 → 25s 超时 → 系统兜底（部分机型也不可靠）→ "放不出来"。与网络/UA 无关（极端 rate/pitch、控制字符均实测无碍）。
+
+**修复**：
+1. `voice-map.ts`：**VOICE_POOL 收缩为实测可用的 7 个**（女：Xiaoxiao/Xiaoyi/Xiaoxuan；男：Yunxi/Yunyang/Yunjian/Yunxia），AI 提示词自动只从活音色挑选；EDGE_VOICE_TO_SLOT 同步收缩
+2. **点 🔊 必有声**（`ChatWindow.handleSpeak`）：声线缺失/音色不在池内 → 立即用默认音色（Xiaoxiao）播放，同时后台 `ensureCharacterVoice` 补分配/净化落库（一次点击即修复旧数据）
+3. `chat-store` 新增 `ensureCharacterVoice` action：无 voice → AI 分配；已有死音色 → sanitize+complete 净化持久化；selectCharacter 改走该 action（覆盖两种路径）
+4. 系统兜底加固（`tts.ts`）：等待 `voiceschanged` 加载语音引擎（Android getVoices 延迟加载），最多 1s
+5. `sanitizeVoiceProfile` 加范围校验（rate/pitch 超 ±50 回退默认，防 Edge 拒单）；edge-tts 剥离 XML 非法控制字符；合成超时 25s → 12s（更快转兜底）
+
+- 验证：全量音色实测（✅ 7 / ❌ 11）、tsc 通过、APK 已重建
+- 版本保持 2.1.1（未升）
+
+## 三十二、本会话已完成（2026-08-27 「死音色」根因结论 + 音色池扩至 9 个）
+
+**用户追问**：为什么有死音色，能不能"弄活"？
+
+**结论（调查实锤）**：**不能弄活——死音色是微软服务端下线的，不是我们能修的**：
+- 查 Edge-TTS 官方音色列表接口（直连 HTTP 200）：zh-CN 仅返回 6 个，**11 个"死音色"全部不在微软自己的列表里** → 微软已把她们从免费 Edge 端点撤走（迁移到付费 Azure 语音服务，需 Azure 密钥 + 不同端点 + 按量付费）
+- 合成挂起是"服务端没有该音色路由"的表现，与网络/代理无关（换网络路径服务端照样没有）；桌面版走代理同样救不回这些音色
+- "弄活"唯一途径 = 接付费 Azure TTS（违背免费初衷 + 需注册 Azure/绑卡），暂不做
+
+**顺带扩大音色池（用户在意声音多样）**：额外实测 12 个池外候选，又找到 **2 个活音色**：
+- `zh-CN-liaoning-XiaobeiNeural`（东北方言·爽朗）、`zh-CN-shaanxi-XiaoniNeural`（陕西方言·质朴）
+- **VOICE_POOL 现为 9 个**（女 5：Xiaoxiao/Xiaoyi/Xiaoxuan/Xiaobei(东北)/Xiaoni(陕西)；男 4：Yunxi/Yunyang/Yunjian/Yunxia）
+- 方言音色已在提示词约束"仅限对应地域人设使用"，一般角色不选
+- 其余候选（Xiaoshuang/Xiaoyan/Xiaochen/Yunhu/Yuncheng/Yunye/Yunjun/Yunqiu/Yunqi/Yunqing）全部实测死亡
+
+- 验证：tsc 通过、APK 已重建
+- 版本保持 2.1.1（未升）

@@ -27,26 +27,22 @@ export interface VoiceProfile {
   pitch: string;
 }
 
-/** 音色池（Edge-TTS 中文 18 个）：只标注性别与性格词，不取人名 */
+/**
+ * 音色池（Edge-TTS 中文，**2026-08-27 全量实测可用 9 个**）：
+ * - 原 18 个中 11 个已被微软从免费端点下线（连接挂起、永不返回音频），已剔除
+ * - 额外实测 zh-CN-liaoning-Xiaobei / zh-CN-shaanxi-Xiaoni（方言）可用
+ * - 方言音色仅限对应地域人设使用（AI 提示词已约束），一般角色不选
+ */
 export const VOICE_POOL: { voice: string; gender: 'male' | 'female'; vibe: string }[] = [
   { voice: 'zh-CN-XiaoxiaoNeural', gender: 'female', vibe: '温柔自然' },
   { voice: 'zh-CN-XiaoyiNeural', gender: 'female', vibe: '甜美活泼' },
-  { voice: 'zh-CN-XiaoyouNeural', gender: 'female', vibe: '灵动俏皮' },
-  { voice: 'zh-CN-XiaohanNeural', gender: 'female', vibe: '温暖亲切' },
   { voice: 'zh-CN-XiaoxuanNeural', gender: 'female', vibe: '柔和治愈' },
-  { voice: 'zh-CN-XiaomengNeural', gender: 'female', vibe: '轻柔慵懒' },
-  { voice: 'zh-CN-XiaoruiNeural', gender: 'female', vibe: '冷静知性' },
-  { voice: 'zh-CN-XiaomoNeural', gender: 'female', vibe: '洒脱豪迈' },
-  { voice: 'zh-CN-XiaoguiNeural', gender: 'female', vibe: '青涩稚嫩' },
-  { voice: 'zh-CN-XiaozhenNeural', gender: 'female', vibe: '清亮干练' },
+  { voice: 'zh-CN-liaoning-XiaobeiNeural', gender: 'female', vibe: '东北方言·爽朗直率（仅限东北人设）' },
+  { voice: 'zh-CN-shaanxi-XiaoniNeural', gender: 'female', vibe: '陕西方言·质朴亲切（仅限陕西人设）' },
   { voice: 'zh-CN-YunxiNeural', gender: 'male', vibe: '阳光活力' },
   { voice: 'zh-CN-YunyangNeural', gender: 'male', vibe: '沉稳磁性' },
   { voice: 'zh-CN-YunjianNeural', gender: 'male', vibe: '低沉威严' },
   { voice: 'zh-CN-YunxiaNeural', gender: 'male', vibe: '清爽邻家' },
-  { voice: 'zh-CN-YunhaoNeural', gender: 'male', vibe: '大气播音' },
-  { voice: 'zh-CN-YunfengNeural', gender: 'male', vibe: '慵懒随性' },
-  { voice: 'zh-CN-YunzeNeural', gender: 'male', vibe: '温柔暖男' },
-  { voice: 'zh-CN-YunfanNeural', gender: 'male', vibe: '热血张扬' },
 ];
 
 export const DEFAULT_VOICE: VoiceProfile = { voice: 'zh-CN-XiaoxiaoNeural', band: 'female-soft', rate: '+0%', pitch: '+0Hz' };
@@ -70,28 +66,19 @@ export const VOICE_BAND_INFO: Record<VoiceBand, { label: string; vibe: string }>
   'female-clear': { label: '清亮灵动', vibe: '清亮、灵动、少女感' },
 };
 
-/** Edge 音色 → 档位（男女一致性硬校验用） */
+/** Edge 音色 → 档位（男女一致性硬校验用；仅收录实测可用的音色） */
 export const EDGE_VOICE_TO_SLOT: Record<string, { band: VoiceBand }> = {
   // 女声
   'zh-CN-XiaoxiaoNeural': { band: 'female-soft' },
   'zh-CN-XiaoyiNeural': { band: 'female-bright' },
-  'zh-CN-XiaoyouNeural': { band: 'female-bright' },
-  'zh-CN-XiaohanNeural': { band: 'female-soft' },
   'zh-CN-XiaoxuanNeural': { band: 'female-soft' },
-  'zh-CN-XiaomengNeural': { band: 'female-soft' },
-  'zh-CN-XiaoruiNeural': { band: 'female-soft' },
-  'zh-CN-XiaomoNeural': { band: 'female-soft' },
-  'zh-CN-XiaoguiNeural': { band: 'female-bright' },
-  'zh-CN-XiaozhenNeural': { band: 'female-clear' },
+  'zh-CN-liaoning-XiaobeiNeural': { band: 'female-bright' },
+  'zh-CN-shaanxi-XiaoniNeural': { band: 'female-soft' },
   // 男声
   'zh-CN-YunxiNeural': { band: 'male-young' },
   'zh-CN-YunyangNeural': { band: 'male-mature' },
   'zh-CN-YunjianNeural': { band: 'male-deep' },
   'zh-CN-YunxiaNeural': { band: 'male-young' },
-  'zh-CN-YunhaoNeural': { band: 'male-mature' },
-  'zh-CN-YunfengNeural': { band: 'male-mature' },
-  'zh-CN-YunzeNeural': { band: 'male-mature' },
-  'zh-CN-YunfanNeural': { band: 'male-young' },
 };
 
 /** 兼容：Edge 音色 → 档位 */
@@ -111,16 +98,19 @@ function enforceGenderConsistency(p: VoiceProfile): VoiceProfile {
 
 const VALID_BANDS: VoiceBand[] = Object.keys(VOICE_BAND_INFO) as VoiceBand[];
 
-/** 校验 AI 返回的声线是否合法，非法则回退默认 */
+/** 校验 AI 返回的声线是否合法，非法则回退默认。
+ *  rate 限制 ±50%（Edge 接口超范围会拒单）、pitch 限制 ±50Hz */
 export function sanitizeVoiceProfile(p: { voice?: string; band?: string; rate?: string; pitch?: string } | null | undefined): VoiceProfile {
   if (!p) return DEFAULT_VOICE;
   const validVoice = VOICE_POOL.some((v) => v.voice === p.voice);
   const validBand = VALID_BANDS.includes(p.band as VoiceBand);
+  const rateOk = /^[+-]\d+%$/.test(p.rate ?? '') && Math.abs(parseFloat(p.rate!)) <= 50;
+  const pitchOk = /^[+-]\d+Hz$/.test(p.pitch ?? '') && Math.abs(parseFloat(p.pitch!)) <= 50;
   const base: VoiceProfile = {
     voice: validVoice ? p.voice! : DEFAULT_VOICE.voice,
     band: validBand ? (p.band as VoiceBand) : undefined,
-    rate: /^[+-]\d+%$/.test(p.rate ?? '') ? p.rate! : DEFAULT_VOICE.rate,
-    pitch: /^[+-]\d+Hz$/.test(p.pitch ?? '') ? p.pitch! : DEFAULT_VOICE.pitch,
+    rate: rateOk ? p.rate! : DEFAULT_VOICE.rate,
+    pitch: pitchOk ? p.pitch! : DEFAULT_VOICE.pitch,
   };
   return enforceGenderConsistency(base);
 }
@@ -151,7 +141,8 @@ export const VOICE_SELECT_PROMPT =
   '要求：\n' +
   '- 第一步必须明确角色性别；band 与 voice 的性别必须与角色一致，**绝不允许给男角色选女声、给女角色选男声**\n' +
   '- band 从上面 6 个档位中选择，先性别后气质：如男性长者/威严选 male-deep，青年男子选 male-mature 或 male-young；女性温柔选 female-soft，甜美少女选 female-bright 或 female-clear\n' +
-  '- Edge voice 从音色池选择，气质需与 band 一致（如 band=male-young → 云希/云夏/云帆）\n' +
+  '- Edge voice 从音色池选择，气质需与 band 一致（如 band=male-young → 云希/云夏）\n' +
+  '- **方言音色限制**：liaoning-Xiaobei（东北话）、shaanxi-Xiaoni（陕西话）**仅限角色设定为对应地域的人**使用，其余角色一律不得选\n' +
   '- 语速 rate：话痨/活泼 +20%，高冷/慵懒 -10%~-20%，一般 +0%\n' +
   '- 音调 pitch：轻柔/病娇 +8Hz~+15Hz，低沉/威严 -8Hz~-15Hz，一般 +0Hz\n' +
   '- 严格输出 JSON：{"voice":"zh-CN-xxxNeural","band":"male-mature","rate":"+10%","pitch":"-8Hz","reason":"先说明角色性别，再一句话说明为什么这个声线贴合"}，不要任何额外文字\n\n' +

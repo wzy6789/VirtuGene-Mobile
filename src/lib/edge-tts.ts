@@ -19,7 +19,8 @@ const TRUSTED_CLIENT_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
 const WSS_URL = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1';
 const SEC_MS_GEC_VERSION = '1-143.0.3650.96';
 const OUTPUT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3';
-const SYNTH_TIMEOUT_MS = 25_000;
+/** 合成超时：音色池已实测剔除死音色，正常几秒内返回；超时尽快转系统兜底 */
+const SYNTH_TIMEOUT_MS = 12_000;
 const AUDIO_MARKER = 'Path:audio\r\n';
 
 /** 生成 Sec-MS-GEC 令牌（与 msedge-tts 1.x 算法一致） */
@@ -41,9 +42,11 @@ function randomHex(bytes: number): string {
   return Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** SSML 文本转义（避免特殊字符破坏 XML） */
+/** SSML 文本处理：先剥离 XML 1.0 非法控制字符（避免 SSML 解析失败被服务器拒单），再转义特殊符号 */
 function escapeXml(s: string): string {
-  return s
+  // eslint-disable-next-line no-control-regex
+  const cleaned = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+  return cleaned
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

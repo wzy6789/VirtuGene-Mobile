@@ -50,28 +50,58 @@ export function useTTS() {
     void audio.play();
   }, []);
 
-  /** 系统语音兜底 */
-  const playSystem = useCallback((key: string, text: string, voiceKeyword?: string, rateStr?: string, pitchStr?: string) => {
-    if (!('speechSynthesis' in window)) return;
-    const utter = new SpeechSynthesisUtterance(text.slice(0, 500));
-    const voices = window.speechSynthesis.getVoices();
-    const zh = voices.filter((v) => v.lang.toLowerCase().startsWith('zh'));
-    const base = zh.find((v) => v.lang === 'zh-CN') ?? zh[0];
-    if (base) utter.voice = base;
-    utter.rate = rateStr ? Math.max(0.5, Math.min(2, 1 + (parseFloat(rateStr) || 0) / 100)) : 1;
-    utter.pitch = pitchStr ? Math.max(0.5, Math.min(2, 1 + (parseFloat(pitchStr) || 0) / 50)) : 1;
-    const clear = () => {
-      if (currentKeyRef.current === key) {
-        currentKeyRef.current = null;
-        setPlayingKey(null);
+  /**
+   * 等待系统语音引擎就绪（Android WebView 的 getVoices() 常延迟加载，首次可能为空）。
+   * 最多等 1s，超时返回当前列表（可能为空，交给默认 voice 兜底）。
+   */
+  const ensureVoices = useCallback((): Promise<SpeechSynthesisVoice[]> => {
+    return new Promise((resolve) => {
+      if (!('speechSynthesis' in window)) {
+        resolve([]);
+        return;
       }
-    };
-    utter.onend = clear;
-    utter.onerror = clear;
-    currentKeyRef.current = key;
-    setPlayingKey(key);
-    window.speechSynthesis.speak(utter);
+      const current = window.speechSynthesis.getVoices();
+      if (current.length > 0) {
+        resolve(current);
+        return;
+      }
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        window.speechSynthesis.removeEventListener?.('voiceschanged', finish);
+        resolve(window.speechSynthesis.getVoices());
+      };
+      window.speechSynthesis.addEventListener?.('voiceschanged', finish);
+      setTimeout(finish, 1000);
+    });
   }, []);
+
+  /** 系统语音兜底 */
+  const playSystem = useCallback(
+    async (key: string, text: string, voiceKeyword?: string, rateStr?: string, pitchStr?: string) => {
+      if (!('speechSynthesis' in window)) return;
+      const voices = await ensureVoices();
+      const zh = voices.filter((v) => v.lang.toLowerCase().startsWith('zh'));
+      const base = zh.find((v) => v.lang === 'zh-CN') ?? zh[0];
+      const utter = new SpeechSynthesisUtterance(text.slice(0, 500));
+      if (base) utter.voice = base;
+      utter.rate = rateStr ? Math.max(0.5, Math.min(2, 1 + (parseFloat(rateStr) || 0) / 100)) : 1;
+      utter.pitch = pitchStr ? Math.max(0.5, Math.min(2, 1 + (parseFloat(pitchStr) || 0) / 50)) : 1;
+      const clear = () => {
+        if (currentKeyRef.current === key) {
+          currentKeyRef.current = null;
+          setPlayingKey(null);
+        }
+      };
+      utter.onend = clear;
+      utter.onerror = clear;
+      currentKeyRef.current = key;
+      setPlayingKey(key);
+      window.speechSynthesis.speak(utter);
+    },
+    [ensureVoices],
+  );
 
   const speak = useCallback(
     async (key: string, text: string, voice: string, rate?: string, pitch?: string) => {

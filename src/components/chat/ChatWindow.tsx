@@ -25,6 +25,7 @@ import { DIARY_MOODS } from '../../lib/diary-utils';
 import { useNotificationStore } from '../../store/notification-store';
 import { useUIStore } from '../../store/ui-store';
 import { useTTS } from '../../lib/tts';
+import { DEFAULT_VOICE, VOICE_POOL } from '../../lib/voice-map';
 import type { Message } from '../../db/index';
 
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -139,20 +140,28 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
 
   const character = characters.find((c) => c.id === selectedCharacterId);
 
-  /** 朗读一条 AI 消息（使用角色声线；总开关关闭或未分配声线则跳过） */
+  /** 朗读一条 AI 消息：优先角色声线；声线缺失/非法时用默认音色兜底（保证点喇叭一定有声音），并后台补分配/净化 */
   const handleSpeak = (m: Message) => {
     if (!ttsEnabled) return;
     if (speakingKey === m.id) {
       stop();
       return;
     }
-    const voice = character?.voice;
-    if (!voice || !m.content.trim()) return;
-    // 全局语速倍率叠加到角色语速上（Edge-TTS 协议要求 rate 带 +/- 符号）
-    const baseRate = parseFloat(voice.rate) || 0;
+    const char = character;
+    if (!char || !m.content.trim()) return;
+    // 角色可能还没声线（AI 判定失败/未完成）或声线音色名非法（备份导入）→ 默认音色兜底
+    let voice = char.voice;
+    if (!voice || !VOICE_POOL.some((v) => v.voice === voice?.voice)) {
+      voice = DEFAULT_VOICE;
+      // 后台：无声线 → AI 补分配；有声线但非法 → 净化落库
+      void useChatStore.getState().ensureCharacterVoice(char.id);
+    }
+    // 语速/音调格式非法时回退默认（Edge 接口对非法 prosody 会拒单）
+    const baseRate = /^[+-]\d+%$/.test(voice.rate) ? parseFloat(voice.rate) : 0;
     const combined = Math.round(baseRate * ttsSpeed);
     const rate = `${combined >= 0 ? '+' : ''}${combined}%`;
-    void speak(m.id, m.content.trim().slice(0, 800), voice.voice, rate, voice.pitch);
+    const pitch = /^[+-]\d+Hz$/.test(voice.pitch) ? voice.pitch : DEFAULT_VOICE.pitch;
+    void speak(m.id, m.content.trim().slice(0, 800), voice.voice, rate, pitch);
   };
 
   // Clear the reply banner when switching conversations, and reset the sending
