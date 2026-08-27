@@ -5,10 +5,13 @@ import { useChatStore } from '../../store/chat-store';
 import { useCharacterStateStore } from '../../store/character-state-store';
 import { useEmotionStore } from '../../store/emotion-store';
 import { useUpdateStore } from '../../store/update-store';
+import { useSettingsStore } from '../../store/settings-store';
 import { userRepo } from '../../db/user-repo';
 import { encryptApiKey, verifyPassword } from '../../lib/crypto';
 import { ipc } from '../../lib/ipc-client';
 import { resetDiaryUnlock } from '../../lib/diary-unlock';
+import { persistSecret, loadSecret, clearSecret } from '../../lib/api-key-storage';
+import { CLOUD_ASR_KEY_NAME } from '../../lib/cloud-asr';
 import { SyncSection } from './SyncSection';
 import { BackupSection } from './BackupSection';
 import { ChangePasswordSection } from './ChangePasswordSection';
@@ -51,9 +54,18 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   // App version
   const [appVersion, setAppVersion] = useState('');
 
+  // 语音（TTS）设置
+  const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
+  const setTtsEnabled = useSettingsStore((s) => s.setTtsEnabled);
+  const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
+  const setTtsSpeed = useSettingsStore((s) => s.setTtsSpeed);
+  const [asrKey, setAsrKey] = useState('');
+  const [hasAsrKey, setHasAsrKey] = useState(false);
+
   useEffect(() => {
     if (!open) return;
     ipc.app.getVersion().then((v) => setAppVersion(v));
+    void loadSecret(CLOUD_ASR_KEY_NAME).then((k) => setHasAsrKey(!!k));
   }, [open]);
 
   const handleStartReplace = () => {
@@ -222,6 +234,86 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               <h3 className="text-sm font-medium text-ink mb-3">账号安全</h3>
               <div className="p-1 rounded-xl bg-surface border border-line divide-y divide-line overflow-hidden">
                 <ChangePasswordSection />
+              </div>
+            </div>
+          )}
+
+          {/* 语音（TTS）（手机端：朗读开关 + 语速 + 云端识别 Key） */}
+          {IS_MOBILE && (
+            <div>
+              <h3 className="text-sm font-medium text-ink mb-3">语音</h3>
+              <div className="p-4 rounded-xl bg-surface border border-line space-y-3">
+                {/* 朗读总开关 */}
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-gray-500">角色语音（点击消息 🔊 朗读）</span>
+                  <button
+                    onClick={() => setTtsEnabled(!ttsEnabled)}
+                    title={ttsEnabled ? '已开启' : '已关闭'}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${ttsEnabled ? 'bg-gene-purple' : 'bg-gray-300'}`}
+                  >
+                    <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${ttsEnabled ? 'left-[22px]' : 'left-0.5'}`} />
+                  </button>
+                </label>
+                {/* 朗读语速 */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">朗读语速</span>
+                  <div className="flex rounded-lg border border-line overflow-hidden">
+                    {[[0.8, '慢'], [1.0, '标准'], [1.2, '快']].map(([v, l]) => (
+                      <button
+                        key={v}
+                        onClick={() => setTtsSpeed(Number(v))}
+                        className={`px-3 py-1.5 text-xs transition-colors ${ttsSpeed === Number(v) ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-500 hover:text-ink'}`}
+                      >
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* 云端识别 Key（语音转文字备用通道） */}
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-ink">云端识别</span>
+                    <span className="text-[10px] text-life-cyan">{hasAsrKey ? '已配置' : '未配置'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="password"
+                      value={asrKey}
+                      onChange={(e) => setAsrKey(e.target.value)}
+                      placeholder="sk-…（硅基流动，选填）"
+                      autoComplete="off"
+                      className="flex-1 min-w-0 bg-surface border border-line-strong rounded-lg px-2.5 py-1.5 text-xs text-ink placeholder-gray-500 outline-none focus:border-gene-purple transition-colors"
+                    />
+                    <button
+                      onClick={() => {
+                        const k = asrKey.trim();
+                        if (!k) return;
+                        void persistSecret(CLOUD_ASR_KEY_NAME, k);
+                        setAsrKey('');
+                        setHasAsrKey(true);
+                      }}
+                      className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] bg-gene-purple/15 text-gene-purple hover:bg-gene-purple/25 transition-colors"
+                    >
+                      保存
+                    </button>
+                    {hasAsrKey && (
+                      <button
+                        onClick={() => {
+                          void clearSecret(CLOUD_ASR_KEY_NAME);
+                          setHasAsrKey(false);
+                        }}
+                        className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] text-gray-400 hover:text-red-400 transition-colors"
+                      >
+                        清除
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-500 leading-relaxed mt-1">
+                    发语音时的转文字通道：优先用手机系统识别；部分手机（如 OPPO/ColorOS）没有系统识别，
+                    填此 Key 后会自动用云端转文字（免费）。获取：注册 cloud.siliconflow.cn → 创建密钥。
+                    Key 设备加密保存，不落明文。
+                  </p>
+                </div>
               </div>
             </div>
           )}

@@ -7,8 +7,6 @@ import { diaryRepo, todayStr } from '../../db/diary-repo';
 import { DIARY_MOODS } from '../../lib/diary-utils';
 import { edgeTTSSynthesize } from '../../lib/edge-tts';
 import { DEFAULT_VOICE, DEFAULT_MALE_VOICE, DIALECT_VOICES } from '../../lib/voice-map';
-import { persistSecret, loadSecret, clearSecret } from '../../lib/api-key-storage';
-import { CLOUD_ASR_KEY_NAME } from '../../lib/cloud-asr';
 import type { Character } from '../../db/index';
 
 /** 心情选择网格（「更多」菜单的子视图） */
@@ -44,13 +42,6 @@ function TtsSettings({ onBack, character }: { onBack: () => void; character?: Ch
   const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
   const setTtsSpeed = useSettingsStore((s) => s.setTtsSpeed);
   const [demoBusy, setDemoBusy] = useState(false);
-  // 云端识别 Key（备用通道，设备加密存储）
-  const [asrKey, setAsrKey] = useState('');
-  const [hasAsrKey, setHasAsrKey] = useState(false);
-
-  useEffect(() => {
-    void loadSecret(CLOUD_ASR_KEY_NAME).then((k) => setHasAsrKey(!!k));
-  }, []);
 
   /** 角色性别（由 AI 分配时判定的 band 决定） */
   const roleGender: 'male' | 'female' | undefined = character?.voice?.band
@@ -182,52 +173,7 @@ function TtsSettings({ onBack, character }: { onBack: () => void; character?: Ch
       >
         {demoBusy ? '合成中…' : `试听${roleGender === 'male' ? '男声' : '女声'}默认音色`}
       </button>
-      <p className="text-[10px] text-gray-500">默认音色为 Edge 微软声线（男声云扬 / 女声晓晓），失败才用系统语音兜底。</p>
-
-      {/* 云端识别（无系统语音识别引擎的手机的备用通道，需用户填 Key） */}
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-xs text-ink">云端识别</span>
-          <span className="text-[10px] text-life-cyan">{hasAsrKey ? '已配置' : '未配置'}</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <input
-            type="password"
-            value={asrKey}
-            onChange={(e) => setAsrKey(e.target.value)}
-            placeholder="sk-…（硅基流动，选填）"
-            autoComplete="off"
-            className="flex-1 min-w-0 bg-surface border border-line-strong rounded-lg px-2.5 py-1.5 text-xs text-ink placeholder-gray-500 outline-none focus:border-gene-purple transition-colors"
-          />
-          <button
-            onClick={() => {
-              const k = asrKey.trim();
-              if (!k) return;
-              void persistSecret(CLOUD_ASR_KEY_NAME, k);
-              setAsrKey('');
-              setHasAsrKey(true);
-            }}
-            className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] bg-gene-purple/15 text-gene-purple hover:bg-gene-purple/25 transition-colors"
-          >
-            保存
-          </button>
-          {hasAsrKey && (
-            <button
-              onClick={() => {
-                void clearSecret(CLOUD_ASR_KEY_NAME);
-                setHasAsrKey(false);
-              }}
-              className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] text-gray-400 hover:text-red-400 transition-colors"
-            >
-              清除
-            </button>
-          )}
-        </div>
-        <p className="text-[10px] text-gray-500 leading-relaxed mt-1">
-          部分手机（如 OPPO/ColorOS）没有系统语音识别，填此 Key 后按住说话会自动用云端转文字（免费）。
-          获取：注册 cloud.siliconflow.cn → 创建密钥。Key 设备加密保存，不落明文。
-        </p>
-      </div>
+      <p className="text-[10px] text-gray-500">默认音色为 Edge 微软声线（男声云扬 / 女声晓晓），失败才用系统语音兜底。云端识别 Key 在「我的 → 设置 → 语音」配置。</p>
     </div>
   );
 }

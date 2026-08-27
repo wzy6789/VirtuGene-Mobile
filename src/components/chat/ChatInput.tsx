@@ -78,23 +78,23 @@ function fmtDuration(ms: number): string {
 
 /** 语音最长 60s（微信式） */
 const MAX_RECORD_MS = 60_000;
-/** 上滑取消阈值（px） */
-const CANCEL_OFFSET = 60;
 
+/**
+ * 输入区：文字 / 图片 / 语音（DeepSeek 式：点话筒直接开始录音，再点停止发送）。
+ * 语音转文字：系统识别优先 → 云端（SiliconFlow，需在「我的 → 设置」填 Key）兜底。
+ */
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, onSendImage, onSendVoice, disabled }, ref) {
   const [text, setText] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const ripple = useRipple();
 
-  // 语音（按住说话）
-  const [voiceMode, setVoiceMode] = useState(false);
-  const [recState, setRecState] = useState<'idle' | 'recording' | 'canceling' | 'converting'>('idle');
+  // 语音（点击即录）
+  const [recState, setRecState] = useState<'idle' | 'recording' | 'converting'>('idle');
   const [elapsedMs, setElapsedMs] = useState(0);
   const [level, setLevel] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
-  const startYRef = useRef(0);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const maxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -103,7 +103,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     focus: () => inputRef.current?.focus(),
   }));
 
-  const showToast = (msg: string, ms = 1800) => {
+  const showToast = (msg: string, ms = 2000) => {
     setToast(msg);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToast(null), ms);
@@ -128,33 +128,30 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     [],
   );
 
-  /** 切换「按住说话」模式：先检查环境与麦克风权限 */
-  const toggleVoiceMode = async () => {
-    if (voiceMode) {
-      setVoiceMode(false);
-      return;
+  /** 开始录音 + 并行识别 */
+  const startRecording = () => {
+    const r = new AudioRecorder();
+    recorderRef.current = r;
+    setRecState('recording');
+    setElapsedMs(0);
+    setLevel(0);
+    setToast(null);
+    try {
+      navigator.vibrate?.(15);
+    } catch {
+      /* ignore */
     }
-    if (!onSendVoice) return;
-    // 浏览器预览（非 App）没有原生语音识别
-    if (!IS_CAPACITOR) {
-      showToast('语音功能需安装 App 使用（浏览器预览不支持）', 2400);
-      return;
-    }
-    const granted = await ensureRecordPermission();
-    if (!granted) {
-      showToast('需要麦克风权限才能发语音（请在系统设置中允许）', 2400);
-      return;
-    }
-    // 手机是否有系统语音识别引擎（部分精简 ROM / 关闭了语音输入的设备没有）
-    const available = await isSpeechAvailable();
-    if (!available) {
-      showToast('手机未检测到系统语音识别，请用键盘输入', 2400);
-      return;
-    }
-    setVoiceMode(true);
+    void startSpeechRecognition(); // 系统识别（失败也能录音，转文字为空时走云端/提示）
+    void r
+      .start((lv) => setLevel(lv))
+      .catch(() => {
+        if (recorderRef.current === r) showToast('无法使用麦克风');
+      });
+    elapsedTimerRef.current = setInterval(() => setElapsedMs(r.elapsedMs), 100);
+    maxTimerRef.current = setTimeout(() => void finishAndSend(), MAX_RECORD_MS);
   };
 
-  /** 发送路径（松手 ≥1s / 60s 自动到点） */
+  /** 停止并发送（转文字：系统 → 云端兜底） */
   const finishAndSend = async () => {
     const r = recorderRef.current;
     if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
@@ -169,7 +166,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     setRecState('converting');
     const [result, sysText] = await Promise.all([r?.stop() ?? Promise.resolve(null), stopSpeechRecognition()]);
-    // 系统识别无结果 → 尝试云端识别（需用户在「⋯ 设置」配置 SiliconFlow Key；OPPO 等无系统引擎手机的备用通道）
+    // 系统识别无结果 → 尝试云端识别（「我的 → 设置」填了 SiliconFlow Key 时）
     let text = sysText;
     if (result && !text) {
       const key = await loadSecret(CLOUD_ASR_KEY_NAME);
@@ -189,59 +186,43 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       if (!result) msg = '录音失败';
       else if (!text) {
         const avail = await isSpeechAvailable();
-        if (!avail) msg = '手机无系统语音识别：在「⋯ 设置」填云端识别 Key 后可发语音';
+        if (!avail) msg = '手机无系统语音识别：在「我的 → 设置 → 语音」填云端识别 Key 后可发语音';
         else msg = '没听清，请再说一次';
       }
-      showToast(msg, 2600);
+      showToast(msg, 2800);
       return;
     }
     onSendVoice?.({ dataUrl: result.dataUrl, duration: result.durationSec, text });
   };
 
-  const startRecording = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (disabled || recState !== 'idle') return;
-    e.preventDefault();
-    const r = new AudioRecorder();
-    recorderRef.current = r;
-    startYRef.current = e.clientY;
-    setRecState('recording');
-    setElapsedMs(0);
+  /** 取消录音（丢弃） */
+  const cancelRecording = () => {
+    recorderRef.current?.cancel();
+    void cancelSpeechRecognition();
+    if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
+    if (maxTimerRef.current) clearTimeout(maxTimerRef.current);
+    setRecState('idle');
     setLevel(0);
-    setToast(null);
-    try {
-      navigator.vibrate?.(15);
-    } catch {
-      /* ignore */
-    }
-    void startSpeechRecognition(); // 并行识别（失败也能录音，转文字为空时提示重说）
-    void r
-      .start((lv) => setLevel(lv))
-      .catch(() => {
-        if (recorderRef.current === r) showToast('无法使用麦克风');
-      });
-    elapsedTimerRef.current = setInterval(() => setElapsedMs(r.elapsedMs), 100);
-    maxTimerRef.current = setTimeout(() => void finishAndSend(), MAX_RECORD_MS);
   };
 
-  const moveRecording = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (recState !== 'recording' && recState !== 'canceling') return;
-    const dy = e.clientY - startYRef.current;
-    if (dy < -CANCEL_OFFSET) setRecState('canceling');
-    else if (dy > -CANCEL_OFFSET * 0.4) setRecState('recording');
-  };
-
-  const endRecording = () => {
-    if (recState !== 'recording' && recState !== 'canceling') return;
-    if (recState === 'canceling') {
-      recorderRef.current?.cancel();
-      void cancelSpeechRecognition();
-      if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
-      if (maxTimerRef.current) clearTimeout(maxTimerRef.current);
-      setRecState('idle');
-      setLevel(0);
+  /** 点话筒：空闲 → 开始录音；录音中 → 停止发送 */
+  const handleMicClick = async () => {
+    if (disabled) return;
+    if (recState === 'recording') {
+      await finishAndSend();
       return;
     }
-    void finishAndSend();
+    if (recState !== 'idle') return;
+    if (!IS_CAPACITOR) {
+      showToast('语音功能需安装 App 使用（浏览器预览不支持）', 2400);
+      return;
+    }
+    const granted = await ensureRecordPermission();
+    if (!granted) {
+      showToast('需要麦克风权限才能发语音（请在系统设置中允许）', 2400);
+      return;
+    }
+    startRecording();
   };
 
   // Re-focus after sending（手机端不自动重新聚焦）
@@ -284,11 +265,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   };
 
   const recording = recState === 'recording';
-  const canceling = recState === 'canceling';
 
   return (
     <div className="relative border-t border-line p-4">
-      {/* 输入区浮动提示（模式切换失败/语音反馈，两种模式都可见） */}
+      {/* 输入区浮动提示 */}
       {toast && (
         <div className="absolute -top-9 left-1/2 -translate-x-1/2 z-50 glass-card rounded-full px-4 py-1.5 text-xs text-ink animate-fade-in whitespace-nowrap shadow-lg">
           {toast}
@@ -300,7 +280,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <button
             onClick={() => fileRef.current?.click()}
             onPointerDown={ripple.onPointerDown}
-            disabled={disabled}
+            disabled={disabled || recState !== 'idle'}
             title="发送图片"
             className="ripple-host shrink-0 w-10 h-10 rounded-xl bg-surface border border-line text-gray-500 flex items-center justify-center hover:text-ink transition-colors disabled:opacity-40"
           >
@@ -311,20 +291,21 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             </svg>
           </button>
         )}
-        {/* 手机端「按住说话」切换（微信式：再点切回键盘） */}
+        {/* 手机端话筒：点一下直接开始录音，再点停止发送（DeepSeek 式） */}
         {IS_MOBILE && onSendVoice && (
           <button
-            onClick={() => void toggleVoiceMode()}
-            disabled={disabled}
-            title={voiceMode ? '切回键盘' : '按住说话'}
+            onClick={() => void handleMicClick()}
+            disabled={disabled || recState === 'converting'}
+            title={recording ? '点击停止并发送' : '按住说话'}
             className={`shrink-0 w-10 h-10 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-40 ${
-              voiceMode ? 'bg-gene-purple/15 border-gene-purple/40 text-gene-purple' : 'bg-surface border-line text-gray-500 hover:text-ink'
+              recording
+                ? 'bg-red-500/15 border-red-500/40 text-red-500 animate-pulse'
+                : 'bg-surface border-line text-gray-500 hover:text-ink'
             }`}
           >
-            {voiceMode ? (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="6" width="20" height="12" rx="2" />
-                <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01" />
+            {recording ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="7" y="7" width="10" height="10" rx="2" />
               </svg>
             ) : (
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -343,50 +324,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           onChange={(e) => void handlePickImage(e.target.files)}
         />
 
-        {voiceMode && onSendVoice ? (
-          /* 按住说话条 */
-          <div
-            onPointerDown={startRecording}
-            onPointerMove={moveRecording}
-            onPointerUp={endRecording}
-            onPointerCancel={endRecording}
-            className={`flex-1 h-11 rounded-xl border flex items-center justify-center text-sm select-none touch-none transition-colors ${
-              recording || canceling
-                ? 'bg-gene-purple/10 border-gene-purple/40 text-gene-purple'
-                : 'bg-surface border-line-strong text-gray-500'
-            } ${disabled ? 'opacity-40' : 'active:bg-surface-strong'}`}
-          >
-            {recording ? (
-              <span className="flex items-center gap-2">
-                <VoiceBars level={level} />
-                <span className="tabular-nums">{fmtDuration(elapsedMs)}</span>
-                <span className="text-xs text-gray-400">松开 发送 · 上滑 取消</span>
-              </span>
-            ) : canceling ? (
-              <span className="flex items-center gap-1.5 text-red-400">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-                松开 取消
-              </span>
-            ) : recState === 'converting' ? (
-              <span className="flex items-center gap-2 text-xs text-gray-400">
-                <span className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-life-cyan animate-spin" />
-                转文字中…
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="2" width="6" height="12" rx="3" />
-                  <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
-                  <line x1="12" y1="18" x2="12" y2="22" />
-                </svg>
-                按住 说话
-              </span>
-            )}
-          </div>
-        ) : (
+        {recState === 'idle' ? (
           <textarea
             ref={inputRef}
             value={text}
@@ -397,8 +335,47 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             rows={1}
             className="flex-1 resize-none bg-surface border border-line-strong rounded-xl px-4 py-3 text-sm text-ink placeholder-gray-500 outline-none focus:border-gene-purple focus:shadow-[0_0_0_3px_rgba(108,92,231,0.14),0_0_18px_rgba(108,92,231,0.22)] transition-all disabled:opacity-40"
           />
+        ) : (
+          /* 录音状态条：声波 + 计时，点击停止发送 */
+          <div
+            onClick={() => {
+              if (recording) void finishAndSend();
+            }}
+            className={`flex-1 h-11 rounded-xl border flex items-center justify-center text-sm select-none transition-colors ${
+              recording
+                ? 'bg-red-500/10 border-red-500/40 text-red-500'
+                : 'bg-surface border-line-strong text-gray-400'
+            }`}
+          >
+            {recording ? (
+              <span className="flex items-center gap-2">
+                <VoiceBars level={level} />
+                <span className="tabular-nums">{fmtDuration(elapsedMs)}</span>
+                <span className="text-xs text-gray-400">点击停止发送</span>
+              </span>
+            ) : (
+              <span className="flex items-center gap-2 text-xs">
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-life-cyan animate-spin" />
+                转文字中…
+              </span>
+            )}
+          </div>
         )}
-        {!voiceMode && (
+        {recState === 'recording' ? (
+          /* 录音中：取消按钮（丢弃） */
+          <button
+            onClick={cancelRecording}
+            title="取消"
+            className="shrink-0 w-10 h-10 rounded-xl bg-surface border border-line text-gray-500 flex items-center justify-center hover:text-red-400 transition-colors"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        ) : recState === 'converting' ? (
+          <div className="shrink-0 w-10" />
+        ) : (
           <button
             onClick={handleSend}
             onPointerDown={ripple.onPointerDown}
