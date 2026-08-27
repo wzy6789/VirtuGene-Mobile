@@ -528,7 +528,13 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 1. **顺序反转**：先 `await r.start()`（getUserMedia + MediaRecorder 就绪）成功后才启动系统识别；识别失败静默（转文字走云端/提示），录音不再被抢
 2. **错误细分**：getUserMedia 失败按 `error.name` 提示——`NotAllowedError`→「麦克风权限被拒绝，请在系统设置中允许」；`NotReadableError`→「麦克风被占用（如正在录屏/通话）」；其他→「无法使用麦克风，请重试」
 
-- 验证：tsc 通过、APK 已重建
+**「系统已允许但 App 说被拒」原生兜底（2026-08-27 追加）**：
+- 用户反馈：系统设置麦克风=允许，但 getUserMedia 仍报 NotAllowedError
+- 根因：Android WebView 的媒体权限（onPermissionRequest）与系统设置是两个独立层；Capacitor 默认的权限转发在部分 ROM（OPPO/ColorOS）上误判拒绝
+- 修复（`android/app/.../MainActivity.java`）：继承 `BridgeWebChromeClient` 覆盖 `onPermissionRequest`，**仅对 AUDIO_CAPTURE 直接 grant**（系统级 RECORD_AUDIO 仍由系统把关，未授予则底层录音失败，无安全漏洞），其余行为保持 Capacitor 默认；200ms 延迟设置，UI 线程执行
+- ⚠️ 原生改动 → 必须重新构建 APK（cap sync 不搬 Java），gradle assembleDebug 增量编译即可
+- 验证：gradle 编译通过、APK 已重建
+
 - 版本保持 2.1.1（未升）
 
 - 验证：tsc 通过、APK 已重建
