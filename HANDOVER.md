@@ -518,5 +518,18 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 验证：tsc 通过、APK 已重建
 - 版本保持 2.1.1（未升）
 
+## 三十六、本会话已完成（2026-08-27 「无法使用麦克风」修复）
+
+**用户反馈**：点话筒提示"无法使用麦克风"（录音启动失败）。
+
+**原因**：原实现先 `startSpeechRecognition()` 再 `getUserMedia`——系统识别服务先抢占麦克风，录音拿不到 → getUserMedia 抛错 → 统一提示"无法使用麦克风"（OPPO 等设备上更易触发）。
+
+**修复**（`ChatInput.tsx`）：
+1. **顺序反转**：先 `await r.start()`（getUserMedia + MediaRecorder 就绪）成功后才启动系统识别；识别失败静默（转文字走云端/提示），录音不再被抢
+2. **错误细分**：getUserMedia 失败按 `error.name` 提示——`NotAllowedError`→「麦克风权限被拒绝，请在系统设置中允许」；`NotReadableError`→「麦克风被占用（如正在录屏/通话）」；其他→「无法使用麦克风，请重试」
+
+- 验证：tsc 通过、APK 已重建
+- 版本保持 2.1.1（未升）
+
 - 验证：tsc 通过、APK 已重建
 - 版本保持 2.1.1（未升）
