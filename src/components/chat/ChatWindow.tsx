@@ -316,6 +316,30 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     await performSend('[图片]', '[图片]', userMsg);
   };
 
+  /** 发送语音消息（微信式）：录音转文字作为 content 发给 AI（AI 理解文字），音频存消息可回听 */
+  const handleSendVoice = async (voice: { dataUrl: string; duration: number; text: string }) => {
+    const sessionId = currentSessionId;
+    if (!sessionId || !character || !apiKey) return;
+    const text = voice.text.trim();
+    if (!text) return;
+    setError(null);
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      sessionId,
+      role: 'user',
+      content: text,
+      audio: voice,
+      createdAt: Date.now(),
+      isProactive: false,
+    };
+    await messageRepo.create(userMsg);
+    addMessage(userMsg);
+    await sessionRepo.touch(sessionId);
+    setReplyingTo(null);
+    // 语音内容（转文字）正常走 AI 回复管线
+    await performSend(text, text, userMsg);
+  };
+
   /** 微信式重发：点击失败消息的红色感叹号，重发原内容（复用同一消息记录） */
   const handleRetry = async (failedMsg: Message) => {
     if (!currentSessionId || !character || !apiKey || sending) return;
@@ -705,7 +729,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         </div>
       )}
 
-      <ChatInput ref={inputRef} onSend={handleSend} onSendImage={IS_MOBILE ? handleSendImage : undefined} disabled={sending} />
+      <ChatInput ref={inputRef} onSend={handleSend} onSendImage={IS_MOBILE ? handleSendImage : undefined} onSendVoice={IS_MOBILE ? handleSendVoice : undefined} disabled={sending} />
     </div>
     </SwipeBackView>
   );

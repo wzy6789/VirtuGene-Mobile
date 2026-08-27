@@ -466,3 +466,24 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 
 - 验证：tsc 通过、APK 已重建
 - 版本保持 2.1.1（未升）
+
+## 三十四、本会话已完成（2026-08-27 发语音功能：微信式按住说话 + 系统识别转文字 + 语音气泡）
+
+**方案（用户拍板）**：微信式语音气泡（录音可回听 + 下方转文字小字）+ 系统语音识别（免费离线）+ 按住说话（上滑取消/60s 上限）。
+
+**链路**：按住说话 → MediaRecorder 录音（webm/opus 单声道降噪，存 IndexedDB）+ @capgo/capacitor-speech-recognition 并行识别（安卓系统 SpeechRecognizer，zh-CN）→ 松手 ≥1s 发送：转文字作为消息 content 发给 AI（AI 理解文字），音频存 Message.audio 可回听 → AI 正常回复文字 → 用户可点 🔊 听 AI 的 Edge 语音（语音对话双向闭环）。
+
+**新增/改动**：
+- 依赖：`@capgo/capacitor-speech-recognition@^8.1.3`（Capacitor 8 兼容；插件 manifest 自带 RECORD_AUDIO，已 cap sync 进原生工程）
+- `db/index.ts`：Message 新增 `audio?: { dataUrl; duration; text }`
+- `src/lib/recorder.ts`：AudioRecorder 类（getUserMedia 单声道 + AnalyserNode 电平采样供声波 UI + MediaRecorder webm/opus + stop/cancel）
+- `src/lib/speech-recognition.ts`：权限/可用性检查 + start/stop/cancel（partialResults 实时转写 + getLastPartialResult 取最终结果；非 Capacitor 环境优雅降级）
+- `ChatInput.tsx`：新增麦克风按钮切换「按住说话」模式（再点切回键盘）；按住说话条：按住录音（声波电平 + 计时 + 震动）、上滑 >60px 取消、<1s 提示太短、60s 自动发送、转文字中状态；失败/无权限浮动 toast
+- `ChatWindow.tsx`：`handleSendVoice`（content=转文字，audio 存消息，正常走 AI 回复管线）
+- `MessageBubble.tsx`：微信式语音气泡（播放/暂停切换 + 由消息 id 稳定生成的波形条 + 时长 + 下方转文字小字）；模块级单例音频管理（同一时刻只播一条，微信式）
+- 权限链路已验证：Capacitor WebView 原生 `onPermissionRequest` 放行 AUDIO_CAPTURE（申请 RECORD_AUDIO 后自动 grant）
+
+**已知取舍**：转文字质量取决于手机自带语音识别引擎（谷歌服务机最佳，国产 ROM 一般可用）；识别空 → toast「没听清」重说；录音与识别并行占麦克风，个别机型可能互抢（真机验证项）；浏览器预览（非 Capacitor）语音按钮会提示设备不支持。
+
+- 验证：tsc 通过、APK 已重建
+- 版本保持 2.1.1（未升）

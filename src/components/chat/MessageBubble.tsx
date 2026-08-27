@@ -1,8 +1,69 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Message } from '../../db/index';
 import { Avatar } from '../ui/Avatar';
 import { ipc } from '../../lib/ipc-client';
+
+/* ---- 语音播放（模块级单例：同一时刻只播一条，微信式） ---- */
+let activeVoice: { id: string; audio: HTMLAudioElement; onEnd: () => void } | null = null;
+
+function stopActiveVoice() {
+  if (activeVoice) {
+    const { audio, onEnd } = activeVoice;
+    activeVoice = null;
+    audio.pause();
+    onEnd();
+  }
+}
+
+/** 点击语音气泡：同一条切换播放/停止；不同条先停旧的再播新的 */
+function toggleVoice(id: string, dataUrl: string, onStart: () => void, onEnd: () => void) {
+  if (activeVoice?.id === id) {
+    stopActiveVoice();
+    return;
+  }
+  stopActiveVoice();
+  const audio = new Audio(dataUrl);
+  activeVoice = { id, audio, onEnd };
+  audio.onended = () => {
+    if (activeVoice?.id === id) {
+      activeVoice = null;
+      onEnd();
+    }
+  };
+  audio.onerror = () => {
+    if (activeVoice?.id === id) {
+      activeVoice = null;
+      onEnd();
+    }
+  };
+  onStart();
+  void audio.play();
+}
+
+/** 语音波形条（由消息 id 稳定生成，播放中放大跳动） */
+function WaveBars({ seed, active }: { seed: string; active: boolean }) {
+  const bars = useMemo(() => {
+    let h = 5381;
+    const arr: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      h = ((h << 5) + h + seed.charCodeAt(i % seed.length)) >>> 0;
+      arr.push(3 + (h % 8));
+    }
+    return arr;
+  }, [seed]);
+  return (
+    <span className={`flex items-center gap-[2px] h-7 transition-opacity ${active ? 'opacity-100' : 'opacity-85'}`}>
+      {bars.map((b, i) => (
+        <span
+          key={i}
+          className={`w-[3px] rounded-full transition-all ${active ? 'bg-white animate-pulse' : 'bg-white/85'}`}
+          style={{ height: `${active ? b * 1.5 + 2 : b}px`, animationDelay: `${(i % 6) * 90}ms` }}
+        />
+      ))}
+    </span>
+  );
+}
 
 interface Props {
   message: Message;
@@ -27,6 +88,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [voicePlaying, setVoicePlaying] = useState(false);
 
   useEffect(() => {
     if (!menu) return;
@@ -102,7 +164,44 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
               }`}
             />
           )}
-          {message.content}
+          {message.audio ? (
+            /* 微信式语音消息：波形 + 时长 + 点击播放；下方小字为转文字（AI 看这段文字） */
+            <div>
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleVoice(
+                    message.id,
+                    message.audio!.dataUrl,
+                    () => setVoicePlaying(true),
+                    () => setVoicePlaying(false),
+                  );
+                }}
+                className={`flex items-center gap-2.5 cursor-pointer select-none py-0.5 ${
+                  isUser ? 'text-white' : 'text-ink'
+                }`}
+              >
+                {voicePlaying ? (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="shrink-0">
+                    <rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />
+                  </svg>
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="shrink-0">
+                    <polygon points="6 3 20 12 6 21 6 3" />
+                  </svg>
+                )}
+                <WaveBars seed={message.id} active={voicePlaying} />
+                <span className="text-xs tabular-nums shrink-0">{message.audio.duration}″</span>
+              </div>
+              {message.audio.text && (
+                <p className={`mt-1 text-xs leading-relaxed ${isUser ? 'text-white/80' : 'text-gray-500'}`}>
+                  {message.audio.text}
+                </p>
+              )}
+            </div>
+          ) : (
+            message.content
+          )}
         </div>
         {/* 朗读按钮（仅 AI 消息；常显，触屏可点；播放中变青色/显示停止）。
             阻止冒泡：避免误触发滚动容器/气泡的点击聚焦行为 */}

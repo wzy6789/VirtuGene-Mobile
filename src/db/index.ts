@@ -75,6 +75,8 @@ export interface Message {
   isProactive: boolean;
   /** 图片消息（压缩后的 dataURL）；有值且 content 为空时气泡只显示图片 */
   image?: string;
+  /** 语音消息（微信式）：录音音频 dataURL（webm/opus）+ 时长秒 + 转文字（AI 通过 text 理解内容） */
+  audio?: { dataUrl: string; duration: number; text: string };
   /** 引用回复的目标消息 id */
   replyToId?: string;
   /** 引用回复的目标消息内容（用于气泡内展示） */
