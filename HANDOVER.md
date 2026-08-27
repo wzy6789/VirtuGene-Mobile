@@ -364,3 +364,42 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
   - MobileMePage 登出：`clearPersistedApiKey()` 清除加密 Key
 - **发布**：v2.1.0 修复版 APK(5.0MB)已重新上传 GitHub Release；git 已推送 `59af0f2`
 - 验证：tsc 通过、mobile:build 成功
+
+## 二十八、本会话已完成（2026-08-26 v2.1.1 发布：资料卡 + 删除语义 + 密码修改 + 头像圆形）
+
+- **v2.1.1 已发布**：GitHub Release `v2.1.1` + APK(4.6MB)，git 推送 `952db7b`
+- **角色页点人物 → 先开资料卡**（CharacterProfileModal 美化：品牌渐变头部、圆形大头像、签名、分类标签、开场白），资料卡内「开始聊天」才进对话
+- **删除=从列表隐藏，重新聊天自动恢复**：移除「已隐藏 N 个」入口；`selectCharacter` 自动清除 `chatListHidden`
+- **修复基因实验室关闭误跳转**：CharacterAddModal 区分「纯关闭(×)」与「成功选中」——× 只关弹窗不切聊天（原 handleClose 无条件触发 onSelected）
+- **新增修改密码**（ChangePasswordSection，设置→账号安全）：原密码验证 → 新密码两次确认(≥6位) → 用新密码重新加密 API Key → 更新 userRepo + 设备加密存储
+- **头像圆形截取**：UserProfileModal 上传时 canvas 居中裁剪方形中心为圆 + 压缩 256px；Avatar 组件统一圆形
+- 其他：设置「关于」区块、会话列表搜索、置顶淡紫区分、表情包换 SVG（基因库/创造基因去 emoji、空态 SVG）
+- 验证：tsc 通过、mobile:build 成功
+
+## 二十九、本会话已完成（2026-08-26 手机端语音生成：Edge-TTS 直连 + 系统兜底）
+
+**方案（用户拍板）**：Edge-TTS 免费直连为主（不依赖电脑、无需代理、零成本、与桌面同款微软神经网络音色）+ 系统 speechSynthesis 兜底（无网络/接口失败也能出声）。用户主动点 🔊 才发声，绝不自动朗读。
+
+**协议实测结论（关键）**：
+- Edge-TTS 接口 `speech.platform.bing.com` 本机网络直连可用（无需翻墙）
+- **服务器按 User-Agent 校验：只认桌面 Chrome/Edge UA，手机 UA 一律 403**（与 Origin 无关，实测 5 组 header 组合定位）
+- 浏览器 WebSocket 无法自定义请求头 → 手机端在 `capacitor.config.ts` 加 `android.overrideUserAgent`（桌面 Chrome UA），WebView 全局生效（已 cap sync 验证写入 `android/.../capacitor.config.json`）
+- Sec-MS-GEC 令牌 = `(unix秒向下取整300s + 11644473600) * 10^7` 拼接 `TrustedClientToken` → SHA-256 大写 HEX（Web Crypto 浏览器可算，协议与桌面 msedge-tts 1.x 一致）
+- 音频帧：二进制消息内 `Path:audio\r\n` 之后为 MP3 分片，收齐到 `turn.end`；实测输出合法 MPEG 帧
+
+**新增文件**：
+- `src/lib/voice-map.ts`：音色池（18 个中文 Edge 声线）/ 6 档 band（先男女后性格）/ VoiceProfile 校验（与桌面同构，备份互通，sid 仅兼容字段）
+- `src/lib/edge-tts.ts`：`edgeTTSSynthesize()` WebSocket 合成（25s 超时，SSML 转义，返回 MP3 ArrayBuffer）
+- `src/lib/tts.ts`：`useTTS()` hook——Edge 直连主 + 系统语音兜底，同一时刻只播一句
+- `src/lib/ai/voice-assigner.ts`：AI 声线判定（复刻桌面 electron/ipc/voice.ts，纯函数直连 DeepSeek，先男女后性格）
+
+**接线**：
+- `db/index.ts`：Character 新增 `voice?` 字段（桌面同型）
+- `chat-store.ts`：`assignVoiceIfNeeded`（幂等）——创建角色/首次进入聊天时由 AI 判定声线落库固定
+- `ChatWindow.tsx`：useTTS + `handleSpeak`（角色声线 → 语音，800 字上限）
+- `MessageBubble.tsx`：AI 消息右侧常显 🔊（触屏可点，桌面 hover 同款）：播放中=暂停图标青色，合成中=转圈；复制按钮下移避让
+- `capacitor.config.ts`：`android.overrideUserAgent` 桌面 UA（**必须 cap sync 生效**）
+
+**验证**：tsc 通过、vite build 通过、APK 重建中。版本保持 2.1.1（未升；下次发布建议 v2.2.0，需先升 package.json + build.gradle + changelog.ts）
+
+**注意**：手机端合成链路 = 用户点击 🔊 → WebSocket 直连微软接口（UA 已覆写为桌面 Chrome）→ 失败自动 speechSynthesis 兜底；若日后微软接口变更导致 403，检查 UA 是否被新规则拒收。

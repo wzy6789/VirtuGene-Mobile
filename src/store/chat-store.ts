@@ -11,6 +11,33 @@ import { deriveProactivity, GREETING_PROACTIVITY_THRESHOLD } from '../lib/person
 import { ipc } from '../lib/ipc-client';
 import { useNotificationStore } from './notification-store';
 import { useDiaryStore } from './diary-store';
+import { assignVoice } from '../lib/ai/voice-assigner';
+import { sanitizeVoiceProfile, completeVoiceProfile } from '../lib/voice-map';
+
+/** 角色声线：创建/首次进入时由 AI 按形象判定并固定（幂等，只执行一次；失败静默不影响聊天） */
+async function assignVoiceIfNeeded(characterId: string, userId: string): Promise<void> {
+  try {
+    const apiKey = useAuthStore.getState().apiKey;
+    if (!apiKey) return;
+    const char = await characterRepo.getById(characterId);
+    if (!char || char.voice) return; // 已有声线则跳过（手机端无本地音色，无需补 sid）
+    const r = await assignVoice({
+      apiKey,
+      characterId,
+      character: { name: char.name, systemPrompt: char.systemPrompt, tags: char.tags },
+    });
+    if (r.voice) {
+      const full = completeVoiceProfile(sanitizeVoiceProfile(r.voice), characterId);
+      await characterRepo.update(characterId, { voice: full });
+      // 同步内存中的角色
+      useChatStore.setState((s) => ({
+        characters: s.characters.map((c) => (c.id === characterId ? { ...c, voice: full } : c)),
+      }));
+    }
+  } catch {
+    /* 声线判定失败不影响聊天 */
+  }
+}
 
 interface CharPreview {
   content: string;
@@ -188,6 +215,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       hasMoreMessages: total > msgs.length,
       unreadByCharacter: { ...unreadByCharacter },
     });
+    // 首次进入该角色时由 AI 判定声线并固定（幂等）
+    void assignVoiceIfNeeded(id, userId);
   },
 
   loadEarlierMessages: async () => {
@@ -382,6 +411,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await characterRepo.create(character);
     await get().loadCharacters();
     get().selectCharacter(character.id);
+    // 新角色创建后由 AI 判定声线并固定
+    void assignVoiceIfNeeded(character.id, userId);
     return character;
   },
 

@@ -14,6 +14,10 @@ const config: CapacitorConfig = {
   webDir: 'dist/renderer',
   android: {
     allowMixedContent: true,
+    // Edge-TTS 语音接口按 User-Agent 校验：只认桌面 Chrome/Edge UA（手机 UA 返回 403）。
+    // 浏览器 WebSocket 无法自定义请求头，故全局覆写为桌面 UA —— 实测任意 Origin 均可直连，
+    // 手机端不依赖电脑、不需要代理即可获得与桌面同款微软神经网络音色。
+    overrideUserAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0',
   },
   server: {
     androidScheme: 'https',

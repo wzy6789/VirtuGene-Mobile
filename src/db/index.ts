@@ -34,6 +34,8 @@ export interface Character {
   pinned?: boolean;
   /** 是否从聊天会话列表隐藏（仅隐藏列表项，角色与消息数据保留） */
   chatListHidden?: boolean;
+  /** 声线（AI 判定，Edge-TTS 音色 + 语速/音调；与桌面版同构，备份互通） */
+  voice?: { voice: string; band?: 'male-deep' | 'male-mature' | 'male-young' | 'female-soft' | 'female-bright' | 'female-clear'; sid?: number; rate: string; pitch: string };
 }
 
 export interface RelationMilestone {

@@ -24,6 +24,7 @@ import { checkReplyQuality } from '../../lib/reply-quality';
 import { DIARY_MOODS } from '../../lib/diary-utils';
 import { useNotificationStore } from '../../store/notification-store';
 import { useUIStore } from '../../store/ui-store';
+import { useTTS } from '../../lib/tts';
 import type { Message } from '../../db/index';
 
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -131,8 +132,21 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<ChatError>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  /** TTS 朗读（用户主动点击才发声；Edge-TTS 直连，失败自动回退系统语音） */
+  const { speakingKey, busyKey, speak, stop } = useTTS();
 
   const character = characters.find((c) => c.id === selectedCharacterId);
+
+  /** 朗读一条 AI 消息（使用角色声线；未分配则跳过） */
+  const handleSpeak = (m: Message) => {
+    if (speakingKey === m.id) {
+      stop();
+      return;
+    }
+    const voice = character?.voice;
+    if (!voice || !m.content.trim()) return;
+    void speak(m.id, m.content.trim().slice(0, 800), voice.voice, voice.rate, voice.pitch);
+  };
 
   // Clear the reply banner when switching conversations, and reset the sending
   // state: 旧会话的"正在输入"与输入锁定不能带到新会话，否则切走后无法在新会话输入
@@ -622,6 +636,10 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
                     onQuote={setReplyingTo}
                     onDelete={(m) => void deleteMessage(m.id)}
                     onRetry={(m) => void handleRetry(m)}
+                    onSpeak={row.message.role === 'assistant' ? handleSpeak : undefined}
+                    speakKey={row.message.id}
+                    speakingKey={speakingKey}
+                    busyKey={busyKey}
                   />
                 </div>
               );
