@@ -45,11 +45,20 @@ export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; 
   }
 }
 
+export interface ChatHistoryItem {
+  role: 'user' | 'assistant';
+  content: string;
+  /** 图片消息（压缩后 dataURL；有值则该条以图片块发送，AI 真正看图） */
+  image?: string;
+}
+
 export interface ChatParams {
   apiKey: string;
   systemPrompt: string;
   message: string;
-  history: { role: 'user' | 'assistant'; content: string }[];
+  history: ChatHistoryItem[];
+  /** 当前消息附带的图片（压缩后 dataURL；有值则本条请求走视觉模型） */
+  image?: string;
   /** 回复自检未通过时的修正提示（重试时附加到 system 侧，引导模型修正） */
   retryHint?: string;
   /** 采样温度：按角色主动倾向微调（高冷低、活泼高），缺省 0.8 */
@@ -62,8 +71,24 @@ export interface ChatResult {
   truncated?: boolean;
 }
 
+/** 视觉模型（支持图片，按文本价计费） */
+const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
+/** 文本模型（老模型，日常对话） */
+const TEXT_MODEL = 'deepseek-v4-flash';
+/** 最近 N 条消息内出现过图片 → 保持视觉模型（约 4 轮对话），之后自动切回文本模型 */
+const VISION_CONTEXT_MESSAGES = 8;
+
+/** 单条消息内容：有图 → OpenAI 兼容块数组（text + image_url dataURL），无图 → 纯文本 */
+function toContentBlock(text: string, image?: string): string | Array<Record<string, unknown>> {
+  if (!image) return text;
+  return [
+    { type: 'text', text: text || '[图片]' },
+    { type: 'image_url', image_url: { url: image } },
+  ];
+}
+
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
-  const { apiKey, systemPrompt, message, history, retryHint, temperature } = params;
+  const { apiKey, systemPrompt, message, history, retryHint, temperature, image } = params;
 
   const messages = [
     {
@@ -71,9 +96,14 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
       content:
         systemPrompt + '\n\n' + MESSAGING_INSTRUCTION + (retryHint ? `\n\n${retryHint}` : ''),
     },
-    ...history.slice(-20), // Last 10 rounds (20 msgs)
-    { role: 'user', content: message },
+    ...history.slice(-20).map((h) => ({ role: h.role, content: toContentBlock(h.content, h.image) })),
+    { role: 'user', content: toContentBlock(message, image) },
   ];
+
+  // 模型切换：当前带图，或最近几轮内有图 → 视觉模型（AI 持续看图理解）；否则老文本模型
+  const recent = history.slice(-VISION_CONTEXT_MESSAGES);
+  const useVision = !!image || recent.some((h) => !!h.image);
+  const model = useVision ? VISION_MODEL : TEXT_MODEL;
 
   try {
     const response = await fetchWithTimeout(
@@ -85,7 +115,7 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'deepseek-v4-flash',
+          model,
           messages,
           max_tokens: 1000,
           temperature: temperature ?? 0.8,

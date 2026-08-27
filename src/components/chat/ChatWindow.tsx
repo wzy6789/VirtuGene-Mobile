@@ -312,8 +312,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     addMessage(userMsg);
     await sessionRepo.touch(sessionId);
     setReplyingTo(null);
-    // 图片消息也触发 AI 回复（角色会看到「你发了一张图片」）
-    await performSend('[图片]', '[图片]', userMsg);
+    // 图片消息触发 AI 回复：真实图片交给视觉模型（角色真正看得到图）
+    await performSend('[图片]', '[图片]', userMsg, dataUrl);
   };
 
   /** 发送语音消息（微信式）：录音转文字作为 content 发给 AI（AI 理解文字），音频存消息可回听 */
@@ -351,7 +351,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   };
 
   /** 核心发送管线：构建上下文 → 调 API（带自检重试）→ 落库/上屏；失败则把用户消息标记为失败态 */
-  const performSend = async (text: string, apiMessage: string, userMsg: Message) => {
+  const performSend = async (text: string, apiMessage: string, userMsg: Message, image?: string) => {
     const sessionId = userMsg.sessionId;
     if (!character || !apiKey) return;
 
@@ -368,6 +368,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     const history = allMsgs.slice(-21, -1).map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
+      image: m.image,
     }));
 
     // Inject character memories into system prompt (最近 15 条，避免上下文膨胀)
@@ -451,6 +452,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           apiKey,
           systemPrompt: enrichedPrompt,
           message: apiMessage,
+          image,
           history,
           retryHint,
           temperature,

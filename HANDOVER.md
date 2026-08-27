@@ -552,6 +552,20 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 3.0.0 内容：语音生成（Edge 直连 + AI 声线分配 + 男女硬区分 + 方言手动选）、发语音（原生录音 NativeAudioRecorder + 转文字 + 语音气泡）、语音设置（开关/语速/试听/云端识别 Key）、交互打磨
 - 手机端「我的 → 版本 → 检查更新」即可下载 v3.0.0
 
+## 三十八、本会话已完成（2026-08-27 图片识图：发图片自动切 DeepSeek 视觉模型）
+
+**用户方案**：发图片时对话自动切 `deepseek-v4-flash-vision-exp`（视觉模型），一定数量对话后换回老模型。**已确认可行并实现**（官方文档：同一 DeepSeek key、视觉按文本价计费、图片每张 token 上限 384、支持 dataURL 内联）。
+
+**实现**（`src/lib/ai/deepseek.ts`）：
+- `ChatParams` 支持 `image?: string`（当前消息）+ history 项 `image?`；有图的消息 content 转 OpenAI 兼容块数组（text + image_url dataURL）
+- **模型自动切换**：当前带图 或 最近 8 条消息（约 4 轮）内有图 → `deepseek-v4-flash-vision-exp`；否则老文本模型 `deepseek-v4-flash`——发图后 AI 持续看图理解，图片淡出上下文后自动切回
+- 图片仅 user 消息携带（官方限制）；detail 用默认（等价原图，token 有上限）
+- `ChatWindow.tsx`：history 构建带 `image`；`handleSendImage` 把真实图片 dataURL 传给 `performSend`（不再只发"[图片]"占位文字）→ AI 真正看得见图
+- `vite-env.d.ts`：chat.send 类型扩展（image / history.image）
+- 验证：tsc 通过、APK 已重建（**未重新发布**，3.0.0 Release 仍是旧版；用户可先装 APK 实测，需要时再发 3.0.1）
+
+- 版本保持 3.0.0（代码已提交，未重新发布）
+
 - 版本保持 2.1.1（未升）
 
 - 验证：tsc 通过、APK 已重建

@@ -20,7 +20,8 @@ interface VirtuGeneAPI {
       apiKey: string;
       systemPrompt: string;
       message: string;
-      history: { role: 'user' | 'assistant'; content: string }[];
+      image?: string;
+      history: { role: 'user' | 'assistant'; content: string; image?: string }[];
       retryHint?: string;
       temperature?: number;
     }) => Promise<{ content?: string; error?: string; truncated?: boolean }>;
