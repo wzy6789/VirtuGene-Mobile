@@ -4,7 +4,15 @@
  * 提示词与音色池见 src/lib/voice-map.ts（VOICE_SELECT_PROMPT / VOICE_POOL / VOICE_BAND_INFO）。
  */
 import { fetchWithTimeout } from './http';
-import { VOICE_SELECT_PROMPT, sanitizeVoiceProfile, completeVoiceProfile, type VoiceProfile } from '../voice-map';
+import {
+  VOICE_SELECT_PROMPT,
+  sanitizeVoiceProfile,
+  completeVoiceProfile,
+  voiceGender,
+  DEFAULT_MALE_VOICE,
+  DEFAULT_VOICE,
+  type VoiceProfile,
+} from '../voice-map';
 
 export interface VoiceAssignParams {
   apiKey: string;
@@ -57,12 +65,22 @@ export async function assignVoice(
     } catch {
       return { error: 'server:error', detail: `AI 返回内容无法解析为 JSON：${t.slice(0, 200)}` };
     }
-    // 校验 + 补全档位（男女一致性硬校验）
-    const profile: VoiceProfile = completeVoiceProfile(
-      sanitizeVoiceProfile(parsed as { voice?: string; band?: string; rate?: string; pitch?: string }),
-      characterId ?? '',
-    );
-    return { voice: profile };
+    // 校验 + 补全档位
+    const raw = parsed as { voice?: string; band?: string; rate?: string; pitch?: string; gender?: string; reason?: string };
+    let profile: VoiceProfile = sanitizeVoiceProfile(raw);
+    // 男女硬校验（最高优先级）：AI 判定的角色性别必须与音色性别一致，
+    // 不一致 → 强制修正为该性别的默认音色（男→云扬，女→晓晓），杜绝男角色配女声/反之
+    const g = raw.gender;
+    if (g === 'male' || g === 'female') {
+      if (voiceGender(profile.voice) !== g) {
+        profile =
+          g === 'male'
+            ? { ...DEFAULT_MALE_VOICE, rate: profile.rate, pitch: profile.pitch }
+            : { ...DEFAULT_VOICE, rate: profile.rate, pitch: profile.pitch };
+      }
+    }
+    const full: VoiceProfile = completeVoiceProfile(profile, characterId ?? '');
+    return { voice: full };
   } catch (err) {
     return { error: 'server:error', detail: String((err as Error)?.message ?? err).slice(0, 200) };
   }

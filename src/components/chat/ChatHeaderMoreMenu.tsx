@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
 import { useEmotionStore } from '../../store/emotion-store';
 import { useSettingsStore } from '../../store/settings-store';
+import { useChatStore } from '../../store/chat-store';
 import { diaryRepo, todayStr } from '../../db/diary-repo';
 import { DIARY_MOODS } from '../../lib/diary-utils';
 import { edgeTTSSynthesize } from '../../lib/edge-tts';
-import { DEFAULT_VOICE } from '../../lib/voice-map';
+import { DEFAULT_VOICE, DEFAULT_MALE_VOICE, DIALECT_VOICES } from '../../lib/voice-map';
+import type { Character } from '../../db/index';
 
 /** 心情选择网格（「更多」菜单的子视图） */
 function MoodGrid({ onPick, onBack }: { onPick: (mood: number) => void; onBack: () => void }) {
@@ -33,21 +35,46 @@ function MoodGrid({ onPick, onBack }: { onPick: (mood: number) => void; onBack: 
   );
 }
 
-/** 语音设置（参考电脑端设置面板「角色语音」）：总开关 + 语速 + 试听 */
-function TtsSettings({ onBack }: { onBack: () => void }) {
+/** 语音设置（参考电脑端设置面板「角色语音」）：总开关 + 语速 + 方言（用户手动选） + 试听 */
+function TtsSettings({ onBack, character }: { onBack: () => void; character?: Character }) {
   const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
   const setTtsEnabled = useSettingsStore((s) => s.setTtsEnabled);
   const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
   const setTtsSpeed = useSettingsStore((s) => s.setTtsSpeed);
   const [demoBusy, setDemoBusy] = useState(false);
 
-  /** 试听默认音色：Edge 直连优先 → 系统语音兜底 */
+  /** 角色性别（由 AI 分配时判定的 band 决定） */
+  const roleGender: 'male' | 'female' | undefined = character?.voice?.band
+    ? character.voice.band.startsWith('male')
+      ? 'male'
+      : 'female'
+    : undefined;
+  const currentDialect = character?.voice?.voice === 'zh-CN-liaoning-XiaobeiNeural'
+    ? 'liaoning'
+    : character?.voice?.voice === 'zh-CN-shaanxi-XiaoniNeural'
+      ? 'shaanxi'
+      : 'none';
+
+  /** 切换角色方言（仅女性角色）：无 = 该性别标准音色；东北/陕西 = 对应方言女声 */
+  const setDialect = async (d: 'none' | 'liaoning' | 'shaanxi') => {
+    if (!character || roleGender !== 'female') return;
+    const base = { rate: character.voice?.rate ?? '+0%', pitch: character.voice?.pitch ?? '+0Hz' };
+    if (d === 'none') {
+      await useChatStore.getState().setCharacterVoice(character.id, { ...DEFAULT_VOICE, ...base });
+      return;
+    }
+    const dv = DIALECT_VOICES.find((x) => x.voice === (d === 'liaoning' ? 'zh-CN-liaoning-XiaobeiNeural' : 'zh-CN-shaanxi-XiaoniNeural'));
+    if (dv) await useChatStore.getState().setCharacterVoice(character.id, { voice: dv.voice, band: dv.band, ...base });
+  };
+
+  /** 试听（按角色性别选 Edge 音色：男→云扬，女→晓晓；Edge 失败 → 系统语音兜底） */
   const preview = async () => {
     if (demoBusy) return;
     const text = '你好，我是你的数字灵魂，很高兴认识你。';
+    const previewVoice = roleGender === 'male' ? DEFAULT_MALE_VOICE : DEFAULT_VOICE;
     setDemoBusy(true);
     try {
-      const audio = await edgeTTSSynthesize(text, { voice: DEFAULT_VOICE.voice, rate: '+0%', pitch: '+0Hz' });
+      const audio = await edgeTTSSynthesize(text, { voice: previewVoice.voice, rate: '+0%', pitch: '+0Hz' });
       if (audio.byteLength > 0) {
         const url = URL.createObjectURL(new Blob([audio], { type: 'audio/mpeg' }));
         const a = new Audio(url);
@@ -90,7 +117,7 @@ function TtsSettings({ onBack }: { onBack: () => void }) {
         </button>
       </div>
       <p className="text-[10px] text-gray-500 leading-relaxed">
-        关闭后消息不再显示 🔊，点击也不会发声。语音由 AI 按角色形象挑选声线并固定，仅在你点击时合成。
+        关闭后消息不再显示 🔊，点击也不会发声。语音由 AI 按角色形象挑选声线（先判男女再选性格），仅在你点击时合成。
       </p>
 
       {/* 朗读语速 */}
@@ -109,15 +136,44 @@ function TtsSettings({ onBack }: { onBack: () => void }) {
         </div>
       </div>
 
-      {/* 试听 */}
+      {/* 角色方言（用户手动选择；AI 不自动分配方言） */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs text-ink">角色方言</span>
+          {roleGender === 'female' && currentDialect !== 'none' && (
+            <span className="text-[10px] text-life-cyan">当前角色使用中</span>
+          )}
+        </div>
+        {roleGender === 'female' ? (
+          <div className="flex rounded-lg border border-line overflow-hidden">
+            {[['none', '无'], ['liaoning', '东北话'], ['shaanxi', '陕西话']].map(([k, l]) => (
+              <button
+                key={k}
+                onClick={() => void setDialect(k as 'none' | 'liaoning' | 'shaanxi')}
+                className={`flex-1 px-3 py-1.5 text-xs transition-colors ${currentDialect === k ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-500 hover:text-ink'}`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[10px] text-gray-500 leading-relaxed">
+            {roleGender === 'male'
+              ? '方言音色目前仅有女声（东北话/陕西话），男角色不可设置'
+              : '进入聊天生成声线后，可在此设置角色方言'}
+          </p>
+        )}
+      </div>
+
+      {/* 试听（按角色性别） */}
       <button
         onClick={() => void preview()}
         disabled={demoBusy}
         className="w-full px-4 py-2 rounded-lg text-xs text-ink bg-surface border border-line-strong hover:border-life-cyan/50 transition-colors disabled:opacity-40"
       >
-        {demoBusy ? '合成中…' : '试听默认音色'}
+        {demoBusy ? '合成中…' : `试听${roleGender === 'male' ? '男声' : '女声'}默认音色`}
       </button>
-      <p className="text-[10px] text-gray-500">Edge 在线音色优先（与桌面同款微软声线），失败自动用系统语音。</p>
+      <p className="text-[10px] text-gray-500">默认音色为 Edge 微软声线（男声云扬 / 女声晓晓），失败才用系统语音兜底。</p>
     </div>
   );
 }
@@ -126,7 +182,7 @@ function TtsSettings({ onBack }: { onBack: () => void }) {
  * 聊天页顶部「⋯」更多菜单（仅手机端）：收纳 情绪图谱 + 心情打卡 + 语音设置，
  * 让聊天头部只保留角色名，微信式简洁。情绪有数据时按钮右上角显示状态小点。
  */
-export function ChatHeaderMoreMenu() {
+export function ChatHeaderMoreMenu({ character }: { character?: Character }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'main' | 'mood' | 'settings'>('main');
   const [done, setDone] = useState(false);
@@ -234,7 +290,7 @@ export function ChatHeaderMoreMenu() {
             ) : view === 'mood' ? (
               <MoodGrid onBack={() => setView('main')} onPick={(m) => void checkIn(m)} />
             ) : (
-              <TtsSettings onBack={() => setView('main')} />
+              <TtsSettings onBack={() => setView('main')} character={character} />
             )}
           </div>
         </>

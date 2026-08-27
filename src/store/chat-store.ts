@@ -12,7 +12,7 @@ import { ipc } from '../lib/ipc-client';
 import { useNotificationStore } from './notification-store';
 import { useDiaryStore } from './diary-store';
 import { assignVoice } from '../lib/ai/voice-assigner';
-import { sanitizeVoiceProfile, completeVoiceProfile, VOICE_POOL } from '../lib/voice-map';
+import { sanitizeVoiceProfile, completeVoiceProfile, ALL_VOICES, type VoiceProfile } from '../lib/voice-map';
 
 /** 角色声线：创建/首次进入时由 AI 按形象判定并固定（幂等，只执行一次；失败静默不影响聊天） */
 async function assignVoiceIfNeeded(characterId: string, userId: string): Promise<void> {
@@ -60,6 +60,8 @@ interface ChatState {
   selectCharacter: (id: string) => Promise<void>;
   /** 确保角色有声线：无则后台 AI 判定补分配（幂等；供点 🔊 时兜底调用） */
   ensureCharacterVoice: (id: string) => Promise<void>;
+  /** 手动设置角色声线（方言切换等；落库并同步内存） */
+  setCharacterVoice: (id: string, voice: VoiceProfile) => Promise<void>;
   loadEarlierMessages: () => Promise<void>;
   addMessage: (msg: Message) => void;
   updateMessage: (id: string, patch: Partial<Message>) => void;
@@ -225,8 +227,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const char = await characterRepo.getById(id);
     if (!char) return;
     if (char.voice) {
-      // 已有声线但音色名非法（备份导入/旧数据）→ 净化落库，避免 Edge 合成被拒
-      if (!VOICE_POOL.some((v) => v.voice === char.voice!.voice)) {
+      // 已有声线但音色名非法（备份导入/旧数据/已下线音色）→ 净化落库，避免 Edge 合成被拒
+      // （用 ALL_VOICES 校验：用户手动选择的方言音色是合法的，不会被误覆盖）
+      if (!ALL_VOICES.some((v) => v.voice === char.voice!.voice)) {
         const fixed = completeVoiceProfile(sanitizeVoiceProfile(char.voice), id);
         await characterRepo.update(id, { voice: fixed });
         useChatStore.setState((s) => ({
@@ -236,6 +239,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
     await assignVoiceIfNeeded(id, useAuthStore.getState().userId ?? '');
+  },
+
+  setCharacterVoice: async (id, voice) => {
+    await characterRepo.update(id, { voice });
+    useChatStore.setState((s) => ({
+      characters: s.characters.map((c) => (c.id === id ? { ...c, voice } : c)),
+    }));
   },
 
   loadEarlierMessages: async () => {

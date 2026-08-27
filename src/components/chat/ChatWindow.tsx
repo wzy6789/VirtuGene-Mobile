@@ -25,7 +25,7 @@ import { DIARY_MOODS } from '../../lib/diary-utils';
 import { useNotificationStore } from '../../store/notification-store';
 import { useUIStore } from '../../store/ui-store';
 import { useTTS } from '../../lib/tts';
-import { DEFAULT_VOICE, VOICE_POOL } from '../../lib/voice-map';
+import { DEFAULT_VOICE, ALL_VOICES } from '../../lib/voice-map';
 import type { Message } from '../../db/index';
 
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -140,8 +140,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
 
   const character = characters.find((c) => c.id === selectedCharacterId);
 
-  /** 朗读一条 AI 消息：优先角色声线；声线缺失/非法时用默认音色兜底（保证点喇叭一定有声音），并后台补分配/净化 */
-  const handleSpeak = (m: Message) => {
+  /** 朗读一条 AI 消息：优先角色声线（Edge 音色）；声线缺失/非法时现场分配性别正确的声线再播，
+   *  分配超时才用默认音色兜底（保证点喇叭一定有声音，且默认兜底也是 Edge 音色而非系统音） */
+  const handleSpeak = async (m: Message) => {
     if (!ttsEnabled) return;
     if (speakingKey === m.id) {
       stop();
@@ -149,12 +150,17 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     }
     const char = character;
     if (!char || !m.content.trim()) return;
-    // 角色可能还没声线（AI 判定失败/未完成）或声线音色名非法（备份导入）→ 默认音色兜底
     let voice = char.voice;
-    if (!voice || !VOICE_POOL.some((v) => v.voice === voice?.voice)) {
-      voice = DEFAULT_VOICE;
-      // 后台：无声线 → AI 补分配；有声线但非法 → 净化落库
-      void useChatStore.getState().ensureCharacterVoice(char.id);
+    if (!voice || !ALL_VOICES.some((v) => v.voice === voice?.voice)) {
+      // 现场分配/修复（AI 先判性别再选音色），最多等 4s；超时/失败再默认音色兜底
+      await Promise.race([
+        useChatStore.getState().ensureCharacterVoice(char.id),
+        new Promise((r) => setTimeout(r, 4000)),
+      ]);
+      const updated = useChatStore.getState().characters.find((c) => c.id === char.id);
+      voice =
+        updated?.voice && ALL_VOICES.some((v) => v.voice === updated.voice!.voice) ? updated.voice : undefined;
+      if (!voice) voice = DEFAULT_VOICE; // Edge 默认音色（晓晓），系统语音只做 Edge 彻底失败的最后兜底
     }
     // 语速/音调格式非法时回退默认（Edge 接口对非法 prosody 会拒单）
     const baseRate = /^[+-]\d+%$/.test(voice.rate) ? parseFloat(voice.rate) : 0;
@@ -590,7 +596,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         )}
         <div className="flex-1 min-w-0" />
         {IS_MOBILE ? (
-          <ChatHeaderMoreMenu />
+          <ChatHeaderMoreMenu character={character} />
         ) : (
           <>
             {emotionToggle}
