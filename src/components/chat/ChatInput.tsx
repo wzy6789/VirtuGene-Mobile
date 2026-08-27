@@ -128,8 +128,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     [],
   );
 
-  /** 开始录音 + 并行识别 */
-  const startRecording = () => {
+  /** 开始录音 + 并行识别（先拿到麦克风录音，再启动识别，避免识别抢占麦克风） */
+  const startRecording = async () => {
     const r = new AudioRecorder();
     recorderRef.current = r;
     setRecState('recording');
@@ -137,16 +137,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setLevel(0);
     setToast(null);
     try {
+      await r.start((lv) => setLevel(lv));
+    } catch (err) {
+      // getUserMedia 失败：细分原因给准确提示
+      const name = (err as DOMException)?.name;
+      if (name === 'NotAllowedError') showToast('麦克风权限被拒绝，请在系统设置中允许', 2600);
+      else if (name === 'NotReadableError') showToast('麦克风被占用（如正在录屏/通话），请稍后重试', 2600);
+      else showToast('无法使用麦克风，请重试', 2600);
+      setRecState('idle');
+      setLevel(0);
+      return;
+    }
+    try {
       navigator.vibrate?.(15);
     } catch {
       /* ignore */
     }
-    void startSpeechRecognition(); // 系统识别（失败也能录音，转文字为空时走云端/提示）
-    void r
-      .start((lv) => setLevel(lv))
-      .catch(() => {
-        if (recorderRef.current === r) showToast('无法使用麦克风');
-      });
+    // 录音已就绪后再启动系统识别（识别失败静默，转文字走云端/提示）
+    void startSpeechRecognition();
     elapsedTimerRef.current = setInterval(() => setElapsedMs(r.elapsedMs), 100);
     maxTimerRef.current = setTimeout(() => void finishAndSend(), MAX_RECORD_MS);
   };
@@ -222,7 +230,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       showToast('需要麦克风权限才能发语音（请在系统设置中允许）', 2400);
       return;
     }
-    startRecording();
+    void startRecording();
   };
 
   // Re-focus after sending（手机端不自动重新聚焦）
