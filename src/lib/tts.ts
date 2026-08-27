@@ -5,13 +5,16 @@ import { edgeTTSSynthesize } from './edge-tts';
  * TTS 播放控制（手机版）：用户主动点击才发声，绝不自动朗读。
  * 主实现：Edge-TTS 直连（WebSocket，微软神经网络音色，与桌面同款声线）
  * 兜底：Edge 失败（断网/接口变动/服务端拒绝）→ 回退系统语音（speechSynthesis）
- * 同一时刻只播一句（播新句自动停旧句）。
+ * 同一时刻只播一句：播新句自动停旧句；合成期间切到别的句，旧句合成结果直接丢弃。
  */
 export function useTTS() {
   const [playingKey, setPlayingKey] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  /** 当前正在播放的句 key */
   const currentKeyRef = useRef<string | null>(null);
+  /** 当前正在合成中的句 key（合成完成时校验，过期结果丢弃） */
+  const pendingKeyRef = useRef<string | null>(null);
   const urlRef = useRef<string | null>(null);
 
   const stop = useCallback(() => {
@@ -23,6 +26,7 @@ export function useTTS() {
     }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     currentKeyRef.current = null;
+    pendingKeyRef.current = null;
     setPlayingKey(null);
     setBusyKey(null);
   }, []);
@@ -71,19 +75,26 @@ export function useTTS() {
 
   const speak = useCallback(
     async (key: string, text: string, voice: string, rate?: string, pitch?: string) => {
-      if (currentKeyRef.current === key) {
+      // 同一句再点：停止（含播放中 / 合成中两种情况）
+      if (currentKeyRef.current === key || pendingKeyRef.current === key) {
         stop();
         return;
       }
       stop();
+      pendingKeyRef.current = key;
       setBusyKey(key);
       try {
         const audio = await edgeTTSSynthesize(text, { voice, rate: rate ?? '+0%', pitch: pitch ?? '+0Hz' });
+        // 合成期间用户已切到别的句/退出 → 丢弃过期结果
+        if (pendingKeyRef.current !== key) return;
         if (audio.byteLength === 0) throw new Error('empty audio');
+        pendingKeyRef.current = null;
         setBusyKey(null);
         playAudio(key, audio);
       } catch {
+        if (pendingKeyRef.current !== key) return;
         // Edge 失败 → 系统语音兜底
+        pendingKeyRef.current = null;
         setBusyKey(null);
         playSystem(key, text, voice, rate, pitch);
       }

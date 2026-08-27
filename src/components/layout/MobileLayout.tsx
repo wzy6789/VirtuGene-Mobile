@@ -90,16 +90,19 @@ export function MobileLayout() {
   }, [fetchUnreadCounts]);
 
   // 键盘/输入状态检测：输入框/文本域聚焦 → 立即隐藏底部导航（微信式，四个 tab 不顶上来）；
-  // 失焦延迟恢复（键盘收起动画期间保持隐藏）；visualViewport 兜底修正误判。
+  // 失焦延迟恢复（键盘收起动画期间保持隐藏）。
+  // 注意：Android WebView 默认 adjustResize 模式下 window 与 visualViewport 同比例缩小，
+  // ratio 始终 ≈1 —— 因此 visualViewport 事件只负责「确认弹起」，绝不反向置 false，
+  // 恢复一律由 focusout 延迟检测完成，避免误把「键盘开着」覆盖回 false（tab 又顶上来）。
   useEffect(() => {
     const vv = window.visualViewport;
-    const detectByViewport = () => {
+    const confirmOpen = () => {
       const ratio = vv ? vv.height / window.innerHeight : 1;
-      setKeyboardOpen(ratio < 0.85);
+      if (ratio < 0.85) setKeyboardOpen(true);
     };
     if (vv) {
-      vv.addEventListener('resize', detectByViewport);
-      vv.addEventListener('scroll', detectByViewport);
+      vv.addEventListener('resize', confirmOpen);
+      vv.addEventListener('scroll', confirmOpen);
     }
     const onFocusIn = (e: FocusEvent) => {
       const t = e.target as HTMLElement | null;
@@ -108,15 +111,18 @@ export function MobileLayout() {
       }
     };
     const onFocusOut = () => {
-      // 延迟恢复：等键盘收起动画结束再显示导航
-      setTimeout(detectByViewport, 250);
+      // 延迟恢复：等键盘收起动画结束再显示导航；键盘仍开着（ratio 未恢复）则不恢复
+      setTimeout(() => {
+        const ratio = vv ? vv.height / window.innerHeight : 1;
+        if (ratio >= 0.85) setKeyboardOpen(false);
+      }, 250);
     };
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     return () => {
       if (vv) {
-        vv.removeEventListener('resize', detectByViewport);
-        vv.removeEventListener('scroll', detectByViewport);
+        vv.removeEventListener('resize', confirmOpen);
+        vv.removeEventListener('scroll', confirmOpen);
       }
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);

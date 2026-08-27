@@ -134,27 +134,36 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   /** TTS 朗读（用户主动点击才发声；Edge-TTS 直连，失败自动回退系统语音） */
   const { speakingKey, busyKey, speak, stop } = useTTS();
+  const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
+  const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
 
   const character = characters.find((c) => c.id === selectedCharacterId);
 
-  /** 朗读一条 AI 消息（使用角色声线；未分配则跳过） */
+  /** 朗读一条 AI 消息（使用角色声线；总开关关闭或未分配声线则跳过） */
   const handleSpeak = (m: Message) => {
+    if (!ttsEnabled) return;
     if (speakingKey === m.id) {
       stop();
       return;
     }
     const voice = character?.voice;
     if (!voice || !m.content.trim()) return;
-    void speak(m.id, m.content.trim().slice(0, 800), voice.voice, voice.rate, voice.pitch);
+    // 全局语速倍率叠加到角色语速上（Edge-TTS 协议要求 rate 带 +/- 符号）
+    const baseRate = parseFloat(voice.rate) || 0;
+    const combined = Math.round(baseRate * ttsSpeed);
+    const rate = `${combined >= 0 ? '+' : ''}${combined}%`;
+    void speak(m.id, m.content.trim().slice(0, 800), voice.voice, rate, voice.pitch);
   };
 
   // Clear the reply banner when switching conversations, and reset the sending
-  // state: 旧会话的"正在输入"与输入锁定不能带到新会话，否则切走后无法在新会话输入
+  // state: 旧会话的"正在输入"与输入锁定不能带到新会话，否则切走后无法在新会话输入；
+  // 同时停掉正在播放的语音（切角色/退出的旧句不再继续播）
   useEffect(() => {
+    stop();
     setReplyingTo(null);
     setSending(false);
     setError(null);
-  }, [currentSessionId]);
+  }, [currentSessionId, stop]);
 
   // Focus the input when switching characters so the user can type immediately
   // （手机端不自动聚焦：由用户点击输入框进入聊天状态）
@@ -581,9 +590,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         )}
       </div>
 
-      {/* Messages — click anywhere to focus input, like WeChat。
-          切换会话时淡入（key 触发重挂载 + 淡入动画，滚动位置由 scrollToLatest 接管） */}
-      <div key={currentSessionId} ref={scrollRef} className="animate-message-in flex-1 overflow-y-auto px-4 py-3" onClick={() => inputRef.current?.focus()}>
+      {/* Messages — 桌面端点击空白聚焦输入（像微信）；
+          手机端不全局聚焦：只有点输入框才弹键盘（避免点喇叭/气泡误弹） */}
+      <div key={currentSessionId} ref={scrollRef} className="animate-message-in flex-1 overflow-y-auto px-4 py-3" onClick={IS_MOBILE ? undefined : () => inputRef.current?.focus()}>
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-xs text-gray-600">
@@ -636,7 +645,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
                     onQuote={setReplyingTo}
                     onDelete={(m) => void deleteMessage(m.id)}
                     onRetry={(m) => void handleRetry(m)}
-                    onSpeak={row.message.role === 'assistant' ? handleSpeak : undefined}
+                    onSpeak={row.message.role === 'assistant' && ttsEnabled ? handleSpeak : undefined}
                     speakKey={row.message.id}
                     speakingKey={speakingKey}
                     busyKey={busyKey}

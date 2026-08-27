@@ -17,6 +17,12 @@ interface SettingsState {
   /** 提醒时间 'HH:mm' */
   diaryReminderTime: string;
   setDiaryReminderTime: (time: string) => void;
+  /** 角色语音总开关（默认开；关闭后消息不显示 🔊、不触发朗读） */
+  ttsEnabled: boolean;
+  setTtsEnabled: (enabled: boolean) => void;
+  /** 朗读语速倍率（0.8 慢 / 1.0 标准 / 1.2 快），叠加到角色声线语速上 */
+  ttsSpeed: number;
+  setTtsSpeed: (speed: number) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -32,6 +38,10 @@ export const useSettingsStore = create<SettingsState>()(
       setDiaryReminderEnabled: (diaryReminderEnabled) => set({ diaryReminderEnabled }),
       diaryReminderTime: '21:00',
       setDiaryReminderTime: (diaryReminderTime) => set({ diaryReminderTime }),
+      ttsEnabled: true,
+      setTtsEnabled: (ttsEnabled) => set({ ttsEnabled }),
+      ttsSpeed: 1.0,
+      setTtsSpeed: (ttsSpeed) => set({ ttsSpeed }),
     }),
     { name: 'virtugene-settings' },
   ),

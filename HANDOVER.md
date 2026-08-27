@@ -403,3 +403,16 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 **验证**：tsc 通过、vite build 通过、APK 重建中。版本保持 2.1.1（未升；下次发布建议 v2.2.0，需先升 package.json + build.gradle + changelog.ts）
 
 **注意**：手机端合成链路 = 用户点击 🔊 → WebSocket 直连微软接口（UA 已覆写为桌面 Chrome）→ 失败自动 speechSynthesis 兜底；若日后微软接口变更导致 403，检查 UA 是否被新规则拒收。
+
+## 三十、本会话已完成（2026-08-27 语音交互修复 + ⋯菜单设置 + bug 检查）
+
+**用户反馈 5 项全部处理**：
+
+1. **点喇叭不再弹键盘**：根因是 ChatWindow 滚动容器 `onClick → focus 输入框`（微信式点空白聚焦）在手机端误触发。修复：手机端滚动容器去掉全局聚焦（只有点输入框才弹键盘），MessageBubble 喇叭/复制按钮 `stopPropagation`。同时修复键盘检测误判：Android adjustResize 模式下 visualViewport 与窗口同比例缩小 ratio≈1，原逻辑会把「键盘开着」反向覆盖回 false → tab 顶上来。改为 visualViewport 只负责确认弹起、恢复一律由 focusout 延迟检测完成（`MobileLayout.tsx`）
+2. **切句/退出停止播放**：修复 useTTS 并发 bug——合成完成的异步回调未校验「当前是否还是这一句」，A 合成中点了 B，A 完成后照样播放。新增 `pendingKeyRef`，合成完成/失败时校验，过期结果直接丢弃；同一句再点（含合成中）即停止。退出聊天/切换会话：ChatWindow 的 `[currentSessionId]` effect 加 `stop()` + unmount cleanup 双保险
+3. **⋯ 菜单加「设置」**（`ChatHeaderMoreMenu.tsx` 新增 `TtsSettings` 子视图，参考电脑端「角色语音」区块）：角色语音总开关（微信式开关）+ 朗读语速（慢 0.8/标准 1.0/快 1.2）+ 试听默认音色（Edge 直连 → 系统兜底）。`settings-store.ts` 新增 `ttsEnabled`/`ttsSpeed`（persist）；ChatWindow 朗读时总开关关闭隐藏 🔊、语速倍率叠加到角色语速（`combined = round(baseRate * ttsSpeed)`，与桌面一致）
+4. **UI 优化**：喇叭按钮加大圆角（w-7 h-7 rounded-lg）、点击缩放反馈、播放中青色 + 光晕；设置菜单微信式分组卡片 + 分隔线
+5. **bug 检查**：确认所有角色创建路径（自建/基因库克隆/引导页推荐/OnboardingModal）都走 `createCharacter` → `assignVoiceIfNeeded` 自动分配声线，无漏网；tsc + vite build + gradle 全通过
+
+- 验证：tsc 通过、mobile:build 成功，APK 已重建（约 5.29MB）
+- 版本保持 2.1.1（未升）
