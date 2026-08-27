@@ -64,3 +64,38 @@ export async function loadPersistedApiKey(): Promise<string | null> {
 export function clearPersistedApiKey(): void {
   localStorage.removeItem(ENC_STORAGE);
 }
+
+/* ---- 通用密钥加密存取（同设备密钥，供 SiliconFlow 云端识别等可选密钥使用） ---- */
+
+const SECRET_PREFIX = 'virtugene-secret-';
+
+/** 加密持久化任意密钥（如云端识别 key） */
+export async function persistSecret(name: string, value: string): Promise<void> {
+  try {
+    const key = await getDeviceKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(value));
+    localStorage.setItem(SECRET_PREFIX + name, JSON.stringify({ iv: bufToB64(iv), data: bufToB64(enc) }));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 读取并解密持久化密钥；不存在或失败返回 null */
+export async function loadSecret(name: string): Promise<string | null> {
+  try {
+    const raw = localStorage.getItem(SECRET_PREFIX + name);
+    if (!raw) return null;
+    const { iv, data } = JSON.parse(raw);
+    const key = await getDeviceKey();
+    const dec = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64ToBuf(iv) }, key, b64ToBuf(data));
+    return new TextDecoder().decode(dec);
+  } catch {
+    return null;
+  }
+}
+
+/** 清除持久化密钥 */
+export function clearSecret(name: string): void {
+  localStorage.removeItem(SECRET_PREFIX + name);
+}

@@ -491,5 +491,15 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 3. **权限被拒** → 现在提示「需要麦克风权限…请在系统设置中允许」
 - 另：松手后转文字为空时也会复查识别可用性，区分「没听清」与「无引擎」，不再误报
 
+**OPPO 等无系统识别引擎的手机 → 云端备用通道（2026-08-27 已实现，用户拍板）**：
+- 根因：OPPO Find X9 的 ColorOS 不向第三方 App 开放标准 SpeechRecognizer 接口（`isRecognitionAvailable=false`），系统识别在 OPPO 上不可用（非设备故障，设置无解）
+- 方案：新增**云端识别备用通道**（硅基流动 SiliconFlow · SenseVoice，OpenAI 兼容，国内直连、免费模型、中文识别好）
+- `src/lib/cloud-asr.ts`：`transcribeWithSiliconFlow(dataUrl, key)` —— webm/opus → AudioContext 解码 → 16kHz 单声道 PCM16 WAV → POST `https://api.siliconflow.cn/v1/audio/transcriptions`（模型 `FunAudioLLM/SenseVoiceSmall`，30s 超时）
+- `api-key-storage.ts`：新增通用 `persistSecret/loadSecret/clearSecret`（复用设备密钥 AES-GCM 加密，key 不落明文）
+- `ChatInput`：松手后系统识别为空 → 自动读云端 key 转写录音（converting 状态保持）→ 成功即发送；无 key 提示「在 ⋯ 设置填云端识别 Key」
+- 语音设置（⋯ → 设置）新增「云端识别」区：Key 输入（password）+ 保存/清除 + 注册说明
+- **用户操作**：注册 cloud.siliconflow.cn（手机号）→ 创建 sk- 密钥 → App 语音设置粘贴保存
+- 验证：tsc 通过、APK 已重建
+
 - 验证：tsc 通过、APK 已重建
 - 版本保持 2.1.1（未升）

@@ -3,6 +3,8 @@ import { useRipple } from '../../lib/ripple';
 import { IS_MOBILE, IS_CAPACITOR } from '../../lib/platform';
 import { AudioRecorder } from '../../lib/recorder';
 import { isSpeechAvailable, ensureRecordPermission, startSpeechRecognition, stopSpeechRecognition, cancelSpeechRecognition } from '../../lib/speech-recognition';
+import { loadSecret } from '../../lib/api-key-storage';
+import { transcribeWithSiliconFlow, CLOUD_ASR_KEY_NAME } from '../../lib/cloud-asr';
 
 export interface ChatInputHandle {
   focus: () => void;
@@ -166,18 +168,31 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return;
     }
     setRecState('converting');
-    const [result, text] = await Promise.all([r?.stop() ?? Promise.resolve(null), stopSpeechRecognition()]);
+    const [result, sysText] = await Promise.all([r?.stop() ?? Promise.resolve(null), stopSpeechRecognition()]);
+    // 系统识别无结果 → 尝试云端识别（设置了 SiliconFlow key 时，OPPO 等无系统引擎的手机的备用通道）
+    let text = sysText;
+    if (result && !text) {
+      const key = await loadSecret(CLOUD_ASR_KEY_NAME);
+      if (key) {
+        try {
+          text = await transcribeWithSiliconFlow(result.dataUrl, key);
+        } catch {
+          /* 云端失败：落入下方精确提示 */
+        }
+      }
+    }
     setRecState('idle');
     setLevel(0);
     if (!result || !text) {
-      // 区分：录音失败 / 没听清 / 设备没有识别引擎，给准确提示
+      // 区分：录音失败 / 没听清 / 设备没有识别引擎（有 key 云端也失败时提示重试）
       let msg = '没听清，请再说一次';
       if (!result) msg = '录音失败';
       else if (!text) {
         const avail = await isSpeechAvailable();
-        msg = avail ? '没听清，请再说一次' : '手机未检测到系统语音识别，请用键盘输入';
+        if (!avail) msg = '手机无系统语音识别：在「⋯ 设置」填云端识别 Key 后可发语音';
+        else msg = '没听清，请再说一次';
       }
-      showToast(msg, 2000);
+      showToast(msg, 2600);
       return;
     }
     onSendVoice?.({ dataUrl: result.dataUrl, duration: result.durationSec, text });
