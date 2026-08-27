@@ -535,6 +535,15 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - ⚠️ 原生改动 → 必须重新构建 APK（cap sync 不搬 Java），gradle assembleDebug 增量编译即可
 - 验证：gradle 编译通过、APK 已重建
 
+**升级：改用原生录音插件（绕开 WebView 麦克风，OPPO 彻底解决）**：
+- WebView getUserMedia 放行后 OPPO 仍报 NotAllowedError → 判断 WebView 媒体权限链路在 ColorOS 上不可靠
+- 新增**项目自写原生插件** `android/app/src/main/java/com/virtugene/app/plugins/NativeAudioRecorderPlugin.java`（@CapacitorPlugin name=NativeAudioRecorder）：安卓标准 MediaRecorder（MIC/MPEG_4/AAC/16kHz/单声道/32kbps）→ 缓存 m4a → base64 dataURL；start/stop/cancel/isRecording/amplitude（getMaxAmplitude 供声波）
+- 注册：`MainActivity.onCreate` 中 **super.onCreate() 之前** `registerPlugin(NativeAudioRecorderPlugin.class)`（load() 在 onCreate 末尾消费插件列表）
+- `src/lib/recorder.ts` 重写为原生实现（JS 接口不变，ChatInput 无感）：电平 150ms 轮询 getMaxAmplitude；m4a 播放（Audio dataURL）与云端转文字（decodeAudioData 支持 AAC）链路不变
+- 保留 MainActivity 的 WebView AUDIO_CAPTURE 放行（双保险，不影响其他功能）
+- ⚠️ 原生插件改动 → 必须重新构建 APK
+- 验证：tsc 通过、gradle 编译通过、APK 已重建
+
 - 版本保持 2.1.1（未升）
 
 - 验证：tsc 通过、APK 已重建

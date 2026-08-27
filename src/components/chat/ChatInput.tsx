@@ -139,11 +139,12 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     try {
       await r.start((lv) => setLevel(lv));
     } catch (err) {
-      // getUserMedia 失败：细分原因给准确提示
+      // 录音启动失败：细分原因给准确提示（原生插件错误信息优先）
       const name = (err as DOMException)?.name;
+      const rawMsg = (err as Error)?.message;
       if (name === 'NotAllowedError') showToast('麦克风权限被拒绝，请在系统设置中允许', 2600);
       else if (name === 'NotReadableError') showToast('麦克风被占用（如正在录屏/通话），请稍后重试', 2600);
-      else showToast('无法使用麦克风，请重试', 2600);
+      else showToast(rawMsg || '无法使用麦克风，请重试', 2600);
       setRecState('idle');
       setLevel(0);
       return;

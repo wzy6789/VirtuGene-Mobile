@@ -15,12 +15,17 @@ import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
 
+import com.virtugene.app.plugins.NativeAudioRecorderPlugin;
+
 public class MainActivity extends BridgeActivity {
 
     private static final int STATUS_BAR_COLOR = 0xFF0F0F1A;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // 原生录音插件必须在 super.onCreate() 之前注册（load() 在 onCreate 末尾消费插件列表）
+        registerPlugin(NativeAudioRecorderPlugin.class);
+
         super.onCreate(savedInstanceState);
 
         applySystemBarColors();
