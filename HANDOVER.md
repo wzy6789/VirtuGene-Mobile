@@ -544,6 +544,14 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - ⚠️ 原生插件改动 → 必须重新构建 APK
 - 验证：tsc 通过、gradle 编译通过、APK 已重建
 
+## 三十七、v3.0.0 已发布（2026-08-27）
+
+- **版本升级 2.1.1 → 3.0.0**：package.json、build.gradle（versionCode 6 / versionName 3.0.0）、changelog.ts（3.0.0 条目，启动弹更新公告）
+- **代码已推送**：git commit `5e96c8f` → main
+- **Release 已发布**：https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v3.0.0（Release id 377855235，资产 app-debug.apk 4.7MB，已 API 验证）
+- 3.0.0 内容：语音生成（Edge 直连 + AI 声线分配 + 男女硬区分 + 方言手动选）、发语音（原生录音 NativeAudioRecorder + 转文字 + 语音气泡）、语音设置（开关/语速/试听/云端识别 Key）、交互打磨
+- 手机端「我的 → 版本 → 检查更新」即可下载 v3.0.0
+
 - 版本保持 2.1.1（未升）
 
 - 验证：tsc 通过、APK 已重建
