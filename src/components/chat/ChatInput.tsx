@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useRipple } from '../../lib/ripple';
-import { IS_MOBILE } from '../../lib/platform';
+import { IS_MOBILE, IS_CAPACITOR } from '../../lib/platform';
 import { AudioRecorder } from '../../lib/recorder';
 import { isSpeechAvailable, ensureRecordPermission, startSpeechRecognition, stopSpeechRecognition, cancelSpeechRecognition } from '../../lib/speech-recognition';
 
@@ -126,21 +126,27 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     [],
   );
 
-  /** 切换「按住说话」模式：先检查设备支持与麦克风权限 */
+  /** 切换「按住说话」模式：先检查环境与麦克风权限 */
   const toggleVoiceMode = async () => {
     if (voiceMode) {
       setVoiceMode(false);
       return;
     }
     if (!onSendVoice) return;
-    const available = await isSpeechAvailable();
-    if (!available) {
-      showToast('设备不支持语音识别，请用键盘输入', 2200);
+    // 浏览器预览（非 App）没有原生语音识别
+    if (!IS_CAPACITOR) {
+      showToast('语音功能需安装 App 使用（浏览器预览不支持）', 2400);
       return;
     }
     const granted = await ensureRecordPermission();
     if (!granted) {
-      showToast('需要麦克风权限才能发语音', 2200);
+      showToast('需要麦克风权限才能发语音（请在系统设置中允许）', 2400);
+      return;
+    }
+    // 手机是否有系统语音识别引擎（部分精简 ROM / 关闭了语音输入的设备没有）
+    const available = await isSpeechAvailable();
+    if (!available) {
+      showToast('手机未检测到系统语音识别，请用键盘输入', 2400);
       return;
     }
     setVoiceMode(true);
@@ -164,7 +170,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setRecState('idle');
     setLevel(0);
     if (!result || !text) {
-      showToast(text ? '录音失败' : '没听清，请再说一次', 2000);
+      // 区分：录音失败 / 没听清 / 设备没有识别引擎，给准确提示
+      let msg = '没听清，请再说一次';
+      if (!result) msg = '录音失败';
+      else if (!text) {
+        const avail = await isSpeechAvailable();
+        msg = avail ? '没听清，请再说一次' : '手机未检测到系统语音识别，请用键盘输入';
+      }
+      showToast(msg, 2000);
       return;
     }
     onSendVoice?.({ dataUrl: result.dataUrl, duration: result.durationSec, text });
