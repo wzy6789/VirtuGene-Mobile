@@ -500,11 +500,10 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 语音设置（⋯ → 设置）新增「云端识别」区：Key 输入（password）+ 保存/清除 + 注册说明
 - **用户操作**：注册 cloud.siliconflow.cn（手机号）→ 创建 sk- 密钥 → App 语音设置粘贴保存
 
-**内置默认 Key（用户拍板 2026-08-27）**：
-- 用户提供 `sk-fddmyuionznklppzjkcdcjhyslpvblzwmtkoqumamaooaqzi` 设为 `DEFAULT_CLOUD_ASR_KEY`（cloud-asr.ts），已实测有效（HTTP 200，WAV 格式被接受）
-- `getCloudAsrKey()`：用户配置优先，未配置用内置默认 → **OPPO 等无系统识别手机开箱即用，无需配置**
-- 设置 UI 显示「默认已启用 / 已配置自定义」；可填自己的 Key 覆盖或清除
-- ⚠️ 风险已告知用户：内置 Key 随公开仓库/APK 分发，若被他人滥用可能耗尽免费额度；用户可随时在设置换 Key
+**内置 Key 已撤回（用户改主意 2026-08-27）**：
+- 用户先授权把 `sk-fddmyuionznklppzjkcdcjhyslpvblzwmtkoqumamaooaqzi` 设为内置默认，随后改主意要求恢复"用户自填"
+- 已彻底移除：`DEFAULT_CLOUD_ASR_KEY` / `getCloudAsrKey` 删除，key 字符串无残留（grep 验证）
+- 现状：云端识别**仅走用户自填 Key**（设备加密存储）；未填时 OPPO 等无系统识别手机提示「在 ⋯ 设置填云端识别 Key 后可发语音」；设置 UI 显示「已配置 / 未配置」
 - 验证：tsc 通过、APK 已重建
 
 - 验证：tsc 通过、APK 已重建

@@ -3,7 +3,8 @@ import { useRipple } from '../../lib/ripple';
 import { IS_MOBILE, IS_CAPACITOR } from '../../lib/platform';
 import { AudioRecorder } from '../../lib/recorder';
 import { isSpeechAvailable, ensureRecordPermission, startSpeechRecognition, stopSpeechRecognition, cancelSpeechRecognition } from '../../lib/speech-recognition';
-import { transcribeWithSiliconFlow, getCloudAsrKey } from '../../lib/cloud-asr';
+import { loadSecret } from '../../lib/api-key-storage';
+import { transcribeWithSiliconFlow, CLOUD_ASR_KEY_NAME } from '../../lib/cloud-asr';
 
 export interface ChatInputHandle {
   focus: () => void;
@@ -168,10 +169,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     setRecState('converting');
     const [result, sysText] = await Promise.all([r?.stop() ?? Promise.resolve(null), stopSpeechRecognition()]);
-    // 系统识别无结果 → 尝试云端识别（内置默认 Key 开箱即用；OPPO 等无系统引擎的手机自动走云端）
+    // 系统识别无结果 → 尝试云端识别（需用户在「⋯ 设置」配置 SiliconFlow Key；OPPO 等无系统引擎手机的备用通道）
     let text = sysText;
     if (result && !text) {
-      const key = await getCloudAsrKey();
+      const key = await loadSecret(CLOUD_ASR_KEY_NAME);
       if (key) {
         try {
           text = await transcribeWithSiliconFlow(result.dataUrl, key);
@@ -183,12 +184,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     setRecState('idle');
     setLevel(0);
     if (!result || !text) {
-      // 区分：录音失败 / 没听清 / 云端也不可用
+      // 区分：录音失败 / 没听清 / 设备没有识别引擎（有 key 云端也失败时提示重试）
       let msg = '没听清，请再说一次';
       if (!result) msg = '录音失败';
       else if (!text) {
         const avail = await isSpeechAvailable();
-        msg = avail ? '没听清，请再说一次' : '语音识别失败（云端不可用），请重试或用键盘输入';
+        if (!avail) msg = '手机无系统语音识别：在「⋯ 设置」填云端识别 Key 后可发语音';
+        else msg = '没听清，请再说一次';
       }
       showToast(msg, 2600);
       return;

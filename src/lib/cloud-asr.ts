@@ -14,20 +14,6 @@ const ASR_TIMEOUT_MS = 30_000;
 /** 云端识别密钥在设备加密存储中的名字（ChatInput / 设置共用） */
 export const CLOUD_ASR_KEY_NAME = 'siliconflow-asr';
 
-/**
- * 内置默认 Key（用户授权内置，免费模型）：
- * - 随 App 分发，开箱即用（无系统识别引擎的手机无需配置即可发语音）
- * - ⚠️ 会随公开仓库/APK 分发，若被他人滥用可能耗尽免费额度；用户可在设置里填自己的 Key 覆盖
- */
-export const DEFAULT_CLOUD_ASR_KEY = 'sk-fddmyuionznklppzjkcdcjhyslpvblzwmtkoqumamaooaqzi';
-
-/** 取云端识别 Key：用户配置优先，否则用内置默认 */
-export async function getCloudAsrKey(): Promise<string | null> {
-  const { loadSecret } = await import('./api-key-storage');
-  const user = await loadSecret(CLOUD_ASR_KEY_NAME);
-  return user || DEFAULT_CLOUD_ASR_KEY;
-}
-
 /** webm/opus → 16kHz 单声道 PCM16 WAV（纯 Web 实现） */
 async function webmToWav16k(dataUrl: string): Promise<ArrayBuffer> {
   const audioCtx = new AudioContext();
