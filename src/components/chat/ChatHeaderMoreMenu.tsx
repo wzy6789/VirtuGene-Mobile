@@ -184,18 +184,18 @@ function TtsSettings({ onBack, character }: { onBack: () => void; character?: Ch
       </button>
       <p className="text-[10px] text-gray-500">默认音色为 Edge 微软声线（男声云扬 / 女声晓晓），失败才用系统语音兜底。</p>
 
-      {/* 云端识别（无系统语音识别引擎的手机的备用通道） */}
+      {/* 云端识别（无系统语音识别引擎的手机的备用通道；默认已内置免费 Key） */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-xs text-ink">云端识别</span>
-          {hasAsrKey && <span className="text-[10px] text-life-cyan">已配置</span>}
+          <span className="text-[10px] text-life-cyan">{hasAsrKey ? '已配置自定义' : '默认已启用'}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <input
             type="password"
             value={asrKey}
             onChange={(e) => setAsrKey(e.target.value)}
-            placeholder="sk-…（硅基流动，选填）"
+            placeholder="sk-…（选填，覆盖默认）"
             autoComplete="off"
             className="flex-1 min-w-0 bg-surface border border-line-strong rounded-lg px-2.5 py-1.5 text-xs text-ink placeholder-gray-500 outline-none focus:border-gene-purple transition-colors"
           />
@@ -224,8 +224,8 @@ function TtsSettings({ onBack, character }: { onBack: () => void; character?: Ch
           )}
         </div>
         <p className="text-[10px] text-gray-500 leading-relaxed mt-1">
-          部分手机（如 OPPO/ColorOS）没有系统语音识别，填此 Key 后按住说话会自动用云端转文字（免费）。
-          获取：注册 cloud.siliconflow.cn → 创建密钥。Key 设备加密保存，不落明文。
+          无系统语音识别的手机（如 OPPO/ColorOS）按住说话会自动用云端转文字。默认内置免费 Key 开箱即用；
+          也可注册 cloud.siliconflow.cn 填自己的 Key 覆盖。Key 设备加密保存，不落明文。
         </p>
       </div>
     </div>
