@@ -488,7 +488,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         }        // 微信式：发送失败 → 消息标记为失败态，显示红色感叹号可点击重发
         await messageRepo.markFailed(userMsg.id, true);
         updateMessage(userMsg.id, { failed: true });
-      } else if (result.content) {
+      } else if (result.content?.trim()) {
         // Split multi-message responses on "---"，逐条延迟发出，模拟真人打字
         const parts = result.content.split('---').map((p: string) => p.trim()).filter((p: string) => p.length > 0);
         for (let i = 0; i < parts.length; i++) {
@@ -530,6 +530,13 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
 
         // 长会话滚动摘要（后台静默执行）
         void maybeSummarize(sessionId);
+      } else {
+        // 兜底：无错误但也没有内容（异常空回复）→ 不静默，标记失败让用户可重发
+        if (stillCurrent()) {
+          setError('server:error');
+        }
+        await messageRepo.markFailed(userMsg.id, true);
+        updateMessage(userMsg.id, { failed: true });
       }
     } catch {
       if (stillCurrent()) {

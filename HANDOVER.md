@@ -594,3 +594,8 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 版本保持 3.0.0（未重新发布）
 
 **补充（2026-08-27 用户细化提醒时机）**：降级提醒**只在发图片的那一轮**出现（`result.degraded && image` 才置提示）；后续文字轮次即使视觉降级也不提醒，直到下一次发图失败再提醒。
+
+**「发图后不回复」bug 修复（2026-08-27）**：
+- 根因 1：视觉降级只处理"抛错"，但 **vision-exp 偶发返回 200 + 空 content**（不抛错）→ 不降级、空回复直达
+- 根因 2：ChatWindow `if (error){} else if (content){}` —— content 为空时**两个分支都不进** → 用户消息已上屏、AI 不回复、不报错 → 静默"不回复"
+- 修复：① deepseek.ts 视觉结果 **content 为空也走降级**（文本模型重试），降级仍空 → 抛 server:error；② ChatWindow `else if (content?.trim())` + **else 兜底分支**：无错误且无内容 → 标记失败（红感叹号可重发），任何异常不再静默

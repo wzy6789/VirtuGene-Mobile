@@ -169,17 +169,20 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
     return doSend(params, false);
   }
 
-  // 视觉请求：失败（服务端错误/超时等）→ 自动降级为文本模型 + 图片占位重试一次，
+  // 视觉请求：失败（抛错 或 返回空内容）→ 自动降级为文本模型 + 图片占位重试一次，
   // 保证对话不中断；降级成功时标记 degraded 供 UI 提醒用户
   try {
-    return await doSend(params, true);
+    const r = await doSend(params, true);
+    if (r.content.trim()) return r;
+    // 视觉模型返回空内容（实验模型偶发）→ 同样视为失败，走降级
   } catch (err) {
     if (!isDegradable(err)) throw err;
-    try {
-      const degraded = await doSend(params, false);
-      return { ...degraded, degraded: true };
-    } catch {
-      throw err; // 降级也失败 → 抛原错误，由上层提示"基因中断"
-    }
+  }
+  try {
+    const degraded = await doSend(params, false);
+    if (!degraded.content.trim()) throw new Error('server:error'); // 降级也空 → 交给上层报错，不静默
+    return { ...degraded, degraded: true };
+  } catch {
+    throw new Error('server:error'); // 降级失败 → 上层提示"基因中断"
   }
 }
