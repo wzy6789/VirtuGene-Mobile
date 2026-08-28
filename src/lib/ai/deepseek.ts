@@ -83,6 +83,31 @@ const VISION_TIMEOUT_MS = 120_000;
 const TEXT_TIMEOUT_MS = 60_000;
 /** 最近 N 条消息内出现过图片 → 保持视觉模型（约 4 轮对话），之后自动切回文本模型 */
 const VISION_CONTEXT_MESSAGES = 8;
+/** 历史消息最多携带的图片数（防请求体过大导致超时失败；更早的图片降级为"[图片]"占位） */
+const MAX_HISTORY_IMAGES = 2;
+/** 图片 dataURL 长度上限（base64，约 1.8MB 原始图；异常超长视为坏图，跳过避免拖垮请求） */
+const MAX_IMAGE_DATAURL_LEN = 2_500_000;
+
+/** 图片是否可用（格式正确且体积正常） */
+function isValidImage(image?: string): boolean {
+  if (!image) return false;
+  if (!image.startsWith('data:image/')) return false;
+  if (image.length > MAX_IMAGE_DATAURL_LEN) return false;
+  return true;
+}
+
+/** 历史图片瘦身 + 坏图防御：只保留最近 MAX_HISTORY_IMAGES 张合法图片，其余降级为占位 */
+function trimHistoryImages(history: ChatHistoryItem[]): ChatHistoryItem[] {
+  const imgIdx = history
+    .map((h, i) => (isValidImage(h.image) ? i : -1))
+    .filter((i) => i >= 0);
+  if (imgIdx.length <= MAX_HISTORY_IMAGES) {
+    // 即使数量没超，也要清掉非法图片
+    return history.map((h) => (h.image && !isValidImage(h.image) ? { ...h, image: undefined } : h));
+  }
+  const keep = new Set(imgIdx.slice(-MAX_HISTORY_IMAGES));
+  return history.map((h, i) => (h.image && !keep.has(i) ? { ...h, image: undefined } : h));
+}
 
 /** 单条消息内容：有图 → OpenAI 兼容块数组（text + image_url dataURL），无图 → 纯文本 */
 function toContentBlock(text: string, image?: string): string | Array<Record<string, unknown>> {
@@ -168,25 +193,30 @@ function isDegradable(err: unknown): boolean {
 }
 
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
+  // 历史图片瘦身 + 坏图防御（只带最近 2 张合法图；更早/异常图降级为占位，防请求体过大超时失败）
+  const history = trimHistoryImages(params.history);
+  // 当前消息图片：非法则视为无图（不触发视觉）
+  const image = isValidImage(params.image) ? params.image : undefined;
+
   // 是否需要视觉模型：当前带图，或最近几轮内有图
-  const recent = params.history.slice(-VISION_CONTEXT_MESSAGES);
-  const hasImageContext = !!params.image || recent.some((h) => !!h.image);
+  const recent = history.slice(-VISION_CONTEXT_MESSAGES);
+  const hasImageContext = !!image || recent.some((h) => !!h.image);
 
   if (!hasImageContext) {
-    return doSend(params, false);
+    return doSend({ ...params, history, image }, false);
   }
 
   // 视觉请求：失败（抛错 或 返回空内容）→ 自动降级为文本模型 + 图片占位重试一次，
   // 保证对话不中断；降级成功时标记 degraded 供 UI 提醒用户
   try {
-    const r = await doSend(params, true);
+    const r = await doSend({ ...params, history, image }, true);
     if (r.content.trim()) return r;
     // 视觉模型返回空内容（实验模型偶发）→ 同样视为失败，走降级
   } catch (err) {
     if (!isDegradable(err)) throw err;
   }
   try {
-    const degraded = await doSend(params, false);
+    const degraded = await doSend({ ...params, history, image }, false);
     if (!degraded.content.trim()) throw new Error('server:error'); // 降级也空 → 交给上层报错，不静默
     return { ...degraded, degraded: true };
   } catch {
