@@ -133,6 +133,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<ChatError>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  /** 图片识别失败自动降级为文字模式时的提示 */
+  const [degradeNotice, setDegradeNotice] = useState(false);
   /** TTS 朗读（用户主动点击才发声；Edge-TTS 直连，失败自动回退系统语音） */
   const { speakingKey, busyKey, speak, stop } = useTTS();
   const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
@@ -355,6 +357,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     const sessionId = userMsg.sessionId;
     if (!character || !apiKey) return;
 
+    // 新一轮发送开始：清掉上次的降级提示（若本次又降级会重新出现）
+    setDegradeNotice(false);
+
     // 重发场景：先清除失败标记
     if (userMsg.failed) {
       await messageRepo.markFailed(userMsg.id, false);
@@ -442,7 +447,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     // 发送期间用户可能已切走：错误横幅只显示在仍处于该会话时
     const stillCurrent = () => useChatStore.getState().currentSessionId === sessionId;
     try {
-      let result: { content?: string; error?: string; truncated?: boolean } = { error: 'server:error' };
+      let result: { content?: string; error?: string; truncated?: boolean; degraded?: boolean } = { error: 'server:error' };
       let retryHint: string | undefined;
       let retries = 0;
       const MAX_RETRIES = 2;
@@ -466,6 +471,11 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         retryHint = check.retryHint;
       }
 
+      // 图片识别失败自动降级为文字模式 → 提示用户
+      if (result.degraded) {
+        setDegradeNotice(true);
+      }
+
       // 保证「对方正在输入…」至少展示约 0.7s，避免秒回一闪而过
       const elapsed = Date.now() - startedAt;
       if (elapsed < 700) {
@@ -475,8 +485,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       if (result.error) {
         if (stillCurrent()) {
           setError(result.error as ChatError);
-        }
-        // 微信式：发送失败 → 消息标记为失败态，显示红色感叹号可点击重发
+        }        // 微信式：发送失败 → 消息标记为失败态，显示红色感叹号可点击重发
         await messageRepo.markFailed(userMsg.id, true);
         updateMessage(userMsg.id, { failed: true });
       } else if (result.content) {
@@ -713,6 +722,19 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       </div>
 
       <BalanceBanner error={error} />
+
+      {/* 图片识别失败自动降级提示 */}
+      {degradeNotice && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-t border-amber-500/30 animate-fade-in">
+          <span className="text-xs text-amber-600 dark:text-amber-400 flex-1">图片识别失败，已自动切换为文字模式继续对话</span>
+          <button
+            onClick={() => setDegradeNotice(false)}
+            className="text-[11px] text-amber-500 hover:text-amber-700 shrink-0"
+          >
+            知道了
+          </button>
+        </div>
+      )}
 
       {/* Reply banner */}
       {replyingTo && (

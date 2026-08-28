@@ -581,3 +581,14 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 
 - 验证：tsc 通过、APK 已重建（git `d1107f9`）
 - 版本保持 3.0.0（未重新发布）
+
+## 四十、本会话已完成（2026-08-27 AI 对话鲁棒性：视觉失败自动降级 + 降级提醒）
+
+**用户要求**：万一基因中断就自动跳回不识图模型；**降级时要提醒用户**；效能优化（瘦身/低精度）不做，不降体验。
+
+**实现**（`src/lib/ai/deepseek.ts` 重构）：
+- `sendMessage` 拆出 `doSend(params, useVision)`；带图上下文时先走视觉模型，**失败（server:error/timeout，鉴权/额度/限流不降级）→ 自动用文本模型 + 图片降级为"[图片]"占位重试一次** → 对话不中断；降级成功返回 `degraded: true`
+- `ChatResult.degraded` → web-api / vite-env 类型透传 → `ChatWindow` 在 `performSend` 重试循环后若 `result.degraded` 置 `degradeNotice`，输入区上方显示**琥珀色横幅**「图片识别失败，已自动切换为文字模式继续对话」+「知道了」关闭；新一轮发送自动清除旧提示
+- 效能优化按用户要求**不做**：历史图片全量保留、原图精度，不降用户体验
+- 验证：tsc 通过、APK 已重建
+- 版本保持 3.0.0（未重新发布）

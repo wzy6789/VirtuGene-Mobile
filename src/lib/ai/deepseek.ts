@@ -69,6 +69,8 @@ export interface ChatResult {
   content: string;
   /** 是否因超出 max_tokens 被截断（前端据此补「…」） */
   truncated?: boolean;
+  /** 视觉请求失败后自动降级为文本模型重试（图片→占位文字）；为 true 表示本次发生了降级，UI 应提示用户 */
+  degraded?: boolean;
 }
 
 /** 视觉模型（支持图片，按文本价计费） */
@@ -87,16 +89,11 @@ function toContentBlock(text: string, image?: string): string | Array<Record<str
   ];
 }
 
-export async function sendMessage(params: ChatParams): Promise<ChatResult> {
+/** 按给定模式发送一次请求；useVision=false 时历史/当前图片降级为纯文本占位（文本模型不支持图片，防 400） */
+async function doSend(params: ChatParams, useVision: boolean): Promise<ChatResult> {
   const { apiKey, systemPrompt, message, history, retryHint, temperature, image } = params;
-
-  // 模型切换：当前带图，或最近几轮内有图 → 视觉模型（AI 持续看图理解）；否则老文本模型
-  const recent = history.slice(-VISION_CONTEXT_MESSAGES);
-  const useVision = !!image || recent.some((h) => !!h.image);
   const model = useVision ? VISION_MODEL : TEXT_MODEL;
 
-  // 文本模型不支持图片（会 400 "This model does not support image"）：
-  // 切回文本模型时，历史中的图片消息必须降级为纯文本占位，否则请求报错 → 基因中断
   const buildContent = (text: string, img?: string) => {
     if (img && useVision) return toContentBlock(text, img);
     if (img) return text || '[图片]';
@@ -154,5 +151,35 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
     if (isTimeoutError(err)) throw new Error('timeout');
     if (err instanceof Error) throw err;
     throw new Error('server:error');
+  }
+}
+
+/** 可降级的错误：鉴权/额度/限流降级无意义，不降；服务端错误/超时降级重试 */
+function isDegradable(err: unknown): boolean {
+  const msg = (err as Error)?.message;
+  return msg === 'server:error' || msg === 'timeout';
+}
+
+export async function sendMessage(params: ChatParams): Promise<ChatResult> {
+  // 是否需要视觉模型：当前带图，或最近几轮内有图
+  const recent = params.history.slice(-VISION_CONTEXT_MESSAGES);
+  const hasImageContext = !!params.image || recent.some((h) => !!h.image);
+
+  if (!hasImageContext) {
+    return doSend(params, false);
+  }
+
+  // 视觉请求：失败（服务端错误/超时等）→ 自动降级为文本模型 + 图片占位重试一次，
+  // 保证对话不中断；降级成功时标记 degraded 供 UI 提醒用户
+  try {
+    return await doSend(params, true);
+  } catch (err) {
+    if (!isDegradable(err)) throw err;
+    try {
+      const degraded = await doSend(params, false);
+      return { ...degraded, degraded: true };
+    } catch {
+      throw err; // 降级也失败 → 抛原错误，由上层提示"基因中断"
+    }
   }
 }

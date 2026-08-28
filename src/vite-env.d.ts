@@ -24,7 +24,7 @@ interface VirtuGeneAPI {
       history: { role: 'user' | 'assistant'; content: string; image?: string }[];
       retryHint?: string;
       temperature?: number;
-    }) => Promise<{ content?: string; error?: string; truncated?: boolean }>;
+    }) => Promise<{ content?: string; error?: string; truncated?: boolean; degraded?: boolean }>;
   };
   shell: {
     open: (url: string) => Promise<boolean>;
