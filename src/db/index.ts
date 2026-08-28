@@ -62,10 +62,25 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   unreadCount: number;
+  /** 会话类型：单聊（默认）/ 群聊 */
+  type?: 'single' | 'group';
+  /** 群聊时关联的群 id（type=group 时必有） */
+  groupId?: string;
   /** 长会话滚动摘要（早期对话的压缩文本，超出保留窗口后生成） */
   summary?: string;
   /** 摘要覆盖到的时间点（早于该时间戳的消息均已纳入摘要） */
   summaryUpdatedAt?: number;
+}
+
+/** 角色群（微信式群聊）：用户 + 多个角色 */
+export interface Group {
+  id: string;
+  userId: string;
+  name: string;
+  /** 群成员角色 id 列表（2~5 个） */
+  characterIds: string[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface Message {
@@ -75,6 +90,8 @@ export interface Message {
   content: string;
   createdAt: number;
   isProactive: boolean;
+  /** 群聊中该条消息的发言人角色 id（单聊为空；role=assistant 时用于区分是谁说的） */
+  senderId?: string;
   /** 图片消息（压缩后的 dataURL）；有值且 content 为空时气泡只显示图片 */
   image?: string;
   /** 语音消息（微信式）：录音音频 dataURL（webm/opus）+ 时长秒 + 转文字（AI 通过 text 理解内容） */
@@ -153,6 +170,7 @@ export class VirtuGeneDB extends Dexie {
   emotionSnapshots!: Table<EmotionSnapshot, string>;
   characterStates!: Table<CharacterState, [string, string]>;
   diaries!: Table<Diary, string>;
+  groups!: Table<Group, string>;
 
   constructor() {
     super('virtugene');
@@ -294,6 +312,22 @@ export class VirtuGeneDB extends Dexie {
       emotionSnapshots: 'id,sessionId,characterId,createdAt',
       characterStates: '[characterId+userId]',
       diaries: 'id,userId,date,[userId+date]',
+    });
+    // v14: 角色群聊（groups 表；Session 增加 type/groupId，Message 增加 senderId）
+    this.version(14).stores({
+      users: 'id,username',
+      characters: 'id,isPreset,published,createdBy',
+      sessions: 'id,characterId,userId,[characterId+userId],updatedAt,groupId',
+      messages: 'id,sessionId,[sessionId+createdAt]',
+      memories: 'id,characterId,userId,createdAt',
+      emotionSnapshots: 'id,sessionId,characterId,createdAt',
+      characterStates: '[characterId+userId]',
+      diaries: 'id,userId,date,[userId+date]',
+      groups: 'id,userId',
+    }).upgrade(async (tx) => {
+      await tx.table('sessions').toCollection().modify((s) => {
+        s.type = s.type ?? 'single';
+      });
     });
   }
 }

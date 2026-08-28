@@ -673,3 +673,23 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - AI 幻觉替别人说话：speaker 硬校验
 - 与单聊耦合：群聊独立 store 逻辑（group-store 或 chat-store 分叉），禁止破坏现有单聊管线
 - 生成失败：重试一次 → 提示（不静默，复用失败标记机制）
+
+## 四十三、3.1.0 开发进行中（2026-08-28 第一批已落地并提交）
+
+**① 多模型支持（已实现，提交 `fdf2a66`）**：
+- `src/lib/ai/llm.ts`：统一 LLM 客户端——Provider 注册表（DeepSeek `api.deepseek.com/v1` / 千问 `dashscope.aliyuncs.com/compatible-mode/v1` / 小米 MiMo `api.xiaomimimo.com/v1`）+ `llmChat`（OpenAI 兼容；DeepSeek 思考按场景：视觉轮 disabled/文字轮 enabled；MiMo 思考默认开不传温度；Qwen 传温度）
+- `deepseek.ts` 改造为编排层：`resolveModel(character)` 解析模型（角色指定 > 全局默认 > flash），图片瘦身/降级/视觉切换保留，key 按 provider 获取（deepseek=账号 key，qwen/mimo=设备加密 persistSecret 'qwen-key'/'mimo-key'）
+- `settings-store` 加 `defaultModel`；`Character.model`（角色指定模型）
+- 设置「对话模型」区（`ModelSection.tsx`）：qwen/mimo Key 配置 + 测试连接 + 默认模型选择（未配 Key 的模型禁用）
+- 角色资料卡「对话模型」选择（自有角色；`CharacterProfileModal`）
+- 模型清单：deepseek-v4-flash / deepseek-v4-pro / deepseek-v4-flash-vision-exp（视觉）/ qwen3.7-plus / mimo-v2.5
+- ⚠️ 待真机验证：qwen/mimo key 连通性（用户已有 key）、MiMo 思考参数行为
+
+**② 角色群聊 v1（已实现，提交中）**：
+- DB v14：`groups` 表 + `Session.type/groupId` + `Message.senderId`
+- `db/group-repo.ts`；`src/lib/ai/group-chat.ts`：AI 输出 speaker 序列（1~3 条可接话，speaker 硬校验 ∈ 成员，非流式，全局默认模型）
+- `store/group-store.ts`：loadGroups/createGroup/selectGroup/sendGroupMessage（生成群回复序列落库，失败提示不静默）/updateGroup/removeMember/deleteGroup
+- `components/chat/GroupChatPage.tsx`：群列表 + 发起群聊（选 2~5 角色 + 群名）+ 群聊窗口（成员头像组、消息带发言人名字头像、🔊 按发言人声线朗读、正在输入、错误条）+ 群设置（改名/加人/踢人/解散）
+- 入口：角色页「角色群聊」卡片（`MobileCharacterPage`）
+- 未做（P1）：群聊图片/语音、群成员主动开口、群未读红点、群聊记忆
+- ⚠️ 待真机验证：群消息生成效果（AI 是否按人设接话）、🔊 发言人声线
