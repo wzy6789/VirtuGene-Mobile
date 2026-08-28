@@ -471,8 +471,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         retryHint = check.retryHint;
       }
 
-      // 图片识别失败自动降级为文字模式 → 提示用户
-      if (result.degraded) {
+      // 图片识别失败自动降级 → 只在「发图片的那一轮」提醒用户，后续文字轮次不打扰
+      if (result.degraded && image) {
         setDegradeNotice(true);
       }
 
