@@ -77,6 +77,10 @@ export interface ChatResult {
 const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
 /** 文本模型（老模型，日常对话） */
 const TEXT_MODEL = 'deepseek-v4-flash';
+/** 视觉请求超时（图片处理慢 + 大请求体上传，比文本放宽一倍，减少误判超时降级） */
+const VISION_TIMEOUT_MS = 120_000;
+/** 文本请求超时 */
+const TEXT_TIMEOUT_MS = 60_000;
 /** 最近 N 条消息内出现过图片 → 保持视觉模型（约 4 轮对话），之后自动切回文本模型 */
 const VISION_CONTEXT_MESSAGES = 8;
 
@@ -126,7 +130,7 @@ async function doSend(params: ChatParams, useVision: boolean): Promise<ChatResul
           temperature: temperature ?? 0.8,
         }),
       },
-      60_000,
+      useVision ? VISION_TIMEOUT_MS : TEXT_TIMEOUT_MS,
     );
 
     if (response.ok) {
