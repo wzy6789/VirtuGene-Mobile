@@ -601,9 +601,9 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 根因 2：ChatWindow `if (error){} else if (content){}` —— content 为空时**两个分支都不进** → 用户消息已上屏、AI 不回复、不报错 → 静默"不回复"
 - 修复：① deepseek.ts 视觉结果 **content 为空也走降级**（文本模型重试），降级仍空 → 抛 server:error；② ChatWindow `else if (content?.trim())` + **else 兜底分支**：无错误且无内容 → 标记失败（红感叹号可重发），任何异常不再静默
 
-**视觉提速（2026-08-27 用户要求减少 think 时间）**：
+**视觉提速（2026-08-27 用户要求减少 think 时间，2026-08-28 用户修正范围）**：
 - **发现根因**：DeepSeek V4 **思考模式默认开启且 effort=high**（官方文档）——模型回答前先输出思维链（reasoning_content），所有请求（含图片识别）都在"思考"，拖慢响应；部分模型必须显式传 thinking 参数否则 400
-- 修复：请求体加 `thinking: { type: 'disabled' }`（官方 OpenAI 兼容参数）→ **关闭思考模式，直接出结果**，对话与图片识别响应速度大幅提升
+- **最终策略（用户拍板 2026-08-28）**：`thinking` 按场景区分——**纯文字对话 → `{type:'enabled'}`（保持思考，质量优先）**；**视觉请求（发图/看图轮）→ `{type:'disabled'}`（识图更快）**
 - 视觉请求超时放宽 60s→120s（图片处理慢 + 大请求体，减少误判超时降级）
 - 可选未做（用户此前否决降体验项）：图片 detail:low（512×512 更快更省 token）——需要时再开
 

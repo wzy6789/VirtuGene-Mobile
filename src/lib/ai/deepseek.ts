@@ -153,9 +153,10 @@ async function doSend(params: ChatParams, useVision: boolean): Promise<ChatResul
           messages,
           max_tokens: 1000,
           temperature: temperature ?? 0.8,
-          // 关闭思考模式（DeepSeek V4 思考默认开启且 effort=high，会在回答前输出思维链，
-          // 拖慢响应；短信聊天/看图场景直接出结果更快。官方文档：thinking: {type: disabled}）
-          thinking: { type: 'disabled' },
+          // 思考模式按场景区分（用户拍板）：
+          // - 视觉请求（发图/看图轮）→ 关闭思考，识图更快（thinking: disabled）
+          // - 纯文字对话 → 保持思考模式（默认开启），回复质量优先
+          thinking: useVision ? { type: 'disabled' } : { type: 'enabled' },
         }),
       },
       useVision ? VISION_TIMEOUT_MS : TEXT_TIMEOUT_MS,
