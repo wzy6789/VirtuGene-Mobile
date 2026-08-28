@@ -605,3 +605,11 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 修复：请求体加 `thinking: { type: 'disabled' }`（官方 OpenAI 兼容参数）→ **关闭思考模式，直接出结果**，对话与图片识别响应速度大幅提升
 - 视觉请求超时放宽 60s→120s（图片处理慢 + 大请求体，减少误判超时降级）
 - 可选未做（用户此前否决降体验项）：图片 detail:low（512×512 更快更省 token）——需要时再开
+
+## 四十一、v3.0.1 已发布（2026-08-28）
+
+- **版本升级 3.0.0 → 3.0.1**：package.json、build.gradle（versionCode 7 / versionName 3.0.1）、changelog.ts（3.0.1 条目）
+- **代码已推送**：git commit `32c9ad0` → main
+- **Release 已发布**：https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v3.0.1（APK 4.7MB，API 验证）
+- 3.0.1 内容：识图稳定提速（关闭思考模式 `thinking:{type:'disabled'}`、视觉超时 120s、**历史图片只带最近 2 张 `MAX_HISTORY_IMAGES=2` + 坏图防御 `isValidImage`**、空 content 也降级不静默、ChatWindow 无内容兜底标失败）+ 键盘黑条修复（nav max-h-0）+ 模型切换 400 修复
+- 手机端「我的 → 版本 → 检查更新」即可下载 v3.0.1
