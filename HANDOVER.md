@@ -652,6 +652,22 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 2. 生成模式 **一轮 1~3 条、可互相接话**（AI 输出 speaker 序列）
 3. **图片群聊放 P1**（3.1.0 只做文字 + 语音转文字）
 
+### 七、补充：多模型支持（用户追加 2026-08-28，3.1.0 前置功能）
+- **目标**：加入其他 AI 的 API 入口，用户可选对话模型。已确认支持 **千问 Qwen + 小米 MiMo**（用户指定；DeepSeek 已有）
+- **服务商端点（OpenAI 兼容，已查证）**：
+  - DeepSeek：`https://api.deepseek.com/v1`（已有）
+  - 千问 Qwen：`https://dashscope.aliyuncs.com/compatible-mode/v1`（阿里云百炼 OpenAI 兼容）
+  - 小米 MiMo：`https://api.xiaomimimo.com/v1`（官方 OpenAI 兼容，Bearer 鉴权；**mimo-v2.5 支持图像/音频输入**）
+- **架构**：`deepseek.ts` 泛化为统一 LLM 客户端（`src/lib/ai/llm.ts`），按 provider 组装请求；模型清单/端点/能力（是否支持图片、思考开关、temperature）注册表管理
+- **设置**：「我的 → 设置 → 对话模型」：各服务商填 Key（设备加密存储 persistSecret）+ 测试连接；选默认对话模型（下拉，仅列已配置 Key 的服务）
+- **关键适配**：DeepSeek 显式关思考（thinking disabled，已有）；**MiMo 思考默认开启、不支持自定义 temperature/top_p**（请求体不传）；图片：DeepSeek vision-exp 与 MiMo v2.5 支持，所选模型不支持图片时自动降级"[图片]"占位
+- **待用户确认**：千问模型名（qwen3.7-plus？用户写"qwen 2.7plus"）、MiMo 模型名（mimo-v2.5）、选择作用范围（全局默认 or 每角色单独，P1）
+
+**多模型决策已确认（2026-08-28 用户拍板）**：
+1. 千问模型 **qwen3.7-plus**；小米 MiMo 模型 **mimo-v2.5**（支持图像输入）
+2. 选择作用范围：**每个角色可单独指定模型**（Character 加 `model?: { provider; model }`；全局默认兜底；单聊用角色指定模型，群聊生成用所选模型，成员各自模型 P1）
+3. 用户**已有阿里云百炼 + 小米开放平台 key**（填进设置即可用）
+
 ### 六、风险与控制
 - 上下文膨胀：成员人设精简（每人 ≤80 字）+ 历史限最近 20 条；成员 ≤5
 - AI 幻觉替别人说话：speaker 硬校验
