@@ -461,6 +461,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           history,
           retryHint,
           temperature,
+          character,
         });
 
         if (result.error || !result.content) break;

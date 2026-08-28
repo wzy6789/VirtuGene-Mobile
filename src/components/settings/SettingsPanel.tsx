@@ -15,6 +15,7 @@ import { CLOUD_ASR_KEY_NAME } from '../../lib/cloud-asr';
 import { SyncSection } from './SyncSection';
 import { BackupSection } from './BackupSection';
 import { ChangePasswordSection } from './ChangePasswordSection';
+import { ModelSection } from './ModelSection';
 import { IS_ELECTRON, IS_MOBILE } from '../../lib/platform';
 
 interface SettingsPanelProps {
@@ -317,6 +318,9 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               </div>
             </div>
           )}
+
+          {/* 对话模型（手机端：多服务商 Key + 默认模型选择） */}
+          {IS_MOBILE && <ModelSection />}
 
           {/* 局域网同步：手机端作为客户端直连桌面端同步服务 */}
           {IS_MOBILE && <SyncSection />}

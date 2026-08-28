@@ -36,6 +36,8 @@ export interface Character {
   chatListHidden?: boolean;
   /** 声线（AI 判定，Edge-TTS 音色 + 语速/音调；与桌面版同构，备份互通） */
   voice?: { voice: string; band?: 'male-deep' | 'male-mature' | 'male-young' | 'female-soft' | 'female-bright' | 'female-clear'; sid?: number; rate: string; pitch: string };
+  /** 角色指定对话模型（不设则用全局默认；如 { provider: 'qwen', model: 'qwen3.7-plus' }） */
+  model?: { provider: string; model: string };
 }
 
 export interface RelationMilestone {

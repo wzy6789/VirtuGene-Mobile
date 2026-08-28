@@ -1,5 +1,6 @@
 import { fetchWithTimeout, isTimeoutError } from './http';
 import { stripRoleplayActions } from './text';
+import { resolveModel, getProviderKey, findModel, llmChat, type LLMModel } from './llm';
 
 const MESSAGING_INSTRUCTION =
   '这是手机短信聊天。像发微信一样说话，注意以下规则：\n' +
@@ -57,12 +58,14 @@ export interface ChatParams {
   systemPrompt: string;
   message: string;
   history: ChatHistoryItem[];
-  /** 当前消息附带的图片（压缩后 dataURL；有值则本条请求走视觉模型） */
+  /** 当前消息附带的图片（压缩后 dataURL；有值且模型支持视觉时以图片块发送） */
   image?: string;
   /** 回复自检未通过时的修正提示（重试时附加到 system 侧，引导模型修正） */
   retryHint?: string;
   /** 采样温度：按角色主动倾向微调（高冷低、活泼高），缺省 0.8 */
   temperature?: number;
+  /** 当前角色（用于解析角色指定模型；不传则用全局默认） */
+  character?: { model?: { provider: string; model: string } } | null;
 }
 
 export interface ChatResult {
@@ -73,14 +76,6 @@ export interface ChatResult {
   degraded?: boolean;
 }
 
-/** 视觉模型（支持图片，按文本价计费） */
-const VISION_MODEL = 'deepseek-v4-flash-vision-exp';
-/** 文本模型（老模型，日常对话） */
-const TEXT_MODEL = 'deepseek-v4-flash';
-/** 视觉请求超时（图片处理慢 + 大请求体上传，比文本放宽一倍，减少误判超时降级） */
-const VISION_TIMEOUT_MS = 120_000;
-/** 文本请求超时 */
-const TEXT_TIMEOUT_MS = 60_000;
 /** 最近 N 条消息内出现过图片 → 保持视觉模型（约 4 轮对话），之后自动切回文本模型 */
 const VISION_CONTEXT_MESSAGES = 8;
 /** 历史消息最多携带的图片数（防请求体过大导致超时失败；更早的图片降级为"[图片]"占位） */
@@ -118,10 +113,9 @@ function toContentBlock(text: string, image?: string): string | Array<Record<str
   ];
 }
 
-/** 按给定模式发送一次请求；useVision=false 时历史/当前图片降级为纯文本占位（文本模型不支持图片，防 400） */
-async function doSend(params: ChatParams, useVision: boolean): Promise<ChatResult> {
-  const { apiKey, systemPrompt, message, history, retryHint, temperature, image } = params;
-  const model = useVision ? VISION_MODEL : TEXT_MODEL;
+/** 按给定模型发送一次请求；useVision=true 时图片以块发送（仅视觉模型），否则图片降级为占位 */
+async function doSend(params: ChatParams, model: LLMModel, useVision: boolean): Promise<ChatResult> {
+  const { systemPrompt, message, history, retryHint, temperature, image, apiKey } = params;
 
   const buildContent = (text: string, img?: string) => {
     if (img && useVision) return toContentBlock(text, img);
@@ -139,52 +133,20 @@ async function doSend(params: ChatParams, useVision: boolean): Promise<ChatResul
     { role: 'user', content: buildContent(message, image) },
   ];
 
-  try {
-    const response = await fetchWithTimeout(
-      'https://api.deepseek.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          messages,
-          max_tokens: 1000,
-          temperature: temperature ?? 0.8,
-          // 思考模式按场景区分（用户拍板）：
-          // - 视觉请求（发图/看图轮）→ 关闭思考，识图更快（thinking: disabled）
-          // - 纯文字对话 → 保持思考模式（默认开启），回复质量优先
-          thinking: useVision ? { type: 'disabled' } : { type: 'enabled' },
-        }),
-      },
-      useVision ? VISION_TIMEOUT_MS : TEXT_TIMEOUT_MS,
-    );
+  // key：deepseek 用登录账号 key；qwen/mimo 用设备加密存储的 key
+  const key = model.provider === 'deepseek' ? apiKey : await getProviderKey(model.provider);
+  if (!key) throw new Error('auth:invalid_key');
 
-    if (response.ok) {
-      const data = await response.json();
-      const choice = data.choices?.[0];
-      const content: string = choice?.message?.content ?? '';
-      const truncated = choice?.finish_reason === 'length';
-      return { content: stripRoleplayActions(content), truncated };
-    }
-
-    if (response.status === 401) {
-      throw new Error('auth:invalid_key');
-    }
-    if (response.status === 402) {
-      throw new Error('billing:insufficient');
-    }
-    if (response.status === 429) {
-      throw new Error('rate:limited');
-    }
-    throw new Error('server:error');
-  } catch (err) {
-    if (isTimeoutError(err)) throw new Error('timeout');
-    if (err instanceof Error) throw err;
-    throw new Error('server:error');
-  }
+  const res = await llmChat({
+    provider: model.provider,
+    model: model.id,
+    apiKey: key,
+    messages,
+    temperature,
+    visionRequest: useVision,
+    timeoutMs: useVision ? 120_000 : 60_000,
+  });
+  return { content: stripRoleplayActions(res.content), truncated: res.truncated };
 }
 
 /** 可降级的错误：鉴权/额度/限流降级无意义，不降；服务端错误/超时降级重试 */
@@ -194,33 +156,35 @@ function isDegradable(err: unknown): boolean {
 }
 
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
-  // 历史图片瘦身 + 坏图防御（只带最近 2 张合法图；更早/异常图降级为占位，防请求体过大超时失败）
+  // 解析实际模型：角色指定 > 全局默认 > deepseek-v4-flash
+  const model = resolveModel(params.character);
+  const visionModel = model.vision === true; // 第一版仅 deepseek 视觉模型启用图片
+
+  // 历史图片瘦身 + 坏图防御
   const history = trimHistoryImages(params.history);
-  // 当前消息图片：非法则视为无图（不触发视觉）
   const image = isValidImage(params.image) ? params.image : undefined;
 
-  // 是否需要视觉模型：当前带图，或最近几轮内有图
+  // 视觉切换：模型支持视觉 且（当前带图 或 最近几轮内有图）
   const recent = history.slice(-VISION_CONTEXT_MESSAGES);
-  const hasImageContext = !!image || recent.some((h) => !!h.image);
+  const useVision = visionModel && (!!image || recent.some((h) => !!h.image));
 
-  if (!hasImageContext) {
-    return doSend({ ...params, history, image }, false);
+  if (!useVision) {
+    return doSend(params, model, false);
   }
 
-  // 视觉请求：失败（抛错 或 返回空内容）→ 自动降级为文本模型 + 图片占位重试一次，
-  // 保证对话不中断；降级成功时标记 degraded 供 UI 提醒用户
+  // 视觉请求（deepseek vision）：失败（抛错 或 返回空内容）→ 自动降级为文本模型重试一次
   try {
-    const r = await doSend({ ...params, history, image }, true);
+    const r = await doSend(params, model, true);
     if (r.content.trim()) return r;
-    // 视觉模型返回空内容（实验模型偶发）→ 同样视为失败，走降级
   } catch (err) {
     if (!isDegradable(err)) throw err;
   }
+  const fallback = findModel('deepseek-v4-flash')!;
   try {
-    const degraded = await doSend({ ...params, history, image }, false);
-    if (!degraded.content.trim()) throw new Error('server:error'); // 降级也空 → 交给上层报错，不静默
+    const degraded = await doSend(params, fallback, false);
+    if (!degraded.content.trim()) throw new Error('server:error');
     return { ...degraded, degraded: true };
   } catch {
-    throw new Error('server:error'); // 降级失败 → 上层提示"基因中断"
+    throw new Error('server:error');
   }
 }
