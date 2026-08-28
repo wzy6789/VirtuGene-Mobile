@@ -193,10 +193,13 @@ export function MobileLayout() {
           </div>
         </main>
 
-        {/* 底部导航（含手势安全区）；键盘弹出时隐藏，避免被顶到输入框上面 */}
+        {/* 底部导航（含手势安全区）；键盘弹出时折叠为 0 高度（不占位），
+            输入框直接贴住消息区——避免留出导航高度的深色空隙 */}
         <nav
-          className={`shrink-0 flex items-stretch border-t border-line bg-glass/85 backdrop-blur-xl pb-[env(safe-area-inset-bottom)] transition-transform duration-300 ${
-            keyboardOpen ? 'translate-y-full' : 'translate-y-0'
+          className={`shrink-0 overflow-hidden transition-[max-height] duration-300 ${
+            keyboardOpen
+              ? 'max-h-0 !border-t-0'
+              : 'max-h-24 flex items-stretch border-t border-line bg-glass/85 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]'
           }`}
         >
           {(

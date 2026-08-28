@@ -90,20 +90,28 @@ function toContentBlock(text: string, image?: string): string | Array<Record<str
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const { apiKey, systemPrompt, message, history, retryHint, temperature, image } = params;
 
+  // 模型切换：当前带图，或最近几轮内有图 → 视觉模型（AI 持续看图理解）；否则老文本模型
+  const recent = history.slice(-VISION_CONTEXT_MESSAGES);
+  const useVision = !!image || recent.some((h) => !!h.image);
+  const model = useVision ? VISION_MODEL : TEXT_MODEL;
+
+  // 文本模型不支持图片（会 400 "This model does not support image"）：
+  // 切回文本模型时，历史中的图片消息必须降级为纯文本占位，否则请求报错 → 基因中断
+  const buildContent = (text: string, img?: string) => {
+    if (img && useVision) return toContentBlock(text, img);
+    if (img) return text || '[图片]';
+    return text;
+  };
+
   const messages = [
     {
       role: 'system',
       content:
         systemPrompt + '\n\n' + MESSAGING_INSTRUCTION + (retryHint ? `\n\n${retryHint}` : ''),
     },
-    ...history.slice(-20).map((h) => ({ role: h.role, content: toContentBlock(h.content, h.image) })),
-    { role: 'user', content: toContentBlock(message, image) },
+    ...history.slice(-20).map((h) => ({ role: h.role, content: buildContent(h.content, h.image) })),
+    { role: 'user', content: buildContent(message, image) },
   ];
-
-  // 模型切换：当前带图，或最近几轮内有图 → 视觉模型（AI 持续看图理解）；否则老文本模型
-  const recent = history.slice(-VISION_CONTEXT_MESSAGES);
-  const useVision = !!image || recent.some((h) => !!h.image);
-  const model = useVision ? VISION_MODEL : TEXT_MODEL;
 
   try {
     const response = await fetchWithTimeout(
