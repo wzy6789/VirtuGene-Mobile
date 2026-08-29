@@ -57,4 +57,8 @@ export const messageRepo = {
   async markFailed(id: string, failed = true): Promise<number> {
     return db.messages.update(id, { failed });
   },
+
+  async update(id: string, patch: Partial<Message>): Promise<number> {
+    return db.messages.update(id, patch);
+  },
 };

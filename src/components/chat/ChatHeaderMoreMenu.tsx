@@ -54,6 +54,8 @@ function TtsSettings({
   const setTtsSpeed = useSettingsStore((s) => s.setTtsSpeed);
   const ttsEngine = useSettingsStore((s) => s.ttsEngine);
   const setTtsEngine = useSettingsStore((s) => s.setTtsEngine);
+  const aiVoiceMode = useSettingsStore((s) => s.aiVoiceMode);
+  const setAiVoiceMode = useSettingsStore((s) => s.setAiVoiceMode);
   const [demoBusy, setDemoBusy] = useState(false);
 
   /** 角色性别（由 AI 分配时判定的 band 决定） */
@@ -155,6 +157,18 @@ function TtsSettings({
           className={`relative w-11 h-6 rounded-full transition-colors ${ttsEnabled ? 'bg-gene-purple' : 'bg-gray-300'}`}
         >
           <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${ttsEnabled ? 'left-[22px]' : 'left-0.5'}`} />
+        </button>
+      </div>
+
+      {/* AI 语音消息模式（AI 回复自动合成语音，显示为语音气泡） */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-ink">AI 语音消息</span>
+        <button
+          onClick={() => setAiVoiceMode(!aiVoiceMode)}
+          title={aiVoiceMode ? '已开启' : '已关闭'}
+          className={`relative w-11 h-6 rounded-full transition-colors ${aiVoiceMode ? 'bg-gene-purple' : 'bg-gray-300'}`}
+        >
+          <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${aiVoiceMode ? 'left-[22px]' : 'left-0.5'}`} />
         </button>
       </div>
       <p className="text-[10px] text-gray-500 leading-relaxed">

@@ -62,6 +62,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const setTtsSpeed = useSettingsStore((s) => s.setTtsSpeed);
   const ttsEngine = useSettingsStore((s) => s.ttsEngine);
   const setTtsEngine = useSettingsStore((s) => s.setTtsEngine);
+  const aiVoiceMode = useSettingsStore((s) => s.aiVoiceMode);
+  const setAiVoiceMode = useSettingsStore((s) => s.setAiVoiceMode);
   const [asrKey, setAsrKey] = useState('');
   const [hasAsrKey, setHasAsrKey] = useState(false);
 
@@ -255,6 +257,17 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                     className={`relative w-11 h-6 rounded-full transition-colors ${ttsEnabled ? 'bg-gene-purple' : 'bg-gray-300'}`}
                   >
                     <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${ttsEnabled ? 'left-[22px]' : 'left-0.5'}`} />
+                  </button>
+                </label>
+                {/* AI 语音消息（AI 回复自动合成语音，显示为语音气泡） */}
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-gray-500">AI 语音消息（回复自动合成语音）</span>
+                  <button
+                    onClick={() => setAiVoiceMode(!aiVoiceMode)}
+                    title={aiVoiceMode ? '已开启' : '已关闭'}
+                    className={`relative w-11 h-6 rounded-full transition-colors ${aiVoiceMode ? 'bg-gene-purple' : 'bg-gray-300'}`}
+                  >
+                    <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${aiVoiceMode ? 'left-[22px]' : 'left-0.5'}`} />
                   </button>
                 </label>
                 {/* 朗读语速 */}

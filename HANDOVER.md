@@ -724,3 +724,11 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - **试听也按引擎**：聊天 ⋯ 设置里的「试听默认音色」现在跟随朗读引擎（MiMo → Edge → 系统），切 MiMo 后试听能直接听 MiMo 音色
 - **模型选择只问一次**：`Session.modelAsked` 标记——选了具体模型、选了"使用全局默认"、甚至关闭弹窗，都不再重复弹出（之前选"默认"会每次进聊天都弹）
 - ⚠️ 若修复后 MiMo 仍无声/还是 Edge 声：可能是请求格式问题（官方 chat 接口与第三方 audio/speech 接口实现差异），需真机看 MiMo 失败时的具体报错
+
+**⑦ AI 语音消息模式（2026-08-28 用户拍板：点击播放 / 语音气泡+文字可展开 / 先单聊）**：
+- `settings-store` 加 `aiVoiceMode`（默认关）；`tts.ts` 抽出 `synthesizeSpeech`（按引擎 MiMo→Edge 合成，不播放）+ `audioBufToDataUrl` + `audioDurationSec`
+- `ChatWindow`：AI 回复落库后若开启语音模式且角色有声线 → **后台合成语音**（跟随朗读引擎 + 角色声线）→ `messageRepo.update` 写 `Message.audio` + 内存 `updateMessage` 刷新气泡；合成失败保持文字
+- `MessageBubble`：AI 消息有 audio → 显示语音气泡（波形+时长+点击播放），**文字收成「转文字」可展开**（微信式）；用户语音消息文字照常显示
+- 开关 UI：**聊天右上角 ⋯ → 设置**（用户指定位置）+ 我的 → 设置 → 语音，均有「AI 语音消息」开关
+- 不做：自动连播（守铁律）、群聊语音化（P1）
+- ⚠️ 合成时机：每条 AI 回复后台合成一次（Edge 免费 / MiMo 限时免费）；合成完成前消息先显示文字

@@ -26,6 +26,9 @@ interface SettingsState {
   /** 朗读引擎：edge（默认，免费稳定）/ mimo（需 MiMo key，效果更好，限时免费） */
   ttsEngine: 'edge' | 'mimo';
   setTtsEngine: (engine: 'edge' | 'mimo') => void;
+  /** AI 语音消息模式：开启后 AI 回复自动合成语音，消息显示为语音气泡（点击播放，文字可展开） */
+  aiVoiceMode: boolean;
+  setAiVoiceMode: (enabled: boolean) => void;
   /** 默认对话模型（角色未单独指定时使用；null = deepseek-v4-flash） */
   defaultModel: { provider: string; model: string } | null;
   setDefaultModel: (model: { provider: string; model: string } | null) => void;
@@ -50,6 +53,8 @@ export const useSettingsStore = create<SettingsState>()(
       setTtsSpeed: (ttsSpeed) => set({ ttsSpeed }),
       ttsEngine: 'edge',
       setTtsEngine: (ttsEngine) => set({ ttsEngine }),
+      aiVoiceMode: false,
+      setAiVoiceMode: (aiVoiceMode) => set({ aiVoiceMode }),
       defaultModel: null,
       setDefaultModel: (defaultModel) => set({ defaultModel }),
     }),

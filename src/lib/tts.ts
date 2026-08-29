@@ -4,6 +4,56 @@ import { mimoTTSSynthesize, mapEdgeVoiceToMimo } from './mimo-tts';
 import { useSettingsStore } from '../store/settings-store';
 
 /**
+ * 合成语音（不播放）：按引擎 MiMo → Edge 返回音频 ArrayBuffer。
+ * 供 🔊 朗读与「AI 语音消息模式」后台合成共用。
+ * @throws 引擎全部失败时抛错
+ */
+export async function synthesizeSpeech(text: string, voice: string, rate?: string, pitch?: string): Promise<ArrayBuffer> {
+  if (useSettingsStore.getState().ttsEngine === 'mimo') {
+    try {
+      return await mimoTTSSynthesize(text, { voice: mapEdgeVoiceToMimo(voice) });
+    } catch {
+      /* MiMo 失败 → Edge 兜底 */
+    }
+  }
+  const audio = await edgeTTSSynthesize(text, { voice, rate: rate ?? '+0%', pitch: pitch ?? '+0Hz' });
+  if (audio.byteLength === 0) throw new Error('empty audio');
+  return audio;
+}
+
+/** 音频 ArrayBuffer → base64 dataURL（语音消息存储用） */
+export async function audioBufToDataUrl(buf: ArrayBuffer, mime = 'audio/mpeg'): Promise<string> {
+  const blob = new Blob([buf], { type: mime });
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** 解码音频获取时长（秒）；失败返回 0 */
+export async function audioDurationSec(dataUrl: string): Promise<number> {
+  try {
+    const ctx = new AudioContext();
+    try {
+      const resp = await fetch(dataUrl);
+      const buf = await resp.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(buf);
+      return Math.max(1, Math.round(decoded.duration));
+    } finally {
+      try {
+        void ctx.close();
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * TTS 播放控制（手机版）：用户主动点击才发声，绝不自动朗读。
  * 主实现：Edge-TTS 直连（WebSocket，微软神经网络音色，与桌面同款声线）
  * 兜底：Edge 失败（断网/接口变动/服务端拒绝）→ 回退系统语音（speechSynthesis）
@@ -117,20 +167,9 @@ export function useTTS() {
       setBusyKey(key);
       try {
         // 引擎选择：MiMo（设置开启且成功）→ Edge → 系统语音兜底
-        let audio: ArrayBuffer | null = null;
-        if (useSettingsStore.getState().ttsEngine === 'mimo') {
-          try {
-            audio = await mimoTTSSynthesize(text, { voice: mapEdgeVoiceToMimo(voice) });
-          } catch {
-            audio = null; // MiMo 失败（无 key/接口问题）→ Edge 兜底
-          }
-        }
-        if (!audio) {
-          audio = await edgeTTSSynthesize(text, { voice, rate: rate ?? '+0%', pitch: pitch ?? '+0Hz' });
-        }
+        const audio = await synthesizeSpeech(text, voice, rate, pitch);
         // 合成期间用户已切到别的句/退出 → 丢弃过期结果
         if (pendingKeyRef.current !== key) return;
-        if (audio.byteLength === 0) throw new Error('empty audio');
         pendingKeyRef.current = null;
         setBusyKey(null);
         playAudio(key, audio);

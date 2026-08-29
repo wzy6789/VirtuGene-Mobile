@@ -24,7 +24,7 @@ import { checkReplyQuality } from '../../lib/reply-quality';
 import { DIARY_MOODS } from '../../lib/diary-utils';
 import { useNotificationStore } from '../../store/notification-store';
 import { useUIStore } from '../../store/ui-store';
-import { useTTS } from '../../lib/tts';
+import { useTTS, synthesizeSpeech, audioBufToDataUrl, audioDurationSec } from '../../lib/tts';
 import { DEFAULT_VOICE, ALL_VOICES } from '../../lib/voice-map';
 import { resolveModel, findModel } from '../../lib/ai/llm';
 import { ModelPickModal } from './ModelPickModal';
@@ -578,6 +578,23 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           };
           await messageRepo.create(aiMsg);
           addMessage(aiMsg);
+          // AI 语音消息模式：后台合成语音 → 消息显示为语音气泡（点击播放；失败保持文字）
+          if (useSettingsStore.getState().aiVoiceMode && character?.voice) {
+            const msgId = aiMsg.id;
+            const v = character.voice;
+            void (async () => {
+              try {
+                const buf = await synthesizeSpeech(content, v.voice, v.rate, v.pitch);
+                const dataUrl = await audioBufToDataUrl(buf);
+                const duration = await audioDurationSec(dataUrl);
+                const audio = { dataUrl, duration, text: content };
+                await messageRepo.update(msgId, { audio });
+                useChatStore.getState().updateMessage(msgId, { audio });
+              } catch {
+                /* 合成失败保持文字展示 */
+              }
+            })();
+          }
           if (!isLast) {
             await new Promise((r) => setTimeout(r, PART_DELAY_MS));
           }

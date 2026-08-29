@@ -89,6 +89,8 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [voicePlaying, setVoicePlaying] = useState(false);
+  /** AI 语音消息：转文字是否展开 */
+  const [showTranscript, setShowTranscript] = useState(false);
 
   useEffect(() => {
     if (!menu) return;
@@ -193,11 +195,26 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                 <WaveBars seed={message.id} active={voicePlaying} />
                 <span className="text-xs tabular-nums shrink-0">{message.audio.duration}″</span>
               </div>
-              {message.audio.text && (
-                <p className={`mt-1 text-xs leading-relaxed ${isUser ? 'text-white/80' : 'text-gray-500'}`}>
-                  {message.audio.text}
-                </p>
-              )}
+              {message.audio.text &&
+                (isUser ? (
+                  <p className="mt-1 text-xs leading-relaxed text-white/80">{message.audio.text}</p>
+                ) : (
+                  /* AI 语音消息：文字收起，点击「转文字」展开（微信式） */
+                  <div className="mt-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowTranscript((v) => !v);
+                      }}
+                      className="text-[10px] text-gray-400 hover:text-ink transition-colors"
+                    >
+                      {showTranscript ? '收起文字' : '转文字'}
+                    </button>
+                    {showTranscript && (
+                      <p className="mt-0.5 text-xs leading-relaxed text-gray-500">{message.audio.text}</p>
+                    )}
+                  </div>
+                ))}
             </div>
           ) : (
             message.content
