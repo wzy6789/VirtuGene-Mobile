@@ -20,7 +20,12 @@ async function webmToWav16k(dataUrl: string): Promise<ArrayBuffer> {
   try {
     const resp = await fetch(dataUrl);
     const arrayBuf = await resp.arrayBuffer();
-    const decoded = await audioCtx.decodeAudioData(arrayBuf);
+    let decoded: AudioBuffer;
+    try {
+      decoded = await audioCtx.decodeAudioData(arrayBuf);
+    } catch {
+      throw new Error('音频解码失败（录音可能异常）');
+    }
     const src = decoded.getChannelData(0); // 单声道化（取左声道）
     const targetRate = 16000;
     const duration = decoded.duration || (src.length / (decoded.sampleRate || 48000));

@@ -177,12 +177,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     const [result, sysText] = await Promise.all([r?.stop() ?? Promise.resolve(null), stopSpeechRecognition()]);
     // 系统识别无结果 → 尝试云端识别（「我的 → 设置 → 语音」填了 SiliconFlow Key 时）
     const cloudKey = await loadSecret(CLOUD_ASR_KEY_NAME);
+    let cloudErr = '';
     let text = sysText;
     if (result && !text && cloudKey) {
       try {
         text = await transcribeWithSiliconFlow(result.dataUrl, cloudKey);
-      } catch {
-        /* 云端失败：落入下方精确提示 */
+      } catch (err) {
+        cloudErr = (err as Error)?.message ?? '';
       }
     }
     setRecState('idle');
@@ -196,13 +197,13 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         const avail = await isSpeechAvailable();
         if (avail) {
           msg = '没听清，请再说一次';
+        } else if (cloudKey) {
+          msg = cloudErr ? `语音识别失败（云端）：${cloudErr.slice(0, 80)}` : '语音识别失败（云端），请重试或在「我的 → API Key → 硅基」检查 Key';
         } else {
-          msg = cloudKey
-            ? '语音识别失败（云端），请重试或在「我的 → API Key → 硅基」检查 Key'
-            : '手机无系统语音识别：在「我的 → 设置 → 语音」填云端识别 Key 后可发语音';
+          msg = '手机无系统语音识别：在「我的 → 设置 → 语音」填云端识别 Key 后可发语音';
         }
       }
-      showToast(msg, 3000);
+      showToast(msg, 3200);
       return;
     }
     onSendVoice?.({ dataUrl: result.dataUrl, duration: result.durationSec, text });
