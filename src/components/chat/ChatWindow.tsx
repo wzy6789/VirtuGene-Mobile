@@ -455,6 +455,21 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     // 长会话滚动摘要：早期对话压缩，角色不用逐条回忆
     const sessionData = await sessionRepo.getById(sessionId);
     const sessionModel = sessionData?.model ?? null;
+    // 临时视觉窗口：发图且所选模型不支持视觉 → 用 DeepSeek 视觉模型兜底识图，
+    // 发图轮 + 之后 1 轮（共 2 轮）后自动换回原模型
+    let forceVision = false;
+    let tempRounds = sessionData?.tempVisionRounds ?? 0;
+    const currentModel = resolveModel(character, sessionData?.model ?? null);
+    if (image && currentModel.vision !== true) {
+      tempRounds = 1;
+      forceVision = true;
+    } else if (tempRounds > 0) {
+      forceVision = true;
+      tempRounds -= 1;
+    }
+    if ((sessionData?.tempVisionRounds ?? 0) !== tempRounds) {
+      await sessionRepo.update(sessionId, { tempVisionRounds: tempRounds });
+    }
     const summaryContext = sessionData?.summary
       ? `\n\n[早前对话摘要（更早的内容已压缩，不必逐条回忆，若与当前话题相关可自然提及）]\n${sessionData.summary}`
       : '';
@@ -495,6 +510,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           temperature,
           character,
           sessionModel,
+          forceVision,
         });
 
         if (result.error || !result.content) break;

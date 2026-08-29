@@ -68,6 +68,8 @@ export interface ChatParams {
   character?: { model?: { provider: string; model: string } } | null;
   /** 会话锁定的模型（首次进入聊天时选定，优先级最高，聊天中不可改） */
   sessionModel?: { provider: string; model: string } | null;
+  /** 临时视觉窗口（发图后几轮内强制用视觉模型识图，之后换回原模型） */
+  forceVision?: boolean;
 }
 
 export interface ChatResult {
@@ -174,9 +176,13 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const history = trimHistoryImages(params.history);
   const image = isValidImage(params.image) ? params.image : undefined;
 
-  // 视觉切换：模型支持视觉 且（当前带图 或 最近几轮内有图）
+  // 需要看图：当前带图 或 最近几轮内有图 或 临时视觉窗口（forceVision）
   const recent = history.slice(-VISION_CONTEXT_MESSAGES);
-  const useVision = model.vision === true && (!!image || recent.some((h) => !!h.image));
+  const needVision = !!image || recent.some((h) => !!h.image) || params.forceVision === true;
+
+  // 实际使用模型：需要看图但所选模型不支持视觉 → 用 DeepSeek 视觉模型兜底识图（两轮后由会话层换回原模型）
+  const usedModel = needVision && model.vision !== true ? findModel('deepseek-v4-flash-vision-exp')! : model;
+  const useVision = needVision;
 
   /** 兜底模型：deepseek-v4-flash（随账号必有 key、稳定便宜）——每种模型都有兜底 */
   const fallback = findModel('deepseek-v4-flash')!;
@@ -193,7 +199,7 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
     }
   };
 
-  const r = await attempt(model, useVision);
+  const r = await attempt(usedModel, useVision);
   if (r) return r;
 
   // 模型兜底：所选模型失败/空内容 → 自动切 deepseek-v4-flash 重试一次（对话不中断）

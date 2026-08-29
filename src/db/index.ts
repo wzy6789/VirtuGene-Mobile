@@ -70,6 +70,8 @@ export interface Session {
   model?: { provider: string; model: string };
   /** 该会话累计的 API 消耗（token 用量 + 预估费用，仅本会话统计） */
   cost?: { calls: number; inputTokens: number; outputTokens: number; cost: number };
+  /** 临时视觉窗口剩余轮数：发图且所选模型不支持视觉时用 DeepSeek 视觉模型兜底，几轮后自动换回原模型 */
+  tempVisionRounds?: number;
   /** 长会话滚动摘要（早期对话的压缩文本，超出保留窗口后生成） */
   summary?: string;
   /** 摘要覆盖到的时间点（早于该时间戳的消息均已纳入摘要） */

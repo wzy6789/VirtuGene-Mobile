@@ -26,6 +26,7 @@ interface VirtuGeneAPI {
       temperature?: number;
       character?: { model?: { provider: string; model: string } } | null;
       sessionModel?: { provider: string; model: string } | null;
+      forceVision?: boolean;
     }) => Promise<{
       content?: string;
       error?: string;
