@@ -203,7 +203,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                     <polygon points="6 3 20 12 6 21 6 3" />
                   </svg>
                   <WaveBars seed={message.id} active={false} />
-                  <span className="text-xs">语音合成中…</span>
+                  <span className="text-xs">语音发送中…</span>
                 </div>
               )}
               {message.audio.text &&
