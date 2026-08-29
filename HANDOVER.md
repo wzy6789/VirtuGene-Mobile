@@ -708,3 +708,12 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - **模型兜底（每种模型都有）**：所选模型请求失败/空内容（server:error/timeout）→ **统一兜底 deepseek-v4-flash**（随账号必有 key、稳定便宜）重试一次，`degraded: true`；横幅提示分场景——发图轮「图片识别失败…」，文字轮「对话模型不可用，已自动切换为兜底模型…」；鉴权/额度/限流不兜底
 - **模型使用 bug 审查结论**：① MiMo 思考默认开、不传 temperature/top_p ✓；② Qwen 传 temperature ✓；③ max_tokens 三家通用（MiMo 若要求 max_completion_tokens 需测试连接验证）；④ resolveModel 优先级会话>角色>默认 ✓；⑤ 兜底统一 flash ✓；⑥ qwen3.7-plus 模型名待用户测试连接确认（dashscope 上实际名可能不同，测试会暴露）
 - ⚠️ 待真机验证：各服务商测试连接、费用统计数值、模型兜底切换提示
+
+**⑤ 发图视觉兜底 + MiMo TTS 引擎切换（2026-08-28 用户拍板，第四批）**：
+- **发图视觉兜底**：所选模型不支持视觉（qwen/mimo 等）→ 发图自动用 DeepSeek 视觉模型识图；`Session.tempVisionRounds` 临时视觉窗口（发图轮 + 之后 1 轮，共 2 轮）后自动换回原模型；`ChatParams.forceVision` 传递（提交 `4e48a23`）
+- **MiMo TTS（P0 引擎切换，用户拍板）**：
+  - 查证：MiMo 官方 TTS（`api.xiaomimimo.com/v1/chat/completions` + `audio` 参数，同一 MiMo key，**限时免费**）；模型 `mimo-v2.5-tts`（预置音色：mimo_default/冰糖/茉莉/苏打/白桦/Mia/Chloe/Milo/Dean）；还有 voiceclone（声音克隆）/voicedesign（音色设计）留 P2
+  - `src/lib/mimo-tts.ts`：`mimoTTSSynthesize`（chat 接口带 audio 参数，解析 base64 音频）+ `mapEdgeVoiceToMimo`（女→茉莉、男→Dean，v1 简化映射）
+  - `settings-store` 加 `ttsEngine: 'edge' | 'mimo'`（默认 edge）；`tts.ts` speak 按引擎：MiMo → Edge → 系统 三级兜底
+  - UI：我的 → 设置 → 语音 + 聊天 ⋯ → 设置 均有「朗读引擎」切换
+  - ⚠️ 待真机验证：MiMo TTS 响应格式（audio 字段解析）、音色效果、无 key/失败时回退链

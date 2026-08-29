@@ -51,6 +51,8 @@ function TtsSettings({
   const setTtsEnabled = useSettingsStore((s) => s.setTtsEnabled);
   const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
   const setTtsSpeed = useSettingsStore((s) => s.setTtsSpeed);
+  const ttsEngine = useSettingsStore((s) => s.ttsEngine);
+  const setTtsEngine = useSettingsStore((s) => s.setTtsEngine);
   const [demoBusy, setDemoBusy] = useState(false);
 
   /** 角色性别（由 AI 分配时判定的 band 决定） */
@@ -157,6 +159,22 @@ function TtsSettings({
               key={v}
               onClick={() => setTtsSpeed(Number(v))}
               className={`px-3 py-1.5 text-xs transition-colors ${ttsSpeed === Number(v) ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-500 hover:text-ink'}`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 朗读引擎 */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-ink">朗读引擎</span>
+        <div className="flex rounded-lg border border-line overflow-hidden">
+          {[['edge', 'Edge'], ['mimo', 'MiMo']].map(([v, l]) => (
+            <button
+              key={v}
+              onClick={() => setTtsEngine(v as 'edge' | 'mimo')}
+              className={`px-3 py-1.5 text-xs transition-colors ${ttsEngine === v ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-500 hover:text-ink'}`}
             >
               {l}
             </button>

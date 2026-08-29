@@ -60,6 +60,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const setTtsEnabled = useSettingsStore((s) => s.setTtsEnabled);
   const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
   const setTtsSpeed = useSettingsStore((s) => s.setTtsSpeed);
+  const ttsEngine = useSettingsStore((s) => s.ttsEngine);
+  const setTtsEngine = useSettingsStore((s) => s.setTtsEngine);
   const [asrKey, setAsrKey] = useState('');
   const [hasAsrKey, setHasAsrKey] = useState(false);
 
@@ -270,6 +272,24 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                     ))}
                   </div>
                 </div>
+                {/* 朗读引擎 */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-500">朗读引擎</span>
+                  <div className="flex rounded-lg border border-line overflow-hidden">
+                    {[['edge', 'Edge'], ['mimo', 'MiMo']].map(([v, l]) => (
+                      <button
+                        key={v}
+                        onClick={() => setTtsEngine(v as 'edge' | 'mimo')}
+                        className={`px-3 py-1.5 text-xs transition-colors ${ttsEngine === v ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-500 hover:text-ink'}`}
+                      >
+                        {l}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[10px] text-gray-500 leading-relaxed -mt-1">
+                  MiMo 需配置 MiMo API Key（我的 → API Key）；未配或失败自动回退 Edge → 系统语音。
+                </p>
                 {/* 云端识别 Key（语音转文字备用通道） */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">

@@ -23,6 +23,9 @@ interface SettingsState {
   /** 朗读语速倍率（0.8 慢 / 1.0 标准 / 1.2 快），叠加到角色声线语速上 */
   ttsSpeed: number;
   setTtsSpeed: (speed: number) => void;
+  /** 朗读引擎：edge（默认，免费稳定）/ mimo（需 MiMo key，效果更好，限时免费） */
+  ttsEngine: 'edge' | 'mimo';
+  setTtsEngine: (engine: 'edge' | 'mimo') => void;
   /** 默认对话模型（角色未单独指定时使用；null = deepseek-v4-flash） */
   defaultModel: { provider: string; model: string } | null;
   setDefaultModel: (model: { provider: string; model: string } | null) => void;
@@ -45,6 +48,8 @@ export const useSettingsStore = create<SettingsState>()(
       setTtsEnabled: (ttsEnabled) => set({ ttsEnabled }),
       ttsSpeed: 1.0,
       setTtsSpeed: (ttsSpeed) => set({ ttsSpeed }),
+      ttsEngine: 'edge',
+      setTtsEngine: (ttsEngine) => set({ ttsEngine }),
       defaultModel: null,
       setDefaultModel: (defaultModel) => set({ defaultModel }),
     }),

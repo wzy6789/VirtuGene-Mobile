@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { edgeTTSSynthesize } from './edge-tts';
+import { mimoTTSSynthesize, mapEdgeVoiceToMimo } from './mimo-tts';
+import { useSettingsStore } from '../store/settings-store';
 
 /**
  * TTS 播放控制（手机版）：用户主动点击才发声，绝不自动朗读。
@@ -114,7 +116,18 @@ export function useTTS() {
       pendingKeyRef.current = key;
       setBusyKey(key);
       try {
-        const audio = await edgeTTSSynthesize(text, { voice, rate: rate ?? '+0%', pitch: pitch ?? '+0Hz' });
+        // 引擎选择：MiMo（设置开启且成功）→ Edge → 系统语音兜底
+        let audio: ArrayBuffer | null = null;
+        if (useSettingsStore.getState().ttsEngine === 'mimo') {
+          try {
+            audio = await mimoTTSSynthesize(text, { voice: mapEdgeVoiceToMimo(voice) });
+          } catch {
+            audio = null; // MiMo 失败（无 key/接口问题）→ Edge 兜底
+          }
+        }
+        if (!audio) {
+          audio = await edgeTTSSynthesize(text, { voice, rate: rate ?? '+0%', pitch: pitch ?? '+0Hz' });
+        }
         // 合成期间用户已切到别的句/退出 → 丢弃过期结果
         if (pendingKeyRef.current !== key) return;
         if (audio.byteLength === 0) throw new Error('empty audio');
