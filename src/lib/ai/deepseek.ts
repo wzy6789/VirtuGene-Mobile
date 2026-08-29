@@ -74,8 +74,12 @@ export interface ChatResult {
   content: string;
   /** 是否因超出 max_tokens 被截断（前端据此补「…」） */
   truncated?: boolean;
-  /** 视觉请求失败后自动降级为文本模型重试（图片→占位文字）；为 true 表示本次发生了降级，UI 应提示用户 */
+  /** 本次发生了兜底切换（视觉降级 / 模型兜底），UI 应提示用户 */
   degraded?: boolean;
+  /** token 用量（服务商返回；用于费用统计） */
+  usage?: { inputTokens: number; outputTokens: number };
+  /** 实际使用的模型 id（兜底后可能与所选模型不同） */
+  modelId?: string;
 }
 
 /** 最近 N 条消息内出现过图片 → 保持视觉模型（约 4 轮对话），之后自动切回文本模型 */
@@ -148,7 +152,12 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean): 
     visionRequest: useVision,
     timeoutMs: useVision ? 120_000 : 60_000,
   });
-  return { content: stripRoleplayActions(res.content), truncated: res.truncated };
+  return {
+    content: stripRoleplayActions(res.content),
+    truncated: res.truncated,
+    usage: res.usage,
+    modelId: model.id,
+  };
 }
 
 /** 可降级的错误：鉴权/额度/限流降级无意义，不降；服务端错误/超时降级重试 */
@@ -158,9 +167,8 @@ function isDegradable(err: unknown): boolean {
 }
 
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
-  // 解析实际模型：角色指定 > 全局默认 > deepseek-v4-flash
+  // 解析实际模型：会话锁定 > 角色指定 > 全局默认 > deepseek-v4-flash
   const model = resolveModel(params.character, params.sessionModel);
-  const visionModel = model.vision === true; // 第一版仅 deepseek 视觉模型启用图片
 
   // 历史图片瘦身 + 坏图防御
   const history = trimHistoryImages(params.history);
@@ -168,25 +176,28 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
 
   // 视觉切换：模型支持视觉 且（当前带图 或 最近几轮内有图）
   const recent = history.slice(-VISION_CONTEXT_MESSAGES);
-  const useVision = visionModel && (!!image || recent.some((h) => !!h.image));
+  const useVision = model.vision === true && (!!image || recent.some((h) => !!h.image));
 
-  if (!useVision) {
-    return doSend(params, model, false);
-  }
-
-  // 视觉请求（deepseek vision）：失败（抛错 或 返回空内容）→ 自动降级为文本模型重试一次
-  try {
-    const r = await doSend(params, model, true);
-    if (r.content.trim()) return r;
-  } catch (err) {
-    if (!isDegradable(err)) throw err;
-  }
+  /** 兜底模型：deepseek-v4-flash（随账号必有 key、稳定便宜）——每种模型都有兜底 */
   const fallback = findModel('deepseek-v4-flash')!;
-  try {
-    const degraded = await doSend(params, fallback, false);
-    if (!degraded.content.trim()) throw new Error('server:error');
-    return { ...degraded, degraded: true };
-  } catch {
-    throw new Error('server:error');
-  }
+
+  /** 尝试一次请求：失败（抛错）或空内容 → 返回 null 交给兜底 */
+  const attempt = async (m: LLMModel, vision: boolean): Promise<ChatResult | null> => {
+    try {
+      const r = await doSend({ ...params, history, image }, m, vision);
+      if (r.content.trim()) return r;
+      return null;
+    } catch (err) {
+      if (!isDegradable(err)) throw err; // 鉴权/额度/限流不兜底
+      return null;
+    }
+  };
+
+  const r = await attempt(model, useVision);
+  if (r) return r;
+
+  // 模型兜底：所选模型失败/空内容 → 自动切 deepseek-v4-flash 重试一次（对话不中断）
+  const fb = await attempt(fallback, false);
+  if (fb) return { ...fb, degraded: true };
+  throw new Error('server:error');
 }

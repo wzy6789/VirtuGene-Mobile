@@ -36,7 +36,17 @@ function MoodGrid({ onPick, onBack }: { onPick: (mood: number) => void; onBack: 
 }
 
 /** 语音设置（参考电脑端设置面板「角色语音」）：总开关 + 语速 + 方言（用户手动选） + 试听 */
-function TtsSettings({ onBack, character }: { onBack: () => void; character?: Character }) {
+function TtsSettings({
+  onBack,
+  character,
+  modelLabel,
+  cost,
+}: {
+  onBack: () => void;
+  character?: Character;
+  modelLabel?: string;
+  cost?: { calls: number; inputTokens: number; outputTokens: number; cost: number };
+}) {
   const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
   const setTtsEnabled = useSettingsStore((s) => s.setTtsEnabled);
   const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
@@ -103,6 +113,24 @@ function TtsSettings({ onBack, character }: { onBack: () => void; character?: Ch
         <button onClick={onBack} className="text-[10px] text-gray-400 hover:text-ink transition-colors">
           ‹ 返回
         </button>
+      </div>
+
+      {/* 当前模型 + 本角色消耗统计 */}
+      <div className="rounded-lg bg-panel/60 border border-line px-3 py-2 space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-ink">对话模型</span>
+          <span className="text-[11px] text-gene-purple truncate max-w-[55%]">{modelLabel || '默认'}</span>
+        </div>
+        {cost && cost.calls > 0 ? (
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-gray-500">本角色已消耗</span>
+            <span className="text-[10px] text-gray-500">
+              {cost.calls} 次 · {(cost.inputTokens / 1000).toFixed(1)}K 入 / {(cost.outputTokens / 1000).toFixed(1)}K 出 · 约 ¥{cost.cost.toFixed(3)}
+            </span>
+          </div>
+        ) : (
+          <p className="text-[10px] text-gray-400">暂无消耗记录</p>
+        )}
       </div>
 
       {/* 语音总开关 */}
@@ -182,7 +210,15 @@ function TtsSettings({ onBack, character }: { onBack: () => void; character?: Ch
  * 聊天页顶部「⋯」更多菜单（仅手机端）：收纳 情绪图谱 + 心情打卡 + 语音设置，
  * 让聊天头部只保留角色名，微信式简洁。情绪有数据时按钮右上角显示状态小点。
  */
-export function ChatHeaderMoreMenu({ character }: { character?: Character }) {
+export function ChatHeaderMoreMenu({
+  character,
+  modelLabel,
+  cost,
+}: {
+  character?: Character;
+  modelLabel?: string;
+  cost?: { calls: number; inputTokens: number; outputTokens: number; cost: number };
+}) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<'main' | 'mood' | 'settings'>('main');
   const [done, setDone] = useState(false);
@@ -290,7 +326,7 @@ export function ChatHeaderMoreMenu({ character }: { character?: Character }) {
             ) : view === 'mood' ? (
               <MoodGrid onBack={() => setView('main')} onPick={(m) => void checkIn(m)} />
             ) : (
-              <TtsSettings onBack={() => setView('main')} character={character} />
+              <TtsSettings onBack={() => setView('main')} character={character} modelLabel={modelLabel} cost={cost} />
             )}
           </div>
         </>

@@ -53,7 +53,13 @@ export const webApi: VirtuGeneAPI = {
     send: async (params) => {
       try {
         const r = await sendMessage(params);
-        return { content: r.content, truncated: r.truncated, degraded: r.degraded };
+        return {
+          content: r.content,
+          truncated: r.truncated,
+          degraded: r.degraded,
+          usage: r.usage,
+          modelId: r.modelId,
+        };
       } catch (err) {
         return { error: toError(err) };
       }

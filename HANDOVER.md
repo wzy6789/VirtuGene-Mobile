@@ -701,3 +701,10 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - **首次进入聊天选择模型并锁定**：`Session.model`（会话级，优先级最高：会话 > 角色 > 全局默认）；新组件 `ModelPickModal.tsx`（仅列已配 Key 服务商的模型）——ChatWindow 进入单聊会话且会话无 model 时弹出，选定后 `sessionRepo.update` 锁定，聊天中不可改；`sessionRepo` 新增通用 `update`；deepseek.ts `ChatParams.sessionModel` + `resolveModel(character, sessionModel)`
 - 移除 CharacterProfileModal 的角色模型选择（统一走「首次进入弹窗 + 完整设置默认」，避免混淆）
 - ⚠️ 注意：已有会话（3.0.x 时代创建）无 model → 下次进入会弹一次选择，符合"首次进入选一次"
+
+**④ 模型透明与消耗统计 + 模型兜底（2026-08-28 用户拍板，第三批）**：
+- **右上角 ⋯ → 设置显示「对话模型 + 本角色已消耗」**：当前模型（`resolveModel`）+ 会话累计（调用次数 / 输入输出 token / 预估 ¥，`ChatHeaderMoreMenu` 新增 props，`ChatWindow.sessionMeta` 维护）
+- **费用统计**：`llm.ts` LLMModel 加 `pricing`（元/百万 token，**预估参考值，服务商价格随时会调**，DeepSeek 2026-08 已涨价且峰谷定价）；llmChat 返回 `usage`（prompt/completion tokens）→ deepseek.ts `ChatResult.usage/modelId` → web-api 透传 → ChatWindow 成功回复后累加 `Session.cost`（calls/inputTokens/outputTokens/cost）
+- **模型兜底（每种模型都有）**：所选模型请求失败/空内容（server:error/timeout）→ **统一兜底 deepseek-v4-flash**（随账号必有 key、稳定便宜）重试一次，`degraded: true`；横幅提示分场景——发图轮「图片识别失败…」，文字轮「对话模型不可用，已自动切换为兜底模型…」；鉴权/额度/限流不兜底
+- **模型使用 bug 审查结论**：① MiMo 思考默认开、不传 temperature/top_p ✓；② Qwen 传 temperature ✓；③ max_tokens 三家通用（MiMo 若要求 max_completion_tokens 需测试连接验证）；④ resolveModel 优先级会话>角色>默认 ✓；⑤ 兜底统一 flash ✓；⑥ qwen3.7-plus 模型名待用户测试连接确认（dashscope 上实际名可能不同，测试会暴露）
+- ⚠️ 待真机验证：各服务商测试连接、费用统计数值、模型兜底切换提示

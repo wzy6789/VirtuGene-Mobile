@@ -68,6 +68,8 @@ export interface Session {
   groupId?: string;
   /** 会话锁定的对话模型（首次进入聊天时选择，聊天中不可改；空则回退角色/全局默认） */
   model?: { provider: string; model: string };
+  /** 该会话累计的 API 消耗（token 用量 + 预估费用，仅本会话统计） */
+  cost?: { calls: number; inputTokens: number; outputTokens: number; cost: number };
   /** 长会话滚动摘要（早期对话的压缩文本，超出保留窗口后生成） */
   summary?: string;
   /** 摘要覆盖到的时间点（早于该时间戳的消息均已纳入摘要） */

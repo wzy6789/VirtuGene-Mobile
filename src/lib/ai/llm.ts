@@ -21,6 +21,11 @@ export interface LLMModel {
   provider: ProviderId;
   /** 支持图片输入（第一版仅 deepseek 视觉模型启用图片块；MiMo 多模态留待后续） */
   vision?: boolean;
+  /**
+   * 单价（元 / 百万 token，输入/输出）。**预估参考值**——服务商价格随时可能调整
+   * （DeepSeek 2026-08 涨价并引入峰谷定价），仅用于 App 内费用估算，以服务商账单为准。
+   */
+  pricing?: { in: number; out: number };
 }
 
 export const LLM_PROVIDERS: Record<ProviderId, { id: ProviderId; name: string; baseUrl: string; keyStorage?: string }> = {
@@ -30,17 +35,23 @@ export const LLM_PROVIDERS: Record<ProviderId, { id: ProviderId; name: string; b
 };
 
 export const LLM_MODELS: LLMModel[] = [
-  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash（日常）', provider: 'deepseek' },
-  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro（强推理）', provider: 'deepseek' },
-  { id: 'deepseek-v4-flash-vision-exp', label: 'DeepSeek 识图（视觉）', provider: 'deepseek', vision: true },
-  { id: 'qwen3.7-plus', label: '千问 3.7 Plus', provider: 'qwen' },
-  { id: 'mimo-v2.5', label: '小米 MiMo V2.5', provider: 'mimo' },
+  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash（日常）', provider: 'deepseek', pricing: { in: 2, out: 8 } },
+  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro（强推理）', provider: 'deepseek', pricing: { in: 9, out: 30 } },
+  { id: 'deepseek-v4-flash-vision-exp', label: 'DeepSeek 识图（视觉）', provider: 'deepseek', vision: true, pricing: { in: 2, out: 8 } },
+  { id: 'qwen3.7-plus', label: '千问 3.7 Plus', provider: 'qwen', pricing: { in: 4, out: 16 } },
+  { id: 'mimo-v2.5', label: '小米 MiMo V2.5', provider: 'mimo', pricing: { in: 2, out: 8 } },
 ];
 
 export const DEFAULT_MODEL_ID = 'deepseek-v4-flash';
 
 export function findModel(id?: string): LLMModel | undefined {
   return LLM_MODELS.find((m) => m.id === id);
+}
+
+/** 估算一次调用的费用（元）：输入/输出 token × 单价 ÷ 1e6 */
+export function estimateCost(modelId: string, inputTokens: number, outputTokens: number): number {
+  const p = findModel(modelId)?.pricing ?? { in: 0, out: 0 };
+  return (inputTokens * p.in + outputTokens * p.out) / 1_000_000;
 }
 
 /** 解析实际使用的模型：会话锁定 > 角色指定 > 全局默认 > deepseek-v4-flash */
@@ -82,6 +93,8 @@ export interface LLMChatParams {
 export interface LLMChatResult {
   content: string;
   truncated?: boolean;
+  /** token 用量（服务商返回；用于费用统计） */
+  usage?: { inputTokens: number; outputTokens: number };
 }
 
 /** 统一 chat 调用（OpenAI 兼容）；错误码与现有体系一致 */
@@ -119,7 +132,13 @@ export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
       const choice = data.choices?.[0];
       const content: string = choice?.message?.content ?? '';
       const truncated = choice?.finish_reason === 'length';
-      return { content, truncated };
+      const usage = data.usage
+        ? {
+            inputTokens: Number(data.usage.prompt_tokens ?? 0),
+            outputTokens: Number(data.usage.completion_tokens ?? 0),
+          }
+        : undefined;
+      return { content, truncated, usage };
     }
 
     if (response.status === 401) {

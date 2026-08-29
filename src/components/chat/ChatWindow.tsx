@@ -26,6 +26,7 @@ import { useNotificationStore } from '../../store/notification-store';
 import { useUIStore } from '../../store/ui-store';
 import { useTTS } from '../../lib/tts';
 import { DEFAULT_VOICE, ALL_VOICES } from '../../lib/voice-map';
+import { resolveModel, findModel } from '../../lib/ai/llm';
 import { ModelPickModal } from './ModelPickModal';
 import type { Message } from '../../db/index';
 
@@ -135,9 +136,11 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const [error, setError] = useState<ChatError>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   /** 图片识别失败自动降级为文字模式时的提示 */
-  const [degradeNotice, setDegradeNotice] = useState(false);
+  const [degradeNotice, setDegradeNotice] = useState<string | null>(null);
   /** 首次进入聊天：会话未锁定模型时弹出模型选择（选定后聊天中不可改） */
   const [showModelPick, setShowModelPick] = useState(false);
+  /** 会话元信息：当前模型 + 累计消耗（右上角设置展示） */
+  const [sessionMeta, setSessionMeta] = useState<{ modelLabel: string; cost?: { calls: number; inputTokens: number; outputTokens: number; cost: number } }>({ modelLabel: '' });
   /** TTS 朗读（用户主动点击才发声；Edge-TTS 直连，失败自动回退系统语音） */
   const { speakingKey, busyKey, speak, stop } = useTTS();
   const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
@@ -194,11 +197,14 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       if (cancelled || !s) return;
       if (s.type === 'group') return; // 群聊用全局默认，不弹
       if (!s.model) setShowModelPick(true);
+      // 刷新右上角「当前模型 + 消耗」元信息
+      const m = resolveModel(character, s.model ?? null);
+      setSessionMeta({ modelLabel: m.label, cost: s.cost });
     })();
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId]);
+  }, [currentSessionId, character]);
 
   // Focus the input when switching characters so the user can type immediately
   // （手机端不自动聚焦：由用户点击输入框进入聊天状态）
@@ -376,7 +382,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     if (!character || !apiKey) return;
 
     // 新一轮发送开始：清掉上次的降级提示（若本次又降级会重新出现）
-    setDegradeNotice(false);
+    setDegradeNotice(null);
 
     // 重发场景：先清除失败标记
     if (userMsg.failed) {
@@ -466,7 +472,14 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     // 发送期间用户可能已切走：错误横幅只显示在仍处于该会话时
     const stillCurrent = () => useChatStore.getState().currentSessionId === sessionId;
     try {
-      let result: { content?: string; error?: string; truncated?: boolean; degraded?: boolean } = { error: 'server:error' };
+      let result: {
+        content?: string;
+        error?: string;
+        truncated?: boolean;
+        degraded?: boolean;
+        usage?: { inputTokens: number; outputTokens: number };
+        modelId?: string;
+      } = { error: 'server:error' };
       let retryHint: string | undefined;
       let retries = 0;
       const MAX_RETRIES = 2;
@@ -492,9 +505,31 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         retryHint = check.retryHint;
       }
 
-      // 图片识别失败自动降级 → 只在「发图片的那一轮」提醒用户，后续文字轮次不打扰
-      if (result.degraded && image) {
-        setDegradeNotice(true);
+      // 兜底/降级提示：发图轮显示图片识别文案；文字轮显示模型兜底文案
+      if (result.degraded) {
+        setDegradeNotice(
+          image
+            ? '图片识别失败，已自动切换为文字模式继续对话'
+            : '对话模型不可用，已自动切换为兜底模型（DeepSeek Flash）继续对话',
+        );
+      }
+
+      // 成功回复 → 累计该会话的 API 消耗（token + 预估费用）
+      if (result.content?.trim() && result.usage) {
+        const s = await sessionRepo.getById(sessionId);
+        const prev = s?.cost ?? { calls: 0, inputTokens: 0, outputTokens: 0, cost: 0 };
+        const cost =
+          (result.usage.inputTokens * (findModel(result.modelId ?? '')?.pricing?.in ?? 0) +
+            result.usage.outputTokens * (findModel(result.modelId ?? '')?.pricing?.out ?? 0)) /
+          1_000_000;
+        const next = {
+          calls: prev.calls + 1,
+          inputTokens: prev.inputTokens + result.usage.inputTokens,
+          outputTokens: prev.outputTokens + result.usage.outputTokens,
+          cost: prev.cost + cost,
+        };
+        await sessionRepo.update(sessionId, { cost: next });
+        setSessionMeta((meta) => ({ ...meta, cost: next }));
       }
 
       // 保证「对方正在输入…」至少展示约 0.7s，避免秒回一闪而过
@@ -659,7 +694,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         )}
         <div className="flex-1 min-w-0" />
         {IS_MOBILE ? (
-          <ChatHeaderMoreMenu character={character} />
+          <ChatHeaderMoreMenu character={character} modelLabel={sessionMeta.modelLabel} cost={sessionMeta.cost} />
         ) : (
           <>
             {emotionToggle}
@@ -762,12 +797,12 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         />
       )}
 
-      {/* 图片识别失败自动降级提示 */}
+      {/* 图片识别失败/模型兜底提示 */}
       {degradeNotice && (
         <div className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border-t border-amber-500/30 animate-fade-in">
-          <span className="text-xs text-amber-600 dark:text-amber-400 flex-1">图片识别失败，已自动切换为文字模式继续对话</span>
+          <span className="text-xs text-amber-600 dark:text-amber-400 flex-1">{degradeNotice}</span>
           <button
-            onClick={() => setDegradeNotice(false)}
+            onClick={() => setDegradeNotice(null)}
             className="text-[11px] text-amber-500 hover:text-amber-700 shrink-0"
           >
             知道了

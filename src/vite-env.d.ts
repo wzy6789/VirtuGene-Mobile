@@ -26,7 +26,14 @@ interface VirtuGeneAPI {
       temperature?: number;
       character?: { model?: { provider: string; model: string } } | null;
       sessionModel?: { provider: string; model: string } | null;
-    }) => Promise<{ content?: string; error?: string; truncated?: boolean; degraded?: boolean }>;
+    }) => Promise<{
+      content?: string;
+      error?: string;
+      truncated?: boolean;
+      degraded?: boolean;
+      usage?: { inputTokens: number; outputTokens: number };
+      modelId?: string;
+    }>;
   };
   shell: {
     open: (url: string) => Promise<boolean>;
