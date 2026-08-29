@@ -25,6 +25,7 @@ interface VirtuGeneAPI {
       retryHint?: string;
       temperature?: number;
       character?: { model?: { provider: string; model: string } } | null;
+      sessionModel?: { provider: string; model: string } | null;
     }) => Promise<{ content?: string; error?: string; truncated?: boolean; degraded?: boolean }>;
   };
   shell: {

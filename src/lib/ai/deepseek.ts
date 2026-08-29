@@ -66,6 +66,8 @@ export interface ChatParams {
   temperature?: number;
   /** 当前角色（用于解析角色指定模型；不传则用全局默认） */
   character?: { model?: { provider: string; model: string } } | null;
+  /** 会话锁定的模型（首次进入聊天时选定，优先级最高，聊天中不可改） */
+  sessionModel?: { provider: string; model: string } | null;
 }
 
 export interface ChatResult {
@@ -157,7 +159,7 @@ function isDegradable(err: unknown): boolean {
 
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   // 解析实际模型：角色指定 > 全局默认 > deepseek-v4-flash
-  const model = resolveModel(params.character);
+  const model = resolveModel(params.character, params.sessionModel);
   const visionModel = model.vision === true; // 第一版仅 deepseek 视觉模型启用图片
 
   // 历史图片瘦身 + 坏图防御

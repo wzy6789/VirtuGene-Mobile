@@ -43,8 +43,15 @@ export function findModel(id?: string): LLMModel | undefined {
   return LLM_MODELS.find((m) => m.id === id);
 }
 
-/** 解析实际使用的模型：角色指定 > 全局默认 > deepseek-v4-flash */
-export function resolveModel(character?: { model?: { provider: string; model: string } } | null): LLMModel {
+/** 解析实际使用的模型：会话锁定 > 角色指定 > 全局默认 > deepseek-v4-flash */
+export function resolveModel(
+  character?: { model?: { provider: string; model: string } } | null,
+  sessionModel?: { provider: string; model: string } | null,
+): LLMModel {
+  if (sessionModel?.model) {
+    const m = findModel(sessionModel.model);
+    if (m) return m;
+  }
   if (character?.model) {
     const m = findModel(character.model.model);
     if (m) return m;

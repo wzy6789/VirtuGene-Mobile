@@ -26,6 +26,7 @@ import { useNotificationStore } from '../../store/notification-store';
 import { useUIStore } from '../../store/ui-store';
 import { useTTS } from '../../lib/tts';
 import { DEFAULT_VOICE, ALL_VOICES } from '../../lib/voice-map';
+import { ModelPickModal } from './ModelPickModal';
 import type { Message } from '../../db/index';
 
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -135,6 +136,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   /** 图片识别失败自动降级为文字模式时的提示 */
   const [degradeNotice, setDegradeNotice] = useState(false);
+  /** 首次进入聊天：会话未锁定模型时弹出模型选择（选定后聊天中不可改） */
+  const [showModelPick, setShowModelPick] = useState(false);
   /** TTS 朗读（用户主动点击才发声；Edge-TTS 直连，失败自动回退系统语音） */
   const { speakingKey, busyKey, speak, stop } = useTTS();
   const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
@@ -181,6 +184,21 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     setSending(false);
     setError(null);
   }, [currentSessionId, stop]);
+
+  // 首次进入单聊会话：会话未锁定模型 → 弹模型选择（选定后聊天中不可改）
+  useEffect(() => {
+    if (!currentSessionId) return;
+    let cancelled = false;
+    void (async () => {
+      const s = await sessionRepo.getById(currentSessionId);
+      if (cancelled || !s) return;
+      if (s.type === 'group') return; // 群聊用全局默认，不弹
+      if (!s.model) setShowModelPick(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSessionId]);
 
   // Focus the input when switching characters so the user can type immediately
   // （手机端不自动聚焦：由用户点击输入框进入聊天状态）
@@ -430,6 +448,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
 
     // 长会话滚动摘要：早期对话压缩，角色不用逐条回忆
     const sessionData = await sessionRepo.getById(sessionId);
+    const sessionModel = sessionData?.model ?? null;
     const summaryContext = sessionData?.summary
       ? `\n\n[早前对话摘要（更早的内容已压缩，不必逐条回忆，若与当前话题相关可自然提及）]\n${sessionData.summary}`
       : '';
@@ -462,6 +481,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           retryHint,
           temperature,
           character,
+          sessionModel,
         });
 
         if (result.error || !result.content) break;
@@ -730,6 +750,17 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       </div>
 
       <BalanceBanner error={error} />
+
+      {/* 首次进入聊天：选择对话模型（选定后锁定，聊天中不可改） */}
+      {showModelPick && currentSessionId && (
+        <ModelPickModal
+          onClose={() => setShowModelPick(false)}
+          onPick={(m) => {
+            void sessionRepo.update(currentSessionId!, { model: m ?? undefined });
+            setShowModelPick(false);
+          }}
+        />
+      )}
 
       {/* 图片识别失败自动降级提示 */}
       {degradeNotice && (

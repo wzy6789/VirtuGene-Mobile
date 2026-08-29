@@ -10,6 +10,7 @@ import { Avatar } from '../ui/Avatar';
 import { Modal } from '../ui/Modal';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { UserProfileModal } from '../settings/UserProfileModal';
+import { ApiKeyManager } from '../settings/ApiKeyManager';
 import { checkUpdate, openApkDownload } from '../../lib/mobile-update';
 import { clearPersistedApiKey } from '../../lib/api-key-storage';
 
@@ -55,6 +56,7 @@ export function MobileMePage() {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
   const [showSettings, setShowSettings] = useState(false);
+  const [showApiKeys, setShowApiKeys] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [version, setVersion] = useState('');
@@ -132,9 +134,16 @@ export function MobileMePage() {
 
       {/* 功能列表 */}
       <div className="mx-4 rounded-2xl bg-surface border border-line overflow-hidden divide-y divide-line">
+        <button className={rowCls} onClick={() => setShowApiKeys(true)}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-gene-purple/70 shrink-0">
+            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4" />
+          </svg>
+          <span className="flex-1 text-left">API Key 管理</span>
+          <span className="text-gray-400 text-xs">›</span>
+        </button>
         <button className={rowCls} onClick={() => setShowSettings(true)}>
           <RowIcon name="settings" />
-          <span className="flex-1 text-left">完整设置（API Key / 账号）</span>
+          <span className="flex-1 text-left">完整设置</span>
           <span className="text-gray-400 text-xs">›</span>
         </button>
         <button className={rowCls} onClick={toggleTheme}>
@@ -192,6 +201,7 @@ export function MobileMePage() {
 
       <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
       <UserProfileModal open={showProfile} onClose={() => setShowProfile(false)} />
+      {showApiKeys && <ApiKeyManager onClose={() => setShowApiKeys(false)} />}
 
       {/* 断开灵魂链接二次确认 */}
       <Modal open={showLogoutConfirm} onClose={() => setShowLogoutConfirm(false)} width="max-w-sm" closeOnBackdrop={false}>

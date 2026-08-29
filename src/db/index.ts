@@ -66,6 +66,8 @@ export interface Session {
   type?: 'single' | 'group';
   /** 群聊时关联的群 id（type=group 时必有） */
   groupId?: string;
+  /** 会话锁定的对话模型（首次进入聊天时选择，聊天中不可改；空则回退角色/全局默认） */
+  model?: { provider: string; model: string };
   /** 长会话滚动摘要（早期对话的压缩文本，超出保留窗口后生成） */
   summary?: string;
   /** 摘要覆盖到的时间点（早于该时间戳的消息均已纳入摘要） */

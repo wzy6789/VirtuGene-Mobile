@@ -693,3 +693,11 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 入口：角色页「角色群聊」卡片（`MobileCharacterPage`）
 - 未做（P1）：群聊图片/语音、群成员主动开口、群未读红点、群聊记忆
 - ⚠️ 待真机验证：群消息生成效果（AI 是否按人设接话）、🔊 发言人声线
+
+**③ 交互调整（2026-08-28 用户拍板，第二批）**：
+- **API Key 全部移到「我的 → API Key 管理」**（新组件 `ApiKeyManager.tsx`）：DeepSeek（随账号，可测试连接）/ 千问 / 小米 MiMo / 硅基 SiliconFlow（语音转文字）四类，设备加密存储
+- 「我的」页功能列表：新增「API Key 管理」行；「完整设置（API Key / 账号）」→「完整设置」（去括号）
+- **对话模型设置**（`ModelSection.tsx` 重构）：只保留「默认对话模型」选择 + **模型使用规则说明**（有图→DeepSeek 识图模型、文字→所选模型、DeepSeek 文字轮思考/看图不思考、MiMo 思考默认开、群聊用全局默认）
+- **首次进入聊天选择模型并锁定**：`Session.model`（会话级，优先级最高：会话 > 角色 > 全局默认）；新组件 `ModelPickModal.tsx`（仅列已配 Key 服务商的模型）——ChatWindow 进入单聊会话且会话无 model 时弹出，选定后 `sessionRepo.update` 锁定，聊天中不可改；`sessionRepo` 新增通用 `update`；deepseek.ts `ChatParams.sessionModel` + `resolveModel(character, sessionModel)`
+- 移除 CharacterProfileModal 的角色模型选择（统一走「首次进入弹窗 + 完整设置默认」，避免混淆）
+- ⚠️ 注意：已有会话（3.0.x 时代创建）无 model → 下次进入会弹一次选择，符合"首次进入选一次"

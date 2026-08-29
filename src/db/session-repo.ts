@@ -34,6 +34,10 @@ export const sessionRepo = {
     return db.sessions.update(id, { updatedAt: Date.now() });
   },
 
+  async update(id: string, patch: Partial<Session>): Promise<number> {
+    return db.sessions.update(id, { ...patch, updatedAt: Date.now() });
+  },
+
   async updateSummary(id: string, summary: string): Promise<number> {
     return db.sessions.update(id, { summary, summaryUpdatedAt: Date.now() });
   },

@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Avatar } from '../ui/Avatar';
 import { categorizeTag, CATEGORY_LABELS, CATEGORY_ORDER, type TagCategory } from '../../lib/tag-categories';
-import { useChatStore } from '../../store/chat-store';
-import { LLM_MODELS, findModel } from '../../lib/ai/llm';
 import type { Character } from '../../db/index';
 
 interface CharacterProfileModalProps {
@@ -32,17 +30,6 @@ export function CharacterProfileModal({ character, userId, onClose, onAdd, onCha
   const [showPrompt, setShowPrompt] = useState(false);
   const isOwn = !character.isPreset && character.createdBy === userId;
   const groups = groupTags(character.tags);
-  /** 当前选择的模型 id（null = 跟随全局默认） */
-  const [selectedModel, setSelectedModel] = useState<string | null>(character.model?.model ?? null);
-
-  /** 设置角色对话模型（自有角色） */
-  const setModel = (modelId: string | null) => {
-    setSelectedModel(modelId);
-    const m = modelId ? findModel(modelId) : undefined;
-    void useChatStore.getState().updateCharacter(character.id, {
-      model: m ? { provider: m.provider, model: m.id } : undefined,
-    });
-  };
 
   return (
     <Modal open onClose={onClose} width="max-w-md">
@@ -107,38 +94,6 @@ export function CharacterProfileModal({ character, userId, onClose, onAdd, onCha
             </div>
           )}
         </div>
-
-        {/* 对话模型（自有角色可单独指定；不选则用全局默认） */}
-        {isOwn && (
-          <div className="mt-4">
-            <p className="text-[11px] text-gray-500 mb-1.5">对话模型（不选则用全局默认）</p>
-            <div className="flex flex-wrap gap-1.5">
-              <button
-                onClick={() => setModel(null)}
-                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                  selectedModel === null
-                    ? 'bg-gene-purple/10 border-gene-purple/40 text-gene-purple'
-                    : 'bg-surface border-line text-gray-500 hover:border-gene-purple/40'
-                }`}
-              >
-                默认
-              </button>
-              {LLM_MODELS.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => setModel(m.id)}
-                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                    selectedModel === m.id
-                      ? 'bg-gene-purple/10 border-gene-purple/40 text-gene-purple'
-                      : 'bg-surface border-line text-gray-500 hover:border-gene-purple/40'
-                  }`}
-                >
-                  {m.label.replace(/（.*?）/, '')}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* 操作 */}
         <div className="mt-5 flex gap-2">
