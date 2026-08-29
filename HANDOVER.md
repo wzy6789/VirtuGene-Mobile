@@ -739,3 +739,11 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - `MessageBubble.tsx`：`audio.dataUrl` 为空 → 渲染合成中占位（不可播放，静态波形）；有值 → 可播放气泡；AI 语音消息**默认不显示文字**，点「转文字」主动展开
 - **合成失败回退**：移除占位 `audio: undefined` → 消息回纯文字（内容不丢）
 - 检查的其他点：合成中退出聊天（库里已更新，回来显示气泡）、用户语音消息不受影响、引用/复制用 content 文字、历史语音消息正常渲染
+
+## 四十四、v3.1.0 已发布（2026-08-29）
+
+- **版本升级 3.0.1 → 3.1.0**：package.json、build.gradle（versionCode 8 / versionName 3.1.0）、changelog.ts（3.1.0 条目）
+- **代码已推送**：git commit `8babe15` → main（含此前积压的 `e5050e8` 文案提交）
+- **Release 已发布**：https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v3.1.0（id 379002983，APK 4.7MB，API 验证）
+- 3.1.0 内容：角色群聊 / 多模型（千问 qwen3.7-plus + 小米 mimo-v2.5）/ AI 语音消息模式 / API Key 集中管理（我的 → API Key，含硅基）/ 模型透明与消耗统计 / 首次进入选模型并锁定 / 发图视觉兜底 / 模型兜底 / MiMo TTS 引擎切换 / 交互优化
+- 手机端「我的 → 版本 → 检查更新」即可下载 v3.1.0
