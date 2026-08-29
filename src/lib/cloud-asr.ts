@@ -71,9 +71,29 @@ async function webmToWav16k(dataUrl: string): Promise<ArrayBuffer> {
 
 /**
  * 云端转写录音。成功返回转写文本（可能为空串）；失败抛错。
+ * 503/429（服务端繁忙/限流）自动退避重试最多 3 次。
  */
 export async function transcribeWithSiliconFlow(dataUrl: string, apiKey: string): Promise<string> {
   const wav = await webmToWav16k(dataUrl);
+
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 600 * attempt)); // 600ms / 1200ms 退避
+    }
+    try {
+      return await transcribeOnce(wav, apiKey);
+    } catch (err) {
+      const msg = (err as Error)?.message ?? '';
+      // 仅 503/429 可重试；其余错误直接抛
+      if (!msg.includes('HTTP 503') && !msg.includes('HTTP 429')) throw err;
+      lastErr = err as Error;
+    }
+  }
+  throw lastErr ?? new Error('HTTP 503');
+}
+
+async function transcribeOnce(wav: ArrayBuffer, apiKey: string): Promise<string> {
   const form = new FormData();
   form.append('file', new Blob([wav], { type: 'audio/wav' }), 'recording.wav');
   form.append('model', ASR_MODEL);

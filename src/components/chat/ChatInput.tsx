@@ -198,7 +198,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         if (avail) {
           msg = '没听清，请再说一次';
         } else if (cloudKey) {
-          msg = cloudErr ? `语音识别失败（云端）：${cloudErr.slice(0, 80)}` : '语音识别失败（云端），请重试或在「我的 → API Key → 硅基」检查 Key';
+          if (/HTTP 503/.test(cloudErr)) msg = '云端识别服务繁忙（503），已自动重试仍失败，请稍后再试';
+          else if (/HTTP 401|HTTP 403/.test(cloudErr)) msg = '云端识别 Key 无效，请在「我的 → API Key → 硅基」检查';
+          else if (/HTTP 429/.test(cloudErr)) msg = '云端识别请求过频，请稍后重试';
+          else msg = cloudErr ? `语音识别失败（云端）：${cloudErr.slice(0, 80)}` : '语音识别失败（云端），请重试或在「我的 → API Key → 硅基」检查 Key';
         } else {
           msg = '手机无系统语音识别：在「我的 → 设置 → 语音」填云端识别 Key 后可发语音';
         }
