@@ -196,7 +196,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       const s = await sessionRepo.getById(currentSessionId);
       if (cancelled || !s) return;
       if (s.type === 'group') return; // 群聊用全局默认，不弹
-      if (!s.model) setShowModelPick(true);
+      // 只弹一次：选了具体模型（s.model）或选了"使用全局默认"（modelAsked）后都不再问
+      if (!s.model && !s.modelAsked) setShowModelPick(true);
       // 刷新右上角「当前模型 + 消耗」元信息
       const m = resolveModel(character, s.model ?? null);
       setSessionMeta({ modelLabel: m.label, cost: s.cost });
@@ -805,9 +806,13 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       {/* 首次进入聊天：选择对话模型（选定后锁定，聊天中不可改） */}
       {showModelPick && currentSessionId && (
         <ModelPickModal
-          onClose={() => setShowModelPick(false)}
+          onClose={() => {
+            // 关闭也标记已问过（避免每次进入都弹）
+            void sessionRepo.update(currentSessionId!, { modelAsked: true });
+            setShowModelPick(false);
+          }}
           onPick={(m) => {
-            void sessionRepo.update(currentSessionId!, { model: m ?? undefined });
+            void sessionRepo.update(currentSessionId!, { model: m ?? undefined, modelAsked: true });
             setShowModelPick(false);
           }}
         />

@@ -6,6 +6,7 @@ import { useChatStore } from '../../store/chat-store';
 import { diaryRepo, todayStr } from '../../db/diary-repo';
 import { DIARY_MOODS } from '../../lib/diary-utils';
 import { edgeTTSSynthesize } from '../../lib/edge-tts';
+import { mimoTTSSynthesize, mapEdgeVoiceToMimo } from '../../lib/mimo-tts';
 import { DEFAULT_VOICE, DEFAULT_MALE_VOICE, DIALECT_VOICES } from '../../lib/voice-map';
 import type { Character } from '../../db/index';
 
@@ -79,14 +80,24 @@ function TtsSettings({
     if (dv) await useChatStore.getState().setCharacterVoice(character.id, { voice: dv.voice, band: dv.band, ...base });
   };
 
-  /** 试听（按角色性别选 Edge 音色：男→云扬，女→晓晓；Edge 失败 → 系统语音兜底） */
+  /** 试听（按角色性别选音色；引擎跟随「朗读引擎」设置：MiMo → Edge → 系统） */
   const preview = async () => {
     if (demoBusy) return;
     const text = '你好，我是你的数字灵魂，很高兴认识你。';
     const previewVoice = roleGender === 'male' ? DEFAULT_MALE_VOICE : DEFAULT_VOICE;
     setDemoBusy(true);
     try {
-      const audio = await edgeTTSSynthesize(text, { voice: previewVoice.voice, rate: '+0%', pitch: '+0Hz' });
+      let audio: ArrayBuffer | null = null;
+      if (ttsEngine === 'mimo') {
+        try {
+          audio = await mimoTTSSynthesize(text, { voice: mapEdgeVoiceToMimo(previewVoice.voice) });
+        } catch {
+          audio = null;
+        }
+      }
+      if (!audio) {
+        audio = await edgeTTSSynthesize(text, { voice: previewVoice.voice, rate: '+0%', pitch: '+0Hz' });
+      }
       if (audio.byteLength > 0) {
         const url = URL.createObjectURL(new Blob([audio], { type: 'audio/mpeg' }));
         const a = new Audio(url);

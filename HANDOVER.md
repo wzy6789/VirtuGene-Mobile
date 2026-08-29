@@ -717,3 +717,10 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
   - `settings-store` 加 `ttsEngine: 'edge' | 'mimo'`（默认 edge）；`tts.ts` speak 按引擎：MiMo → Edge → 系统 三级兜底
   - UI：我的 → 设置 → 语音 + 聊天 ⋯ → 设置 均有「朗读引擎」切换
   - ⚠️ 待真机验证：MiMo TTS 响应格式（audio 字段解析）、音色效果、无 key/失败时回退链
+
+**⑥ MiMo 音色不生效修复 + 模型选择只问一次（2026-08-28 用户反馈）**：
+- **MiMo 听不到音色变化的根因**：音频响应解析没覆盖 OpenAI 风格的 `choices[0].message.audio.data`（base64），只解析了 `data.audio` → 拿不到音频 → 静默回退 Edge → 用户听到的还是 Edge 声音
+- 修复（`mimo-tts.ts`）：解析加强——① 二进制响应（content-type audio/* 直接取 body）；② JSON 多候选 `message.audio.data / data.audio / audio / output_audio / data.audio`
+- **试听也按引擎**：聊天 ⋯ 设置里的「试听默认音色」现在跟随朗读引擎（MiMo → Edge → 系统），切 MiMo 后试听能直接听 MiMo 音色
+- **模型选择只问一次**：`Session.modelAsked` 标记——选了具体模型、选了"使用全局默认"、甚至关闭弹窗，都不再重复弹出（之前选"默认"会每次进聊天都弹）
+- ⚠️ 若修复后 MiMo 仍无声/还是 Edge 声：可能是请求格式问题（官方 chat 接口与第三方 audio/speech 接口实现差异），需真机看 MiMo 失败时的具体报错

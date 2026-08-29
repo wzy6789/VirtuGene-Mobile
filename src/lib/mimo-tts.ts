@@ -48,11 +48,24 @@ export async function mimoTTSSynthesize(text: string, options: MimoTTSSynthOptio
     throw new Error('server:error');
   }
 
+  // 响应可能是二进制音频（audio/speech 风格）或 JSON（chat 接口 audio 输出，base64）
+  const contentType = res.headers.get('content-type') ?? '';
+  if (contentType.includes('audio/') || contentType.includes('application/octet-stream')) {
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength === 0) throw new Error('empty audio');
+    return buf;
+  }
+
   const data = (await res.json()) as Record<string, unknown>;
-  // 音频可能在 data.audio / data.output_audio / data.audio.data / data.data.audio（base64）
-  const audioRaw = (data.audio as string | undefined) ?? (data.output_audio as string | undefined);
-  const audioField = data.audio as { data?: string } | undefined;
-  const audioB64 = typeof audioRaw === 'string' ? audioRaw : audioField?.data;
+  // OpenAI 风格 audio 输出：choices[0].message.audio.data（base64）
+  const choice = (data as { choices?: { message?: { audio?: { data?: string } } }[] })?.choices?.[0];
+  const candidates: Array<string | undefined> = [
+    choice?.message?.audio?.data,
+    (data.audio as string | undefined) ?? (data.audio as { data?: string } | undefined)?.data,
+    data.output_audio as string | undefined,
+    (data.data as { audio?: string } | undefined)?.audio,
+  ];
+  const audioB64 = candidates.find((c): c is string => typeof c === 'string' && c.length > 0);
   if (!audioB64) throw new Error('empty audio');
 
   const binary = atob(audioB64);
