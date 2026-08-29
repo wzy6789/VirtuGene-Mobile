@@ -747,3 +747,9 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - **Release 已发布**：https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v3.1.0（id 379002983，APK 4.7MB，API 验证）
 - 3.1.0 内容：角色群聊 / 多模型（千问 qwen3.7-plus + 小米 mimo-v2.5）/ AI 语音消息模式 / API Key 集中管理（我的 → API Key，含硅基）/ 模型透明与消耗统计 / 首次进入选模型并锁定 / 发图视觉兜底 / 模型兜底 / MiMo TTS 引擎切换 / 交互优化
 - 手机端「我的 → 版本 → 检查更新」即可下载 v3.1.0
+
+**用户语音输入提示修复（2026-08-29，v3.1.0 后）**：
+- 问题：OPPO 无系统识别时，若已填云端 key 但云端识别失败，仍提示"去填云端识别 Key"（误导）
+- 修复（`ChatInput.tsx`）：提示区分三种情况——① 无云端 key → 引导「我的 → 设置 → 语音」填云端识别 Key；② 有 key 但云端识别失败 → 「语音识别失败（云端），请重试或在「我的 → API Key → 硅基」检查 Key」；③ 系统识别可用但没听清 → 重说
+- **OPPO 发语音的硬性要求**：无系统识别的手机（OPPO/ColorOS）必须先在「我的 → 设置 → 语音 → 云端识别」（或「我的 → API Key → 硅基 SiliconFlow」）填硅基 key 才能发语音——这是系统限制，非 bug
+- 云端链路：录音 m4a → decodeAudioData → 16kHz WAV → SiliconFlow SenseVoiceSmall（此前 Node 静音测试 HTTP 200 验证过端点/鉴权/格式）
