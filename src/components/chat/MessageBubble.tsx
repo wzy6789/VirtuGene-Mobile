@@ -167,39 +167,50 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
             />
           )}
           {message.audio ? (
-            /* 微信式语音消息：波形 + 时长 + 点击播放；下方小字为转文字（AI 看这段文字） */
+            /* 微信式语音消息：波形 + 时长 + 点击播放；AI 语音合成中显示占位，不闪文字 */
             <div>
-              <div
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleVoice(
-                    message.id,
-                    message.audio!.dataUrl,
-                    () => setVoicePlaying(true),
-                    () => setVoicePlaying(false),
-                  );
-                }}
-                className={`flex items-center gap-2.5 cursor-pointer select-none py-0.5 ${
-                  isUser ? 'text-white' : 'text-ink'
-                }`}
-              >
-                {voicePlaying ? (
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="shrink-0">
-                    <rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />
-                  </svg>
-                ) : (
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="shrink-0">
+              {message.audio.dataUrl ? (
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleVoice(
+                      message.id,
+                      message.audio!.dataUrl,
+                      () => setVoicePlaying(true),
+                      () => setVoicePlaying(false),
+                    );
+                  }}
+                  className={`flex items-center gap-2.5 cursor-pointer select-none py-0.5 ${
+                    isUser ? 'text-white' : 'text-ink'
+                  }`}
+                >
+                  {voicePlaying ? (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="shrink-0">
+                      <rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" />
+                    </svg>
+                  ) : (
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="shrink-0">
+                      <polygon points="6 3 20 12 6 21 6 3" />
+                    </svg>
+                  )}
+                  <WaveBars seed={message.id} active={voicePlaying} />
+                  <span className="text-xs tabular-nums shrink-0">{message.audio.duration}″</span>
+                </div>
+              ) : (
+                /* AI 语音合成中：占位气泡（不显示文字，避免先文字后气泡闪烁） */
+                <div className={`flex items-center gap-2.5 py-0.5 ${isUser ? 'text-white' : 'text-gray-400'}`}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" className="shrink-0 opacity-60">
                     <polygon points="6 3 20 12 6 21 6 3" />
                   </svg>
-                )}
-                <WaveBars seed={message.id} active={voicePlaying} />
-                <span className="text-xs tabular-nums shrink-0">{message.audio.duration}″</span>
-              </div>
+                  <WaveBars seed={message.id} active={false} />
+                  <span className="text-xs">语音合成中…</span>
+                </div>
+              )}
               {message.audio.text &&
                 (isUser ? (
                   <p className="mt-1 text-xs leading-relaxed text-white/80">{message.audio.text}</p>
                 ) : (
-                  /* AI 语音消息：文字收起，点击「转文字」展开（微信式） */
+                  /* AI 语音消息：默认不显示文字，点「转文字」主动展开（微信式） */
                   <div className="mt-1">
                     <button
                       onClick={(e) => {

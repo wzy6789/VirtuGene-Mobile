@@ -568,6 +568,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           // 被 max_tokens 截断时，最后一条补「…」（真人发整条，但偶尔也像话没说完）
           const isLast = i === parts.length - 1;
           const content = isLast && result.truncated ? parts[i] + '…' : parts[i];
+          // AI 语音消息模式：消息创建即带「语音占位」（合成中），不先显示文字；
+          // 合成完成才填音频变可播放气泡；合成失败回退纯文字
+          const aiVoiceOn = useSettingsStore.getState().aiVoiceMode && !!character?.voice;
           const aiMsg: Message = {
             id: crypto.randomUUID(),
             sessionId,
@@ -575,13 +578,14 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
             content,
             createdAt: Date.now() + i, // ensure unique timestamps for ordering
             isProactive: false,
+            ...(aiVoiceOn ? { audio: { dataUrl: '', duration: 0, text: content } } : {}),
           };
           await messageRepo.create(aiMsg);
           addMessage(aiMsg);
-          // AI 语音消息模式：后台合成语音 → 消息显示为语音气泡（点击播放；失败保持文字）
-          if (useSettingsStore.getState().aiVoiceMode && character?.voice) {
+          // 后台合成语音（跟随朗读引擎 + 角色声线）
+          if (aiVoiceOn) {
             const msgId = aiMsg.id;
-            const v = character.voice;
+            const v = character!.voice!;
             void (async () => {
               try {
                 const buf = await synthesizeSpeech(content, v.voice, v.rate, v.pitch);
@@ -591,7 +595,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
                 await messageRepo.update(msgId, { audio });
                 useChatStore.getState().updateMessage(msgId, { audio });
               } catch {
-                /* 合成失败保持文字展示 */
+                // 合成失败 → 移除占位，回退纯文字显示
+                await messageRepo.update(msgId, { audio: undefined });
+                useChatStore.getState().updateMessage(msgId, { audio: undefined });
               }
             })();
           }
