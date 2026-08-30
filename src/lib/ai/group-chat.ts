@@ -28,6 +28,7 @@ const GROUP_INSTRUCTION =
   '- 不是每人都必须说话：性格活泼/相关的人接话，高冷/无关的人可以沉默\n' +
   '- 角色之间可以互相接话、吐槽、拌嘴，但别自说自话刷屏\n' +
   '- 输出 1~3 条即可，最多 3 条；某角色回应后其他角色可补一句，也可以就此打住\n' +
+  '- **每条 content 只能是一个人的话**：想让多个角色说话就输出多条 JSON（每条约 1~2 句），**严禁把不同角色的发言写进同一条 content**（content 里不要出现"艾莉：…"这种前缀）\n' +
   '- 群成员的名字不能改，speaker 必须是下面列出的成员之一（用成员原名，不要加称呼/括号/编号）\n' +
   '- 每个成员都拥有和用户的共同记忆（列在成员信息里）。聊到相关话题时，**相关成员应像老朋友随口一提那样自然带出记忆**（例如用户提过的事、TA 知道的用户喜好）；不要生硬复述，也不要编造记忆里没有的内容\n' +
   '- 成员的"最近私聊记录"是 TA 刚刚和用户私下聊过的内容（列在成员信息里）。相关成员可以自然承接私聊话题（比如用户私下说过的事，TA 在群里可以接话/回应）；**不要整段复述私聊记录**\n' +
@@ -241,6 +242,41 @@ function parseTurns(text: string, members: GroupMemberBrief[]): ParseOutcome {
       return;
     }
     if (!c) return;
+
+    // 防"两个人挤一个气泡"：模型偶尔把多发言人内容塞进单条（如 "林霜：xxx\n艾莉：yyy"，
+    // 常见于它看到历史里合并的多发言人块后模仿）。检测行级"名字：内容"命中其他成员 → 拆成多条。
+    const lines = c.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length >= 2) {
+      let otherFound = false;
+      for (const l of lines) {
+        const lm = l.match(/^[（(]?([^：:]{1,12})[）)]?[：:]\s*.+/);
+        if (lm) {
+          const sid = resolveId(lm[1]);
+          if (sid && sid !== senderId) {
+            otherFound = true;
+            break;
+          }
+        }
+      }
+      if (otherFound) {
+        console.warn(`[group-chat] 单条内容含多发言人（原 speaker=${name}），已拆分为多条`);
+        for (const l of lines) {
+          if (out.length >= 3) break;
+          const lm = l.match(/^[（(]?([^：:]{1,12})[）)]?[：:]\s*(.+)$/);
+          if (lm) {
+            const sid = resolveId(lm[1]);
+            if (sid && lm[2].trim()) {
+              out.push({ senderId: sid, content: stripRoleplayActions(lm[2]).slice(0, 500) });
+            }
+          } else {
+            // 无名字前缀的行归当前发言人
+            out.push({ senderId, content: stripRoleplayActions(l).slice(0, 500) });
+          }
+        }
+        return;
+      }
+    }
+
     if (out.length < 3) out.push({ senderId, content: stripRoleplayActions(c).slice(0, 500) });
   };
 

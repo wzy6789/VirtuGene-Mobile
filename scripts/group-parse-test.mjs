@@ -42,6 +42,33 @@ function parseTurns(text, members) {
     const senderId = resolveId(name);
     if (!senderId) { unknownSpeakers.push(name); return; }
     if (!c) return;
+
+    // 防"两人挤一个气泡"：内容里出现其他成员的行 → 拆成多条
+    const lines = c.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length >= 2) {
+      let otherFound = false;
+      for (const l of lines) {
+        const lm = l.match(/^[（(]?([^：:]{1,12})[）)]?[：:]\s*.+/);
+        if (lm) {
+          const sid = resolveId(lm[1]);
+          if (sid && sid !== senderId) { otherFound = true; break; }
+        }
+      }
+      if (otherFound) {
+        for (const l of lines) {
+          if (out.length >= 3) break;
+          const lm = l.match(/^[（(]?([^：:]{1,12})[）)]?[：:]\s*(.+)$/);
+          if (lm) {
+            const sid = resolveId(lm[1]);
+            if (sid && lm[2].trim()) out.push({ senderId: sid, content: stripRoleplayActions(lm[2]).slice(0, 500) });
+          } else {
+            out.push({ senderId, content: stripRoleplayActions(l).slice(0, 500) });
+          }
+        }
+        return;
+      }
+    }
+
     if (out.length < 3) out.push({ senderId, content: stripRoleplayActions(c).slice(0, 500) });
   };
 
@@ -128,6 +155,11 @@ const cases = [
   ['唯一简称', '{"turns":[{"speaker":"霜","content":"哈喽"}]}', 1, 'json-object', [], 0],
   ['重名歧义不猜', '{"turns":[{"speaker":"莉","content":"哈喽"}]}', 0, 'json-object', ['莉'], 1],
   ['歧义时正确名仍命中', '{"turns":[{"speaker":"艾莉丝","content":"哈喽"},{"speaker":"莉","content":"喂"}]}', 1, 'json-object', ['莉'], 1],
+  // ── 防"两人话挤一个气泡"：单条 content 含多发言人 → 拆成多条 ──
+  ['单条含两人话(拆开)', '{"turns":[{"speaker":"林霜","content":"你先说\\n艾莉：好呀"}]}', 2, 'json-object', [], 0, ['a', 'b']],
+  ['三人话挤一条(全拆)', '{"turns":[{"speaker":"林霜","content":"林霜：第一句\\n艾莉：第二句\\n林霜：第三句"}]}', 3, 'json-object', [], 0, ['a', 'b', 'a']],
+  ['同一人多行不拆', '{"turns":[{"speaker":"林霜","content":"第一句\\n第二句"}]}', 1, 'json-object', [], 0, ['a']],
+  ['正常多条目不受影响', '{"turns":[{"speaker":"林霜","content":"哈喽"},{"speaker":"艾莉","content":"在呢"}]}', 2, 'json-object', [], 0, ['a', 'b']],
 ];
 
 // 成员含重名/包含关系：艾莉 vs 艾莉丝（覆盖"话配错人"场景）
@@ -138,15 +170,15 @@ const overlapMembers = [
 ];
 
 let pass = 0;
-for (const [name, input, expTurns, expVia, expUnknown, useOverlap] of cases) {
+for (const [name, input, expTurns, expVia, expUnknown, useOverlap, expSenders] of cases) {
   const r = parseTurns(input, useOverlap ? overlapMembers : members);
   const ok =
     r.turns.length === expTurns &&
     r.via === expVia &&
-    JSON.stringify(r.unknownSpeakers) === JSON.stringify(expUnknown);
-  // 归属校验：若期望有 turns，且 case 指定了期望 sender 顺序（末位字段），额外核对
+    JSON.stringify(r.unknownSpeakers) === JSON.stringify(expUnknown) &&
+    (!expSenders || JSON.stringify(r.turns.map((t) => t.senderId)) === JSON.stringify(expSenders));
   if (!ok) {
-    console.log(`✗ ${name}\n  输入: ${input}\n  期望: turns=${expTurns} via=${expVia} unknown=${JSON.stringify(expUnknown)}\n  实际: turns=${r.turns.length} via=${r.via} unknown=${JSON.stringify(r.unknownSpeakers)}`);
+    console.log(`✗ ${name}\n  输入: ${input}\n  期望: turns=${expTurns} via=${expVia} unknown=${JSON.stringify(expUnknown)} senders=${JSON.stringify(expSenders)}\n  实际: turns=${r.turns.length} via=${r.via} unknown=${JSON.stringify(r.unknownSpeakers)} senders=${JSON.stringify(r.turns.map((t) => t.senderId))}`);
   } else {
     pass++;
     console.log(`✓ ${name}`);
