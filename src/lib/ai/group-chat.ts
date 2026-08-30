@@ -189,26 +189,43 @@ interface ParseOutcome {
  * 2) 整文/提取的 JSON 数组（提示词可能被模型无视直接输出数组）；
  * 3) 单对象（{"speaker","content"}）；
  * 4) 行解析（"名字：内容"散文本兜底）。
- * speaker 硬校验 ∈ 群成员（精确 + 包含模糊）；命中不了的记录进 unknownSpeakers 而不是静默丢弃。
+ * speaker 硬校验 ∈ 群成员：归一化后精确匹配优先；模糊包含匹配只允许【唯一命中】（命中多个=歧义，不猜）；
+ * 命中不了的记录进 unknownSpeakers 而不是静默丢弃——杜绝"话配错人"。
  */
 function parseTurns(text: string, members: GroupMemberBrief[]): ParseOutcome {
   const byName = new Map(members.map((m) => [m.name, m.id]));
   const out: GroupTurn[] = [];
   const unknownSpeakers: string[] = [];
 
+  /** 归一化模型输出的发言人名字：去首尾空白、括号、冒号、句读等装饰（如「林霜：」「（林霜）」） */
+  const normalizeName = (raw: string): string =>
+    String(raw ?? '')
+      .trim()
+      .replace(/^[（(【\[『「]+/, '')
+      .replace(/[）)】\]』」：:。，,！!？?、…\s]+$/, '')
+      .trim();
+
+  /**
+   * 发言人 → 成员 id 解析。
+   * 规则（防"话跑到别人气泡里"）：
+   * 1) 归一化后精确匹配；
+   * 2) 模糊包含匹配【只在该名字唯一命中一个成员时采用】——成员重名/名字互相包含
+   *    （如"艾莉"与"艾莉丝"）导致命中多个时视为歧义，不猜，宁可丢这条也不能配错人。
+   */
   const resolveId = (name: string): string | undefined => {
-    const n = name.trim();
-    let id = byName.get(n);
-    if (!id) {
-      // 模糊匹配：AI 可能带语气词/简称/前后缀（如「林霜：」），按包含关系再试
-      for (const [memName, mid] of byName) {
-        if (memName.includes(n) || n.includes(memName)) {
-          id = mid;
-          break;
-        }
-      }
+    const n = normalizeName(name);
+    if (!n) return undefined;
+    const exact = byName.get(n);
+    if (exact) return exact;
+    const hits: string[] = [];
+    for (const [memName, mid] of byName) {
+      if (memName.includes(n) || n.includes(memName)) hits.push(mid);
     }
-    return id;
+    if (hits.length === 1) return hits[0];
+    if (hits.length > 1) {
+      console.warn(`[group-chat] 发言人「${n}」歧义（同时命中 ${hits.length} 个成员），已丢弃该条`);
+    }
+    return undefined;
   };
 
   const push = (speakerName: unknown, content: unknown): void => {
