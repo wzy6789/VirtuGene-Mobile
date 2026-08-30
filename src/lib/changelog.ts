@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.1.1',
+    date: '2026-08-29',
+    notes: [
+      '修复发语音：云端识别失败提示更准确（区分没填 Key / Key 无效 / 服务繁忙）',
+      '云端识别 503/429 自动重试（服务繁忙时多数可自动恢复），失败原因直接显示便于排查',
+      '修复语音输入提示误导（填了 Key 仍提示去填的问题）',
+    ],
+  },
+  {
     version: '3.1.0',
     date: '2026-08-29',
     notes: [
