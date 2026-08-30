@@ -110,8 +110,11 @@ export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
     body.thinking = params.visionRequest ? { type: 'disabled' } : { type: 'enabled' };
   } else if (params.provider === 'qwen') {
     body.temperature = params.temperature ?? 0.8;
+  } else if (params.provider === 'mimo') {
+    // MiMo 思考模式默认开启、不支持自定义 temperature/top_p → 不传采样参数；
+    // 用户要求关思考提速（2026-08-30）：显式 thinking disabled
+    body.thinking = { type: 'disabled' };
   }
-  // mimo：思考模式默认开启，不支持自定义 temperature/top_p → 不传任何采样参数
 
   try {
     const response = await fetchWithTimeout(

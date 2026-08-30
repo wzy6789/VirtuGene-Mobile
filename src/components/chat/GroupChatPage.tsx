@@ -24,11 +24,10 @@ export function GroupChatPage({ onClose, initialGroupId }: { onClose: () => void
 
   return (
     <div className="fixed inset-0 z-[70] bg-app flex flex-col">
-      {/* 头部（避让状态栏安全区，避免标题被顶部深色条/状态栏掩盖） */}
-      <div
-        className="flex items-center gap-2 px-3 border-b border-line shrink-0"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px))', height: 'calc(env(safe-area-inset-top, 0px) + 48px)' }}
-      >
+      {/* 顶部状态栏深色条（与主界面一致：安全区 + 24px 兜底，任何机型标题都不被状态栏/黑条盖住） */}
+      <div className="shrink-0 bg-[#0F0F1A]" style={{ height: 'calc(env(safe-area-inset-top, 0px) + 24px)' }} />
+      {/* 头部 */}
+      <div className="h-12 flex items-center gap-2 px-3 border-b border-line shrink-0">
         <button
           onClick={() => {
             if (view === 'chat') {

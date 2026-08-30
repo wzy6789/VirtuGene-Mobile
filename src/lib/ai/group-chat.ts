@@ -4,7 +4,7 @@
  * - AI 输出 JSON 数组 [{"speaker":"角色名","content":"..."}]，speaker 硬校验必须在群成员内
  * - 非流式（项目铁律）；群聊用全局默认对话模型（成员各自模型 P1）
  */
-import { resolveModel, getProviderKey, llmChat } from './llm';
+import { resolveModel, getProviderKey, findModel, llmChat, type LLMModel } from './llm';
 import { stripRoleplayActions } from './text';
 
 export interface GroupMemberBrief {
@@ -40,35 +40,63 @@ export async function generateGroupTurn(params: {
   history: { senderName?: string; role: 'user' | 'assistant'; content: string }[];
   userMessage: string;
 }): Promise<GroupTurn[]> {
-  const model = resolveModel(); // 群聊用全局默认模型
-  const key = model.provider === 'deepseek' ? params.apiKey : await getProviderKey(model.provider);
-  if (!key) throw new Error('auth:invalid_key');
+  // 群聊用全局默认模型；失败/空结果自动切 deepseek-v4-flash 兜底重试一次（聊几句就中断的问题）
+  const model = resolveModel();
+  const fallback = findModel('deepseek-v4-flash')!;
+  const turns = await attemptTurn(params, model);
+  if (turns.length === 0 && model.id !== fallback.id) {
+    const fb = await attemptTurn(params, fallback);
+    if (fb.length > 0) return fb;
+  }
+  return turns;
+}
 
-  const membersDesc = params.members
-    .map((m) => {
-      const mem = m.memory ? `\n　· 与用户的共同记忆：${m.memory}` : '';
-      return `${m.name}：${m.persona}${mem}`;
-    })
-    .join('\n');
-  const history = params.history.slice(-16).map((h) => ({
-    role: h.role,
-    content: h.senderName ? `${h.senderName}：${h.content}` : h.content,
-  }));
+/** 用指定模型生成一次群聊回合；任何失败/空结果返回空数组（由上层尝试兜底） */
+async function attemptTurn(
+  params: {
+    apiKey: string;
+    groupName: string;
+    members: GroupMemberBrief[];
+    history: { senderName?: string; role: 'user' | 'assistant'; content: string }[];
+    userMessage: string;
+  },
+  model: LLMModel,
+): Promise<GroupTurn[]> {
+  try {
+    const key = model.provider === 'deepseek' ? params.apiKey : await getProviderKey(model.provider);
+    if (!key) throw new Error('auth:invalid_key');
 
-  const res = await llmChat({
-    provider: model.provider,
-    model: model.id,
-    apiKey: key,
-    messages: [
-      { role: 'system', content: GROUP_INSTRUCTION + '\n\n群成员：\n' + membersDesc },
-      ...history,
-      { role: 'user', content: `（用户发来消息）${params.userMessage}\n请决定群里谁回应、说什么。` },
-    ],
-    temperature: 0.9,
-    timeoutMs: 90_000,
-  });
+    const membersDesc = params.members
+      .map((m) => {
+        const mem = m.memory ? `\n　· 与用户的共同记忆：${m.memory}` : '';
+        return `${m.name}：${m.persona}${mem}`;
+      })
+      .join('\n');
+    const history = params.history.slice(-16).map((h) => ({
+      role: h.role,
+      content: h.senderName ? `${h.senderName}：${h.content}` : h.content,
+    }));
 
-  return parseTurns(res.content, params.members);
+    const res = await llmChat({
+      provider: model.provider,
+      model: model.id,
+      apiKey: key,
+      messages: [
+        { role: 'system', content: GROUP_INSTRUCTION + '\n\n群成员：\n' + membersDesc },
+        ...history,
+        { role: 'user', content: `（用户发来消息）${params.userMessage}\n请决定群里谁回应、说什么。` },
+      ],
+      temperature: 0.9,
+      timeoutMs: 90_000,
+    });
+
+    return parseTurns(res.content, params.members);
+  } catch (err) {
+    const msg = (err as Error)?.message ?? '';
+    // key 问题（auth/额度/限流）不兜底，其余（server:error/timeout/空）返回空让上层兜底
+    if (msg === 'auth:invalid_key' || msg === 'billing:insufficient' || msg === 'rate:limited') return [];
+    return [];
+  }
 }
 
 /** 解析 AI 输出的 speaker 序列；硬校验 speaker ∈ 群成员，非法丢弃 */
