@@ -760,3 +760,13 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - **代码已推送**：git commit `d765a90` → main
 - **Release 已发布**：https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v3.1.1（id 379275751，APK 4.7MB，API 验证）
 - 3.1.1 内容：语音输入提示区分（无 Key / Key 无效 401 / 服务繁忙 503 / 过频 429）、云端识别失败原因透传（HTTP 状态/音频解码失败）、503/429 自动退避重试 3 次、503 属硅基服务端繁忙非配置问题
+
+## 四十六、群聊完善（2026-08-30 用户需求）
+
+1. **群聊进「聊天」会话列表**（`MobileChatListPage.tsx`）：搜索框下方新增「群聊」区块（群卡片：群名 + 成员头像组 + 最后消息预览 + 时间 + 未读红点），点击直达该群聊窗口；`group-store` 新增 `groupPreviews`（loadGroups 时查群会话最后消息/未读）；`GroupChatPage` 支持 `initialGroupId` 从外部直达某群
+2. **顶部标题被掩盖修复**（`GroupChatPage.tsx`）：fixed 覆盖层头部避让 `env(safe-area-inset-top)`，不再被状态栏/深色条遮住
+3. **群聊带个人记忆**（`group-store.ts`）：群聊生成时每个成员注入 TA 与该用户的单聊记忆（`memoryRepo.getRecentByCharacter` 前 5 条）——角色在群里也能想起之前的事；成员本身就是已添加的角色（createGroup 用 chat-store.characters）
+4. **群聊模型透明**（`GroupChatPage.tsx` 群设置）：显示群聊使用的模型（全局默认，`resolveModel().label`）；成员各自模型 P1（单次调用只能用一个模型，分角色多次调用成本高，后续可做）
+5. **桌面测试版**（`scripts/desktop-preview.mjs` + `npm run desktop:preview`）：构建渲染层 → 本地静态服务（127.0.0.1:5174）→ Edge app 模式打开 **390×844 手机尺寸窗口**——不用每次装手机 APK 就能测 UI/对话/群聊/多模型；⚠️ 浏览器环境语音识别/录音/系统通知不可用（核心功能可测）
+
+- ⚠️ 桌面测试版需 `npm run desktop:preview` 后保持窗口打开（Ctrl+C 退出）

@@ -4,6 +4,7 @@ import { groupRepo } from '../db/group-repo';
 import { sessionRepo } from '../db/session-repo';
 import { messageRepo } from '../db/message-repo';
 import { characterRepo } from '../db/character-repo';
+import { memoryRepo } from '../db/memory-repo';
 import { useAuthStore } from './auth-store';
 import { generateGroupTurn, type GroupMemberBrief } from '../lib/ai/group-chat';
 
@@ -15,6 +16,8 @@ interface GroupState {
   groupMessages: Message[];
   groupSending: boolean;
   groupError: string | null;
+  /** 群预览（会话列表用）：最后消息 + 时间 + 未读 */
+  groupPreviews: Record<string, { content: string; createdAt: number; unread: number }>;
 
   loadGroups: () => Promise<void>;
   createGroup: (name: string, characterIds: string[]) => Promise<Group | null>;
@@ -52,11 +55,25 @@ export const useGroupStore = create<GroupState>((set, get) => ({
   groupMessages: [],
   groupSending: false,
   groupError: null,
+  groupPreviews: {},
 
   loadGroups: async () => {
     const userId = useAuthStore.getState().userId ?? '';
     const groups = await groupRepo.getByUser(userId);
-    set({ groups });
+    // 群预览：每个群会话的最后消息 + 未读（会话列表显示）
+    const groupPreviews: Record<string, { content: string; createdAt: number; unread: number }> = {};
+    for (const g of groups) {
+      const sessions = await db.sessions.where('groupId').equals(g.id).toArray();
+      const session = sessions[0];
+      if (!session) continue;
+      const last = await messageRepo.getLast(session.id);
+      groupPreviews[g.id] = {
+        content: last?.content ?? '',
+        createdAt: last?.createdAt ?? session.updatedAt,
+        unread: session.unreadCount ?? 0,
+      };
+    }
+    set({ groups, groupPreviews });
     const { currentGroupId } = get();
     if (currentGroupId && !groups.some((g) => g.id === currentGroupId)) {
       set({ currentGroupId: null, currentGroup: null, currentSessionId: null, groupMessages: [] });
@@ -104,16 +121,20 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     set((s) => ({ groupMessages: [...s.groupMessages, userMsg], groupError: null, groupSending: true }));
 
     try {
-      // 构建群聊上下文：成员人设 + 最近历史
+      // 构建群聊上下文：成员人设（含 TA 在个人聊天里的记忆）+ 最近历史
       const group = await groupRepo.getById(currentGroup.id);
       const members = (await Promise.all(group!.characterIds.map((id) => characterRepo.getById(id)))).filter(
         (c): c is NonNullable<typeof c> => !!c,
       );
-      const briefs: GroupMemberBrief[] = members.map((c) => ({
-        id: c.id,
-        name: c.name,
-        persona: c.signature || c.systemPrompt.slice(0, 60),
-      }));
+      // 每个成员注入与该用户的单聊记忆（角色在群里也能想起之前的事）
+      const briefs: GroupMemberBrief[] = await Promise.all(
+        members.map(async (c) => {
+          const memories = await memoryRepo.getRecentByCharacter(c.id, userId, 5);
+          const base = c.signature || c.systemPrompt.slice(0, 60);
+          const memText = memories.length > 0 ? `\n[你与用户的共同记忆] ${memories.map((m) => m.content).join('；')}` : '';
+          return { id: c.id, name: c.name, persona: base + memText };
+        }),
+      );
       const all = await messageRepo.getBySession(sessionId);
       const history = all
         .slice(-17, -1)

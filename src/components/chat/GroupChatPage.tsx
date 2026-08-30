@@ -2,25 +2,33 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupStore } from '../../store/group-store';
 import { useChatStore } from '../../store/chat-store';
 import { useTTS } from '../../lib/tts';
+import { resolveModel } from '../../lib/ai/llm';
 import { Avatar } from '../ui/Avatar';
 import type { Character, Group } from '../../db/index';
 
 /** 群聊页面：群列表 → 建群 → 群聊窗口 → 群设置（一体，全屏覆盖） */
-export function GroupChatPage({ onClose }: { onClose: () => void }) {
+export function GroupChatPage({ onClose, initialGroupId }: { onClose: () => void; initialGroupId?: string }) {
   const groups = useGroupStore((s) => s.groups);
   const loadGroups = useGroupStore((s) => s.loadGroups);
   const selectGroup = useGroupStore((s) => s.selectGroup);
-  const [view, setView] = useState<'list' | 'chat'>('list');
+  const [view, setView] = useState<'list' | 'chat'>(initialGroupId ? 'chat' : 'list');
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     void loadGroups();
-  }, [loadGroups]);
+    if (initialGroupId) {
+      void selectGroup(initialGroupId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="fixed inset-0 z-[70] bg-app flex flex-col">
-      {/* 头部 */}
-      <div className="h-12 flex items-center gap-2 px-3 border-b border-line shrink-0">
+      {/* 头部（避让状态栏安全区，避免标题被顶部深色条/状态栏掩盖） */}
+      <div
+        className="flex items-center gap-2 px-3 border-b border-line shrink-0"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px))', height: 'calc(env(safe-area-inset-top, 0px) + 48px)' }}
+      >
         <button
           onClick={() => {
             if (view === 'chat') {
@@ -306,6 +314,12 @@ function GroupSettings({ group, members, onClose }: { group: Group; members: Cha
           <button onClick={onClose} className="text-gray-400 hover:text-ink text-lg leading-none">×</button>
         </div>
         <div className="p-4 space-y-4">
+          {/* 群聊模型（透明：群聊生成使用全局默认模型，成员各自模型 P1） */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-ink">群聊模型</span>
+            <span className="text-[11px] text-gene-purple">{resolveModel().label}</span>
+          </div>
+
           {/* 群名 */}
           <div>
             <p className="text-xs text-gray-500 mb-1.5">群名称</p>

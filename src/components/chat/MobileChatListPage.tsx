@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat-store';
+import { useGroupStore } from '../../store/group-store';
 import { useUIStore } from '../../store/ui-store';
 import { SwipeActionItem } from '../ui/SwipeActionItem';
+import { GroupChatPage } from './GroupChatPage';
+import { Avatar } from '../ui/Avatar';
 import type { Character } from '../../db/index';
 
 /** 会话列表时间：今天 HH:MM / 昨天 / 今年 M月D日 / 更早 YYYY/M/D */
@@ -40,11 +43,18 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
   const [menu, setMenu] = useState<{ char: Character; x: number; y: number } | null>(null);
   /** 会话列表搜索（搜角色名） */
   const [search, setSearch] = useState('');
+  /** 群聊覆盖层 */
+  const [showGroups, setShowGroups] = useState(false);
+  const [entryGroupId, setEntryGroupId] = useState<string | undefined>(undefined);
+  const groups = useGroupStore((s) => s.groups);
+  const groupPreviews = useGroupStore((s) => s.groupPreviews);
+  const loadGroups = useGroupStore((s) => s.loadGroups);
 
   useEffect(() => {
     void loadCharacters();
     void fetchUnreadCounts();
-  }, [loadCharacters, fetchUnreadCounts]);
+    void loadGroups();
+  }, [loadCharacters, fetchUnreadCounts, loadGroups]);
 
   /** 过滤隐藏项 + 搜索 + 置顶优先 + 按时间/名字排序 */
   const sorted = useMemo(() => {
@@ -130,6 +140,60 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
           )}
         </div>
       </div>
+
+      {/* 群聊区块（微信式：群会话在聊天列表顶部） */}
+      {groups.length > 0 && (
+        <div className="px-3 pt-2 shrink-0">
+          <p className="text-[10px] text-gray-400 mb-1 px-1">群聊（{groups.length}）</p>
+          <div className="space-y-1.5">
+            {groups.map((g) => {
+              const preview = groupPreviews[g.id];
+              const members = characters.filter((c) => g.characterIds.includes(c.id));
+              return (
+                <button
+                  key={g.id}
+                  onClick={() => {
+                    setEntryGroupId(g.id);
+                    setShowGroups(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-surface border border-line hover:border-gene-purple/40 transition-colors"
+                >
+                  <span className="shrink-0 w-12 h-12 rounded-xl bg-gene-purple/12 flex items-center justify-center relative">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6C5CE7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                    <span className="absolute -bottom-1 -right-1 flex">
+                      {members.slice(0, 3).map((m) => (
+                        <span key={m.id} className="w-4 h-4 -ml-1 first:ml-0 rounded-full ring-1 ring-app overflow-hidden">
+                          <Avatar avatar={m.avatar} size="sm" />
+                        </span>
+                      ))}
+                    </span>
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-ink truncate">{g.name}</span>
+                      <span className="text-[10px] text-gray-400 shrink-0">
+                        {preview && preview.createdAt > 0 ? formatListTime(preview.createdAt) : ''}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                      {preview ? preview.content : '群聊已创建，发句话看看他们的反应'}
+                    </p>
+                  </div>
+                  {preview && preview.unread > 0 && (
+                    <span className="shrink-0 min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] flex items-center justify-center">
+                      {preview.unread > 99 ? '99+' : preview.unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 会话列表 */}
       <div className="flex-1 overflow-y-auto py-1">
@@ -269,6 +333,9 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
       )}
 
       {/* 长按「从聊天列表删除」提示：仅隐藏列表项，记录保留（无需确认弹窗） */}
+
+      {/* 群聊覆盖层 */}
+      {showGroups && <GroupChatPage onClose={() => { setShowGroups(false); void loadGroups(); }} initialGroupId={entryGroupId} />}
     </div>
   );
 }

@@ -10,6 +10,7 @@
     "mobile:init": "node scripts/mobile-init.mjs",
     "mobile:sync": "npm run build:renderer && npx cap sync android",
     "mobile:build": "npm run mobile:sync && cd android && gradlew.bat assembleDebug",
+    "desktop:preview": "node scripts/desktop-preview.mjs",
     "release": "node scripts/gh-release.mjs"
   },
   "dependencies": {
