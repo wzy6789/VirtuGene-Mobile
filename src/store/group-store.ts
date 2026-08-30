@@ -126,13 +126,16 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       const members = (await Promise.all(group!.characterIds.map((id) => characterRepo.getById(id)))).filter(
         (c): c is NonNullable<typeof c> => !!c,
       );
-      // 每个成员注入与该用户的单聊记忆（角色在群里也能想起之前的事）
+      // 每个成员注入与该用户的单聊记忆（角色在群里也能想起之前的事；10 条更全）
       const briefs: GroupMemberBrief[] = await Promise.all(
         members.map(async (c) => {
-          const memories = await memoryRepo.getRecentByCharacter(c.id, userId, 5);
-          const base = c.signature || c.systemPrompt.slice(0, 60);
-          const memText = memories.length > 0 ? `\n[你与用户的共同记忆] ${memories.map((m) => m.content).join('；')}` : '';
-          return { id: c.id, name: c.name, persona: base + memText };
+          const memories = await memoryRepo.getRecentByCharacter(c.id, userId, 10);
+          return {
+            id: c.id,
+            name: c.name,
+            persona: c.signature || c.systemPrompt.slice(0, 60),
+            memory: memories.length > 0 ? memories.map((m) => m.content).join('；') : undefined,
+          };
         }),
       );
       const all = await messageRepo.getBySession(sessionId);
