@@ -87,6 +87,8 @@ async function attemptTurn(
         { role: 'user', content: `（用户发来消息）${params.userMessage}\n请决定群里谁回应、说什么。` },
       ],
       temperature: 0.9,
+      // 群聊是结构化 JSON 输出：关闭思考（防思维链截断 JSON + 提速）
+      disableThinking: true,
       timeoutMs: 90_000,
     });
 
@@ -99,19 +101,44 @@ async function attemptTurn(
   }
 }
 
-/** 解析 AI 输出的 speaker 序列；硬校验 speaker ∈ 群成员，非法丢弃 */
+/** 解析 AI 输出的 speaker 序列；硬校验 speaker ∈ 群成员（精确 + 包含模糊匹配），非法丢弃 */
 function parseTurns(text: string, members: GroupMemberBrief[]): GroupTurn[] {
   const byName = new Map(members.map((m) => [m.name, m.id]));
   const out: GroupTurn[] = [];
   try {
     const m = text.match(/\[[\s\S]*\]/);
-    if (!m) return out;
-    const arr = JSON.parse(m[0]);
+    let arr: unknown = null;
+    if (m) {
+      try {
+        arr = JSON.parse(m[0]);
+      } catch {
+        /* 数组解析失败，尝试单对象 */
+      }
+    }
+    // 单对象兼容：AI 偶尔输出 {"speaker":...} 而非数组
+    if (!arr || !Array.isArray(arr)) {
+      try {
+        const obj = JSON.parse(m ? m[0] : text.trim());
+        if (obj && typeof obj === 'object' && obj.speaker) arr = [obj];
+      } catch {
+        /* 无法解析 */
+      }
+    }
     if (!Array.isArray(arr)) return out;
+
     for (const item of arr.slice(0, 3)) {
       const name = String(item?.speaker ?? '').trim();
       const content = String(item?.content ?? '').trim();
-      const senderId = byName.get(name);
+      let senderId = byName.get(name);
+      if (!senderId) {
+        // 模糊匹配：AI 可能带语气词/简称/前后缀（如「林霜：」），按包含关系再试
+        for (const [memName, id] of byName) {
+          if (memName.includes(name) || name.includes(memName)) {
+            senderId = id;
+            break;
+          }
+        }
+      }
       if (!senderId || !content) continue;
       out.push({ senderId, content: stripRoleplayActions(content).slice(0, 500) });
     }

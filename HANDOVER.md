@@ -780,3 +780,9 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 1. **群聊顶部被黑条盖住**（`GroupChatPage.tsx`）：fixed 覆盖层改用与主界面一致的「顶部深色条（安全区 + 24px 兜底）」结构——标题永远在深色条下方，不再依赖 env 变量（浏览器/部分环境 env=0 导致标题顶到状态栏后面）
 2. **群里聊几句"基因序列中断"**（`group-chat.ts`）：群聊生成**无兜底**——模型失败/超时/空结果直接报错。修复：`generateGroupTurn` 拆出 `attemptTurn`，模型失败/空 → **自动切 deepseek-v4-flash 兜底重试一次**；key 问题（auth/额度/限流）不兜底；仍失败显示"群聊生成失败，请重试"
 3. **MiMo 太慢**（`llm.ts`）：MiMo 分支显式加 `thinking: { type: 'disabled' }`（关闭思考模式提速；仍不传 temperature/top_p）——⚠️ 若 MiMo 不认该参数可能报错，真机验证；若报错需换 MiMo 官方思考开关参数名
+
+**群聊生成失败深层修复（2026-08-30 用户反馈"群聊生成失败"）**：
+- 根因 1（最可能）：群聊生成走 DeepSeek 时**思考模式默认开启**（llmChat 未传视觉/关闭参数），思维链吃 token → JSON 输出被截断 → 解析失败 → 兜底也空
+- 根因 2：speaker 硬校验太严（AI 名字带语气词/简称即丢弃整条）
+- 根因 3：JSON 解析只认数组（AI 偶尔输出单对象）
+- 修复（`llm.ts` 加 `disableThinking` 参数；`group-chat.ts`）：① 群聊生成显式 `disableThinking: true`（结构化输出不思考，防截断+提速，符合"群聊必须关思考"原定规则）；② speaker 精确 + **包含模糊匹配**；③ **单对象兼容**解析

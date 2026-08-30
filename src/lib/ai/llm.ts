@@ -87,6 +87,8 @@ export interface LLMChatParams {
   temperature?: number;
   /** DeepSeek 视觉轮次关闭思考（识图快）；文字轮次保持思考（质量优先） */
   visionRequest?: boolean;
+  /** 显式关闭思考（群聊结构化输出等场景：防 JSON 被思维链截断 + 提速） */
+  disableThinking?: boolean;
   timeoutMs?: number;
 }
 
@@ -107,7 +109,7 @@ export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
   };
   if (params.provider === 'deepseek') {
     body.temperature = params.temperature ?? 0.8;
-    body.thinking = params.visionRequest ? { type: 'disabled' } : { type: 'enabled' };
+    body.thinking = params.visionRequest || params.disableThinking ? { type: 'disabled' } : { type: 'enabled' };
   } else if (params.provider === 'qwen') {
     body.temperature = params.temperature ?? 0.8;
   } else if (params.provider === 'mimo') {
