@@ -82,10 +82,19 @@ async function attemptTurn(
         return `${m.name}：${m.persona}${mem}`;
       })
       .join('\n');
-    const history = params.history.slice(-16).map((h) => ({
+    const rawHistory = params.history.slice(-16).map((h) => ({
       role: h.role,
       content: h.senderName ? `${h.senderName}：${h.content}` : h.content,
     }));
+    // 关键修复（第二轮起失败根因）：群里一轮 AI 回复会落库 1~3 条连续 assistant 消息，
+    // 连续多条相同 role 的消息让 DeepSeek 返回 200+空 content（第一轮无历史所以正常）。
+    // 合并连续同 role 消息，保证 user/assistant 严格交替。
+    const history: { role: string; content: string }[] = [];
+    for (const h of rawHistory) {
+      const last = history[history.length - 1];
+      if (last && last.role === h.role) last.content += '\n' + h.content;
+      else history.push({ role: h.role, content: h.content });
+    }
 
     const res = await llmChat({
       provider: model.provider,
@@ -132,7 +141,10 @@ async function attemptTurn(
 
     // 细化失败原因（不再笼统"解析失败"）
     if (!res.content || !res.content.trim()) {
-      return { turns: [], error: `模型返回为空（${model.label}）` };
+      return {
+        turns: [],
+        error: `模型返回为空（${model.label}）${res.rawNote ? `【${res.rawNote}】` : ''}`,
+      };
     }
     if (res.truncated) {
       return { turns: [], error: `模型输出被截断，JSON 不完整（${model.label}）` };
@@ -150,7 +162,7 @@ async function attemptTurn(
 
 /** 简要描述一次失败（用于"强制 JSON 失败"报错里的原因） */
 function describeFailure(res: LLMChatResult, parsed: ParseOutcome): string {
-  if (!res.content || !res.content.trim()) return '模型返回为空';
+  if (!res.content || !res.content.trim()) return `模型返回为空${res.rawNote ? `【${res.rawNote}】` : ''}`;
   if (res.truncated) return '输出被截断';
   if (parsed.unknownSpeakers.length > 0) return `发言人未命中：${[...new Set(parsed.unknownSpeakers)].slice(0, 3).join('、')}`;
   return '内容无法解析';

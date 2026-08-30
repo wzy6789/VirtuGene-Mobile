@@ -101,6 +101,8 @@ export interface LLMChatResult {
   truncated?: boolean;
   /** token 用量（服务商返回；用于费用统计） */
   usage?: { inputTokens: number; outputTokens: number };
+  /** 响应结构摘要（仅空内容/截断时带；用于把服务商实际返回带进报错，不依赖 logcat 定位） */
+  rawNote?: string;
 }
 
 /** 统一 chat 调用（OpenAI 兼容）；错误码与现有体系一致 */
@@ -157,12 +159,12 @@ export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
         : undefined;
 
       // 关键诊断：服务商返回空内容或截断时，把原始响应打到 console（adb logcat 可查），
-      // 用于区分"模型真没输出" vs "内容在别的字段(reasoning_content/多段数组)"。
+      // 用于区分"模型真没输出" vs "内容在别的字段(reasoning_content/多段数组)" vs "200 错误体"。
       if (!content.trim() || truncated) {
-        console.warn(
-          `[llm] 原始响应(空/截断:${truncated}, finish=${choice?.finish_reason}):`,
-          JSON.stringify(data).slice(0, 800),
-        );
+        const errorField = data.error ? JSON.stringify(data.error).slice(0, 160) : '无';
+        const note = `choices=${data.choices?.length ?? 0}, finish=${choice?.finish_reason ?? '?'}, reasoning=${choice?.message?.reasoning_content ? '有' : '无'}, error=${errorField}`;
+        console.warn(`[llm] 原始响应(空/截断:${truncated}): ${note}`, JSON.stringify(data).slice(0, 800));
+        return { content, truncated, usage, rawNote: note };
       }
       return { content, truncated, usage };
     }
