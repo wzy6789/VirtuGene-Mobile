@@ -753,3 +753,10 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 修复（`ChatInput.tsx`）：提示区分三种情况——① 无云端 key → 引导「我的 → 设置 → 语音」填云端识别 Key；② 有 key 但云端识别失败 → 「语音识别失败（云端），请重试或在「我的 → API Key → 硅基」检查 Key」；③ 系统识别可用但没听清 → 重说
 - **OPPO 发语音的硬性要求**：无系统识别的手机（OPPO/ColorOS）必须先在「我的 → 设置 → 语音 → 云端识别」（或「我的 → API Key → 硅基 SiliconFlow」）填硅基 key 才能发语音——这是系统限制，非 bug
 - 云端链路：录音 m4a → decodeAudioData → 16kHz WAV → SiliconFlow SenseVoiceSmall（此前 Node 静音测试 HTTP 200 验证过端点/鉴权/格式）
+
+## 四十五、v3.1.1 已发布（2026-08-29）
+
+- **版本升级 3.1.0 → 3.1.1**：package.json、build.gradle（versionCode 9 / versionName 3.1.1）、changelog.ts（3.1.1 条目）
+- **代码已推送**：git commit `d765a90` → main
+- **Release 已发布**：https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v3.1.1（id 379275751，APK 4.7MB，API 验证）
+- 3.1.1 内容：语音输入提示区分（无 Key / Key 无效 401 / 服务繁忙 503 / 过频 429）、云端识别失败原因透传（HTTP 状态/音频解码失败）、503/429 自动退避重试 3 次、503 属硅基服务端繁忙非配置问题
