@@ -126,15 +126,17 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       const members = (await Promise.all(group!.characterIds.map((id) => characterRepo.getById(id)))).filter(
         (c): c is NonNullable<typeof c> => !!c,
       );
-      // 每个成员注入与该用户的单聊记忆（角色在群里也能想起之前的事；10 条更全）
+      // 每个成员注入与该用户的单聊记忆（角色在群里也能想起之前的事；10 条更全）。
+      // 记忆截断到 80 字/条、总 300 字：防止大提示词挤占输出空间导致 JSON 被截断
       const briefs: GroupMemberBrief[] = await Promise.all(
         members.map(async (c) => {
           const memories = await memoryRepo.getRecentByCharacter(c.id, userId, 10);
+          const memText = memories.map((m) => m.content.slice(0, 80)).join('；').slice(0, 300);
           return {
             id: c.id,
             name: c.name,
             persona: c.signature || c.systemPrompt.slice(0, 60),
-            memory: memories.length > 0 ? memories.map((m) => m.content).join('；') : undefined,
+            memory: memText || undefined,
           };
         }),
       );

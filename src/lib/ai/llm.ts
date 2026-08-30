@@ -91,6 +91,8 @@ export interface LLMChatParams {
   disableThinking?: boolean;
   /** 强制 JSON 输出（DeepSeek/Qwen 用 response_format: json_object；群聊等结构化场景） */
   jsonMode?: boolean;
+  /** 输出 token 上限（默认 1000；群聊等大输出场景可调大防截断） */
+  maxTokens?: number;
   timeoutMs?: number;
 }
 
@@ -107,7 +109,7 @@ export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
   const body: Record<string, unknown> = {
     model: params.model,
     messages: params.messages,
-    max_tokens: 1000,
+    max_tokens: params.maxTokens ?? 1000,
   };
   if (params.provider === 'deepseek') {
     body.temperature = params.temperature ?? 0.8;
