@@ -821,3 +821,14 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
   3. **空内容/截断时把原始响应打到 console**（`[llm] 原始响应(...)`，含 finish_reason/reasoning_content/usage）——下次再空就能看到服务商到底返回了什么
 - 验证：`tsc --noEmit` 通过；APK 已重建（commit `afa3e5a`）
 - **用户验证点**：群聊发消息。若仍失败：① 红条会显示"强制 JSON 输出失败（...）"具体原因；② `adb logcat -s chromium | grep -E "group-chat|llm"` 抓 `[llm] 原始响应` 与 `[group-chat] 模型输出` 两段发回——一锤定音
+
+**群聊"第二轮为空"第三轮修复（2026-08-30 用户验证："第一轮对话正常，但下一轮对话就模型返回为空"）——真正的根因**：
+- **决定性新证据**：第一轮正常、第二轮起为空。对比两轮请求的消息序列：
+  - 第一轮：`[system, user]` → 正常
+  - 第二轮：`[system, user, assistant(×1~3), user]` —— **群里一轮 AI 回复会落库 1~3 条连续 assistant 消息**
+- **根因确认**：单聊从来只有"一条回复=一条 assistant 消息"，不会出现连续同 role；群聊一轮多发言 → 历史里出现**连续多条相同 role 消息** → DeepSeek 对该消息序列返回 **200+空 content**（此 API 已知会静默返回空而不是报错）。这完美解释"第一轮好、第二轮坏"，也解释了此前所有"解析失败/返回为空"其实都发生在第二轮起
+- **修复（commit `36d9460`）**：
+  1. `attemptTurn` 发送前**合并连续同 role 历史消息**（同 role 相邻则 `\n` 拼接成一条），保证 user/assistant 严格交替——主模型与 flash 兜底都生效
+  2. `llmChat` 空内容/截断时返回 `rawNote` 响应结构摘要（`choices=?`, `finish=?`, `reasoning=有/无`, `error=服务商错误体`），**直接带进红条报错**——不用 logcat 也能看到服务商实际返回了什么
+- 验证：`tsc --noEmit` 通过；APK 已重建（commit `36d9460`）
+- **用户验证点**：群聊连续发两轮以上消息，确认第二轮起正常出消息。若仍失败，红条会直接显示 `【choices=…, finish=…, error=…】` 结构摘要——发回这段即定位
