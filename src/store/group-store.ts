@@ -147,7 +147,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
           content: m.content,
         }));
 
-      const turns = await generateGroupTurn({
+      const { turns, error } = await generateGroupTurn({
         apiKey,
         groupName: group!.name,
         members: briefs,
@@ -172,9 +172,12 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       await sessionRepo.touch(sessionId);
       set((s) => ({ groupMessages: [...s.groupMessages, ...msgs], groupSending: false }));
       if (turns.length === 0) {
-        set({ groupError: '群聊生成失败，请重试' });
+        // 透出具体失败原因，便于定位（模型/Key/超时/解析）
+        console.warn('[group-chat] 生成失败:', error);
+        set({ groupError: error ? `群聊生成失败：${error.slice(0, 120)}` : '群聊生成失败，请重试' });
       }
-    } catch {
+    } catch (err) {
+      console.warn('[group-chat] 异常:', err);
       set({ groupSending: false, groupError: '基因链接中断，请重试' });
     }
   },

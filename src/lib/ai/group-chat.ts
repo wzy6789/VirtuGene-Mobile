@@ -39,19 +39,24 @@ export async function generateGroupTurn(params: {
   members: GroupMemberBrief[];
   history: { senderName?: string; role: 'user' | 'assistant'; content: string }[];
   userMessage: string;
-}): Promise<GroupTurn[]> {
-  // 群聊用全局默认模型；失败/空结果自动切 deepseek-v4-flash 兜底重试一次（聊几句就中断的问题）
+}): Promise<{ turns: GroupTurn[]; error?: string }> {
+  // 群聊用全局默认模型；失败/空结果自动切 deepseek-v4-flash 兜底重试一次
   const model = resolveModel();
   const fallback = findModel('deepseek-v4-flash')!;
-  const turns = await attemptTurn(params, model);
-  if (turns.length === 0 && model.id !== fallback.id) {
+
+  const first = await attemptTurn(params, model);
+  if (first.turns.length > 0) return first;
+
+  // 默认模型失败 → 兜底 flash（仅当不是同一个模型）
+  if (model.id !== fallback.id) {
     const fb = await attemptTurn(params, fallback);
-    if (fb.length > 0) return fb;
+    if (fb.turns.length > 0) return fb;
+    return { turns: [], error: `默认模型失败：${first.error ?? '未知'}；兜底模型也失败：${fb.error ?? '未知'}` };
   }
-  return turns;
+  return { turns: [], error: first.error ?? '生成结果为空' };
 }
 
-/** 用指定模型生成一次群聊回合；任何失败/空结果返回空数组（由上层尝试兜底） */
+/** 用指定模型生成一次群聊回合；返回 turns 与具体错误信息（供上层显示定位） */
 async function attemptTurn(
   params: {
     apiKey: string;
@@ -61,10 +66,10 @@ async function attemptTurn(
     userMessage: string;
   },
   model: LLMModel,
-): Promise<GroupTurn[]> {
+): Promise<{ turns: GroupTurn[]; error?: string }> {
   try {
     const key = model.provider === 'deepseek' ? params.apiKey : await getProviderKey(model.provider);
-    if (!key) throw new Error('auth:invalid_key');
+    if (!key) throw new Error('auth:invalid_key（未配置该服务商 Key）');
 
     const membersDesc = params.members
       .map((m) => {
@@ -92,12 +97,14 @@ async function attemptTurn(
       timeoutMs: 90_000,
     });
 
-    return parseTurns(res.content, params.members);
+    const turns = parseTurns(res.content, params.members);
+    if (turns.length === 0) {
+      return { turns, error: `模型返回内容解析失败（${model.label}）` };
+    }
+    return { turns };
   } catch (err) {
-    const msg = (err as Error)?.message ?? '';
-    // key 问题（auth/额度/限流）不兜底，其余（server:error/timeout/空）返回空让上层兜底
-    if (msg === 'auth:invalid_key' || msg === 'billing:insufficient' || msg === 'rate:limited') return [];
-    return [];
+    const msg = (err as Error)?.message ?? '未知错误';
+    return { turns: [], error: `${model.label}：${msg}` };
   }
 }
 
