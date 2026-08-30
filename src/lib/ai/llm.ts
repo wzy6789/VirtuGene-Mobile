@@ -89,6 +89,8 @@ export interface LLMChatParams {
   visionRequest?: boolean;
   /** 显式关闭思考（群聊结构化输出等场景：防 JSON 被思维链截断 + 提速） */
   disableThinking?: boolean;
+  /** 强制 JSON 输出（DeepSeek/Qwen 用 response_format: json_object；群聊等结构化场景） */
+  jsonMode?: boolean;
   timeoutMs?: number;
 }
 
@@ -116,6 +118,10 @@ export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
     // MiMo 思考模式默认开启、不支持自定义 temperature/top_p → 不传采样参数；
     // 用户要求关思考提速（2026-08-30）：显式 thinking disabled
     body.thinking = { type: 'disabled' };
+  }
+  // 强制 JSON 输出（DeepSeek/Qwen 支持 response_format；群聊等结构化场景防散文本）
+  if (params.jsonMode && (params.provider === 'deepseek' || params.provider === 'qwen')) {
+    body.response_format = { type: 'json_object' };
   }
 
   try {

@@ -30,8 +30,10 @@ const GROUP_INSTRUCTION =
   '- 每个成员都拥有和用户的共同记忆（列在成员信息里）。聊到相关话题时，**相关成员应像老朋友随口一提那样自然带出记忆**（例如用户提过的事、TA 知道的用户喜好）；不要生硬复述，也不要编造记忆里没有的内容\n' +
   '- 没有记忆的成员不要假装有共同经历\n' +
   '- 禁止用括号写动作描写（如（笑）（叹气））\n' +
-  '严格输出 JSON 数组，不要任何额外文字：\n' +
-  '[{"speaker":"角色名","content":"说的话"},{"speaker":"角色名","content":"说的话"}]';
+  '输出要求（务必遵守）：\n' +
+  '- **只输出 JSON 数组本身**：不要任何解释、前言、结尾、代码块标记（不要 ```json / ```）\n' +
+  '- 格式必须是合法的 JSON 数组，例如：\n' +
+  '[{"speaker":"林霜","content":"..."},{"speaker":"艾莉","content":"..."}]';
 
 export async function generateGroupTurn(params: {
   apiKey: string;
@@ -92,8 +94,9 @@ async function attemptTurn(
         { role: 'user', content: `（用户发来消息）${params.userMessage}\n请决定群里谁回应、说什么。` },
       ],
       temperature: 0.9,
-      // 群聊是结构化 JSON 输出：关闭思考（防思维链截断 JSON + 提速）
+      // 群聊是结构化 JSON 输出：关闭思考 + 强制 JSON（防散文本 + 提速）
       disableThinking: true,
+      jsonMode: true,
       timeoutMs: 90_000,
     });
 
@@ -108,46 +111,66 @@ async function attemptTurn(
   }
 }
 
-/** 解析 AI 输出的 speaker 序列；硬校验 speaker ∈ 群成员（精确 + 包含模糊匹配），非法丢弃 */
+/** 解析 AI 输出的 speaker 序列；依次尝试 JSON 数组 → 单对象 → 行解析（"名字：内容"），硬校验 speaker ∈ 群成员 */
 function parseTurns(text: string, members: GroupMemberBrief[]): GroupTurn[] {
   const byName = new Map(members.map((m) => [m.name, m.id]));
   const out: GroupTurn[] = [];
-  try {
-    const m = text.match(/\[[\s\S]*\]/);
-    let arr: unknown = null;
-    if (m) {
-      try {
-        arr = JSON.parse(m[0]);
-      } catch {
-        /* 数组解析失败，尝试单对象 */
-      }
-    }
-    // 单对象兼容：AI 偶尔输出 {"speaker":...} 而非数组
-    if (!arr || !Array.isArray(arr)) {
-      try {
-        const obj = JSON.parse(m ? m[0] : text.trim());
-        if (obj && typeof obj === 'object' && obj.speaker) arr = [obj];
-      } catch {
-        /* 无法解析 */
-      }
-    }
-    if (!Array.isArray(arr)) return out;
 
-    for (const item of arr.slice(0, 3)) {
-      const name = String(item?.speaker ?? '').trim();
-      const content = String(item?.content ?? '').trim();
-      let senderId = byName.get(name);
-      if (!senderId) {
-        // 模糊匹配：AI 可能带语气词/简称/前后缀（如「林霜：」），按包含关系再试
-        for (const [memName, id] of byName) {
-          if (memName.includes(name) || name.includes(memName)) {
-            senderId = id;
-            break;
-          }
+  const resolveId = (name: string): string | undefined => {
+    let id = byName.get(name);
+    if (!id) {
+      // 模糊匹配：AI 可能带语气词/简称/前后缀（如「林霜：」），按包含关系再试
+      for (const [memName, mid] of byName) {
+        if (memName.includes(name) || name.includes(memName)) {
+          id = mid;
+          break;
         }
       }
-      if (!senderId || !content) continue;
-      out.push({ senderId, content: stripRoleplayActions(content).slice(0, 500) });
+    }
+    return id;
+  };
+
+  const push = (speakerName: string, content: string): boolean => {
+    const name = speakerName.trim();
+    const c = content.trim();
+    const senderId = resolveId(name);
+    if (!senderId || !c) return false;
+    if (out.length >= 3) return true;
+    out.push({ senderId, content: stripRoleplayActions(c).slice(0, 500) });
+    return true;
+  };
+
+  try {
+    // 1) JSON 数组（可能被 ```json 或前后文字包裹）
+    const m = text.match(/\[[\s\S]*\]/);
+    if (m) {
+      try {
+        const arr = JSON.parse(m[0]);
+        if (Array.isArray(arr)) {
+          for (const item of arr.slice(0, 3)) {
+            push(String(item?.speaker ?? ''), String(item?.content ?? ''));
+          }
+          return out;
+        }
+      } catch {
+        /* 数组解析失败，继续 */
+      }
+    }
+    // 2) 单对象兼容
+    try {
+      const obj = JSON.parse(m ? m[0] : text.trim());
+      if (obj && typeof obj === 'object' && obj.speaker) {
+        push(String(obj.speaker), String(obj.content));
+        return out;
+      }
+    } catch {
+      /* 无法解析，继续 */
+    }
+    // 3) 行解析兜底：模型输出散文本 "名字：内容"（防 AI 不守 JSON 规则）
+    for (const line of text.split('\n')) {
+      const lm = line.match(/^[（(]?([^：:]{1,12})[）)]?[：:]\s*(.+)$/);
+      if (lm) push(lm[1], lm[2]);
+      if (out.length >= 3) break;
     }
     return out;
   } catch {

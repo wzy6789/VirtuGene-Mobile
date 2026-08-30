@@ -786,3 +786,8 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 根因 2：speaker 硬校验太严（AI 名字带语气词/简称即丢弃整条）
 - 根因 3：JSON 解析只认数组（AI 偶尔输出单对象）
 - 修复（`llm.ts` 加 `disableThinking` 参数；`group-chat.ts`）：① 群聊生成显式 `disableThinking: true`（结构化输出不思考，防截断+提速，符合"群聊必须关思考"原定规则）；② speaker 精确 + **包含模糊匹配**；③ **单对象兼容**解析
+
+**群聊"解析失败"最终修复（2026-08-30，错误透传定位到根因）**：
+- 错误透传后发现：错误是"**模型返回内容解析失败（deepseek-v4-flash）**"——DeepSeek 请求**成功**，但 **AI 没按 JSON 输出**（输出散文本/对话式内容），parseTurns 解析失败
+- 修复三管齐下：① `llmChat` 加 `jsonMode` → DeepSeek/Qwen 用 `response_format: {type:'json_object'}` **强制 JSON 输出**；② 群聊提示词强化"只输出 JSON 数组本身，禁止解释/代码块标记"；③ `parseTurns` 加**行解析兜底**（模型输出散文本"名字：内容"也能解析）——JSON 数组 → 单对象 → 行解析三级解析链
+- ⚠️ MiMo 不支持 response_format（jsonMode 时 mimo 不传，靠行解析兜底或切 flash）
