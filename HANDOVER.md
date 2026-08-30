@@ -791,3 +791,23 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - 错误透传后发现：错误是"**模型返回内容解析失败（deepseek-v4-flash）**"——DeepSeek 请求**成功**，但 **AI 没按 JSON 输出**（输出散文本/对话式内容），parseTurns 解析失败
 - 修复三管齐下：① `llmChat` 加 `jsonMode` → DeepSeek/Qwen 用 `response_format: {type:'json_object'}` **强制 JSON 输出**；② 群聊提示词强化"只输出 JSON 数组本身，禁止解释/代码块标记"；③ `parseTurns` 加**行解析兜底**（模型输出散文本"名字：内容"也能解析）——JSON 数组 → 单对象 → 行解析三级解析链
 - ⚠️ MiMo 不支持 response_format（jsonMode 时 mimo 不传，靠行解析兜底或切 flash）
+
+## 四十七、群聊"仍有问题"深度分析 + 修复（2026-08-30 用户："还是有这个问题！仔细分析！！！！"）
+
+**失败链路回顾**：错误透传已显示"模型返回内容解析失败（deepseek-v4-flash）"——DeepSeek 请求成功、但 parseTurns 没解析出任何条目。上一个补丁（6636b47）加了 `response_format: json_object` 后**仍失败**，深度分析出三个此前未覆盖的根因：
+
+1. **根因 A（最主要）：json_object 模式强制输出"对象"，而提示词要求"数组"**——模型被迫把数组包进对象，甚至包成**被转义的 JSON 字符串**（`{"result":"[{\"speaker\":...}]"}`）。旧解析器提取出的片段带反斜杠，`JSON.parse` 必失败；且旧解析只认"整文数组/数组正则"，对象形态直接漏掉
+2. **根因 B：错误信息误导**——"解析失败"实际包含两种完全不同的情况：① 没有 JSON；② **JSON 解析成功但 speaker 全部没命中群成员**（模型幻觉名字/写"我"/写旁白），条目被静默丢弃后 turns=0 也报"解析失败"，导致一直查不到真因
+3. **根因 C：max_tokens=1000 截断**——大提示词（5 人 × 人设 + 10 条记忆 + 16 条历史）下若模型啰嗦，JSON 数组被截断成残片，三种解析全部失败（`finish_reason: length` 此前被忽略）
+
+**本次修复（commit `8e41485`，`group-chat.ts` / `llm.ts` / `group-store.ts`）**：
+- **输出契约改为对象**：提示词要求 `{"turns":[{"speaker":"...","content":"..."}]}`（turns 字段放数组）——与 json_object 的"保证输出对象"对齐，模型不再被逼着做做不到的事
+- **解析器重写为 4 级**（`parseTurns`）：① 整文 JSON 对象 → 读 `turns/messages/result/data/response/output/replies/items` 等键（值可能是数组，也可能是**转义 JSON 字符串**，自动反转义 `\"`→`"`）→ 扫描任意数组值 → 对象本身是单条；② 整文/正则提取的 JSON 数组（含 markdown 围栏包裹）；③ 单对象；④ 行解析"名字：内容"（跳过 `{`/`[`/`"` 开头的 JSON 残片，避免把残缺 JSON 当发言人）
+- **speaker 未命中不再静默**：部分命中 → 保留命中条目、丢弃未知；全部未命中 → 报"发言人不在群成员里：张伟、李四（模型）"——下次失败能直接看到是哪个名字没对上
+- **错误细分**：模型返回为空 / 输出被截断（JSON 不完整）/ 发言人未命中 / 无法解析，取代笼统的"解析失败"
+- **maxTokens**：`llmChat` 新增 `maxTokens` 参数（默认 1000），群聊传 **1500** 防截断；`truncated` 标记参与错误判定
+- **记忆瘦身**：每条记忆截 80 字、总 300 字（防大提示词挤占输出空间）
+- **原始输出留痕**：`console.warn('[group-chat] 模型输出(...)')` 原样打印模型输出与解析途径/未知发言人——Android 上 `adb logcat` 可查，若再失败一次就能拿到铁证
+
+**验证**：`scripts/group-parse-test.mjs` 11 个用例全过（对象包数组 / 转义字符串数组 / 裸数组 / markdown 围栏 / 单对象 / 散文本行 / 部分未知发言人保留 / 全部未知 / 截断残片 / 空白）；`tsc --noEmit` 通过；APK 已重建。
+**用户验证点**：装新 APK → 群聊发消息。若仍失败，红条会显示具体原因（不再是"请重试"）；同时 `adb logcat -s chromium` 里能抓到 `[group-chat] 模型输出(...)` 原始内容——把那段发回来即可一锤定音。
