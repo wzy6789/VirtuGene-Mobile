@@ -811,3 +811,13 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 
 **验证**：`scripts/group-parse-test.mjs` 11 个用例全过（对象包数组 / 转义字符串数组 / 裸数组 / markdown 围栏 / 单对象 / 散文本行 / 部分未知发言人保留 / 全部未知 / 截断残片 / 空白）；`tsc --noEmit` 通过；APK 已重建。
 **用户验证点**：装新 APK → 群聊发消息。若仍失败，红条会显示具体原因（不再是"请重试"）；同时 `adb logcat -s chromium` 里能抓到 `[group-chat] 模型输出(...)` 原始内容——把那段发回来即可一锤定音。
+
+**群聊"模型返回为空"第二轮修复（2026-08-30 用户验证：红条变为"模型返回为空"）**：
+- **新证据**：错误从"解析失败"变为"**模型返回为空**"——新解析器已生效，但 DeepSeek 这次返回 **HTTP 200 + 空 content**（choices[0].message.content 为空）
+- **根因锁定**：单聊（无 response_format）正常、群聊（`response_format: json_object` + 关思考）返回空 → **json_object 与 DeepSeek 的组合本身就是异常源**（此前表现为乱码/无法解析，现在表现为空内容——同一根因的两种症状）。这与记忆中"vision-exp 模型返回 200+空内容"是同类问题：DeepSeek 某些模型/参数组合会静默返回空 content
+- **修复（commit `afa3e5a`）**：
+  1. `attemptTurn` 增加 `jsonMode` 参数：**jsonMode 失败（空内容/无法解析）→ 自动去掉 `response_format` 用同一模型重试一次**（回到单聊同款可靠请求形态）；报错会写明"强制 JSON 输出失败（原因），去掉 JSON 模式重试也失败：…"
+  2. `llmChat` content 提取兼容三种形态：字符串 / **多段数组**（`[{type:'text',text}]` 新多模态格式）/ null——防止"content 其实是数组"被误判成空
+  3. **空内容/截断时把原始响应打到 console**（`[llm] 原始响应(...)`，含 finish_reason/reasoning_content/usage）——下次再空就能看到服务商到底返回了什么
+- 验证：`tsc --noEmit` 通过；APK 已重建（commit `afa3e5a`）
+- **用户验证点**：群聊发消息。若仍失败：① 红条会显示"强制 JSON 输出失败（...）"具体原因；② `adb logcat -s chromium | grep -E "group-chat|llm"` 抓 `[llm] 原始响应` 与 `[group-chat] 模型输出` 两段发回——一锤定音
