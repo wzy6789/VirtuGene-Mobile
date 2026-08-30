@@ -143,7 +143,11 @@ export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
     if (response.ok) {
       const data = await response.json();
       const choice = data.choices?.[0];
-      const content: string = choice?.message?.content ?? '';
+      // 兼容 content 为字符串 / 多段数组 / null 三种形态，避免"看起来像空内容"掩盖真实输出
+      let content = '';
+      const c = choice?.message?.content;
+      if (typeof c === 'string') content = c;
+      else if (Array.isArray(c)) content = c.map((p) => (typeof p === 'string' ? p : p?.text ?? '')).join('');
       const truncated = choice?.finish_reason === 'length';
       const usage = data.usage
         ? {
@@ -151,6 +155,15 @@ export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
             outputTokens: Number(data.usage.completion_tokens ?? 0),
           }
         : undefined;
+
+      // 关键诊断：服务商返回空内容或截断时，把原始响应打到 console（adb logcat 可查），
+      // 用于区分"模型真没输出" vs "内容在别的字段(reasoning_content/多段数组)"。
+      if (!content.trim() || truncated) {
+        console.warn(
+          `[llm] 原始响应(空/截断:${truncated}, finish=${choice?.finish_reason}):`,
+          JSON.stringify(data).slice(0, 800),
+        );
+      }
       return { content, truncated, usage };
     }
 

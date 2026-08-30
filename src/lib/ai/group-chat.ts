@@ -4,7 +4,7 @@
  * - AI 输出 JSON 数组 [{"speaker":"角色名","content":"..."}]，speaker 硬校验必须在群成员内
  * - 非流式（项目铁律）；群聊用全局默认对话模型（成员各自模型 P1）
  */
-import { resolveModel, getProviderKey, findModel, llmChat, type LLMModel } from './llm';
+import { resolveModel, getProviderKey, findModel, llmChat, type LLMModel, type LLMChatResult } from './llm';
 import { stripRoleplayActions } from './text';
 
 export interface GroupMemberBrief {
@@ -58,7 +58,9 @@ export async function generateGroupTurn(params: {
   return { turns: [], error: first.error ?? '生成结果为空' };
 }
 
-/** 用指定模型生成一次群聊回合；返回 turns 与具体错误信息（供上层显示定位） */
+/** 用指定模型生成一次群聊回合；返回 turns 与具体错误信息（供上层显示定位）。
+ *  jsonMode=true 时走 response_format 强制 JSON；若该形态失败（空内容/无法解析），
+ *  自动去掉 response_format 重试一次——DeepSeek 在 json_object + 关思考组合下曾返回 200+空内容。 */
 async function attemptTurn(
   params: {
     apiKey: string;
@@ -68,6 +70,7 @@ async function attemptTurn(
     userMessage: string;
   },
   model: LLMModel,
+  jsonMode = true,
 ): Promise<{ turns: GroupTurn[]; error?: string }> {
   try {
     const key = model.provider === 'deepseek' ? params.apiKey : await getProviderKey(model.provider);
@@ -96,7 +99,7 @@ async function attemptTurn(
       temperature: 0.9,
       // 群聊是结构化 JSON 输出：关闭思考 + 强制 JSON（防散文本 + 提速）
       disableThinking: true,
-      jsonMode: true,
+      jsonMode,
       // 大提示词（多人设+记忆+历史）需要更高输出上限，防止 JSON 被截断成残缺片段
       maxTokens: 1500,
       timeoutMs: 90_000,
@@ -104,7 +107,7 @@ async function attemptTurn(
 
     // 关键诊断日志：原始模型输出原样打到 console（Android 上 adb logcat 可查），
     // 无论是否成功都留痕，便于下次仍失败时精准定位是"格式"还是"发言人"问题。
-    console.warn(`[group-chat] 模型输出(${model.id}${res.truncated ? '·截断' : ''}):`, res.content);
+    console.warn(`[group-chat] 模型输出(${model.id}${jsonMode ? '·jsonMode' : ''}${res.truncated ? '·截断' : ''}):`, res.content);
 
     const parsed = parseTurns(res.content, params.members);
     console.warn(
@@ -114,6 +117,19 @@ async function attemptTurn(
     if (parsed.turns.length > 0) {
       return { turns: parsed.turns };
     }
+
+    // 核心修复：response_format(json_object) 与部分模型组合会返回 200+空内容 或 无法解析的内容。
+    // jsonMode 失败 → 去掉 response_format 用同一模型重试一次（回到单聊同款可靠请求形态）
+    if (jsonMode) {
+      console.warn(`[group-chat] ${model.id} jsonMode 下失败(via=${parsed.via})，去掉 response_format 重试`);
+      const retried = await attemptTurn(params, model, false);
+      if (retried.turns.length > 0) return retried;
+      return {
+        turns: [],
+        error: `强制 JSON 输出失败（${describeFailure(res, parsed)}），去掉 JSON 模式重试也失败：${retried.error ?? '未知'}`,
+      };
+    }
+
     // 细化失败原因（不再笼统"解析失败"）
     if (!res.content || !res.content.trim()) {
       return { turns: [], error: `模型返回为空（${model.label}）` };
@@ -130,6 +146,14 @@ async function attemptTurn(
     const msg = (err as Error)?.message ?? '未知错误';
     return { turns: [], error: `${model.label}：${msg}` };
   }
+}
+
+/** 简要描述一次失败（用于"强制 JSON 失败"报错里的原因） */
+function describeFailure(res: LLMChatResult, parsed: ParseOutcome): string {
+  if (!res.content || !res.content.trim()) return '模型返回为空';
+  if (res.truncated) return '输出被截断';
+  if (parsed.unknownSpeakers.length > 0) return `发言人未命中：${[...new Set(parsed.unknownSpeakers)].slice(0, 3).join('、')}`;
+  return '内容无法解析';
 }
 
 /** 解析结果：turns + 诊断信息（未知发言人 / 解析途径） */
