@@ -127,16 +127,35 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         (c): c is NonNullable<typeof c> => !!c,
       );
       // 每个成员注入与该用户的单聊记忆（角色在群里也能想起之前的事；10 条更全）。
-      // 记忆截断到 80 字/条、总 300 字：防止大提示词挤占输出空间导致 JSON 被截断
+      // 记忆截断到 80 字/条、总 300 字：防止大提示词挤占输出空间导致 JSON 被截断。
+      // 另外注入「最近私聊记录」（该成员最新单聊会话的最后 6 条）——记忆提取是延迟+有损的，
+      // 私聊原话直接带上，保证用户私下刚说的事群里立刻知道（知识跟着角色走）。
       const briefs: GroupMemberBrief[] = await Promise.all(
         members.map(async (c) => {
           const memories = await memoryRepo.getRecentByCharacter(c.id, userId, 10);
           const memText = memories.map((m) => m.content.slice(0, 80)).join('；').slice(0, 300);
+          let privateChat: string | undefined;
+          try {
+            const sessions = await sessionRepo.getByCharacter(c.id, userId);
+            const latest = sessions[0];
+            if (latest) {
+              const lastMsgs = (await messageRepo.getBySession(latest.id)).slice(-6);
+              if (lastMsgs.length > 0) {
+                privateChat = lastMsgs
+                  .map((m) => (m.role === 'user' ? `我：${m.content}` : `${c.name}：${m.content}`))
+                  .join('\n')
+                  .slice(0, 500);
+              }
+            }
+          } catch {
+            /* 私聊记录取不到不影响群聊 */
+          }
           return {
             id: c.id,
             name: c.name,
             persona: c.signature || c.systemPrompt.slice(0, 60),
             memory: memText || undefined,
+            privateChat,
           };
         }),
       );

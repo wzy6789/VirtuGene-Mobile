@@ -13,6 +13,8 @@ export interface GroupMemberBrief {
   persona: string;
   /** 该成员与用户的共同记忆（单聊记忆摘要）；有值时群聊应自然提及 */
   memory?: string;
+  /** 该成员与用户的最近私聊记录（最新单聊会话最后几条原话）；有值时群聊可自然承接 */
+  privateChat?: string;
 }
 
 export interface GroupTurn {
@@ -28,6 +30,8 @@ const GROUP_INSTRUCTION =
   '- 输出 1~3 条即可，最多 3 条；某角色回应后其他角色可补一句，也可以就此打住\n' +
   '- 群成员的名字不能改，speaker 必须是下面列出的成员之一（用成员原名，不要加称呼/括号/编号）\n' +
   '- 每个成员都拥有和用户的共同记忆（列在成员信息里）。聊到相关话题时，**相关成员应像老朋友随口一提那样自然带出记忆**（例如用户提过的事、TA 知道的用户喜好）；不要生硬复述，也不要编造记忆里没有的内容\n' +
+  '- 成员的"最近私聊记录"是 TA 刚刚和用户私下聊过的内容（列在成员信息里）。相关成员可以自然承接私聊话题（比如用户私下说过的事，TA 在群里可以接话/回应）；**不要整段复述私聊记录**\n' +
+  '- **私聊是私密的：每个成员只知道 TA 自己的私聊记录，不知道别人的。** 只有某成员自己私下和用户聊过的事，才由 TA 在群里说出来；其他成员不该表现出知道（除非 TA 在群里说了）\n' +
   '- 没有记忆的成员不要假装有共同经历\n' +
   '- 禁止用括号写动作描写（如（笑）（叹气））\n' +
   '输出要求（务必遵守）：\n' +
@@ -79,7 +83,8 @@ async function attemptTurn(
     const membersDesc = params.members
       .map((m) => {
         const mem = m.memory ? `\n　· 与用户的共同记忆：${m.memory}` : '';
-        return `${m.name}：${m.persona}${mem}`;
+        const priv = m.privateChat ? `\n　· 与用户的最近私聊记录：\n${m.privateChat.split('\n').map((l) => '　　' + l).join('\n')}` : '';
+        return `${m.name}：${m.persona}${mem}${priv}`;
       })
       .join('\n');
     const rawHistory = params.history.slice(-16).map((h) => ({

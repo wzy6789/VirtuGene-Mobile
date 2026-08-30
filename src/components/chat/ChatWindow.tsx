@@ -617,10 +617,11 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           });
         }
 
-        // 每 5 条用户消息合并结算一次：情绪 + 记忆 + 好感度（单次 API 调用）。
+        // 每 3 条用户消息合并结算一次：情绪 + 记忆 + 好感度（单次 API 调用）。
+        // 2026-08-30：5 → 3，记忆更及时入库（群聊需要角色立刻知道私聊里说过的事）。
         // 注意：allMsgs 在 addMessage(userMsg) 之后读取，已包含刚发的这条，不能再 +1
         const userMsgCount = allMsgs.filter((m) => m.role === 'user').length;
-        if (userMsgCount > 0 && userMsgCount % 5 === 0) {
+        if (userMsgCount > 0 && userMsgCount % 3 === 0) {
           void useEmotionStore.getState().settle(character.id, sessionId, character.name);
         }
 

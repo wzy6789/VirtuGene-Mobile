@@ -154,9 +154,11 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
     };
     await emotionRepo.create(snapshot);
 
-    // 记忆提取：与已有记忆去重后入库（记忆保存失败不影响情绪/好感度结算）
+    // 记忆提取：与已有记忆去重后入库（记忆保存失败不影响情绪/好感度结算）。
+    // 2026-08-30：去掉「会话 ≥20 条才存记忆」的门槛——私聊三五句的关键信息也要立刻进记忆，
+    // 否则群聊注入记忆时角色对用户私下说过的事一无所知（用户反馈"群聊的人不知道私下发的消息"）。
     try {
-      if (result.memories && result.memories.length > 0 && msgs.length >= 20) {
+      if (result.memories && result.memories.length > 0) {
         const existing = await memoryRepo.getByCharacter(characterId, userId);
         const existingContents = new Set(existing.map((m) => m.content.trim()));
         const fresh = result.memories

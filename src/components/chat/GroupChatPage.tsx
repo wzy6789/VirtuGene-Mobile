@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useGroupStore } from '../../store/group-store';
 import { useChatStore } from '../../store/chat-store';
 import { useTTS } from '../../lib/tts';
+import { ipc } from '../../lib/ipc-client';
 import { resolveModel } from '../../lib/ai/llm';
 import { Avatar } from '../ui/Avatar';
 import type { Character, Group } from '../../db/index';
@@ -126,7 +128,28 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
   const characters = useChatStore((s) => s.characters);
   const [settings, setSettings] = useState(false);
   const [input, setInput] = useState('');
+  /** 长按消息弹出的复制菜单（Android WebView 长按触发 contextmenu，与单聊 MessageBubble 一致） */
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 点击别处关闭长按菜单
+  useEffect(() => {
+    if (!menu) return;
+    const handler = () => setMenu(null);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [menu]);
+
+  const handleCopy = async (id: string) => {
+    if (copiedId === id) return;
+    const m = messages.find((x) => x.id === id);
+    if (!m) return;
+    await ipc.clipboard.writeText(m.content);
+    setCopiedId(id);
+    setMenu(null);
+    setTimeout(() => setCopiedId(null), 1500);
+  };
 
   const members = useMemo(
     () => characters.filter((c) => group?.characterIds.includes(c.id)),
@@ -196,7 +219,13 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
           if (m.role === 'user') {
             return (
               <div key={m.id} className="flex justify-end mb-3">
-                <div className="max-w-[75%] px-3.5 py-2.5 rounded-2xl rounded-br-md bg-gene-purple text-white text-sm leading-relaxed whitespace-pre-wrap break-words">
+                <div
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ id: m.id, x: e.clientX, y: e.clientY });
+                  }}
+                  className="max-w-[75%] px-3.5 py-2.5 rounded-2xl rounded-br-md bg-gene-purple text-white text-sm leading-relaxed whitespace-pre-wrap break-words"
+                >
                   {m.content}
                 </div>
               </div>
@@ -233,7 +262,13 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
                     </button>
                   )}
                 </div>
-                <div className="px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-msgai border-l-2 border-life-cyan text-sm text-msgaitxt leading-relaxed whitespace-pre-wrap break-words">
+                <div
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ id: m.id, x: e.clientX, y: e.clientY });
+                  }}
+                  className="px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-msgai border-l-2 border-life-cyan text-sm text-msgaitxt leading-relaxed whitespace-pre-wrap break-words"
+                >
                   {m.content}
                 </div>
               </div>
@@ -256,6 +291,24 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
           <span className="text-xs text-red-400 flex-1">{error}</span>
         </div>
       )}
+
+      {/* 长按消息 → 复制菜单（portal 到 body，z 高于群聊覆盖层 z-[70]） */}
+      {menu &&
+        createPortal(
+          <div
+            className="fixed z-[90] min-w-[150px] py-1.5 glass-card rounded-xl shadow-2xl"
+            style={{ left: menu.x + 4, top: menu.y + 4 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => void handleCopy(menu.id)}
+              className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-sub hover:bg-surface transition-colors"
+            >
+              {copiedId === menu.id ? '✅ 已复制' : '📋 复制'}
+            </button>
+          </div>,
+          document.body,
+        )}
 
       {/* 输入（群聊 v1：文字） */}
       <div className="border-t border-line p-3 shrink-0">
