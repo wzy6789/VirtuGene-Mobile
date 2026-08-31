@@ -230,7 +230,9 @@ interface ParseOutcome {
  * 命中不了的记录进 unknownSpeakers 而不是静默丢弃——杜绝"话配错人"。
  */
 function parseTurns(text: string, members: GroupMemberBrief[], maxTurns = 3): ParseOutcome {
-  const byName = new Map(members.map((m) => [m.name, m.id]));
+  // 防御：任何异常输入都不该让解析崩溃（转字符串 + 空成员兜底）
+  const safeMembers = Array.isArray(members) ? members : [];
+  const byName = new Map(safeMembers.map((m) => [m.name, m.id]));
   const out: GroupTurn[] = [];
   const unknownSpeakers: string[] = [];
 
@@ -348,7 +350,7 @@ function parseTurns(text: string, members: GroupMemberBrief[], maxTurns = 3): Pa
     return false;
   };
 
-  const text0 = text.trim();
+  const text0 = String(text ?? '').trim();
   if (text0) {
     // 1) 整文 JSON 对象（json_object 模式的保证形态）
     try {
@@ -399,7 +401,7 @@ function parseTurns(text: string, members: GroupMemberBrief[], maxTurns = 3): Pa
   }
 
   // 3) 行解析兜底：模型输出散文本 "名字：内容"（防 AI 不守 JSON 规则）
-  for (const line of text.split('\n')) {
+  for (const line of String(text ?? '').split('\n')) {
     // 跳过 JSON 残片（{、"、[ 开头的行不是"名字：内容"），避免把残缺 JSON 当发言人报错
     const lt = line.trim();
     if (!lt || lt.startsWith('{') || lt.startsWith('[') || lt.startsWith('"')) continue;

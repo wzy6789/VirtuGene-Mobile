@@ -181,10 +181,11 @@ async function generateProactiveTurn(
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
     (c): c is NonNullable<typeof c> => !!c,
   );
+  // 鲁棒性：成员不足不调 API
+  if (members.length < 2) return { turns: [], error: '群成员不足' };
   const briefs = await buildBriefs(group, userId);
-  const all = await messageRepo.getBySession(sessionId);
+  const all = await messageRepo.getPage(sessionId, { limit: 20 });
   const history = all
-    .slice(-17)
     .map((m) => ({
       senderName: m.senderId ? members.find((c) => c.id === m.senderId)?.name : undefined,
       role: m.role as 'user' | 'assistant',
@@ -261,7 +262,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     const apiKey = useAuthStore.getState().apiKey;
     const userId = useAuthStore.getState().userId ?? '';
     if ((!trimmed && !opts?.image) || !currentGroup || !currentSessionId || !apiKey) return;
+    // 鲁棒性：同步置位发送中，堵住"快速连点两次"的竞态（第二个请求进来时已为 true）
     if (get().groupSending) return;
+    set({ groupSending: true, groupError: null });
 
     const sessionId = currentSessionId;
     const userMsg: Message = {
@@ -275,18 +278,26 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       replyToId: opts?.quoteId,
       replyToContent: opts?.quoteContent,
     };
-    await messageRepo.create(userMsg);
-    set((s) => ({ groupMessages: [...s.groupMessages, userMsg], groupError: null, groupSending: true }));
-
     try {
+      await messageRepo.create(userMsg);
+      set((s) => ({ groupMessages: [...s.groupMessages, userMsg] }));
+
       // 构建群聊上下文：成员人设（含 TA 在个人聊天里的记忆 + 最近私聊）+ 最近历史
       const group = await groupRepo.getById(currentGroup.id);
-      const members = (await Promise.all(group!.characterIds.map((id) => characterRepo.getById(id)))).filter(
+      if (!group) {
+        set({ groupSending: false, groupError: '群已被删除' });
+        return;
+      }
+      const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
         (c): c is NonNullable<typeof c> => !!c,
       );
-      const briefs = await buildBriefs(group!, userId);
-      const all = await messageRepo.getBySession(sessionId);
-      const history = all
+      // 鲁棒性：成员不足（角色被删光/只剩 1 个）不调 API，直接提示（省 token + 防死循环）
+      if (members.length < 2) {
+        set({ groupSending: false, groupError: '群成员不足（至少需要 2 个成员）' });
+        return;
+      }
+      const briefs = await buildBriefs(group, userId);
+      const history = (await messageRepo.getPage(sessionId, { limit: 20 }))
         .slice(-17, -1)
         .map((m) => ({
           senderName: m.senderId ? members.find((c) => c.id === m.senderId)?.name : undefined,
@@ -299,7 +310,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
 
       const { turns, error } = await generateGroupTurn({
         apiKey,
-        groupName: group!.name,
+        groupName: group.name,
         members: briefs,
         history,
         userMessage: trimmed,
@@ -307,7 +318,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         image: opts?.image,
         summary: sessionData?.summary,
         // 热闹模式：一轮最多 5 条（默认 3，省 token）
-        maxTurns: group?.lively ? 5 : 3,
+        maxTurns: group.lively ? 5 : 3,
       });
 
       // 落库群回复序列
@@ -332,9 +343,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         set({ groupError: error ? `群聊生成失败：${error.slice(0, 120)}` : '群聊生成失败，请重试' });
       }
 
-      // 后台增强（不影响主流程）：长会话摘要 + 群聊记忆沉淀
+      // 后台增强（不影响主流程）：长会话摘要 + 群聊记忆沉淀（只写给现存成员）
       void maybeSummarizeGroup(sessionId, apiKey);
-      void maybeExtractGroupMemories(sessionId, group!.characterIds, apiKey);
+      void maybeExtractGroupMemories(sessionId, members.map((c) => c.id), apiKey);
     } catch (err) {
       console.warn('[group-chat] 异常:', err);
       set({ groupSending: false, groupError: '基因链接中断，请重试' });
@@ -352,11 +363,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     try {
       const session = await sessionRepo.getById(currentSessionId);
       if (!session) return;
-      const all = await messageRepo.getBySession(currentSessionId);
-      // 群里至少有 1 条用户消息（新群不主动打扰），且距最后一条消息足够久
-      const hasUserMsg = all.some((m) => m.role === 'user');
-      const lastAt = all.length > 0 ? all[all.length - 1].createdAt : 0;
-      if (!hasUserMsg || now - lastAt < PROACTIVE_AFTER_MS) return;
+      const lastMsg = await messageRepo.getLast(currentSessionId);
+      // 群里至少有 1 条消息（新群不主动打扰），且距最后一条消息足够久
+      if (!lastMsg || Date.now() - lastMsg.createdAt < PROACTIVE_AFTER_MS) return;
 
       const group = await groupRepo.getById(currentGroup.id);
       if (!group) return;
@@ -417,11 +426,10 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         const sessions = await db.sessions.where('groupId').equals(g.id).toArray();
         const session = sessions[0];
         if (!session) continue;
-        const all = await messageRepo.getBySession(session.id);
-        if (!all.some((m) => m.role === 'user')) continue;
-        const lastAt = all[all.length - 1].createdAt;
-        if (now - lastAt < PROACTIVE_AFTER_MS) continue;
-        if (!best || lastAt < best.lastAt) best = { group: g, sessionId: session.id, lastAt };
+        const lastMsg = await messageRepo.getLast(session.id);
+        // 群里至少 1 条消息（用户开过口）且足够久没动静
+        if (!lastMsg || Date.now() - lastMsg.createdAt < PROACTIVE_AFTER_MS) continue;
+        if (!best || lastMsg.createdAt < best.lastAt) best = { group: g, sessionId: session.id, lastAt: lastMsg.createdAt };
       }
       if (!best) return;
 

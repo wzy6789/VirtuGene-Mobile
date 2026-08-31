@@ -324,6 +324,17 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
     return group?.memberNicknames?.[senderId] || memberById.get(senderId)?.name || '成员';
   };
 
+  /** 长按成员名字/头像 → 直接 @ 该成员（微信式；不弹气泡菜单） */
+  const handleLongPressName = (e: React.MouseEvent, senderId?: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const mem = memberById.get(senderId ?? '');
+    if (!mem) return;
+    const base = input.replace(/\s+$/, '');
+    setInput(base ? `${base} @${mem.name} ` : `@${mem.name} `);
+    inputRef.current?.focus();
+  };
+
   return (
     <>
       {/* 头部：群名 + 成员头像 + 搜索 + 设置 */}
@@ -448,12 +459,20 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
           const sender = memberById.get(m.senderId ?? '');
           return (
             <div key={m.id} id={`gmsg-${m.id}`} className="flex items-start gap-2 mb-3">
-              <span className="shrink-0 w-8 h-8 rounded-full overflow-hidden">
+              <span
+                onContextMenu={(e) => handleLongPressName(e, m.senderId)}
+                className="shrink-0 w-8 h-8 rounded-full overflow-hidden"
+              >
                 <Avatar avatar={sender?.avatar ?? '🧬'} size="sm" />
               </span>
               <div className="max-w-[75%] min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[11px] text-gray-500 truncate">{displayName(m.senderId)}</span>
+                  <span
+                    onContextMenu={(e) => handleLongPressName(e, m.senderId)}
+                    className="text-[11px] text-gray-500 truncate cursor-default"
+                  >
+                    {displayName(m.senderId)}
+                  </span>
                   {sender?.voice && (
                     <button
                       onClick={() => handleSpeak(m)}
