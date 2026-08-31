@@ -914,3 +914,14 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 - **记忆只写给现存成员**：maybeExtractGroupMemories 传现存成员 id（避免给已删角色写孤儿记忆）
 - **解析防御**：parseTurns 对非字符串输入/空 members 兜底（String() + Array.isArray），任何异常输出都不再可能让解析崩溃
 - 验证：tsc 通过、20 解析用例全过
+
+## 五十三、v3.2.0 已发布（2026-08-31）
+
+- **版本升级 3.1.1 → 3.2.0**：package.json、build.gradle（versionCode 10 / versionName 3.2.0）、changelog.ts（3.2.0 条目：群聊全套功能+体验优化+鲁棒性）
+- **代码已推送**：git commit `23e6afd` → main（6636b47..23e6afd）
+- **Release 已发布**：https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v3.2.0 （APK 4.7MB，API 验证 tag/asset 均在）
+- **发布方式**：本机无 npm，scripts/npm-shim/npm.cmd 临时 shim 把 
+pm run mobile:build 映射到本地 vite/cap/gradle 二进制，官方发布脚本 
+ode scripts/gh-release.mjs 3.2.0 全流程通过（构建→建 Release→传 APK，token 走 git credential）
+- 3.2.0 内容：群聊 9 项功能（主动发言/@指定/引用/删除撤回/记忆双向/图片群聊/昵称/搜索/摘要）+ 体验优化 5 项（键盘贴底/图片放大/@联想/引用跳转/后台主动发言+通知/热闹模式）+ 长按名字@ + 鲁棒性加固（竞态/成员不足/群被删/解析防御）
+- 手机端「我的 → 版本 → 检查更新」即可下载 v3.2.0
