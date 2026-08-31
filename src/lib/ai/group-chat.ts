@@ -54,6 +54,8 @@ export interface GroupTurnParams {
   summary?: string;
   /** 回合模式：user=用户发消息；proactive=成员主动开口（用户没说话） */
   mode?: 'user' | 'proactive';
+  /** 本轮最多输出条数（默认 3；热闹模式传 5，提示词同步强调短句控量省 token） */
+  maxTurns?: number;
 }
 
 export async function generateGroupTurn(params: GroupTurnParams): Promise<{ turns: GroupTurn[]; error?: string }> {
@@ -107,6 +109,7 @@ async function attemptTurn(
     }
 
     // 最后一条 user 消息内容：proactive（成员主动开口）/ 用户发消息 + @ 指定
+    const maxTurns = params.maxTurns ?? 3;
     const userBlock =
       params.mode === 'proactive'
         ? '（群里安静了好一会儿，没人说话。请决定哪个性格合适的成员主动开口打破沉默，或者成员之间自然地聊起来，不用等用户发消息；1~2 条即可，别刷屏）'
@@ -114,7 +117,11 @@ async function attemptTurn(
             params.atMembers?.length
               ? `\n用户 @ 了：${params.atMembers.join('、')} —— **被 @ 的成员必须回应**（speaker 优先选被 @ 的人，可以多个都回应）`
               : ''
-          }\n请决定群里谁回应、说什么。`;
+          }\n请决定群里谁回应、说什么。${
+            maxTurns > 3
+              ? '\n（热闹模式：这次可以更热闹，输出最多 5 条，成员之间多接几句；但每条保持短句，别长篇大论）'
+              : ''
+          }`;
     // 图片：视觉模型 → 图片块；非视觉模型（兜底）→ "[图片]" 占位
     const lastContent: unknown =
       params.image && model.vision === true
@@ -153,7 +160,7 @@ async function attemptTurn(
     // 无论是否成功都留痕，便于下次仍失败时精准定位是"格式"还是"发言人"问题。
     console.warn(`[group-chat] 模型输出(${model.id}${jsonMode ? '·jsonMode' : ''}${res.truncated ? '·截断' : ''}):`, res.content);
 
-    const parsed = parseTurns(res.content, params.members);
+    const parsed = parseTurns(res.content, params.members, maxTurns);
     console.warn(
       `[group-chat] 解析: via=${parsed.via} turns=${parsed.turns.length} 未知发言人=${JSON.stringify(parsed.unknownSpeakers)}`,
     );
@@ -222,7 +229,7 @@ interface ParseOutcome {
  * speaker 硬校验 ∈ 群成员：归一化后精确匹配优先；模糊包含匹配只允许【唯一命中】（命中多个=歧义，不猜）；
  * 命中不了的记录进 unknownSpeakers 而不是静默丢弃——杜绝"话配错人"。
  */
-function parseTurns(text: string, members: GroupMemberBrief[]): ParseOutcome {
+function parseTurns(text: string, members: GroupMemberBrief[], maxTurns = 3): ParseOutcome {
   const byName = new Map(members.map((m) => [m.name, m.id]));
   const out: GroupTurn[] = [];
   const unknownSpeakers: string[] = [];
@@ -290,7 +297,7 @@ function parseTurns(text: string, members: GroupMemberBrief[]): ParseOutcome {
       if (otherFound) {
         console.warn(`[group-chat] 单条内容含多发言人（原 speaker=${name}），已拆分为多条`);
         for (const l of lines) {
-          if (out.length >= 3) break;
+          if (out.length >= maxTurns) break;
           const lm = l.match(/^[（(]?([^：:]{1,12})[）)]?[：:]\s*(.+)$/);
           if (lm) {
             const sid = resolveId(lm[1]);
@@ -306,13 +313,13 @@ function parseTurns(text: string, members: GroupMemberBrief[]): ParseOutcome {
       }
     }
 
-    if (out.length < 3) out.push({ senderId, content: stripRoleplayActions(c).slice(0, 500) });
+    if (out.length < maxTurns) out.push({ senderId, content: stripRoleplayActions(c).slice(0, 500) });
   };
 
   /** 从数组条目里抽取（对象条目取 speaker/content/name；字符串条目按 "名字：内容" 拆） */
   const consumeItems = (items: unknown[]): boolean => {
     let any = false;
-    for (const item of items.slice(0, 3)) {
+    for (const item of items.slice(0, maxTurns)) {
       if (item && typeof item === 'object') {
         const it = item as Record<string, unknown>;
         if ('speaker' in it || 'name' in it || 'content' in it) {
@@ -398,7 +405,7 @@ function parseTurns(text: string, members: GroupMemberBrief[]): ParseOutcome {
     if (!lt || lt.startsWith('{') || lt.startsWith('[') || lt.startsWith('"')) continue;
     const lm = line.match(/^[（(]?([^：:]{1,12})[）)]?[：:]\s*(.+)$/);
     if (lm) push(lm[1], lm[2]);
-    if (out.length >= 3) break;
+    if (out.length >= maxTurns) break;
   }
   if (out.length > 0) return { turns: out, unknownSpeakers, via: 'lines' };
 

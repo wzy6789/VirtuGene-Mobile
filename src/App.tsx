@@ -16,6 +16,7 @@ import { getChangelog, LAST_SEEN_VERSION_KEY } from './lib/changelog';
 import { initSeedCharacters } from './lib/seed-init';
 import { notifyLocal, requestNotificationPermission } from './lib/notify';
 import { loadPersistedApiKey } from './lib/api-key-storage';
+import { useGroupStore } from './store/group-store';
 
 // 手账按需加载：首次进入才拉取日记相关代码，加快主聊天页启动
 const DiaryPage = lazy(() => import('./pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
@@ -121,6 +122,25 @@ export default function App() {
     check();
     const timer = setInterval(check, 30_000);
     return () => clearInterval(timer);
+  }, [isLoggedIn]);
+
+  // 群聊后台主动发言：离开群聊页后，成员偶尔主动开口并推送通知
+  // （30 分钟冷却、每次最多一个群、1~2 条短句——省 token）
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const check = () => {
+      void useGroupStore.getState().proactiveBackground();
+    };
+    const timer = setInterval(check, 10 * 60_000);
+    // 回到前台立即检查一次
+    const onVis = () => {
+      if (document.visibilityState === 'visible') check();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [isLoggedIn]);
 
   const handleCloseUpdateNotes = () => {

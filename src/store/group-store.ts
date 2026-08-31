@@ -6,14 +6,19 @@ import { messageRepo } from '../db/message-repo';
 import { characterRepo } from '../db/character-repo';
 import { memoryRepo } from '../db/memory-repo';
 import { useAuthStore } from './auth-store';
+import { useNotificationStore } from './notification-store';
 import { ipc } from '../lib/ipc-client';
-import { generateGroupTurn, type GroupMemberBrief } from '../lib/ai/group-chat';
+import { notifyLocal } from '../lib/notify';
+import { IS_MOBILE } from '../lib/platform';
+import { generateGroupTurn, type GroupMemberBrief, type GroupTurn } from '../lib/ai/group-chat';
 import { extractMemories } from '../lib/ai/memory-consolidator';
 
 /** 主动发言触发：距上一条消息超过该时长（且在群聊页停留时）触发一次 */
 const PROACTIVE_AFTER_MS = 5 * 60_000;
 /** 主动发言冷却：距上次主动发言至少该时长，避免刷屏 */
 const PROACTIVE_COOLDOWN_MS = 15 * 60_000;
+/** 后台主动发言冷却（离开群聊页时更长：省 token） */
+const PROACTIVE_BG_COOLDOWN_MS = 30 * 60_000;
 /** 长会话滚动摘要窗口：超过该条数的早期消息压缩成摘要 */
 const SUMMARY_WINDOW = 60;
 /** 摘要增量重建阈值：新增未覆盖消息数达到该值才重新生成 */
@@ -38,6 +43,8 @@ interface GroupState {
   sendGroupMessage: (text: string, opts?: { image?: string; quoteId?: string; quoteContent?: string }) => Promise<void>;
   /** 成员主动开口：用户长时间没说话时触发（有冷却与防刷屏保护） */
   proactiveGroupTurn: () => Promise<void>;
+  /** 后台主动发言：离开群聊页后由 App 定时器触发（挑最久没动静的群，30 分钟冷却，省 token） */
+  proactiveBackground: () => Promise<void>;
   deleteGroupMessage: (messageId: string) => Promise<void>;
   setMemberNickname: (groupId: string, characterId: string, nickname: string) => Promise<void>;
   updateGroup: (id: string, patch: Partial<Group>) => Promise<void>;
@@ -164,6 +171,36 @@ async function maybeExtractGroupMemories(sessionId: string, memberIds: string[],
   }
 }
 
+/** 生成一轮"成员主动开口"的群聊回合（页内 + 后台共用，省 token：1~2 条短句） */
+async function generateProactiveTurn(
+  group: Group,
+  sessionId: string,
+  apiKey: string,
+  userId: string,
+): Promise<{ turns: GroupTurn[]; error?: string }> {
+  const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
+    (c): c is NonNullable<typeof c> => !!c,
+  );
+  const briefs = await buildBriefs(group, userId);
+  const all = await messageRepo.getBySession(sessionId);
+  const history = all
+    .slice(-17)
+    .map((m) => ({
+      senderName: m.senderId ? members.find((c) => c.id === m.senderId)?.name : undefined,
+      role: m.role as 'user' | 'assistant',
+      content: m.content || (m.image ? '[图片]' : ''),
+    }));
+  const session = await sessionRepo.getById(sessionId);
+  return generateGroupTurn({
+    apiKey,
+    groupName: group.name,
+    members: briefs,
+    history,
+    mode: 'proactive',
+    summary: session?.summary,
+  });
+}
+
 export const useGroupStore = create<GroupState>((set, get) => ({
   groups: [],
   currentGroupId: null,
@@ -269,6 +306,8 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         atMembers,
         image: opts?.image,
         summary: sessionData?.summary,
+        // 热闹模式：一轮最多 5 条（默认 3，省 token）
+        maxTurns: group?.lively ? 5 : 3,
       });
 
       // 落库群回复序列
@@ -320,26 +359,8 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       if (!hasUserMsg || now - lastAt < PROACTIVE_AFTER_MS) return;
 
       const group = await groupRepo.getById(currentGroup.id);
-      const members = (await Promise.all(group!.characterIds.map((id) => characterRepo.getById(id)))).filter(
-        (c): c is NonNullable<typeof c> => !!c,
-      );
-      const briefs = await buildBriefs(group!, userId);
-      const history = all
-        .slice(-17)
-        .map((m) => ({
-          senderName: m.senderId ? members.find((c) => c.id === m.senderId)?.name : undefined,
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        }));
-
-      const { turns, error } = await generateGroupTurn({
-        apiKey,
-        groupName: group!.name,
-        members: briefs,
-        history,
-        mode: 'proactive',
-        summary: session.summary,
-      });
+      if (!group) return;
+      const { turns, error } = await generateProactiveTurn(group, currentSessionId, apiKey, userId);
 
       const now2 = Date.now();
       const msgs: Message[] = turns.map((t, i) => ({
@@ -377,6 +398,68 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     } catch (err) {
       console.warn('[group-chat] 主动发言异常:', err);
       set({ groupSending: false });
+    }
+  },
+
+  proactiveBackground: async () => {
+    const { groups, groupSending, lastProactiveAt, currentGroupId } = get();
+    const apiKey = useAuthStore.getState().apiKey;
+    const userId = useAuthStore.getState().userId ?? '';
+    if (!apiKey || groupSending || groups.length === 0) return;
+    const now = Date.now();
+    // 省 token：后台冷却更长（30 分钟），且每次最多挑一个群
+    if (now - lastProactiveAt < PROACTIVE_BG_COOLDOWN_MS) return;
+    try {
+      // 挑最久没动静的候选群（跳过正在群聊页看的群——页内定时器负责）
+      let best: { group: Group; sessionId: string; lastAt: number } | null = null;
+      for (const g of groups) {
+        if (g.id === currentGroupId) continue;
+        const sessions = await db.sessions.where('groupId').equals(g.id).toArray();
+        const session = sessions[0];
+        if (!session) continue;
+        const all = await messageRepo.getBySession(session.id);
+        if (!all.some((m) => m.role === 'user')) continue;
+        const lastAt = all[all.length - 1].createdAt;
+        if (now - lastAt < PROACTIVE_AFTER_MS) continue;
+        if (!best || lastAt < best.lastAt) best = { group: g, sessionId: session.id, lastAt };
+      }
+      if (!best) return;
+
+      const { turns, error } = await generateProactiveTurn(best.group, best.sessionId, apiKey, userId);
+      if (turns.length === 0) {
+        console.warn('[group-chat] 后台主动发言失败:', error);
+        return;
+      }
+      const now2 = Date.now();
+      const msgs: Message[] = turns.map((t, i) => ({
+        id: crypto.randomUUID(),
+        sessionId: best.sessionId,
+        role: 'assistant',
+        content: t.content,
+        senderId: t.senderId,
+        createdAt: now2 + i,
+        isProactive: true,
+      }));
+      for (const msg of msgs) {
+        await messageRepo.create(msg);
+      }
+      await sessionRepo.touch(best.sessionId);
+      await sessionRepo.incrementUnread(best.sessionId);
+      set((s) => ({ lastProactiveAt: Date.now() }));
+      await get().loadGroups(); // 刷新预览 + 未读
+      // 通知：应用内流体云 + 手机系统本地通知（省 token：只推第一条）
+      const preview = turns[0].content.slice(0, 40);
+      useNotificationStore.getState().push({
+        characterId: '',
+        characterName: best.group.name,
+        avatar: '👥',
+        preview,
+      });
+      if (IS_MOBILE) {
+        void notifyLocal(`💬 ${best.group.name}`, preview);
+      }
+    } catch (err) {
+      console.warn('[group-chat] 后台主动发言异常:', err);
     }
   },
 

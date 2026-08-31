@@ -91,6 +91,8 @@ export interface Group {
   updatedAt: number;
   /** 群内昵称备注（仅群聊窗口显示用，不改角色本名；key=角色 id） */
   memberNicknames?: Record<string, string>;
+  /** 热闹模式：一轮生成最多 5 条、成员多接几句（默认关，省 token） */
+  lively?: boolean;
 }
 
 export interface Message {

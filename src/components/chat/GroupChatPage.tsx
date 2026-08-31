@@ -167,10 +167,13 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
   const [quote, setQuote] = useState<Message | null>(null);
   /** 待发送图片（压缩 dataURL） */
   const [pendingImage, setPendingImage] = useState<string | null>(null);
+  /** 图片大图预览 */
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   /** 群内消息搜索 */
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 点击别处关闭长按菜单
@@ -214,6 +217,23 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
     [characters, group],
   );
   const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
+
+  /** @ 输入联想：输入框末尾有"正在输入的 @"（@ 后无空格）时弹出成员选择器 */
+  const atCandidate = useMemo(() => {
+    const m = input.match(/@([^\s@，,。！!？?]*)$/);
+    return m ? m[1] : null;
+  }, [input]);
+  const atPickerMembers = useMemo(() => {
+    if (atCandidate === null) return [];
+    return members.filter((mem) => !input.includes(`@${mem.name}`));
+  }, [atCandidate, input, members]);
+
+  const insertAtName = (name: string) => {
+    const idx = input.lastIndexOf('@');
+    if (idx < 0) return;
+    setInput(input.slice(0, idx) + `@${name} `);
+    inputRef.current?.focus();
+  };
 
   // 滚底
   useEffect(() => {
@@ -402,12 +422,23 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
                   className="max-w-[75%] px-3.5 py-2.5 rounded-2xl rounded-br-md bg-gene-purple text-white text-sm leading-relaxed whitespace-pre-wrap break-words"
                 >
                   {m.replyToContent && (
-                    <div className="text-xs mb-1.5 line-clamp-1 border-l-2 pl-2 border-white/40 text-white/70">
+                    <button
+                      onClick={() => m.replyToId && jumpToMessage(m.replyToId)}
+                      className="text-left text-xs mb-1.5 line-clamp-1 border-l-2 pl-2 border-white/40 text-white/70 hover:text-white"
+                    >
                       {m.replyToContent}
-                    </div>
+                    </button>
                   )}
                   {m.image && (
-                    <img src={m.image} alt="图片" className="max-w-[200px] max-h-[240px] rounded-xl object-cover mb-1.5" />
+                    <img
+                      src={m.image}
+                      alt="图片"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPreviewImage(m.image!);
+                      }}
+                      className="max-w-[200px] max-h-[240px] rounded-xl object-cover mb-1.5 cursor-zoom-in"
+                    />
                   )}
                   {m.content}
                 </div>
@@ -453,7 +484,15 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
                   className="px-3.5 py-2.5 rounded-2xl rounded-bl-md bg-msgai border-l-2 border-life-cyan text-sm text-msgaitxt leading-relaxed whitespace-pre-wrap break-words"
                 >
                   {m.image && (
-                    <img src={m.image} alt="图片" className="max-w-[200px] max-h-[240px] rounded-xl object-cover mb-1.5" />
+                    <img
+                      src={m.image}
+                      alt="图片"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPreviewImage(m.image!);
+                      }}
+                      className="max-w-[200px] max-h-[240px] rounded-xl object-cover mb-1.5 cursor-zoom-in"
+                    />
                   )}
                   {m.content}
                 </div>
@@ -540,7 +579,24 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
         )}
 
       {/* 输入区：引用条 + 图片预览 + 图片按钮 + 文本框 + 发送 */}
-      <div className="border-t border-line p-3 shrink-0">
+      <div className="relative border-t border-line p-3 shrink-0">
+        {/* @ 输入联想（微信式：输入 @ 弹出成员选择器） */}
+        {atCandidate !== null && atPickerMembers.length > 0 && (
+          <div className="absolute bottom-full left-3 right-3 mb-2 max-h-44 overflow-y-auto rounded-xl glass-card border border-line shadow-xl z-10 py-1">
+            {atPickerMembers.map((mem) => (
+              <button
+                key={mem.id}
+                onClick={() => insertAtName(mem.name)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface transition-colors"
+              >
+                <span className="shrink-0 w-6 h-6 rounded-full overflow-hidden">
+                  <Avatar avatar={mem.avatar} size="sm" />
+                </span>
+                <span className="text-sm text-ink">{mem.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {(quote || pendingImage) && (
           <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-xl bg-panel/60 border border-line">
             {pendingImage && (
@@ -573,6 +629,7 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
             </svg>
           </button>
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
@@ -607,6 +664,13 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
 
       {/* 群设置 */}
       {settings && group && <GroupSettings group={group} members={members} onClose={() => setSettings(false)} />}
+
+      {/* 图片大图预览 */}
+      {previewImage && (
+        <div className="fixed inset-0 z-[95] bg-black/90 flex items-center justify-center" onClick={() => setPreviewImage(null)}>
+          <img src={previewImage} alt="图片预览" className="max-w-full max-h-full object-contain" />
+        </div>
+      )}
     </>
   );
 }
@@ -638,6 +702,22 @@ function GroupSettings({ group, members, onClose }: { group: Group; members: Cha
           <div className="flex items-center justify-between">
             <span className="text-xs text-ink">群聊模型</span>
             <span className="text-[11px] text-gene-purple">{resolveModel().label}</span>
+          </div>
+
+          {/* 热闹模式：一轮最多 5 条（默认关，省 token） */}
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs text-ink">热闹模式</span>
+              <p className="text-[10px] text-gray-500 mt-0.5">一轮最多 5 条、成员多接几句（更费 token）</p>
+            </div>
+            <button
+              onClick={() => void updateGroup(group.id, { lively: !group.lively })}
+              className={`shrink-0 px-3 py-1 rounded-full text-[11px] transition-colors ${
+                group.lively ? 'bg-gene-purple/20 text-gene-purple' : 'bg-panel border border-line text-gray-400'
+              }`}
+            >
+              {group.lively ? '已开启' : '关闭'}
+            </button>
           </div>
 
           {/* 群名 */}
