@@ -280,6 +280,14 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     return scrollToLatest();
   }, [sending, lastRowKey, scrollToLatest]);
 
+  // 键盘弹起/收起（Android adjustResize 触发 window resize）时重新滚到底：
+  // 微信式——最后一条消息贴住输入框，而不是被键盘/输入区挡住。
+  useEffect(() => {
+    const onResize = () => scrollToLatest();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [scrollToLatest]);
+
   /** 加载更早消息：记录滚动位置，插入后补偿高度差，保持当前视野不跳变 */
   const handleLoadEarlier = async () => {
     const el = scrollRef.current;
@@ -872,7 +880,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         </div>
       )}
 
-      <ChatInput ref={inputRef} onSend={handleSend} onSendImage={IS_MOBILE ? handleSendImage : undefined} onSendVoice={IS_MOBILE ? handleSendVoice : undefined} disabled={sending} />
+      <ChatInput ref={inputRef} onSend={handleSend} onSendImage={IS_MOBILE ? handleSendImage : undefined} onSendVoice={IS_MOBILE ? handleSendVoice : undefined} disabled={sending} onFocusInput={scrollToLatest} />
     </div>
     </SwipeBackView>
   );

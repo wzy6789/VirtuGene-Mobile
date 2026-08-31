@@ -202,7 +202,8 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
     if (copiedId === id) return;
     const m = messages.find((x) => x.id === id);
     if (!m) return;
-    await ipc.clipboard.writeText(m.content);
+    // 图片消息没有文字 → 复制占位，避免复制到空内容
+    await ipc.clipboard.writeText(m.content || (m.image ? '[图片]' : ''));
     setCopiedId(id);
     setMenu(null);
     setTimeout(() => setCopiedId(null), 1500);
@@ -219,6 +220,27 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, sending]);
+
+  // 键盘弹起/收起（Android adjustResize 触发 window resize）时重新滚到底：
+  // 微信式——最后一条消息贴住输入框，不被键盘/输入区挡住。
+  useEffect(() => {
+    const onResize = () => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const scrollToLatest = () => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  };
+
+  /** 输入框聚焦（键盘弹起）：等键盘动画稳定后再滚底 */
+  const handleInputFocus = () => {
+    setTimeout(scrollToLatest, 120);
+  };
 
   const handleSend = () => {
     const t = input.trim();
@@ -552,13 +574,20 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
           </button>
           <textarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              const el = e.target;
+              el.style.height = 'auto';
+              el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+            }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              // 输入法组合键（中文拼音选字）的 Enter 是"确认候选"，不应发送
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 handleSend();
               }
             }}
+            onFocus={handleInputFocus}
             placeholder={sending ? '群成员们正在输入…' : '发消息…'}
             rows={1}
             className="flex-1 resize-none bg-surface border border-line-strong rounded-xl px-4 py-2.5 text-sm text-ink placeholder-gray-500 outline-none focus:border-gene-purple transition-all disabled:opacity-40"

@@ -100,9 +100,11 @@ async function buildBriefs(group: Group, userId: string): Promise<GroupMemberBri
   );
 }
 
-/** 从文本里解析 @成员（只保留确实是群成员的） */
+/** 从文本里解析 @成员（只保留确实是群成员的；去掉名字后的标点/冒号等装饰） */
 function parseAtNames(text: string, members: { id: string; name: string }[]): string[] {
-  const names = [...text.matchAll(/@([^\s@，,。！!？?]+)/g)].map((m) => m[1].trim()).filter(Boolean);
+  const names = [...text.matchAll(/@([^\s@，,。！!？?]+)/g)]
+    .map((m) => m[1].trim().replace(/[：:。，,！!？?、）)]+$/, '').trim())
+    .filter(Boolean);
   return names.filter((n) => members.some((m) => m.name.includes(n) || n.includes(m.name)));
 }
 
@@ -252,7 +254,8 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         .map((m) => ({
           senderName: m.senderId ? members.find((c) => c.id === m.senderId)?.name : undefined,
           role: m.role as 'user' | 'assistant',
-          content: m.content,
+          // 图片消息没有文字 → 给 AI 一个占位，避免空内容混入上下文
+          content: m.content || (m.image ? '[图片]' : ''),
         }));
       const sessionData = await sessionRepo.getById(sessionId);
       const atMembers = parseAtNames(trimmed, members);
@@ -357,6 +360,17 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         groupSending: false,
         lastProactiveAt: Date.now(),
       }));
+      // 同步群预览（聊天列表最后消息/时间）
+      const last = await messageRepo.getLast(currentSessionId);
+      const cgId = get().currentGroupId;
+      if (cgId) {
+        set((s) => ({
+          groupPreviews: {
+            ...s.groupPreviews,
+            [cgId]: { content: last?.content ?? '', createdAt: last?.createdAt ?? Date.now(), unread: s.groupPreviews[cgId]?.unread ?? 0 },
+          },
+        }));
+      }
       if (turns.length === 0) {
         console.warn('[group-chat] 主动发言失败:', error);
       }

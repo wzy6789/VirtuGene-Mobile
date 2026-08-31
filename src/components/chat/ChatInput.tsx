@@ -23,6 +23,8 @@ interface Props {
   /** 发送语音消息（微信式：录音 dataURL + 时长 + 转文字；AI 通过 text 理解） */
   onSendVoice?: (voice: VoicePayload) => void;
   disabled?: boolean;
+  /** 输入框聚焦（键盘弹起）时回调：父层滚动到最新消息（微信式：最后一条贴住输入框） */
+  onFocusInput?: () => void;
 }
 
 /** 图片压缩：dataURL → canvas 缩放（最大边 1280）+ JPEG 0.82，减少 IndexedDB 占用 */
@@ -83,7 +85,7 @@ const MAX_RECORD_MS = 60_000;
  * 输入区：文字 / 图片 / 语音（DeepSeek 式：点话筒直接开始录音，再点停止发送）。
  * 语音转文字：系统识别优先 → 云端（SiliconFlow，需在「我的 → 设置」填 Key）兜底。
  */
-export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, onSendImage, onSendVoice, disabled }, ref) {
+export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, onSendImage, onSendVoice, disabled, onFocusInput }, ref) {
   const [text, setText] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -268,7 +270,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // 输入法组合键（中文拼音选字）的 Enter 是"确认候选"，不应发送
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
@@ -347,6 +350,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             value={text}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
+            onFocus={() => onFocusInput?.()}
             placeholder="发消息…"
             disabled={disabled}
             rows={1}
