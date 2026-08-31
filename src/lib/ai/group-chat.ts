@@ -40,15 +40,25 @@ const GROUP_INSTRUCTION =
   '- 格式必须是合法的 JSON 对象，turns 字段放一个数组，例如：\n' +
   '{"turns":[{"speaker":"林霜","content":"..."},{"speaker":"艾莉","content":"..."}]}';
 
-export async function generateGroupTurn(params: {
+export interface GroupTurnParams {
   apiKey: string;
   groupName: string;
   members: GroupMemberBrief[];
   history: { senderName?: string; role: 'user' | 'assistant'; content: string }[];
-  userMessage: string;
-}): Promise<{ turns: GroupTurn[]; error?: string }> {
-  // 群聊用全局默认模型；失败/空结果自动切 deepseek-v4-flash 兜底重试一次
-  const model = resolveModel();
+  userMessage?: string;
+  /** 用户 @ 的成员名（有值时被 @ 者必须回应） */
+  atMembers?: string[];
+  /** 当前消息附带图片（压缩 dataURL；有值时本回合用视觉模型看图） */
+  image?: string;
+  /** 群聊背景摘要（较早对话的压缩文本） */
+  summary?: string;
+  /** 回合模式：user=用户发消息；proactive=成员主动开口（用户没说话） */
+  mode?: 'user' | 'proactive';
+}
+
+export async function generateGroupTurn(params: GroupTurnParams): Promise<{ turns: GroupTurn[]; error?: string }> {
+  // 图片回合 → DeepSeek 视觉模型看图；否则用全局默认模型；失败/空结果自动切 deepseek-v4-flash 兜底一次
+  const model = params.image ? findModel('deepseek-v4-flash-vision-exp')! : resolveModel();
   const fallback = findModel('deepseek-v4-flash')!;
 
   const first = await attemptTurn(params, model);
@@ -67,13 +77,7 @@ export async function generateGroupTurn(params: {
  *  jsonMode=true 时走 response_format 强制 JSON；若该形态失败（空内容/无法解析），
  *  自动去掉 response_format 重试一次——DeepSeek 在 json_object + 关思考组合下曾返回 200+空内容。 */
 async function attemptTurn(
-  params: {
-    apiKey: string;
-    groupName: string;
-    members: GroupMemberBrief[];
-    history: { senderName?: string; role: 'user' | 'assistant'; content: string }[];
-    userMessage: string;
-  },
+  params: GroupTurnParams,
   model: LLMModel,
   jsonMode = true,
 ): Promise<{ turns: GroupTurn[]; error?: string }> {
@@ -102,14 +106,39 @@ async function attemptTurn(
       else history.push({ role: h.role, content: h.content });
     }
 
+    // 最后一条 user 消息内容：proactive（成员主动开口）/ 用户发消息 + @ 指定
+    const userBlock =
+      params.mode === 'proactive'
+        ? '（群里安静了好一会儿，没人说话。请决定哪个性格合适的成员主动开口打破沉默，或者成员之间自然地聊起来，不用等用户发消息；1~2 条即可，别刷屏）'
+        : `（用户发来消息）${params.userMessage ?? ''}${
+            params.atMembers?.length
+              ? `\n用户 @ 了：${params.atMembers.join('、')} —— **被 @ 的成员必须回应**（speaker 优先选被 @ 的人，可以多个都回应）`
+              : ''
+          }\n请决定群里谁回应、说什么。`;
+    // 图片：视觉模型 → 图片块；非视觉模型（兜底）→ "[图片]" 占位
+    const lastContent: unknown =
+      params.image && model.vision === true
+        ? [
+            { type: 'text', text: userBlock + '（用户发来一张图片，请看图回应）' },
+            { type: 'image_url', image_url: { url: params.image } },
+          ]
+        : params.image
+          ? userBlock + '\n（用户发来一张图片：本模型看不到图片，以 [图片] 代替）'
+          : userBlock;
+
+    let system = GROUP_INSTRUCTION + '\n\n群成员：\n' + membersDesc;
+    if (params.summary) {
+      system += '\n\n群聊背景摘要（较早聊天的压缩内容，粗略参考，不要复述）：\n' + params.summary;
+    }
+
     const res = await llmChat({
       provider: model.provider,
       model: model.id,
       apiKey: key,
       messages: [
-        { role: 'system', content: GROUP_INSTRUCTION + '\n\n群成员：\n' + membersDesc },
+        { role: 'system', content: system },
         ...history,
-        { role: 'user', content: `（用户发来消息）${params.userMessage}\n请决定群里谁回应、说什么。` },
+        { role: 'user', content: lastContent },
       ],
       temperature: 0.9,
       // 群聊是结构化 JSON 输出：关闭思考 + 强制 JSON（防散文本 + 提速）

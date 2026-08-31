@@ -89,6 +89,8 @@ export interface Group {
   characterIds: string[];
   createdAt: number;
   updatedAt: number;
+  /** 群内昵称备注（仅群聊窗口显示用，不改角色本名；key=角色 id） */
+  memberNicknames?: Record<string, string>;
 }
 
 export interface Message {
