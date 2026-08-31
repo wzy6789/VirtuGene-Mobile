@@ -886,3 +886,18 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 
 **改动文件**：group-chat.ts（GroupTurnParams 扩展：atMembers/image/summary/mode）、group-store.ts（sendGroupMessage 支持图片/引用 + 主动发言/删消息/昵称/摘要/记忆沉淀）、db/index.ts（Group.memberNicknames）、GroupChatPage.tsx（输入区图片/引用条 + 菜单复制/引用/删除 + 搜索面板 + 主动发言定时器 + 昵称显示）
 **验证**：tsc 通过、20 个解析用例全过、commit `61ae882`
+
+## 五十一、群聊体验优化 5 项 + 键盘贴底修复（2026-08-30 用户选定 + 反馈）
+
+**0. 键盘弹起最后消息贴住输入框（微信式，用户反馈）**：
+- 群聊/单聊：window resize（Android adjustResize 触发）→ 重新滚底；输入框聚焦 → 延时滚底（键盘动画稳定后）；ChatInput 新增 onFocusInput 回调
+- 顺带修复：**中文输入法组合键 Enter 不再误发送**（isComposing 守卫，群聊+单聊）
+
+**① 图片点击放大预览**（GroupChatPage.tsx）：群聊图片点击 → 全屏大图（z-95，点任意处关闭）
+**② @ 输入联想**：输入 @ 且后无空格 → 弹出成员选择器（头像+名字，排除已 @ 的），点选插入 @名字 
+**③ 引用条点击跳转**：气泡上引用条可点击 → scrollIntoView 跳到被引用的消息
+**④ 后台主动发言**（App.tsx + group-store.ts）：App 定时器每 10 分钟 + 回前台检查一次；挑**最久没动静**的候选群（跳过正在看的群）→ 生成 1~2 条 → 未读 +1、群预览刷新、应用内流体云 + 手机系统本地通知；**30 分钟冷却、每次最多一个群——省 token**
+**⑤ 热闹模式**（Group.lively）：群设置开关（默认关）；开启后一轮最多 5 条（maxTurns 参数贯穿 generateGroupTurn/parseTurns），提示词强调"每条短句，别长篇"——控量省 token
+
+**改动文件**：App.tsx（后台定时器）、group-store.ts（proactiveBackground + generateProactiveTurn 抽取 + maxTurns 透传）、group-chat.ts（maxTurns）、db/index.ts（Group.lively）、GroupChatPage.tsx（预览/联想/跳转/开关）、ChatWindow.tsx/ChatInput.tsx（键盘滚底 + isComposing）
+**验证**：tsc 通过、20 解析用例全过；commits `3c3e12f`（键盘/审计修复）+ `23125e2`（体验优化）
