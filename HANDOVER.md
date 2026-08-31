@@ -901,3 +901,16 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
 
 **改动文件**：App.tsx（后台定时器）、group-store.ts（proactiveBackground + generateProactiveTurn 抽取 + maxTurns 透传）、group-chat.ts（maxTurns）、db/index.ts（Group.lively）、GroupChatPage.tsx（预览/联想/跳转/开关）、ChatWindow.tsx/ChatInput.tsx（键盘滚底 + isComposing）
 **验证**：tsc 通过、20 解析用例全过；commits `3c3e12f`（键盘/审计修复）+ `23125e2`（体验优化）
+
+## 五十二、长按名字@ + 群聊鲁棒性加固（2026-08-30 用户反馈）
+
+**① 长按名字直接 @**（GroupChatPage.tsx）：长按群消息的**成员名字或头像** → 输入框自动插入 @名字  并聚焦（微信式；不弹气泡菜单；与既有 @ 联想共用）
+
+**② 群聊鲁棒性加固**（commit `a4e0275`）：
+- **发送竞态**：sendGroupMessage 进入即**同步置 groupSending=true**（原来在首次 await 之后才置位，快速连点会重复发送/双倍 API 调用）
+- **群被删**：聊天中群被删 → 不再 group! 空断言崩溃，提示"群已被删除"并复位
+- **成员不足**：角色被删光/只剩 1 个 → **不调 API**，提示"群成员不足（至少 2 个成员）"（省 token + 防无效调用）；generateProactiveTurn 同样有成员不足保护
+- **性能**：历史上下文改 messageRepo.getPage(limit 20)（原来每发一条全表读）；主动发言判定改 getLast（原来全量读）
+- **记忆只写给现存成员**：maybeExtractGroupMemories 传现存成员 id（避免给已删角色写孤儿记忆）
+- **解析防御**：parseTurns 对非字符串输入/空 members 兜底（String() + Array.isArray），任何异常输出都不再可能让解析崩溃
+- 验证：tsc 通过、20 解析用例全过
