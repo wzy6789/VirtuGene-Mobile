@@ -869,3 +869,20 @@ npm run dev:renderer          # 手机浏览器预览（host:true，访问 http:
   1. **内容级拆分（兜底保证显示正确）**：push 检测 content 行级"名字：内容"命中**其他成员** → 拆成多条（无前缀行归原 speaker）；三人挤一条全拆，同一人多行不拆
   2. **提示词硬约束（源头防）**：新增规则「每条 content 只能是一个人的话，严禁把不同角色发言写进同一条 content」
 - 解析测试扩到 **20 个用例**，新增 **sender 序列校验**（[a,b]/[a,b,a] 等）——全部通过；tsc 通过
+
+## 五十、群聊补全 9 项功能（2026-08-30 用户选定方案）
+
+**① AI 主动发言**（group-store.ts / GroupChatPage.tsx）：
+- 群聊页停留且**距上一条消息 ≥5 分钟**（每 60s 检查）→ 成员主动开口打破沉默（proactiveGroupTurn，mode:'proactive' 提示词引导）
+- **防刷屏**：主动发言 15 分钟冷却 + 群里至少 1 条用户消息才触发 + 生成中不触发；主动发言消息 isProactive: true
+**② @ 成员指定回复**：输入 @林霜 … → 解析 @ 名单 → 提示词硬约束「被 @ 的成员必须回应（speaker 优先）」
+**③ 引用回复**：长按消息 →「💬 引用」→ 输入区显示引用条（内容预览 + × 取消）→ 发送后气泡显示引用行（eplyToId/replyToContent，与单聊同字段）
+**④ 删除/撤回消息**：长按 →「🗑 删除」→ 二次确认 → 删库 + 列表移除 + 群预览同步
+**⑤ 群聊记忆双向**（group-store.ts）：每 3 条用户消息触发一次 extractMemories（DeepSeek flash，复用单聊记忆提取提示词）→ 去重后**写入每个群成员**的记忆表（之后单聊/群聊都能想起群里说过的事）
+**⑥ 图片群聊**：输入区 📷 按钮 → 压缩（1280px/JPEG0.82）→ 预览 → 发送；**有图回合自动切 deepseek-v4-flash-vision-exp 看图**（图片块），失败兜底 flash 文本（"[图片]"占位）；气泡渲染图片
+**⑦ 群内昵称备注**（Group.memberNicknames）：群设置成员行「备注」→ 内联编辑 → 群聊窗口显示昵称（林霜（毒舌林霜）），不改角色本名、AI 仍用本名
+**⑧ 群内消息搜索**：头部 🔍 → 搜索面板（关键词过滤 + 结果列表带发言人/内容）→ 点击结果**滚动定位**到该消息（gmsg-{id} + scrollIntoView）
+**⑨ 群聊历史摘要**：超过 60 条 → 早期消息压缩成 session.summary（增量，≥20 条未覆盖才重建）→ 注入群聊提示词（"背景摘要，粗略参考不要复述"）
+
+**改动文件**：group-chat.ts（GroupTurnParams 扩展：atMembers/image/summary/mode）、group-store.ts（sendGroupMessage 支持图片/引用 + 主动发言/删消息/昵称/摘要/记忆沉淀）、db/index.ts（Group.memberNicknames）、GroupChatPage.tsx（输入区图片/引用条 + 菜单复制/引用/删除 + 搜索面板 + 主动发言定时器 + 昵称显示）
+**验证**：tsc 通过、20 个解析用例全过、commit `61ae882`
