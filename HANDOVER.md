@@ -988,3 +988,10 @@ ode scripts/gh-release.mjs 3.2.0 全流程通过（构建→建 Release→传 AP
 **机制**：全部写入 seed-init.ts 预设数组，syncPresets 启动时按 id upsert——**老用户升级后自动出现**在基因实验室·预设基因；配合 GenePoolTab 去重修复不会重复显示
 **来源**：[第294章原著全文](https://www.211cn.ca/book/douluo-2-tang-sect/?c=498)、[唐三小舞语录](https://k.sina.cn/article_6439964938_17fda110a001003d71.html)、[绝世唐门台词](https://www.163.com/dy/article/EGHTAG7205357HN5.html)、[白秀秀萌娘百科](https://moegirl.icu/)、[斗破台词集锦](https://m.bilibili.com/opus/1071236827294203953)
 **验证**：tsc 通过、commit `1f962d8`
+
+## 五十八、v3.2.1 已发布（2026-09-01）
+
+- **版本升级 3.2.0 → 3.2.1**：package.json、build.gradle（versionCode 11 / versionName 3.2.1）、changelog.ts（3.2.1 条目）
+- **代码已推送**：git commit `7044fa1` → main（23e6afd..7044fa1）
+- **Release 已发布**：https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v3.2.1 （APK 4.7MB，API 验证 tag/asset 均在）
+- 3.2.1 内容：8 位原著角色（斗破 3 + 斗罗 5，台词按原著考证）、记忆碎片（碎玻璃片随机 3 片）、好感度无上限 + 等阶改名、角色感知/记忆能力（时间/灵魂状态/主动回忆/口头禅/认识天数/手动教记忆/长按记住/心情表情）、每日问候（早安晚安 + 偶尔 AI 随手拍）、长按名字 @、基因实验室去重、碎片加载态、时代背景对话适配等
