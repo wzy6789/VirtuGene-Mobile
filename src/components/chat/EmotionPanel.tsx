@@ -8,7 +8,6 @@ import { diaryRepo } from '../../db/diary-repo';
 import { moodEmoji as diaryMoodEmoji, moodColor as diaryMoodColor } from '../../lib/diary-utils';
 import { EmotionChart } from './EmotionChart';
 import { EmotionCurve } from './EmotionCurve';
-import { SoulHelix } from './SoulHelix';
 import { getRelationLevel, levelProgress } from '../../lib/affinity';
 import { messageRepo } from '../../db/message-repo';
 import { memoryRepo } from '../../db/memory-repo';
@@ -51,7 +50,23 @@ function formatTime(ts: number): string {
   if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`;
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
   const d = new Date(ts);
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
+/** 随机抽 3 片记忆碎片（Fisher-Yates 洗牌） */
+function pickShards(list: MemoryItem[]): MemoryItem[] {
+  if (list.length === 0) return [];
+  const arr = [...list];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.slice(0, 3);
+}
+
+/** 记忆碎片文艺化：以"我"的视角呈现（记忆里存的"用户"即我自己） */
+function poeticize(content: string): string {
+  return content.replace(/用户/g, '我').replace(/\s+/g, ' ').trim();
 }
 
 function moodColor(mood: number): string {
@@ -100,6 +115,8 @@ export function EmotionPanel() {
   const [stats, setStats] = useState<{ count: number; days: number }>({ count: 0, days: 0 });
   /** 记忆结晶（该角色的回忆录） */
   const [memories, setMemories] = useState<MemoryItem[]>([]);
+  /** 随机抽出的 3 片记忆碎片（可刷新） */
+  const [shards, setShards] = useState<MemoryItem[]>([]);
   /** 等阶名编辑 */
   const [renamingTier, setRenamingTier] = useState(false);
   const [tierNameInput, setTierNameInput] = useState('');
@@ -139,12 +156,16 @@ export function EmotionPanel() {
     return () => { alive = false; };
   }, [isPanelOpen, currentSessionId]);
 
-  // 记忆结晶：该角色的回忆录（新→旧）
+  // 记忆结晶：该角色的回忆录（新→旧）；每次随机回忆 3 片
   useEffect(() => {
     if (!isPanelOpen || !selectedCharacterId || !userId) return;
     let alive = true;
     void memoryRepo.getByCharacter(selectedCharacterId, userId).then((list) => {
-      if (alive) setMemories([...list].reverse().slice(0, 30));
+      if (alive) {
+        const sorted = [...list].reverse();
+        setMemories(sorted);
+        setShards(pickShards(sorted));
+      }
     });
     return () => { alive = false; };
   }, [isPanelOpen, selectedCharacterId, userId]);
@@ -368,23 +389,36 @@ export function EmotionPanel() {
             </div>
           )}
 
-          {/* 记忆结晶 · 回忆录（该角色记住的关于你的事） */}
-          {memories.length > 0 && (
-            <div className="rounded-xl bg-surface border border-line p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">记忆结晶 · 回忆录</span>
-                <span className="text-[10px] text-gray-400">共 {memories.length} 颗</span>
-              </div>
-              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
-                {memories.map((m) => (
-                  <div key={m.id} className="rounded-lg bg-panel/60 border border-line px-3 py-2">
-                    <p className="text-xs text-ink leading-relaxed">{m.content}</p>
-                    <p className="text-[10px] text-gray-500 mt-1 tabular-nums">{formatTime(m.createdAt)}</p>
+              {/* 记忆碎片 · 回忆（随机 3 片，可刷新） */}
+              {memories.length > 0 && (
+                <div className="rounded-xl bg-surface border border-line p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-500">记忆碎片 · 回忆</span>
+                    <button
+                      onClick={() => setShards(pickShards(memories))}
+                      className="text-[10px] text-life-cyan hover:underline flex items-center gap-1"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                        <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
+                      </svg>
+                      随机回忆
+                    </button>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  <div className="space-y-2">
+                    {shards.map((m, i) => (
+                      <div
+                        key={m.id}
+                        className={`relative rounded-lg bg-panel/60 border border-line px-3 py-2 ${
+                          i % 2 === 0 ? 'rotate-[-1.2deg]' : 'rotate-[1.2deg]'
+                        }`}
+                      >
+                        <p className="text-xs text-ink/90 leading-relaxed italic">「{poeticize(m.content)}」</p>
+                        <p className="text-[10px] text-gray-500 mt-1 tabular-nums">✦ {formatTime(m.createdAt)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
           {/* Analyze button */}
           <button
@@ -432,12 +466,6 @@ export function EmotionPanel() {
                   对话数据较少，分析可能不够准确
                 </div>
               )}
-
-              {/* 灵魂图谱：情绪基因双螺旋（6 维情绪 → 基因序列） */}
-              <SectionTitle>灵魂图谱 · 基因序列</SectionTitle>
-              <div className="rounded-xl bg-panel/40 border border-gene-purple/20 py-2">
-                <SoulHelix dimensions={currentSnapshot.dimensions} />
-              </div>
 
               {/* Radar chart */}
               <div className="flex justify-center">

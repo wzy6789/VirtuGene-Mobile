@@ -6,7 +6,10 @@ import { messageRepo } from '../db/message-repo';
 import { characterRepo } from '../db/character-repo';
 import { memoryRepo } from '../db/memory-repo';
 import { useAuthStore } from './auth-store';
+import { useSettingsStore } from './settings-store';
 import { useNotificationStore } from './notification-store';
+import { stateRepo } from '../db/state-repo';
+import { getRelationLevel } from '../lib/affinity';
 import { ipc } from '../lib/ipc-client';
 import { notifyLocal } from '../lib/notify';
 import { IS_MOBILE } from '../lib/platform';
@@ -96,12 +99,22 @@ async function buildBriefs(group: Group, userId: string): Promise<GroupMemberBri
       } catch {
         /* 私聊记录取不到不影响群聊 */
       }
+      let soulState: string | undefined;
+      try {
+        const st = await stateRepo.getOrCreate(c.id, userId);
+        const lvl = getRelationLevel(st.affinity);
+        const name = (st.tierNames && st.tierNames[lvl.level.name]) || lvl.level.name;
+        soulState = `${name} · 好感度 ${Math.round(st.affinity)} · 心情 ${Math.round(st.mood)}/100`;
+      } catch {
+        /* 灵魂状态取不到不影响群聊 */
+      }
       return {
         id: c.id,
         name: c.name,
         persona: c.signature || c.systemPrompt.slice(0, 60),
         memory: memText || undefined,
         privateChat,
+        soulState,
       };
     }),
   );
@@ -192,6 +205,7 @@ async function generateProactiveTurn(
       content: m.content || (m.image ? '[图片]' : ''),
     }));
   const session = await sessionRepo.getById(sessionId);
+  const userBg = useSettingsStore.getState().userBackground;
   return generateGroupTurn({
     apiKey,
     groupName: group.name,
@@ -199,6 +213,7 @@ async function generateProactiveTurn(
     history,
     mode: 'proactive',
     summary: session?.summary,
+    userBackground: { era: userBg.era, social: userBg.social },
   });
 }
 
@@ -307,6 +322,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         }));
       const sessionData = await sessionRepo.getById(sessionId);
       const atMembers = parseAtNames(trimmed, members);
+      const userBg = useSettingsStore.getState().userBackground;
 
       const { turns, error } = await generateGroupTurn({
         apiKey,
@@ -319,6 +335,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         summary: sessionData?.summary,
         // 热闹模式：一轮最多 5 条（默认 3，省 token）
         maxTurns: group.lively ? 5 : 3,
+        userBackground: { era: userBg.era, social: userBg.social },
       });
 
       // 落库群回复序列

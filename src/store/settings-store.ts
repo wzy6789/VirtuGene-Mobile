@@ -32,6 +32,9 @@ interface SettingsState {
   /** 默认对话模型（角色未单独指定时使用；null = deepseek-v4-flash） */
   defaultModel: { provider: string; model: string } | null;
   setDefaultModel: (model: { provider: string; model: string } | null) => void;
+  /** 用户的时代/社会背景（让角色贴合用户所处的时代与生活语境） */
+  userBackground: { era: string; social: string };
+  setUserBackground: (bg: { era: string; social: string }) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -57,6 +60,8 @@ export const useSettingsStore = create<SettingsState>()(
       setAiVoiceMode: (aiVoiceMode) => set({ aiVoiceMode }),
       defaultModel: null,
       setDefaultModel: (defaultModel) => set({ defaultModel }),
+      userBackground: { era: '', social: '' },
+      setUserBackground: (userBackground) => set({ userBackground }),
     }),
     { name: 'virtugene-settings' },
   ),

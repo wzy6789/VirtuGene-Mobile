@@ -6,6 +6,7 @@
  */
 import { resolveModel, getProviderKey, findModel, llmChat, type LLMModel, type LLMChatResult } from './llm';
 import { stripRoleplayActions } from './text';
+import { buildTimeContext, buildUserBackgroundContext } from '../chat-context';
 
 export interface GroupMemberBrief {
   id: string;
@@ -15,6 +16,8 @@ export interface GroupMemberBrief {
   memory?: string;
   /** 该成员与用户的最近私聊记录（最新单聊会话最后几条原话）；有值时群聊可自然承接 */
   privateChat?: string;
+  /** 该成员与用户的灵魂状态（等阶名·好感度·心情；仅 TA 自己知道） */
+  soulState?: string;
 }
 
 export interface GroupTurn {
@@ -25,6 +28,8 @@ export interface GroupTurn {
 const GROUP_INSTRUCTION =
   '这是一个微信式角色群聊。你是群聊的"编剧"，根据群成员的性格决定谁开口、说什么。规则：\n' +
   '- 像真人微信群：短句、口语、自然，不要长篇大论、不要分点、不要 Markdown\n' +
+  '- 说人话，别像 AI：禁止"作为AI/人工智能""当然可以""没问题""很高兴""总的来说"这类表达；不解释自己、不做总结陈词\n' +
+  '- 别天天念叨同一件事或同一个梗（某个食物、某次经历、某个话题），除非用户主动提起；话题要像真人一样自然流动\n' +
   '- 不是每人都必须说话：性格活泼/相关的人接话，高冷/无关的人可以沉默\n' +
   '- 角色之间可以互相接话、吐槽、拌嘴，但别自说自话刷屏\n' +
   '- 输出 1~3 条即可，最多 3 条；某角色回应后其他角色可补一句，也可以就此打住\n' +
@@ -33,6 +38,7 @@ const GROUP_INSTRUCTION =
   '- 每个成员都拥有和用户的共同记忆（列在成员信息里）。聊到相关话题时，**相关成员应像老朋友随口一提那样自然带出记忆**（例如用户提过的事、TA 知道的用户喜好）；不要生硬复述，也不要编造记忆里没有的内容\n' +
   '- 成员的"最近私聊记录"是 TA 刚刚和用户私下聊过的内容（列在成员信息里）。相关成员可以自然承接私聊话题（比如用户私下说过的事，TA 在群里可以接话/回应）；**不要整段复述私聊记录**\n' +
   '- **私聊是私密的：每个成员只知道 TA 自己的私聊记录，不知道别人的。** 只有某成员自己私下和用户聊过的事，才由 TA 在群里说出来；其他成员不该表现出知道（除非 TA 在群里说了）\n' +
+  '- **灵魂状态（等阶/好感度/心情）同样是私密的**：每个成员只知道 TA 自己的（列在成员信息里），会自然影响 TA 的言行（亲近者更随意、心情差者更闷）；其他成员不该知道别人的灵魂状态\n' +
   '- 没有记忆的成员不要假装有共同经历\n' +
   '- 禁止用括号写动作描写（如（笑）（叹气））\n' +
   '输出要求（务必遵守）：\n' +
@@ -56,6 +62,8 @@ export interface GroupTurnParams {
   mode?: 'user' | 'proactive';
   /** 本轮最多输出条数（默认 3；热闹模式传 5，提示词同步强调短句控量省 token） */
   maxTurns?: number;
+  /** 用户的时代/社会背景（让角色贴合用户所处的时代与生活语境） */
+  userBackground?: { era?: string; social?: string };
 }
 
 export async function generateGroupTurn(params: GroupTurnParams): Promise<{ turns: GroupTurn[]; error?: string }> {
@@ -91,7 +99,8 @@ async function attemptTurn(
       .map((m) => {
         const mem = m.memory ? `\n　· 与用户的共同记忆：${m.memory}` : '';
         const priv = m.privateChat ? `\n　· 与用户的最近私聊记录：\n${m.privateChat.split('\n').map((l) => '　　' + l).join('\n')}` : '';
-        return `${m.name}：${m.persona}${mem}${priv}`;
+        const soul = m.soulState ? `\n　· 与用户的灵魂状态（仅 TA 自己知道）：${m.soulState}` : '';
+        return `${m.name}：${m.persona}${mem}${priv}${soul}`;
       })
       .join('\n');
     const rawHistory = params.history.slice(-16).map((h) => ({
@@ -134,6 +143,10 @@ async function attemptTurn(
           : userBlock;
 
     let system = GROUP_INSTRUCTION + '\n\n群成员：\n' + membersDesc;
+    // 时间感知：让群成员知道现在几点（贴近真人）
+    system += '\n\n' + buildTimeContext();
+    // 用户时代/社会背景：默认与用户同一时代同一语境
+    system += buildUserBackgroundContext(params.userBackground?.era, params.userBackground?.social);
     if (params.summary) {
       system += '\n\n群聊背景摘要（较早聊天的压缩内容，粗略参考，不要复述）：\n' + params.summary;
     }

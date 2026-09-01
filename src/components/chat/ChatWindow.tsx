@@ -19,7 +19,7 @@ import { emotionRepo } from '../../db/emotion-repo';
 import { diaryRepo, todayStr } from '../../db/diary-repo';
 import { stateRepo } from '../../db/state-repo';
 import { ipc } from '../../lib/ipc-client';
-import { buildTimeContext, buildRelationshipContext, buildUserEmotionContext } from '../../lib/chat-context';
+import { buildTimeContext, buildRelationshipContext, buildUserEmotionContext, buildUserBackgroundContext } from '../../lib/chat-context';
 import { checkReplyQuality } from '../../lib/reply-quality';
 import { DIARY_MOODS } from '../../lib/diary-utils';
 import { useNotificationStore } from '../../store/notification-store';
@@ -419,9 +419,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     const prevMessage = allMsgs.length >= 2 ? allMsgs[allMsgs.length - 2] : undefined;
     const timeContext = '\n\n' + buildTimeContext(prevMessage?.createdAt);
 
-    // 关系状态文字化：档位描述替代数字
+    // 关系状态文字化：等阶（含用户自定义名）+ 好感度 + 心情 → 角色可见灵魂状态
     const state = await stateRepo.getOrCreate(character.id, userId);
-    const relationshipContext = buildRelationshipContext(state.affinity, state.mood);
+    const relationshipContext = buildRelationshipContext(state.affinity, state.mood, state.tierNames);
 
     // 用户情绪感知：最近一次结算感知到的用户情绪
     const latestSnapshot = await emotionRepo.getLatest(sessionId);
@@ -483,8 +483,12 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       ? `\n\n[早前对话摘要（更早的内容已压缩，不必逐条回忆，若与当前话题相关可自然提及）]\n${sessionData.summary}`
       : '';
 
+    // 用户的时代/社会背景：让角色贴合用户所处的时代与生活语境（设置里可填）
+    const userBg = useSettingsStore.getState().userBackground;
+    const userBackgroundContext = buildUserBackgroundContext(userBg?.era, userBg?.social);
+
     const enrichedPrompt =
-      character.systemPrompt + memoryContext + timeContext + relationshipContext + userEmotionContext + diaryMoodContext + diaryShareContext + summaryContext;
+      character.systemPrompt + memoryContext + timeContext + relationshipContext + userEmotionContext + userBackgroundContext + diaryMoodContext + diaryShareContext + summaryContext;
 
     // 动态温度：按角色主动倾向微调——高冷/疏离用低温度（更克制稳定），活泼/话痨用高温度（更跳脱）
     const temperature = 0.6 + (character.proactivity ?? 0.5) * 0.3;

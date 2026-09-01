@@ -20,11 +20,17 @@ export function buildTimeContext(prevMessageAt?: number): string {
 }
 
 /**
- * 关系状态文字化：用关系档位 + 语气描述替代冷冰冰的数字，
+ * 关系状态文字化：把灵魂状态（等阶·好感度·心情）告诉角色——包括用户自定义的等阶名。
  * 让模型自然地调整语气，而不是机械地说"好感度 60"。
  */
-export function buildRelationshipContext(affinity: number, mood: number): string {
+export function buildRelationshipContext(
+  affinity: number,
+  mood: number,
+  tierNames?: Record<string, string>,
+): string {
   const { level } = getRelationLevel(affinity);
+  // 用户自定义等阶名优先（100+ 等阶可随便改）
+  const levelName = (tierNames && tierNames[level.name]) || level.name;
   const moodText =
     mood >= 75
       ? '心情很好，语气轻快、有活力'
@@ -34,9 +40,21 @@ export function buildRelationshipContext(affinity: number, mood: number): string
           ? '心情有些低落、易倦'
           : '心情很差，烦躁、提不起劲';
   return (
-    `\n\n[当前关系状态]\n你和用户的关系：${level.name}（${level.desc}，语气${level.tone}）。` +
-    `你此刻的心情：${moodText}。\n` +
-    '让这两点自然影响你的语气，不要直接说出任何数字或等级名称。'
+    `\n\n[当前灵魂状态]\n你和用户的关系等阶：${levelName}（${level.desc}，语气${level.tone}）。\n` +
+    `好感度：${Math.round(affinity)}（数值越高越亲密，无上限）；心情：${Math.round(mood)}/100（${moodText}）。\n` +
+    '让这些自然地影响你的语气与言行（等阶越高越亲密无间、心情差时别勉强），但不要直接说出任何数字。'
+  );
+}
+
+/** 用户时代/社会背景：让角色贴合用户所处的时代与生活语境（默认同一时代） */
+export function buildUserBackgroundContext(era?: string, social?: string): string {
+  if (!era && !social) return '';
+  return (
+    '\n\n[用户的时代与社会背景]\n' +
+    (era ? `时代：${era}。` : '') +
+    (social ? `生活背景：${social}。` : '') +
+    '默认你和用户生活在同一个时代、同一个社会语境里：说话用词、生活细节、物价与观念都要贴合这个背景；' +
+    '不要出现与用户时代不符的设定（除非你的角色设定明确是另一个时代）。'
   );
 }
 
