@@ -954,3 +954,18 @@ ode scripts/gh-release.mjs 3.2.0 全流程通过（构建→建 Release→传 AP
 5. **禁止反复念叨**：单聊/群聊指令都加"别天天念叨同一件事或同一个梗（桂花糕类），除非用户主动提起，话题要自然流动"
 6. **时代/社会背景**：设置新增「我的背景」（时代背景 + 社会/生活背景，持久化）；uildUserBackgroundContext 注入单聊与群聊提示词——角色默认与用户同一时代同一语境，用词/物价/观念贴合
 7. **人机感轻**：单聊/群聊指令都加"说人话别像 AI"规则（禁"作为AI/当然可以/很高兴/总的来说"，不列点、不总结、不解释自己）
+
+## 五十六、10 项落地（2026-09-01 用户选定，commit `27cf803`）
+
+**① 记忆碎片 · 碎玻璃片视觉**（EmotionPanel.tsx）：GlassShard 组件——clip-path 不规则多边形（3 种形状轮换）+ 内部裂纹 SVG + 磨砂渐变 + drop-shadow 微光 + 错落旋转；随机 3 片 + 「✦ 随机回忆」刷新
+**② 手动教记忆**（ChatWindow.tsx）：聊天里说"记住XXX/帮我记住XXX/以后记住XXX"→ 存入该角色记忆 + 系统提示让角色当场确认记住了
+**③ 主动回忆**（ChatWindow.tsx + uildMemoryRecall）：约 25% 概率随机翻一段旧记忆注入提示词，氛围合适时自然提起（不是必须）
+**④ 口头禅**（Character.catchphrase + CreateGeneTab + uildCatchphrase）：角色编辑可设口头禅（如"啧"），提示词引导偶尔自然使用（别每句都带）
+**⑤ 认识天数提醒**（uildDayContext）：认识第 7/30/100/365/每 100 天 → 提示词引导角色自然提起
+**⑥ 心情小表情**（MessageBubble.moodEmoji + ChatWindow）：AI 气泡右上角显示角色当前心情 emoji（😊🙂😐😕😠，按 mood 映射）
+**⑦ 天气提醒**（lib/weather.ts + 设置城市 + uildWeatherContext）：wttr.in 免费 API（无需 Key），1 小时缓存，失败静默；提示词引导自然叮嘱（降温加衣/雨天带伞）
+**⑧ 长按"记住"**（MessageBubble + 群聊菜单 + group-store.rememberGroupMessage）：单聊把消息存入角色记忆；群聊存给所有成员
+**⑨ 纪念日提醒**（设置新增纪念日列表 + uildDayContext）：今天/明天是纪念日 → 角色自然提起
+**⑩ 角色主动发图**（lib/ai/image-gen.ts + chat-store）：每日早安/晚安问候时约 30% 概率用 SiliconFlow 生成一张"随手拍"（FLUX.1-schnell）并作为图片消息发送；无硅基 Key/失败静默跳过
+**设置**：我的背景新增「所在城市」+「纪念日」编辑（名称 + 日期，可增删）
+**验证**：tsc 通过、20 解析用例全过
