@@ -69,6 +69,35 @@ function poeticize(content: string): string {
   return content.replace(/用户/g, '我').replace(/\s+/g, ' ').trim();
 }
 
+/** 碎玻璃片：不规则多边形（clip-path），错落旋转 + 裂纹 + 磨砂微光 */
+const SHARD_PATHS = [
+  'polygon(10% 0%, 90% 4%, 100% 38%, 92% 78%, 96% 100%, 30% 96%, 4% 74%, 0% 30%)',
+  'polygon(6% 8%, 88% 0%, 100% 44%, 82% 92%, 40% 100%, 8% 78%, 0% 40%)',
+  'polygon(12% 2%, 94% 10%, 98% 50%, 86% 100%, 20% 96%, 2% 60%)',
+];
+
+function GlassShard({ text, time, variant }: { text: string; time: string; variant: number }) {
+  return (
+    <div
+      className={`relative ${variant % 2 === 0 ? 'rotate-[-1.8deg]' : 'rotate-[1.6deg]'} ${variant === 1 ? 'ml-3' : variant === 2 ? '-ml-1' : ''}`}
+      style={{
+        clipPath: SHARD_PATHS[variant % SHARD_PATHS.length],
+        filter: 'drop-shadow(0 3px 8px rgba(108,92,231,0.30))',
+      }}
+    >
+      <div className="relative px-4 py-3 bg-gradient-to-br from-white/[0.08] via-gene-purple/[0.06] to-life-cyan/[0.09]">
+        {/* 裂纹线（碎片裂开的细缝） */}
+        <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-50" viewBox="0 0 100 60" preserveAspectRatio="none">
+          <polyline points="22,0 28,16 18,32 26,60" stroke="#ffffff" strokeOpacity="0.28" strokeWidth="0.7" fill="none" />
+          <polyline points="72,0 66,20 76,38 70,60" stroke="#ffffff" strokeOpacity="0.22" strokeWidth="0.6" fill="none" />
+        </svg>
+        <p className="text-xs text-ink/90 leading-relaxed italic line-clamp-2">「{text}」</p>
+        <p className="text-[10px] text-gray-500 mt-1 tabular-nums">✦ {time}</p>
+      </div>
+    </div>
+  );
+}
+
 function moodColor(mood: number): string {
   if (mood >= 75) return '#00CEC9';
   if (mood >= 50) return '#FBBF24';
@@ -404,17 +433,9 @@ export function EmotionPanel() {
                       随机回忆
                     </button>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {shards.map((m, i) => (
-                      <div
-                        key={m.id}
-                        className={`relative rounded-lg bg-panel/60 border border-line px-3 py-2 ${
-                          i % 2 === 0 ? 'rotate-[-1.2deg]' : 'rotate-[1.2deg]'
-                        }`}
-                      >
-                        <p className="text-xs text-ink/90 leading-relaxed italic">「{poeticize(m.content)}」</p>
-                        <p className="text-[10px] text-gray-500 mt-1 tabular-nums">✦ {formatTime(m.createdAt)}</p>
-                      </div>
+                      <GlassShard key={m.id} text={poeticize(m.content)} time={formatTime(m.createdAt)} variant={i} />
                     ))}
                   </div>
                 </div>

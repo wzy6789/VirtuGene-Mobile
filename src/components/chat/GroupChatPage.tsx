@@ -155,6 +155,7 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
   const error = useGroupStore((s) => s.groupError);
   const send = useGroupStore((s) => s.sendGroupMessage);
   const deleteGroupMessage = useGroupStore((s) => s.deleteGroupMessage);
+  const rememberGroupMessage = useGroupStore((s) => s.rememberGroupMessage);
   const { speakingKey, busyKey, speak, stop } = useTTS();
   const characters = useChatStore((s) => s.characters);
   const [settings, setSettings] = useState(false);
@@ -584,6 +585,15 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
                   className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-sub hover:bg-surface transition-colors"
                 >
                   💬 引用
+                </button>
+                <button
+                  onClick={() => {
+                    void rememberGroupMessage(menu.id);
+                    setMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-sub hover:bg-surface transition-colors"
+                >
+                  💾 记住
                 </button>
                 <button
                   onClick={() => setConfirmDeleteId(menu.id)}

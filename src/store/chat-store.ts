@@ -9,6 +9,7 @@ import { useAuthStore } from './auth-store';
 import { useCharacterStateStore } from './character-state-store';
 import { deriveProactivity, GREETING_PROACTIVITY_THRESHOLD } from '../lib/personality';
 import { generateProactiveMessage } from '../lib/ai/proactive-chat';
+import { generateCharacterImage } from '../lib/ai/image-gen';
 import { notifyLocal } from '../lib/notify';
 import { IS_MOBILE } from '../lib/platform';
 import { ipc } from '../lib/ipc-client';
@@ -68,7 +69,7 @@ interface ChatState {
   loadEarlierMessages: () => Promise<void>;
   addMessage: (msg: Message) => void;
   updateMessage: (id: string, patch: Partial<Message>) => void;
-  addProactiveMessage: (characterId: string, content: string) => Promise<void>;
+  addProactiveMessage: (characterId: string, content: string, image?: string) => Promise<void>;
   /** 每日灵魂互动：早安（08 点）/ 晚安（22 点），选好感度最高的角色发一条问候（每天每类一次） */
   dailyGreeting: () => Promise<void>;
   refreshPreviews: () => Promise<void>;
@@ -291,7 +292,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
 
-  addProactiveMessage: async (characterId, content) => {
+  addProactiveMessage: async (characterId, content, image) => {
     const userId = useAuthStore.getState().userId ?? '';
     const session = await getOrCreateSession(characterId, userId);
     const msg: Message = {
@@ -301,6 +302,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       content,
       createdAt: Date.now(),
       isProactive: true,
+      image,
     };
     await messageRepo.create(msg);
     await sessionRepo.touch(session.id);
@@ -385,6 +387,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (content) {
         await get().addProactiveMessage(target.id, content);
         if (IS_MOBILE) void notifyLocal(`💬 ${target.name}`, content.slice(0, 40));
+        // 角色主动发图（P1）：约 30% 概率配一张随手拍；无硅基 Key / 失败时静默跳过
+        if (Math.random() < 0.3) {
+          void (async () => {
+            try {
+              const dataUrl = await generateCharacterImage(
+                `手机随手一拍风格的照片，主题：${target.name}想分享的一个生活小瞬间（风景/食物/小物件），温馨自然，画面中不要出现文字`,
+              );
+              if (dataUrl) {
+                await get().addProactiveMessage(target.id, '', dataUrl);
+              }
+            } catch {
+              /* 静默 */
+            }
+          })();
+        }
       }
     } catch (err) {
       console.warn('[greeting] 每日问候失败:', err);

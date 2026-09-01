@@ -80,9 +80,13 @@ interface Props {
   speakKey?: string | null;
   speakingKey?: string | null;
   busyKey?: string | null;
+  /** 角色当前心情小表情（仅 AI 消息；显示在气泡角上） */
+  moodEmoji?: string;
+  /** 长按菜单"记住"：把消息存进角色记忆 */
+  onRemember?: (message: Message) => void;
 }
 
-export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey }: Props) {
+export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, moodEmoji, onRemember }: Props) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -134,6 +138,10 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
         </button>
       )}
       <div className="relative max-w-[75%]">
+        {/* 角色当前心情小表情（AI 消息，气泡角上） */}
+        {!isUser && moodEmoji && (
+          <span className="absolute -top-2 -right-1.5 text-[11px] leading-none select-none">{moodEmoji}</span>
+        )}
         <div
           onContextMenu={handleContextMenu}
           className={`px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words transition-shadow ${
@@ -338,6 +346,17 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                 >
                   💬 引用
                 </button>
+                {onRemember && (
+                  <button
+                    onClick={() => {
+                      onRemember(message);
+                      setMenu(null);
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
+                  >
+                    💾 记住
+                  </button>
+                )}
                 <button
                   onClick={() => setConfirmDelete(true)}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"

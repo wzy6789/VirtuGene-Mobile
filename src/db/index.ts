@@ -38,6 +38,8 @@ export interface Character {
   voice?: { voice: string; band?: 'male-deep' | 'male-mature' | 'male-young' | 'female-soft' | 'female-bright' | 'female-clear'; sid?: number; rate: string; pitch: string };
   /** 角色指定对话模型（不设则用全局默认；如 { provider: 'qwen', model: 'qwen3.7-plus' }） */
   model?: { provider: string; model: string };
+  /** 口头禅（用户可设置；角色偶尔自然地使用，注入语气） */
+  catchphrase?: string;
 }
 
 export interface RelationMilestone {

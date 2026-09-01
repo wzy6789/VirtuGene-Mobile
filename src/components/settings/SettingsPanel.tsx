@@ -67,11 +67,24 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [asrKey, setAsrKey] = useState('');
   const [hasAsrKey, setHasAsrKey] = useState(false);
 
-  // 我的背景（时代/社会背景）：让角色贴合用户所处的时代与生活语境
+  // 我的背景（时代/社会背景/城市/纪念日）：让角色贴合用户所处的时代与生活语境
   const userBackground = useSettingsStore((s) => s.userBackground);
   const setUserBackground = useSettingsStore((s) => s.setUserBackground);
   const [userBg, setUserBg] = useState(userBackground);
-  const saveUserBg = () => setUserBackground({ era: userBg.era.trim(), social: userBg.social.trim() });
+  const saveUserBg = () =>
+    setUserBackground({
+      era: userBg.era.trim(),
+      social: userBg.social.trim(),
+      city: userBg.city.trim(),
+      anniversaries: userBg.anniversaries
+        .map((a) => ({ name: a.name.trim().slice(0, 12), date: a.date.replace(/^\d{4}-/, '') }))
+        .filter((a) => a.name && a.date),
+    });
+  const updateAnniversary = (i: number, patch: Partial<{ name: string; date: string }>) =>
+    setUserBg((s) => ({
+      ...s,
+      anniversaries: s.anniversaries.map((a, idx) => (idx === i ? { ...a, ...patch } : a)),
+    }));
 
   useEffect(() => {
     if (!open) return;
@@ -381,6 +394,64 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   placeholder="如：普通上班族，住在一线城市"
                   className="w-full bg-panel border border-line-strong rounded-lg px-3 py-2 text-xs text-ink placeholder-gray-500 outline-none focus:border-gene-purple"
                 />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1.5">所在城市（角色感知天气用，可选）</p>
+                <input
+                  value={userBg.city}
+                  onChange={(e) => setUserBg({ ...userBg, city: e.target.value })}
+                  onBlur={saveUserBg}
+                  placeholder="如：杭州（用于查当天天气）"
+                  className="w-full bg-panel border border-line-strong rounded-lg px-3 py-2 text-xs text-ink placeholder-gray-500 outline-none focus:border-gene-purple"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-xs text-gray-500">纪念日（可选）</p>
+                  <button
+                    onClick={() => {
+                      setUserBg((s) => ({ ...s, anniversaries: [...s.anniversaries, { name: '', date: '' }] }));
+                    }}
+                    className="text-[11px] text-life-cyan hover:underline"
+                  >
+                    + 添加
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  {userBg.anniversaries.length === 0 && (
+                    <p className="text-[10px] text-gray-500">如：生日、恋爱纪念日；到了那天角色会自然提起</p>
+                  )}
+                  {userBg.anniversaries.map((a, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <input
+                        value={a.name}
+                        onChange={(e) => updateAnniversary(i, { name: e.target.value })}
+                        onBlur={saveUserBg}
+                        placeholder="名称（如：我们的纪念日）"
+                        className="flex-1 min-w-0 bg-panel border border-line-strong rounded-lg px-2 py-1.5 text-xs text-ink placeholder-gray-500 outline-none focus:border-gene-purple"
+                      />
+                      <input
+                        type="date"
+                        value={a.date ? `2026-${a.date}` : ''}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          updateAnniversary(i, { date: v ? v.slice(5) : '' });
+                        }}
+                        onBlur={saveUserBg}
+                        className="shrink-0 bg-panel border border-line-strong rounded-lg px-2 py-1.5 text-xs text-ink outline-none focus:border-gene-purple"
+                      />
+                      <button
+                        onClick={() => {
+                          setUserBg((s) => ({ ...s, anniversaries: s.anniversaries.filter((_, idx) => idx !== i) }));
+                          setTimeout(saveUserBg, 0);
+                        }}
+                        className="shrink-0 text-gray-400 hover:text-red-400 text-sm leading-none px-1"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
               <p className="text-[10px] text-gray-500 leading-relaxed">
                 填上你的时代与生活背景后，角色会默认与你在同一时代、同一语境里对话（说话用词、生活细节都会贴合）。

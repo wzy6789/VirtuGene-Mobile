@@ -33,8 +33,8 @@ interface SettingsState {
   defaultModel: { provider: string; model: string } | null;
   setDefaultModel: (model: { provider: string; model: string } | null) => void;
   /** 用户的时代/社会背景（让角色贴合用户所处的时代与生活语境） */
-  userBackground: { era: string; social: string };
-  setUserBackground: (bg: { era: string; social: string }) => void;
+  userBackground: { era: string; social: string; city: string; anniversaries: { name: string; date: string }[] };
+  setUserBackground: (bg: { era: string; social: string; city: string; anniversaries: { name: string; date: string }[] }) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -60,7 +60,7 @@ export const useSettingsStore = create<SettingsState>()(
       setAiVoiceMode: (aiVoiceMode) => set({ aiVoiceMode }),
       defaultModel: null,
       setDefaultModel: (defaultModel) => set({ defaultModel }),
-      userBackground: { era: '', social: '' },
+      userBackground: { era: '', social: '', city: '', anniversaries: [] },
       setUserBackground: (userBackground) => set({ userBackground }),
     }),
     { name: 'virtugene-settings' },

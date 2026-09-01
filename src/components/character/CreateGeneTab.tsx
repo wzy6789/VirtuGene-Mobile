@@ -46,6 +46,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const [tags, setTags] = useState<string[]>(editCharacter?.tags ?? []);
   const [signature, setSignature] = useState(editCharacter?.signature ?? '');
   const [greeting, setGreeting] = useState(editCharacter?.greeting ?? '');
+  const [catchphrase, setCatchphrase] = useState(editCharacter?.catchphrase ?? '');
   const [tagInput, setTagInput] = useState('');
   const [enableWebSearch, setEnableWebSearch] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -265,6 +266,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         tags,
         signature: signature.trim(),
         greeting: greeting.trim(),
+        catchphrase: catchphrase.trim() || undefined,
         published,
       });
     } else {
@@ -275,6 +277,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         tags,
         signature: signature.trim(),
         greeting: greeting.trim(),
+        catchphrase: catchphrase.trim() || undefined,
         isPreset: false,
         isCustom: true,
         published,
@@ -660,6 +663,17 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
                   value={greeting}
                   onChange={(e) => setGreeting(e.target.value)}
                   placeholder="TA 主动开口说的第一句话"
+                  className="w-full px-4 py-3 bg-surface border border-line-strong rounded-xl text-sm text-ink placeholder-gray-500 focus:outline-none focus:border-gene-purple/50 transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-400 mb-1.5">口头禅（可选）</label>
+                <input
+                  type="text"
+                  value={catchphrase}
+                  onChange={(e) => setCatchphrase(e.target.value)}
+                  placeholder="如：啧 / 有趣 / 你说呢（角色偶尔自然使用）"
                   className="w-full px-4 py-3 bg-surface border border-line-strong rounded-xl text-sm text-ink placeholder-gray-500 focus:outline-none focus:border-gene-purple/50 transition-colors"
                 />
               </div>

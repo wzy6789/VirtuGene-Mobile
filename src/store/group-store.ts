@@ -49,6 +49,8 @@ interface GroupState {
   /** 后台主动发言：离开群聊页后由 App 定时器触发（挑最久没动静的群，30 分钟冷却，省 token） */
   proactiveBackground: () => Promise<void>;
   deleteGroupMessage: (messageId: string) => Promise<void>;
+  /** 长按"记住"：把群消息存进所有成员的记忆 */
+  rememberGroupMessage: (messageId: string) => Promise<void>;
   setMemberNickname: (groupId: string, characterId: string, nickname: string) => Promise<void>;
   updateGroup: (id: string, patch: Partial<Group>) => Promise<void>;
   removeMember: (groupId: string, characterId: string) => Promise<void>;
@@ -501,6 +503,30 @@ export const useGroupStore = create<GroupState>((set, get) => ({
           ? { ...s.groupPreviews, [s.currentGroupId]: { content: last?.content ?? '', createdAt: last?.createdAt ?? Date.now(), unread: s.groupPreviews[s.currentGroupId!]?.unread ?? 0 } }
           : s.groupPreviews,
       }));
+    }
+  },
+
+  rememberGroupMessage: async (messageId) => {
+    const { currentGroup, currentSessionId } = get();
+    const userId = useAuthStore.getState().userId ?? '';
+    if (!currentGroup || !currentSessionId) return;
+    try {
+      const msgs = await messageRepo.getBySession(currentSessionId);
+      const m = msgs.find((x) => x.id === messageId);
+      if (!m || !m.content) return;
+      const now = Date.now();
+      for (const charId of currentGroup.characterIds) {
+        await memoryRepo.create({
+          id: crypto.randomUUID(),
+          characterId: charId,
+          userId,
+          content: m.content.slice(0, 200),
+          type: 'auto',
+          createdAt: now,
+        });
+      }
+    } catch {
+      /* 静默 */
     }
   },
 

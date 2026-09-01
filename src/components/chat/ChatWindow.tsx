@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useChatStore } from '../../store/chat-store';
+import { useCharacterStateStore } from '../../store/character-state-store';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
 import { useEmotionStore } from '../../store/emotion-store';
 import { useSettingsStore } from '../../store/settings-store';
@@ -19,7 +20,8 @@ import { emotionRepo } from '../../db/emotion-repo';
 import { diaryRepo, todayStr } from '../../db/diary-repo';
 import { stateRepo } from '../../db/state-repo';
 import { ipc } from '../../lib/ipc-client';
-import { buildTimeContext, buildRelationshipContext, buildUserEmotionContext, buildUserBackgroundContext } from '../../lib/chat-context';
+import { buildTimeContext, buildRelationshipContext, buildUserEmotionContext, buildUserBackgroundContext, buildDayContext, buildMemoryRecall, buildCatchphrase, buildWeatherContext } from '../../lib/chat-context';
+import { getWeatherText } from '../../lib/weather';
 import { checkReplyQuality } from '../../lib/reply-quality';
 import { DIARY_MOODS } from '../../lib/diary-utils';
 import { useNotificationStore } from '../../store/notification-store';
@@ -116,6 +118,15 @@ function MoodCheckIn() {
   );
 }
 
+/** 心情 → 小表情（气泡角上显示） */
+function moodEmoji(mood: number): string {
+  if (mood >= 75) return '😊';
+  if (mood >= 55) return '🙂';
+  if (mood >= 40) return '😐';
+  if (mood >= 25) return '😕';
+  return '😠';
+}
+
 export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const messages = useChatStore((s) => s.messages);
   const currentSessionId = useChatStore((s) => s.currentSessionId);
@@ -129,6 +140,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const apiKey = useAuthStore((s) => s.apiKey);
   const userId = useAuthStore((s) => s.userId) ?? '';
   const userAvatar = useAuthStore((s) => s.avatar) ?? DEFAULT_USER_AVATAR;
+  /** 角色当前心情（气泡角上的小表情） */
+  const charMood = useCharacterStateStore((s) => s.mood);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
 
@@ -385,6 +398,23 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     await performSend(failedMsg.content, apiMessage, failedMsg);
   };
 
+  /** 长按"记住"：把消息内容存入角色记忆（用户显式想让角色记住） */
+  const handleRemember = async (m: Message) => {
+    if (!character || !currentSessionId) return;
+    try {
+      await memoryRepo.create({
+        id: crypto.randomUUID(),
+        characterId: character.id,
+        userId,
+        content: m.content.slice(0, 200),
+        type: 'auto',
+        createdAt: Date.now(),
+      });
+    } catch {
+      /* 静默：保存失败不影响聊天 */
+    }
+  };
+
   /** 核心发送管线：构建上下文 → 调 API（带自检重试）→ 落库/上屏；失败则把用户消息标记为失败态 */
   const performSend = async (text: string, apiMessage: string, userMsg: Message, image?: string) => {
     const sessionId = userMsg.sessionId;
@@ -414,6 +444,52 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     const memoryContext = memories.length > 0
       ? '\n\n[关于用户的长期记忆]\n' + memories.map((m) => `- ${m.content}`).join('\n')
       : '';
+
+    // 手动教记忆：用户说"记住……" → 存入角色记忆，并让角色当场确认记住了
+    const teachMatch = text.match(/^[（(]?(?:记住|帮我记住|记一下|以后记住|别忘了|你要记住)[：:，,、\s]+(.+)$/);
+    const taughtMemory = teachMatch ? teachMatch[1].trim().slice(0, 200) : '';
+    let teachContext = '';
+    if (taughtMemory) {
+      try {
+        await memoryRepo.create({
+          id: crypto.randomUUID(),
+          characterId: character.id,
+          userId,
+          content: taughtMemory,
+          type: 'auto',
+          createdAt: Date.now(),
+        });
+        teachContext =
+          `\n\n[用户刚告诉你一件重要的事]\n用户说："${taughtMemory}" —— 你已把它记在心里。` +
+          '请在回复里自然地确认你记住了（一句即可，不要整句复述，也不要解释"我会记住"这种话）。';
+      } catch {
+        /* 保存失败不影响发送 */
+      }
+    }
+
+    // 主动回忆：约 1/4 概率随机翻一段旧记忆，氛围合适时自然提起（让记忆"活"起来）
+    let recallContext = '';
+    if (memories.length > 0 && Math.random() < 0.25) {
+      recallContext = buildMemoryRecall(memories[Math.floor(Math.random() * memories.length)].content);
+    }
+
+    // 今天是什么日子：认识天数特殊节点 + 纪念日
+    const firstMsg = await messageRepo.getFirst(sessionId);
+    const daysKnown = firstMsg
+      ? Math.max(1, Math.floor((Date.now() - firstMsg.createdAt) / 86400000) + 1)
+      : 0;
+    const bg = useSettingsStore.getState().userBackground;
+    const dayContext = buildDayContext(daysKnown, bg.anniversaries);
+
+    // 天气感知：按设置里的城市拿当天天气（1 小时缓存，失败静默）
+    let weatherContext = '';
+    if (bg.city) {
+      const w = await getWeatherText(bg.city);
+      if (w) weatherContext = buildWeatherContext(w);
+    }
+
+    // 口头禅：角色偶尔自然使用
+    const catchphraseContext = buildCatchphrase(character.catchphrase);
 
     // 时间感知：现在几点、距上次聊天多久（上一轮消息 = allMsgs 倒数第二条）
     const prevMessage = allMsgs.length >= 2 ? allMsgs[allMsgs.length - 2] : undefined;
@@ -488,7 +564,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     const userBackgroundContext = buildUserBackgroundContext(userBg?.era, userBg?.social);
 
     const enrichedPrompt =
-      character.systemPrompt + memoryContext + timeContext + relationshipContext + userEmotionContext + userBackgroundContext + diaryMoodContext + diaryShareContext + summaryContext;
+      character.systemPrompt + memoryContext + teachContext + recallContext + timeContext + relationshipContext + userEmotionContext + userBackgroundContext + dayContext + weatherContext + catchphraseContext + diaryMoodContext + diaryShareContext + summaryContext;
 
     // 动态温度：按角色主动倾向微调——高冷/疏离用低温度（更克制稳定），活泼/话痨用高温度（更跳脱）
     const temperature = 0.6 + (character.proactivity ?? 0.5) * 0.3;
@@ -815,6 +891,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
                     speakKey={row.message.id}
                     speakingKey={speakingKey}
                     busyKey={busyKey}
+                    moodEmoji={row.message.role === 'assistant' ? moodEmoji(charMood) : undefined}
+                    onRemember={(m) => void handleRemember(m)}
                   />
                 </div>
               );
