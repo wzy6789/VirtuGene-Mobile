@@ -6,7 +6,7 @@
  */
 import { resolveModel, getProviderKey, findModel, llmChat, type LLMModel, type LLMChatResult } from './llm';
 import { stripRoleplayActions } from './text';
-import { buildTimeContext, buildUserBackgroundContext } from '../chat-context';
+import { buildTimeContext } from '../chat-context';
 
 export interface GroupMemberBrief {
   id: string;
@@ -29,6 +29,7 @@ const GROUP_INSTRUCTION =
   '这是一个微信式角色群聊。你是群聊的"编剧"，根据群成员的性格决定谁开口、说什么。规则：\n' +
   '- 像真人微信群：短句、口语、自然，不要长篇大论、不要分点、不要 Markdown\n' +
   '- 说人话，别像 AI：禁止"作为AI/人工智能""当然可以""没问题""很高兴""总的来说"这类表达；不解释自己、不做总结陈词\n' +
+  '- 主动适配用户的时代与生活背景：用户聊天里提到的时代/身份/日常，群成员要像真人一样自然地接住并贴合（默认与用户同一时代同一语境，用词观念随 TA 走）；不要出现与用户所述时代不符的设定\n' +
   '- 别天天念叨同一件事或同一个梗（某个食物、某次经历、某个话题），除非用户主动提起；话题要像真人一样自然流动\n' +
   '- 不是每人都必须说话：性格活泼/相关的人接话，高冷/无关的人可以沉默\n' +
   '- 角色之间可以互相接话、吐槽、拌嘴，但别自说自话刷屏\n' +
@@ -62,8 +63,6 @@ export interface GroupTurnParams {
   mode?: 'user' | 'proactive';
   /** 本轮最多输出条数（默认 3；热闹模式传 5，提示词同步强调短句控量省 token） */
   maxTurns?: number;
-  /** 用户的时代/社会背景（让角色贴合用户所处的时代与生活语境） */
-  userBackground?: { era?: string; social?: string };
 }
 
 export async function generateGroupTurn(params: GroupTurnParams): Promise<{ turns: GroupTurn[]; error?: string }> {
@@ -145,8 +144,6 @@ async function attemptTurn(
     let system = GROUP_INSTRUCTION + '\n\n群成员：\n' + membersDesc;
     // 时间感知：让群成员知道现在几点（贴近真人）
     system += '\n\n' + buildTimeContext();
-    // 用户时代/社会背景：默认与用户同一时代同一语境
-    system += buildUserBackgroundContext(params.userBackground?.era, params.userBackground?.social);
     if (params.summary) {
       system += '\n\n群聊背景摘要（较早聊天的压缩内容，粗略参考，不要复述）：\n' + params.summary;
     }

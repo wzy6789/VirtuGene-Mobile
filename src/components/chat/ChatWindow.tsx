@@ -20,8 +20,7 @@ import { emotionRepo } from '../../db/emotion-repo';
 import { diaryRepo, todayStr } from '../../db/diary-repo';
 import { stateRepo } from '../../db/state-repo';
 import { ipc } from '../../lib/ipc-client';
-import { buildTimeContext, buildRelationshipContext, buildUserEmotionContext, buildUserBackgroundContext, buildDayContext, buildMemoryRecall, buildCatchphrase, buildWeatherContext } from '../../lib/chat-context';
-import { getWeatherText } from '../../lib/weather';
+import { buildTimeContext, buildRelationshipContext, buildUserEmotionContext, buildDayContext, buildMemoryRecall, buildCatchphrase } from '../../lib/chat-context';
 import { checkReplyQuality } from '../../lib/reply-quality';
 import { DIARY_MOODS } from '../../lib/diary-utils';
 import { useNotificationStore } from '../../store/notification-store';
@@ -473,20 +472,12 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       recallContext = buildMemoryRecall(memories[Math.floor(Math.random() * memories.length)].content);
     }
 
-    // 今天是什么日子：认识天数特殊节点 + 纪念日
+    // 今天是什么日子：认识天数特殊节点
     const firstMsg = await messageRepo.getFirst(sessionId);
     const daysKnown = firstMsg
       ? Math.max(1, Math.floor((Date.now() - firstMsg.createdAt) / 86400000) + 1)
       : 0;
-    const bg = useSettingsStore.getState().userBackground;
-    const dayContext = buildDayContext(daysKnown, bg.anniversaries);
-
-    // 天气感知：按设置里的城市拿当天天气（1 小时缓存，失败静默）
-    let weatherContext = '';
-    if (bg.city) {
-      const w = await getWeatherText(bg.city);
-      if (w) weatherContext = buildWeatherContext(w);
-    }
+    const dayContext = buildDayContext(daysKnown);
 
     // 口头禅：角色偶尔自然使用
     const catchphraseContext = buildCatchphrase(character.catchphrase);
@@ -559,12 +550,11 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       ? `\n\n[早前对话摘要（更早的内容已压缩，不必逐条回忆，若与当前话题相关可自然提及）]\n${sessionData.summary}`
       : '';
 
-    // 用户的时代/社会背景：让角色贴合用户所处的时代与生活语境（设置里可填）
-    const userBg = useSettingsStore.getState().userBackground;
-    const userBackgroundContext = buildUserBackgroundContext(userBg?.era, userBg?.social);
+    // 用户的时代/社会背景：角色从对话里主动适配用户所述的时代与生活语境
+    const userBackgroundContext = '';
 
     const enrichedPrompt =
-      character.systemPrompt + memoryContext + teachContext + recallContext + timeContext + relationshipContext + userEmotionContext + userBackgroundContext + dayContext + weatherContext + catchphraseContext + diaryMoodContext + diaryShareContext + summaryContext;
+      character.systemPrompt + memoryContext + teachContext + recallContext + timeContext + relationshipContext + userEmotionContext + userBackgroundContext + dayContext + catchphraseContext + diaryMoodContext + diaryShareContext + summaryContext;
 
     // 动态温度：按角色主动倾向微调——高冷/疏离用低温度（更克制稳定），活泼/话痨用高温度（更跳脱）
     const temperature = 0.6 + (character.proactivity ?? 0.5) * 0.3;

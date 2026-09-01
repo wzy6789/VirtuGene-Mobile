@@ -23,7 +23,10 @@ const FILTERS: { key: FilterTab; label: string }[] = [
   { key: 'mine', label: '我的' },
 ];
 
-function getBadge(char: Character, userId: string) {
+function getBadge(char: Character, userId: string, cloned: boolean) {
+  if (cloned) {
+    return { text: '已添加', className: 'bg-life-cyan/15 text-life-cyan' };
+  }
   if (char.isPreset || char.sourcePresetId) {
     return { text: '预设基因', className: 'bg-gene-purple/20 text-gene-purple' };
   }
@@ -65,6 +68,15 @@ export function GenePoolTab({ onSelect }: GenePoolTabProps) {
     (c) => c.isPreset || c.published || c.createdBy === userId,
   );
 
+  /** 我的克隆映射：sourcePresetId → 我的克隆 id（用于预设上标记"已添加"） */
+  const mineBySource = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of poolCharacters) {
+      if (c.createdBy === userId && c.sourcePresetId) map.set(c.sourcePresetId, c.id);
+    }
+    return map;
+  }, [poolCharacters, userId]);
+
   const preFiltered = (() => {
     switch (filter) {
       case 'preset':
@@ -83,12 +95,20 @@ export function GenePoolTab({ onSelect }: GenePoolTabProps) {
       ? preFiltered
       : preFiltered.filter((c) => c.tags.some((t) => categorizeTag(t) === catFilter));
 
-  const filtered = catFiltered.filter(
-    (c) =>
-      c.name.includes(query) ||
-      c.tags.some((t) => t.includes(query)) ||
-      c.systemPrompt.includes(query),
-  );
+  const filtered = catFiltered
+    .filter(
+      (c) =>
+        c.name.includes(query) ||
+        c.tags.some((t) => t.includes(query)) ||
+        c.systemPrompt.includes(query),
+    )
+    .filter((c) => {
+      // 防重复（修复"加了一个人在基因实验室出现两遍"）：
+      // 我的克隆（带 sourcePresetId）只在「我的」分类里展示；
+      // 全部/预设视图里由对应预设代表，预设上标记「已添加」。
+      if (c.createdBy === userId && c.sourcePresetId && filter !== 'mine') return false;
+      return true;
+    });
 
   const grouped = useMemo(() => {
     const sorted = [...filtered].sort((a, b) =>
@@ -244,7 +264,7 @@ export function GenePoolTab({ onSelect }: GenePoolTabProps) {
           {filtered.map((char) => {
             const isSelected = char.id === selectedCharacterId;
             const isShared = char.published && !char.isPreset && char.createdBy !== userId;
-            const badge = getBadge(char, userId);
+            const badge = getBadge(char, userId, char.isPreset && mineBySource.has(char.id));
             return (
               <button
                 key={char.id}
@@ -310,7 +330,7 @@ export function GenePoolTab({ onSelect }: GenePoolTabProps) {
                 </div>
                 {group.chars.map((char) => {
                   const isSelected = char.id === selectedCharacterId;
-                  const badge = getBadge(char, userId);
+                  const badge = getBadge(char, userId, char.isPreset && mineBySource.has(char.id));
                   return (
                     <button
                       key={char.id}

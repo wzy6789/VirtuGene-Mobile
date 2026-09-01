@@ -6,7 +6,6 @@ import { messageRepo } from '../db/message-repo';
 import { characterRepo } from '../db/character-repo';
 import { memoryRepo } from '../db/memory-repo';
 import { useAuthStore } from './auth-store';
-import { useSettingsStore } from './settings-store';
 import { useNotificationStore } from './notification-store';
 import { stateRepo } from '../db/state-repo';
 import { getRelationLevel } from '../lib/affinity';
@@ -207,7 +206,6 @@ async function generateProactiveTurn(
       content: m.content || (m.image ? '[图片]' : ''),
     }));
   const session = await sessionRepo.getById(sessionId);
-  const userBg = useSettingsStore.getState().userBackground;
   return generateGroupTurn({
     apiKey,
     groupName: group.name,
@@ -215,7 +213,6 @@ async function generateProactiveTurn(
     history,
     mode: 'proactive',
     summary: session?.summary,
-    userBackground: { era: userBg.era, social: userBg.social },
   });
 }
 
@@ -324,7 +321,6 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         }));
       const sessionData = await sessionRepo.getById(sessionId);
       const atMembers = parseAtNames(trimmed, members);
-      const userBg = useSettingsStore.getState().userBackground;
 
       const { turns, error } = await generateGroupTurn({
         apiKey,
@@ -337,7 +333,6 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         summary: sessionData?.summary,
         // 热闹模式：一轮最多 5 条（默认 3，省 token）
         maxTurns: group.lively ? 5 : 3,
-        userBackground: { era: userBg.era, social: userBg.social },
       });
 
       // 落库群回复序列

@@ -146,6 +146,8 @@ export function EmotionPanel() {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   /** 随机抽出的 3 片记忆碎片（可刷新） */
   const [shards, setShards] = useState<MemoryItem[]>([]);
+  /** 记忆碎片加载中（避免"过一瞬间才蹦出来"的突兀感） */
+  const [memoriesLoading, setMemoriesLoading] = useState(false);
   /** 等阶名编辑 */
   const [renamingTier, setRenamingTier] = useState(false);
   const [tierNameInput, setTierNameInput] = useState('');
@@ -189,12 +191,15 @@ export function EmotionPanel() {
   useEffect(() => {
     if (!isPanelOpen || !selectedCharacterId || !userId) return;
     let alive = true;
+    setMemoriesLoading(true);
     void memoryRepo.getByCharacter(selectedCharacterId, userId).then((list) => {
       if (alive) {
         const sorted = [...list].reverse();
         setMemories(sorted);
         setShards(pickShards(sorted));
       }
+    }).finally(() => {
+      if (alive) setMemoriesLoading(false);
     });
     return () => { alive = false; };
   }, [isPanelOpen, selectedCharacterId, userId]);
@@ -419,25 +424,36 @@ export function EmotionPanel() {
           )}
 
               {/* 记忆碎片 · 回忆（随机 3 片，可刷新） */}
-              {memories.length > 0 && (
+              {(memoriesLoading || memories.length > 0) && (
                 <div className="rounded-xl bg-surface border border-line p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-500">记忆碎片 · 回忆</span>
-                    <button
-                      onClick={() => setShards(pickShards(memories))}
-                      className="text-[10px] text-life-cyan hover:underline flex items-center gap-1"
-                    >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                        <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
+                    {!memoriesLoading && (
+                      <button
+                        onClick={() => setShards(pickShards(memories))}
+                        className="text-[10px] text-life-cyan hover:underline flex items-center gap-1"
+                      >
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                          <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
+                        </svg>
+                        随机回忆
+                      </button>
+                    )}
+                  </div>
+                  {memoriesLoading ? (
+                    <div className="flex items-center gap-2 text-xs text-gray-500 py-1.5">
+                      <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="20" />
                       </svg>
-                      随机回忆
-                    </button>
-                  </div>
-                  <div className="space-y-3">
-                    {shards.map((m, i) => (
-                      <GlassShard key={m.id} text={poeticize(m.content)} time={formatTime(m.createdAt)} variant={i} />
-                    ))}
-                  </div>
+                      正在拾起记忆碎片…
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {shards.map((m, i) => (
+                        <GlassShard key={m.id} text={poeticize(m.content)} time={formatTime(m.createdAt)} variant={i} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

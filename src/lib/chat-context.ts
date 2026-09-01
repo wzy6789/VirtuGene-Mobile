@@ -46,39 +46,12 @@ export function buildRelationshipContext(
   );
 }
 
-/** 用户时代/社会背景：让角色贴合用户所处的时代与生活语境（默认同一时代） */
-export function buildUserBackgroundContext(era?: string, social?: string): string {
-  if (!era && !social) return '';
-  return (
-    '\n\n[用户的时代与社会背景]\n' +
-    (era ? `时代：${era}。` : '') +
-    (social ? `生活背景：${social}。` : '') +
-    '默认你和用户生活在同一个时代、同一个社会语境里：说话用词、生活细节、物价与观念都要贴合这个背景；' +
-    '不要出现与用户时代不符的设定（除非你的角色设定明确是另一个时代）。'
-  );
-}
-
-/** 今天是什么日子：认识天数特殊节点 + 纪念日（今天/明天）——让角色像真人一样记得日子 */
-export function buildDayContext(daysKnown?: number, anniversaries?: { name: string; date: string }[]): string {
-  const parts: string[] = [];
-  if (daysKnown && daysKnown > 0) {
-    const special = daysKnown === 7 || daysKnown === 30 || daysKnown === 100 || daysKnown === 365 || daysKnown % 100 === 0;
-    if (special) {
-      parts.push(`今天是你们认识的第 ${daysKnown} 天（一个值得记住的日子）——可以像真人一样自然地向用户提起这个日子，但别生硬`);
-    }
-  }
-  if (anniversaries && anniversaries.length > 0) {
-    const now = new Date();
-    const mmdd = (d: Date) => `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const today = mmdd(now);
-    const tomorrow = mmdd(new Date(now.getTime() + 86400000));
-    for (const a of anniversaries) {
-      if (!a.name || !a.date) continue;
-      if (a.date === today) parts.push(`今天是你们的纪念日「${a.name}」——自然地表达你记得这个日子`);
-      else if (a.date === tomorrow) parts.push(`明天是你们的纪念日「${a.name}」——可以提前自然提起`);
-    }
-  }
-  return parts.length > 0 ? `\n\n[今天是什么日子]\n${parts.join('\n')}` : '';
+/** 今天是什么日子：认识天数特殊节点——让角色像真人一样记得日子 */
+export function buildDayContext(daysKnown?: number): string {
+  if (!daysKnown || daysKnown <= 0) return '';
+  const special = daysKnown === 7 || daysKnown === 30 || daysKnown === 100 || daysKnown === 365 || daysKnown % 100 === 0;
+  if (!special) return '';
+  return `\n\n[今天是什么日子]\n今天是你们认识的第 ${daysKnown} 天（一个值得记住的日子）——可以像真人一样自然地向用户提起这个日子，但别生硬`;
 }
 
 /** 主动回忆：给角色一段旧记忆，氛围合适时像真人一样自然提起（不是必须） */
@@ -91,12 +64,6 @@ export function buildMemoryRecall(memory?: string): string {
 export function buildCatchphrase(catchphrase?: string): string {
   if (!catchphrase) return '';
   return `\n\n[你的口头禅]\n你有个口头禅「${catchphrase}」：像真人一样偶尔自然地用一下（不要每句都带，别刻意）。`;
-}
-
-/** 当天天气：让角色知道外面的天气，可自然叮嘱（如降温提醒加衣） */
-export function buildWeatherContext(weather?: string): string {
-  if (!weather) return '';
-  return `\n\n[今天的天气]\n${weather}。可以自然地体现在聊天里（比如降温提醒加衣、雨天问有没有带伞），但不要生硬报天气。`;
 }
 
 /** 用户情绪注入：最近一次结算感知到的用户情绪，让角色在语气上呼应 */
