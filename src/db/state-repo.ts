@@ -4,7 +4,9 @@ import { RELATION_LEVELS, getRelationLevel } from '../lib/affinity';
 const DEFAULT_AFFINITY = 0;
 const DEFAULT_MOOD = 70;
 
-const clamp = (n: number) => Math.max(0, Math.min(100, n));
+/** 好感度无上限（只保底不为负）；心情仍限 0~100 */
+const clampAffinity = (n: number) => Math.max(0, n);
+const clampMood = (n: number) => Math.max(0, Math.min(100, n));
 
 /**
  * 已到达的最高境界（由里程碑记录推导）。
@@ -62,9 +64,9 @@ export const stateRepo = {
       };
       const next: CharacterState = {
         ...state,
-        // 好感度可降，但不会跌破已到达境界的门槛
-        affinity: clamp(Math.max(peakLevelFloor(state.milestones ?? []), state.affinity + dAffinity)),
-        mood: clamp(state.mood + dMood),
+        // 好感度可降，但不会跌破已到达境界的门槛；好感度无上限
+        affinity: clampAffinity(Math.max(peakLevelFloor(state.milestones ?? []), state.affinity + dAffinity)),
+        mood: clampMood(state.mood + dMood),
         updatedAt: Date.now(),
       };
       await db.characterStates.put(next);
@@ -94,8 +96,8 @@ export const stateRepo = {
         updatedAt: Date.now(),
       };
       const oldLevel = getRelationLevel(state.affinity);
-      // 好感度可降，但不会跌破已到达境界的门槛
-      const newAffinity = clamp(Math.max(peakLevelFloor(state.milestones ?? []), state.affinity + dAffinity));
+      // 好感度可降，但不会跌破已到达境界的门槛；好感度无上限
+      const newAffinity = clampAffinity(Math.max(peakLevelFloor(state.milestones ?? []), state.affinity + dAffinity));
       const newLevel = getRelationLevel(newAffinity);
 
       let milestones = state.milestones ?? [];
@@ -109,12 +111,32 @@ export const stateRepo = {
       const next: CharacterState = {
         ...state,
         affinity: newAffinity,
-        mood: clamp(state.mood + dMood),
+        mood: clampMood(state.mood + dMood),
         milestones,
         updatedAt: Date.now(),
       };
       await db.characterStates.put(next);
       return { state: next, upgraded };
+    });
+  },
+
+  /** 自定义等阶名（好感度 100+ 后用户可随便改名；key=默认等阶名 → 自定义名） */
+  async renameTier(
+    characterId: string,
+    userId: string,
+    defaultName: string,
+    customName: string,
+  ): Promise<CharacterState | undefined> {
+    return db.transaction('rw', db.characterStates, async () => {
+      const existing = await db.characterStates.get([characterId, userId]);
+      if (!existing) return undefined;
+      const tierNames = { ...(existing.tierNames ?? {}) };
+      const trimmed = customName.trim().slice(0, 8);
+      if (trimmed && trimmed !== defaultName) tierNames[defaultName] = trimmed;
+      else delete tierNames[defaultName];
+      const next: CharacterState = { ...existing, tierNames, updatedAt: Date.now() };
+      await db.characterStates.put(next);
+      return next;
     });
   },
 

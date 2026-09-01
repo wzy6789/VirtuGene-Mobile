@@ -48,9 +48,12 @@ export interface RelationMilestone {
 export interface CharacterState {
   characterId: string;
   userId: string;
+  /** 好感度（无上限，只保底不为负） */
   affinity: number;
   mood: number;
   milestones: RelationMilestone[];
+  /** 自定义等阶名（key=默认等阶名 → 用户自定义名；等阶名可随便改） */
+  tierNames?: Record<string, string>;
   updatedAt: number;
 }
 

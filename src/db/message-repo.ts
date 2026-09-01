@@ -41,6 +41,14 @@ export const messageRepo = {
       .last();
   },
 
+  /** 取会话第一条消息（相识天数等统计用） */
+  async getFirst(sessionId: string): Promise<Message | undefined> {
+    return db.messages
+      .where('[sessionId+createdAt]')
+      .between([sessionId, Dexie.minKey], [sessionId, Dexie.maxKey])
+      .first();
+  },
+
   async create(message: Message): Promise<string> {
     return db.messages.add(message);
   },

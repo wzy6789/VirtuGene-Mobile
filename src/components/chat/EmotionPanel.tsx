@@ -8,10 +8,13 @@ import { diaryRepo } from '../../db/diary-repo';
 import { moodEmoji as diaryMoodEmoji, moodColor as diaryMoodColor } from '../../lib/diary-utils';
 import { EmotionChart } from './EmotionChart';
 import { EmotionCurve } from './EmotionCurve';
+import { SoulHelix } from './SoulHelix';
 import { getRelationLevel, levelProgress } from '../../lib/affinity';
+import { messageRepo } from '../../db/message-repo';
+import { memoryRepo } from '../../db/memory-repo';
 import { useResizable } from '../../hooks/useResizable';
 import { IS_MOBILE } from '../../lib/platform';
-import type { EmotionDimensions } from '../../db/index';
+import type { EmotionDimensions, MemoryItem } from '../../db/index';
 
 const PANEL_DEFAULT = IS_MOBILE
   ? Math.min(360, typeof window !== 'undefined' ? window.innerWidth : 360)
@@ -89,7 +92,17 @@ export function EmotionPanel() {
   const affinity = useCharacterStateStore((s) => s.affinity);
   const mood = useCharacterStateStore((s) => s.mood);
   const milestones = useCharacterStateStore((s) => s.milestones);
+  const tierNames = useCharacterStateStore((s) => s.tierNames);
+  const renameTier = useCharacterStateStore((s) => s.renameTier);
   const userId = useAuthStore((s) => s.userId) ?? '';
+
+  /** 对话统计（真值来自 DB，避免只统计内存中已加载的分页消息） */
+  const [stats, setStats] = useState<{ count: number; days: number }>({ count: 0, days: 0 });
+  /** 记忆结晶（该角色的回忆录） */
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
+  /** 等阶名编辑 */
+  const [renamingTier, setRenamingTier] = useState(false);
+  const [tierNameInput, setTierNameInput] = useState('');
 
   /** 我的心情（来自日记，最近 7 天） */
   const [myMoods, setMyMoods] = useState<{ date: string; mood: number }[]>([]);
@@ -108,6 +121,34 @@ export function EmotionPanel() {
     return () => { alive = false; };
   }, [isPanelOpen, userId]);
 
+  // 对话统计真值：消息总数 / 相识天数（按第一条消息；不依赖内存分页）
+  useEffect(() => {
+    if (!isPanelOpen || !currentSessionId) return;
+    let alive = true;
+    void messageRepo.countBySession(currentSessionId).then((count) => {
+      if (alive) setStats((s) => ({ ...s, count }));
+    });
+    void messageRepo.getFirst(currentSessionId).then((first) => {
+      if (alive) {
+        setStats((s) => ({
+          ...s,
+          days: first ? Math.max(1, Math.floor((Date.now() - first.createdAt) / 86400000) + 1) : 0,
+        }));
+      }
+    });
+    return () => { alive = false; };
+  }, [isPanelOpen, currentSessionId]);
+
+  // 记忆结晶：该角色的回忆录（新→旧）
+  useEffect(() => {
+    if (!isPanelOpen || !selectedCharacterId || !userId) return;
+    let alive = true;
+    void memoryRepo.getByCharacter(selectedCharacterId, userId).then((list) => {
+      if (alive) setMemories([...list].reverse().slice(0, 30));
+    });
+    return () => { alive = false; };
+  }, [isPanelOpen, selectedCharacterId, userId]);
+
   const { width, startDrag } = useResizable({
     initial: PANEL_DEFAULT,
     min: PANEL_MIN,
@@ -119,9 +160,9 @@ export function EmotionPanel() {
 
   const relation = getRelationLevel(affinity);
   const progress = levelProgress(affinity, relation.level, relation.next);
-  const daysKnown = messages.length > 0
-    ? Math.max(1, Math.floor((Date.now() - messages[0].createdAt) / 86400000) + 1)
-    : 0;
+  // 等阶显示名：用户自定义 > 默认（100+ 等阶可随便改名）
+  const levelName = tierNames[relation.level.name] ?? relation.level.name;
+  const nextName = relation.next ? (tierNames[relation.next.name] ?? relation.next.name) : null;
 
   // Load snapshots when session changes
   useEffect(() => {
@@ -184,7 +225,44 @@ export function EmotionPanel() {
               <div className="min-w-0">
                 <SectionTitle>灵魂状态</SectionTitle>
                 <div className="flex items-baseline gap-2 mt-1">
-                  <span className="text-lg font-bold milestone-level">{relation.level.name}</span>
+                  {renamingTier ? (
+                    <div className="flex items-center gap-1">
+                      <input
+                        autoFocus
+                        value={tierNameInput}
+                        onChange={(e) => setTierNameInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                        }}
+                        onBlur={() => {
+                          void renameTier(relation.level.name, tierNameInput);
+                          setRenamingTier(false);
+                        }}
+                        placeholder={relation.level.name}
+                        maxLength={8}
+                        className="w-24 bg-surface border border-gene-purple/40 rounded px-1.5 py-0.5 text-sm text-ink outline-none"
+                      />
+                      <button onClick={() => setRenamingTier(false)} className="text-xs text-gray-400 hover:text-ink">
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-lg font-bold milestone-level">{levelName}</span>
+                      <button
+                        onClick={() => {
+                          setTierNameInput(tierNames[relation.level.name] ?? relation.level.name);
+                          setRenamingTier(true);
+                        }}
+                        title="改等阶名"
+                        className="shrink-0 w-4 h-4 flex items-center justify-center text-gray-400 hover:text-life-cyan"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
                   <span className="text-xs text-gray-500 truncate">{relation.level.desc}</span>
                 </div>
                 {currentSnapshot && (
@@ -198,7 +276,7 @@ export function EmotionPanel() {
               <div className="shrink-0 text-right">
                 <p className="text-xs text-gray-500">好感度</p>
                 <p className="text-lg font-semibold tabular-nums text-ink">
-                  {Math.round(affinity)}<span className="text-sm text-gray-400">/100</span>
+                  {Math.round(affinity)}
                 </p>
                 <div className="mt-1 flex items-center justify-end gap-1.5">
                   <span className="text-sm tabular-nums font-medium" style={{ color: moodColor(mood) }}>
@@ -213,7 +291,7 @@ export function EmotionPanel() {
             {relation.next ? (
               <div className="relative">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-gray-500">距离「{relation.next.name}」</span>
+                  <span className="text-xs text-gray-500">距离「{nextName}」</span>
                   <span className="text-xs tabular-nums text-gray-400">{Math.round(progress)}%</span>
                 </div>
                 <div className="h-1.5 rounded-full bg-surface overflow-hidden">
@@ -224,7 +302,9 @@ export function EmotionPanel() {
                 </div>
               </div>
             ) : (
-              <div className="relative text-[10px] text-gray-500">已达最高等级，灵魂同频</div>
+              <div className="relative text-[10px] text-gray-500">
+                已抵达最终等阶，灵魂同频（好感度仍在增长）
+              </div>
             )}
 
             {/* 里程碑时间线 */}
@@ -234,7 +314,7 @@ export function EmotionPanel() {
                 <div className="space-y-0.5">
                   {milestones.map((m) => (
                     <div key={m.reachedAt} className="flex items-center justify-between text-xs">
-                      <span className="text-gray-500">进阶为「{m.level}」</span>
+                      <span className="text-gray-500">进阶为「{tierNames[m.level] ?? m.level}」</span>
                       <span className="text-gray-400 tabular-nums">{formatTime(m.reachedAt)}</span>
                     </div>
                   ))}
@@ -242,14 +322,14 @@ export function EmotionPanel() {
               </div>
             )}
 
-            {/* 对话统计 */}
+            {/* 对话统计（真值来自 DB，长会话分页不再虚低） */}
             <div className="relative grid grid-cols-3 gap-1 pt-2 border-t border-line">
               <div className="text-center">
-                <div className="text-sm font-semibold tabular-nums text-ink">{messages.length}</div>
+                <div className="text-sm font-semibold tabular-nums text-ink">{stats.count}</div>
                 <div className="text-xs text-gray-500">消息</div>
               </div>
               <div className="text-center">
-                <div className="text-sm font-semibold tabular-nums text-ink">{daysKnown}</div>
+                <div className="text-sm font-semibold tabular-nums text-ink">{stats.days}</div>
                 <div className="text-xs text-gray-500">相识天数</div>
               </div>
               <div className="text-center">
@@ -284,6 +364,24 @@ export function EmotionPanel() {
               <div className="flex justify-between mt-1 text-[9px] text-gray-400">
                 <span>较早</span>
                 <span>最近</span>
+              </div>
+            </div>
+          )}
+
+          {/* 记忆结晶 · 回忆录（该角色记住的关于你的事） */}
+          {memories.length > 0 && (
+            <div className="rounded-xl bg-surface border border-line p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">记忆结晶 · 回忆录</span>
+                <span className="text-[10px] text-gray-400">共 {memories.length} 颗</span>
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                {memories.map((m) => (
+                  <div key={m.id} className="rounded-lg bg-panel/60 border border-line px-3 py-2">
+                    <p className="text-xs text-ink leading-relaxed">{m.content}</p>
+                    <p className="text-[10px] text-gray-500 mt-1 tabular-nums">{formatTime(m.createdAt)}</p>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -334,6 +432,12 @@ export function EmotionPanel() {
                   对话数据较少，分析可能不够准确
                 </div>
               )}
+
+              {/* 灵魂图谱：情绪基因双螺旋（6 维情绪 → 基因序列） */}
+              <SectionTitle>灵魂图谱 · 基因序列</SectionTitle>
+              <div className="rounded-xl bg-panel/40 border border-gene-purple/20 py-2">
+                <SoulHelix dimensions={currentSnapshot.dimensions} />
+              </div>
 
               {/* Radar chart */}
               <div className="flex justify-center">

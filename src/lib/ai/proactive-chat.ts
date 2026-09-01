@@ -22,6 +22,8 @@ export interface ProactiveMessageParams {
   mood?: number;
   /** 最后一条消息的时间戳，用于感知「多久没联系了」 */
   lastMessageAt?: number;
+  /** 问候类型：早安/晚安（缺省为普通主动消息） */
+  kind?: 'morning' | 'night';
 }
 
 function buildTimeContext(lastMessageAt?: number): string {
@@ -49,9 +51,17 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
 
   // Single system message to avoid API compatibility issues
   let systemContent = systemPrompt + '\n\n' + PROACTIVE_INSTRUCTION;
+  // 每日问候：早安/晚安额外加场景引导（每日灵魂互动）
+  if (params.kind === 'morning') {
+    systemContent +=
+      '\n\n[现在是早晨] 角色正在给用户发早安问候。像真人朋友一样自然地问早：可以问昨晚睡得如何、今天打算做什么、随口提一件小事；简短温暖，不要模板化的"早安！"开场，不要提"问候/推送"等机制词。';
+  } else if (params.kind === 'night') {
+    systemContent +=
+      '\n\n[现在是夜晚] 角色正在向用户道晚安。像真人朋友一样自然地告别这一天：可以关心今天过得怎么样、叮嘱早点休息、说一句心里话；简短温暖，不要模板化的"晚安！"结尾，不要提"问候/推送"等机制词。';
+  }
   if (affinity != null && mood != null) {
     systemContent +=
-      `\n\n[当前关系状态]\n用户与你的好感度：${Math.round(affinity)}/100，你此刻的心情：${Math.round(mood)}/100。` +
+      `\n\n[当前关系状态]\n用户与你的好感度：${Math.round(affinity)}，你此刻的心情：${Math.round(mood)}/100。` +
       '让这两个数值自然影响你这条消息的语气：好感度越低越疏离、甚至懒得主动找，心情越差越低落或烦躁；反之越亲近越轻快。不要直接说出这些数字。';
   }
   if (contextLines.length > 0) {
@@ -60,9 +70,16 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
   // 时间感知：让角色知道现在几点、多久没联系了
   systemContent += '\n\n' + buildTimeContext(lastMessageAt);
 
+  const userPrompt =
+    params.kind === 'morning'
+      ? `（现在是早晨，请以${characterName}的身份发一条早安问候）`
+      : params.kind === 'night'
+        ? `（现在是夜晚，请以${characterName}的身份发一条晚安问候）`
+        : `（用户已有一段时间未读消息）请以${characterName}的身份，主动发一条消息过来。`;
+
   const messages = [
     { role: 'system', content: systemContent },
-    { role: 'user', content: `（用户已有一段时间未读消息）请以${characterName}的身份，主动发一条消息过来。` },
+    { role: 'user', content: userPrompt },
   ];
 
   const controller = new AbortController();

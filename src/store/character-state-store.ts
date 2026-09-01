@@ -8,6 +8,8 @@ interface CharacterStateState {
   affinity: number;
   mood: number;
   milestones: RelationMilestone[];
+  /** 自定义等阶名（key=默认等阶名 → 自定义名） */
+  tierNames: Record<string, string>;
   /** 每个角色的好感度（供侧边栏关系等级标签读取） */
   affinityByCharacter: Record<string, number>;
   /** 跨档升级时触发的里程碑 toast 数据 */
@@ -16,6 +18,8 @@ interface CharacterStateState {
   loadAll: () => Promise<void>;
   /** 调整好感度/心情；若目标角色正是当前展示的角色，则同步更新 store */
   bump: (characterId: string, dAffinity: number, dMood: number) => Promise<void>;
+  /** 自定义当前等阶名 */
+  renameTier: (defaultName: string, customName: string) => Promise<void>;
   clearMilestone: () => void;
   clear: () => void;
 }
@@ -25,13 +29,14 @@ export const useCharacterStateStore = create<CharacterStateState>((set, get) => 
   affinity: 0,
   mood: 70,
   milestones: [],
+  tierNames: {},
   affinityByCharacter: {},
   milestone: null,
 
   load: async (characterId) => {
     const userId = useAuthStore.getState().userId ?? '';
     const state = await stateRepo.getOrCreate(characterId, userId);
-    set({ characterId, affinity: state.affinity, mood: state.mood, milestones: state.milestones ?? [] });
+    set({ characterId, affinity: state.affinity, mood: state.mood, milestones: state.milestones ?? [], tierNames: state.tierNames ?? {} });
   },
 
   loadAll: async () => {
@@ -51,7 +56,17 @@ export const useCharacterStateStore = create<CharacterStateState>((set, get) => 
     set((s) => ({ affinityByCharacter: { ...s.affinityByCharacter, [characterId]: state.affinity } }));
   },
 
+  renameTier: async (defaultName, customName) => {
+    const charId = get().characterId;
+    if (!charId) return;
+    const userId = useAuthStore.getState().userId ?? '';
+    const state = await stateRepo.renameTier(charId, userId, defaultName, customName);
+    if (state) {
+      set({ tierNames: state.tierNames ?? {} });
+    }
+  },
+
   clearMilestone: () => set({ milestone: null }),
 
-  clear: () => set({ characterId: null, affinity: 0, mood: 70, milestones: [], affinityByCharacter: {}, milestone: null }),
+  clear: () => set({ characterId: null, affinity: 0, mood: 70, milestones: [], tierNames: {}, affinityByCharacter: {}, milestone: null }),
 }));

@@ -8,6 +8,9 @@ import { stateRepo } from '../db/state-repo';
 import { useAuthStore } from './auth-store';
 import { useCharacterStateStore } from './character-state-store';
 import { deriveProactivity, GREETING_PROACTIVITY_THRESHOLD } from '../lib/personality';
+import { generateProactiveMessage } from '../lib/ai/proactive-chat';
+import { notifyLocal } from '../lib/notify';
+import { IS_MOBILE } from '../lib/platform';
 import { ipc } from '../lib/ipc-client';
 import { useNotificationStore } from './notification-store';
 import { useDiaryStore } from './diary-store';
@@ -66,6 +69,8 @@ interface ChatState {
   addMessage: (msg: Message) => void;
   updateMessage: (id: string, patch: Partial<Message>) => void;
   addProactiveMessage: (characterId: string, content: string) => Promise<void>;
+  /** 每日灵魂互动：早安（08 点）/ 晚安（22 点），选好感度最高的角色发一条问候（每天每类一次） */
+  dailyGreeting: () => Promise<void>;
   refreshPreviews: () => Promise<void>;
   fetchUnreadCounts: () => Promise<void>;
   createCharacter: (data: Omit<Character, 'id' | 'createdAt' | 'proactivity'> & { proactivity?: number }) => Promise<Character>;
@@ -332,6 +337,57 @@ export const useChatStore = create<ChatState>((set, get) => ({
           preview: content,
         });
       }
+    }
+  },
+
+  /** 每日灵魂互动：早安（08 点）/ 晚安（22 点），选好感度最高的角色发一条问候（每天每类一次，省 token） */
+  dailyGreeting: async () => {
+    const { characters } = get();
+    const apiKey = useAuthStore.getState().apiKey;
+    const userId = useAuthStore.getState().userId ?? '';
+    if (!apiKey || characters.length === 0) return;
+
+    const now = new Date();
+    const hour = now.getHours();
+    const kind = hour === 8 ? 'morning' : hour === 22 ? 'night' : null;
+    if (!kind) return;
+    const dateKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const gKey = `virtugene-greeting-${kind}-${dateKey}`;
+    if (localStorage.getItem(gKey)) return;
+    localStorage.setItem(gKey, '1'); // 先占位：失败当天也不再重试（省 token）
+
+    try {
+      // 目标角色：好感度 ≥10 里最高的（有真实关系才问候）
+      const states = await stateRepo.getAllByUser(userId);
+      const affMap = new Map(states.map((s) => [s.characterId, s.affinity]));
+      const candidates = characters
+        .filter((c) => (affMap.get(c.id) ?? 0) >= 10)
+        .sort((a, b) => (affMap.get(b.id) ?? 0) - (affMap.get(a.id) ?? 0));
+      if (candidates.length === 0) return;
+
+      const target = candidates[0];
+      const session = await getOrCreateSession(target.id, userId);
+      const msgs = await messageRepo.getBySession(session.id);
+      const lastMessages = msgs.slice(-10).map((m) => ({ role: m.role, content: m.content }));
+      const state = await stateRepo.getOrCreate(target.id, userId);
+      const lastMessageAt = msgs.length > 0 ? msgs[msgs.length - 1].createdAt : undefined;
+
+      const content = await generateProactiveMessage({
+        apiKey,
+        systemPrompt: target.systemPrompt,
+        characterName: target.name,
+        lastMessages,
+        affinity: state.affinity,
+        mood: state.mood,
+        lastMessageAt,
+        kind,
+      });
+      if (content) {
+        await get().addProactiveMessage(target.id, content);
+        if (IS_MOBILE) void notifyLocal(`💬 ${target.name}`, content.slice(0, 40));
+      }
+    } catch (err) {
+      console.warn('[greeting] 每日问候失败:', err);
     }
   },
 

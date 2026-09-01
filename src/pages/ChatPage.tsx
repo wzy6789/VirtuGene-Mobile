@@ -12,6 +12,7 @@ function useProactiveTimer() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const triggerProactive = useChatStore((s) => s.triggerProactive);
+  const dailyGreeting = useChatStore((s) => s.dailyGreeting);
   const fetchUnreadCounts = useChatStore((s) => s.fetchUnreadCounts);
 
   useEffect(() => {
@@ -25,6 +26,8 @@ function useProactiveTimer() {
       const delay = 120000 + Math.random() * 180000;
       timerRef.current = setTimeout(async () => {
         await triggerProactive();
+        // 每日灵魂互动：顺带检查是否到早安/晚安时刻（内部有当天一次的保护，多数时候是空转）
+        await dailyGreeting();
         schedule();
       }, delay);
     };
@@ -33,6 +36,7 @@ function useProactiveTimer() {
     const firstDelay = 15000 + Math.random() * 30000;
     timerRef.current = setTimeout(async () => {
       await triggerProactive();
+      await dailyGreeting();
       schedule();
     }, firstDelay);
 
