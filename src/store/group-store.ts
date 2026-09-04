@@ -21,6 +21,10 @@ const PROACTIVE_AFTER_MS = 5 * 60_000;
 const PROACTIVE_COOLDOWN_MS = 15 * 60_000;
 /** 后台主动发言冷却（离开群聊页时更长：省 token） */
 const PROACTIVE_BG_COOLDOWN_MS = 30 * 60_000;
+/** 群聊自运转冷却（成员间私下闲聊，4 小时一次足够，省 token） */
+const BANTER_COOLDOWN_MS = 4 * 60 * 60_000;
+/** 每天最多自运转次数（localStorage 按日期计数） */
+const BANTER_DAILY_MAX = 3;
 /** 长会话滚动摘要窗口：超过该条数的早期消息压缩成摘要 */
 const SUMMARY_WINDOW = 60;
 /** 摘要增量重建阈值：新增未覆盖消息数达到该值才重新生成 */
@@ -38,6 +42,8 @@ interface GroupState {
   groupPreviews: Record<string, { content: string; createdAt: number; unread: number }>;
   /** 上次主动发言时间戳（冷却判定） */
   lastProactiveAt: number;
+  /** 上次群聊自运转时间戳 */
+  lastBanterAt: number;
 
   loadGroups: () => Promise<void>;
   createGroup: (name: string, characterIds: string[]) => Promise<Group | null>;
@@ -47,6 +53,8 @@ interface GroupState {
   proactiveGroupTurn: () => Promise<void>;
   /** 后台主动发言：离开群聊页后由 App 定时器触发（挑最久没动静的群，30 分钟冷却，省 token） */
   proactiveBackground: () => Promise<void>;
+  /** 群聊自运转：用户不在时，成员之间私下闲聊几句（限频，可回看） */
+  backgroundGroupBanter: () => Promise<void>;
   deleteGroupMessage: (messageId: string) => Promise<void>;
   /** 长按"记住"：把群消息存进所有成员的记忆 */
   rememberGroupMessage: (messageId: string) => Promise<void>;
@@ -185,12 +193,13 @@ async function maybeExtractGroupMemories(sessionId: string, memberIds: string[],
   }
 }
 
-/** 生成一轮"成员主动开口"的群聊回合（页内 + 后台共用，省 token：1~2 条短句） */
+/** 生成一轮"成员主动开口/私下闲聊"的群聊回合（页内 + 后台共用，省 token） */
 async function generateProactiveTurn(
   group: Group,
   sessionId: string,
   apiKey: string,
   userId: string,
+  mode: 'proactive' | 'banter' = 'proactive',
 ): Promise<{ turns: GroupTurn[]; error?: string }> {
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
     (c): c is NonNullable<typeof c> => !!c,
@@ -211,8 +220,10 @@ async function generateProactiveTurn(
     groupName: group.name,
     members: briefs,
     history,
-    mode: 'proactive',
+    mode,
     summary: session?.summary,
+    // banter（成员间闲聊）更省：最多 2 条
+    maxTurns: mode === 'banter' ? 2 : undefined,
   });
 }
 
@@ -226,6 +237,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
   groupError: null,
   groupPreviews: {},
   lastProactiveAt: 0,
+  lastBanterAt: 0,
 
   loadGroups: async () => {
     const userId = useAuthStore.getState().userId ?? '';
@@ -482,6 +494,70 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       }
     } catch (err) {
       console.warn('[group-chat] 后台主动发言异常:', err);
+    }
+  },
+
+  backgroundGroupBanter: async () => {
+    const { groups, groupSending, lastBanterAt, currentGroupId } = get();
+    const apiKey = useAuthStore.getState().apiKey;
+    const userId = useAuthStore.getState().userId ?? '';
+    if (!apiKey || groupSending || groups.length === 0) return;
+    const now = Date.now();
+    // 群聊自运转限频：4 小时冷却 + 每天最多 BANTER_DAILY_MAX 次（省 token）
+    if (now - lastBanterAt < BANTER_COOLDOWN_MS) return;
+    const dateKey = new Date().toISOString().slice(0, 10);
+    const countKey = `virtugene-banter-count-${dateKey}`;
+    const todayCount = Number(localStorage.getItem(countKey) ?? '0');
+    if (todayCount >= BANTER_DAILY_MAX) return;
+    try {
+      // 挑候选群：跳过正在看的群；群里 ≥1 条消息且安静超过 40 分钟
+      let best: { group: Group; sessionId: string } | null = null;
+      for (const g of groups) {
+        if (g.id === currentGroupId) continue;
+        const sessions = await db.sessions.where('groupId').equals(g.id).toArray();
+        const session = sessions[0];
+        if (!session) continue;
+        const last = await messageRepo.getLast(session.id);
+        if (!last || Date.now() - last.createdAt < 40 * 60_000) continue;
+        if (!best) best = { group: g, sessionId: session.id };
+      }
+      if (!best) return;
+
+      const { turns, error } = await generateProactiveTurn(best.group, best.sessionId, apiKey, userId, 'banter');
+      if (turns.length === 0) {
+        console.warn('[group-chat] 群聊自运转失败:', error);
+        return;
+      }
+      const now2 = Date.now();
+      const msgs: Message[] = turns.map((t, i) => ({
+        id: crypto.randomUUID(),
+        sessionId: best.sessionId,
+        role: 'assistant',
+        content: t.content,
+        senderId: t.senderId,
+        createdAt: now2 + i,
+        isProactive: true,
+      }));
+      for (const msg of msgs) {
+        await messageRepo.create(msg);
+      }
+      await sessionRepo.touch(best.sessionId);
+      await sessionRepo.incrementUnread(best.sessionId);
+      localStorage.setItem(countKey, String(todayCount + 1));
+      set({ lastBanterAt: Date.now() });
+      await get().loadGroups();
+      const preview = turns[0].content.slice(0, 40);
+      useNotificationStore.getState().push({
+        characterId: '',
+        characterName: best.group.name,
+        avatar: '👥',
+        preview: `（成员闲聊）${preview}`,
+      });
+      if (IS_MOBILE) {
+        void notifyLocal(`💬 ${best.group.name}`, `成员们聊了几句：${preview}`);
+      }
+    } catch (err) {
+      console.warn('[group-chat] 群聊自运转异常:', err);
     }
   },
 

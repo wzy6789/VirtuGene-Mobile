@@ -8,6 +8,7 @@ import { diaryRepo } from '../../db/diary-repo';
 import { moodEmoji as diaryMoodEmoji, moodColor as diaryMoodColor } from '../../lib/diary-utils';
 import { EmotionChart } from './EmotionChart';
 import { EmotionCurve } from './EmotionCurve';
+import { StoryTimeline } from './StoryTimeline';
 import { getRelationLevel, levelProgress } from '../../lib/affinity';
 import { messageRepo } from '../../db/message-repo';
 import { memoryRepo } from '../../db/memory-repo';
@@ -148,6 +149,8 @@ export function EmotionPanel() {
   const [shards, setShards] = useState<MemoryItem[]>([]);
   /** 记忆碎片加载中（避免"过一瞬间才蹦出来"的突兀感） */
   const [memoriesLoading, setMemoriesLoading] = useState(false);
+  /** 共同时间线（我们的故事） */
+  const [timelineOpen, setTimelineOpen] = useState(false);
   /** 等阶名编辑 */
   const [renamingTier, setRenamingTier] = useState(false);
   const [tierNameInput, setTierNameInput] = useState('');
@@ -392,6 +395,14 @@ export function EmotionPanel() {
                 <div className="text-xs text-gray-500">情绪图谱</div>
               </div>
             </div>
+
+            {/* 共同时间线入口 */}
+            <button
+              onClick={() => setTimelineOpen(true)}
+              className="relative w-full mt-2 flex items-center justify-center gap-1.5 text-[11px] text-gene-purple hover:bg-gene-purple/10 rounded-lg py-1.5 transition-colors"
+            >
+              📖 查看我们的故事 · 共同时间线
+            </button>
           </div>
 
           {/* 我的心情（日记联动） */}
@@ -580,6 +591,13 @@ export function EmotionPanel() {
           )}
         </div>
       </div>
+      {/* 共同时间线 · 我们的故事 */}
+      <StoryTimeline
+        open={timelineOpen}
+        onClose={() => setTimelineOpen(false)}
+        characterId={selectedCharacterId}
+        characterName={character?.name ?? ''}
+      />
     </div>
   );
 }

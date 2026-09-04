@@ -124,12 +124,14 @@ export default function App() {
     return () => clearInterval(timer);
   }, [isLoggedIn]);
 
-  // 群聊后台主动发言：离开群聊页后，成员偶尔主动开口并推送通知
-  // （30 分钟冷却、每次最多一个群、1~2 条短句——省 token）
+  // 群聊后台主动发言 + 群聊自运转（成员间私下闲聊）：离开群聊页后角色们也有"生活"
+  // （主动发言 30 分钟冷却；自运转 4 小时冷却 + 每天最多 3 次——省 token）
   useEffect(() => {
     if (!isLoggedIn) return;
     const check = () => {
-      void useGroupStore.getState().proactiveBackground();
+      const g = useGroupStore.getState();
+      void g.proactiveBackground();
+      void g.backgroundGroupBanter();
     };
     const timer = setInterval(check, 10 * 60_000);
     // 回到前台立即检查一次

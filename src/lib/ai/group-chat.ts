@@ -59,8 +59,8 @@ export interface GroupTurnParams {
   image?: string;
   /** 群聊背景摘要（较早对话的压缩文本） */
   summary?: string;
-  /** 回合模式：user=用户发消息；proactive=成员主动开口（用户没说话） */
-  mode?: 'user' | 'proactive';
+  /** 回合模式：user=用户发消息；proactive=成员主动开口；banter=成员间私下闲聊（用户不在） */
+  mode?: 'user' | 'proactive' | 'banter';
   /** 本轮最多输出条数（默认 3；热闹模式传 5，提示词同步强调短句控量省 token） */
   maxTurns?: number;
 }
@@ -116,20 +116,22 @@ async function attemptTurn(
       else history.push({ role: h.role, content: h.content });
     }
 
-    // 最后一条 user 消息内容：proactive（成员主动开口）/ 用户发消息 + @ 指定
+    // 最后一条 user 消息内容：proactive（成员主动开口）/ banter（成员间私下闲聊）/ 用户发消息 + @ 指定
     const maxTurns = params.maxTurns ?? 3;
     const userBlock =
       params.mode === 'proactive'
         ? '（群里安静了好一会儿，没人说话。请决定哪个性格合适的成员主动开口打破沉默，或者成员之间自然地聊起来，不用等用户发消息；1~2 条即可，别刷屏）'
-        : `（用户发来消息）${params.userMessage ?? ''}${
-            params.atMembers?.length
-              ? `\n用户 @ 了：${params.atMembers.join('、')} —— **被 @ 的成员必须回应**（speaker 优先选被 @ 的人，可以多个都回应）`
-              : ''
-          }\n请决定群里谁回应、说什么。${
-            maxTurns > 3
-              ? '\n（热闹模式：这次可以更热闹，输出最多 5 条，成员之间多接几句；但每条保持短句，别长篇大论）'
-              : ''
-          }`;
+        : params.mode === 'banter'
+          ? '（用户不在，群里某两个成员正自然地闲聊起来。请像真人群聊里两个熟人的私下对话：可以聊群里的事、悄悄议论用户最近的状态（善意地）、或纯成员间的趣事与拌嘴；语气比平时更随意、更有烟火气；1~2 条即可，别刷屏）'
+          : `（用户发来消息）${params.userMessage ?? ''}${
+              params.atMembers?.length
+                ? `\n用户 @ 了：${params.atMembers.join('、')} —— **被 @ 的成员必须回应**（speaker 优先选被 @ 的人，可以多个都回应）`
+                : ''
+            }\n请决定群里谁回应、说什么。${
+              maxTurns > 3
+                ? '\n（热闹模式：这次可以更热闹，输出最多 5 条，成员之间多接几句；但每条保持短句，别长篇大论）'
+                : ''
+            }`;
     // 图片：视觉模型 → 图片块；非视觉模型（兜底）→ "[图片]" 占位
     const lastContent: unknown =
       params.image && model.vision === true

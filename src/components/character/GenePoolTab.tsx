@@ -6,6 +6,7 @@ import { categorizeTag, CATEGORY_LABELS, CATEGORY_ORDER, type TagCategory } from
 import { getInitial, getSortKey, INDEX_LETTERS } from '../../lib/pinyin';
 import { IS_MOBILE } from '../../lib/platform';
 import { CharacterProfileModal } from './CharacterProfileModal';
+import { FusionModal } from './FusionModal';
 import type { Character } from '../../db/index';
 
 interface GenePoolTabProps {
@@ -43,6 +44,7 @@ export function GenePoolTab({ onSelect }: GenePoolTabProps) {
   const [view, setView] = useState<ViewMode>('az');
   const [poolCharacters, setPoolCharacters] = useState<Character[]>([]);
   const [profileChar, setProfileChar] = useState<Character | null>(null);
+  const [showFusion, setShowFusion] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const selectedCharacterId = useChatStore((s) => s.selectedCharacterId);
@@ -219,6 +221,14 @@ export function GenePoolTab({ onSelect }: GenePoolTabProps) {
         )}
       </div>
 
+      {/* 基因融合入口 */}
+      <button
+        onClick={() => setShowFusion(true)}
+        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gene-purple/30 bg-gene-purple/8 text-gene-purple text-xs font-medium hover:bg-gene-purple/15 transition-colors"
+      >
+        🧬 基因融合 · 杂交出新的数字灵魂
+      </button>
+
       {/* Source filter tabs */}
       <div className="flex gap-1.5">
         {FILTERS.map((f) => (
@@ -390,6 +400,8 @@ export function GenePoolTab({ onSelect }: GenePoolTabProps) {
           onChat={handleChat}
         />
       )}
+
+      {showFusion && <FusionModal onClose={() => setShowFusion(false)} />}
     </div>
   );
 }
