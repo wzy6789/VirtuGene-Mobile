@@ -24,6 +24,8 @@ export interface ProactiveMessageParams {
   lastMessageAt?: number;
   /** 问候类型：早安/晚安（缺省为普通主动消息） */
   kind?: 'morning' | 'night';
+  /** 待跟进事项：从记忆里捞到的"TA 最近说过的事/目标"——可以自然地关心进展 */
+  followUp?: string;
 }
 
 function buildTimeContext(lastMessageAt?: number): string {
@@ -66,6 +68,12 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
   }
   if (contextLines.length > 0) {
     systemContent += '\n\n最近的对话记录：\n' + contextLines.join('\n');
+  }
+  // 待跟进事项：角色记得用户最近说过的事，可自然关心进展（别生硬，别每次重复问同一件）
+  if (params.followUp) {
+    systemContent +=
+      `\n\n[你可以关心的事]\n你记得 TA 说过：${params.followUp.slice(0, 120)}。` +
+      '若这次合适，可以自然地关心一下进展（一句即可）；如果上次你已经问过同样的事，就别重复追问。';
   }
   // 时间感知：让角色知道现在几点、多久没联系了
   systemContent += '\n\n' + buildTimeContext(lastMessageAt);

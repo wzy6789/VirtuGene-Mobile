@@ -43,6 +43,21 @@ async function assignVoiceIfNeeded(characterId: string, userId: string): Promise
   }
 }
 
+/** 待跟进事项：从记忆里挑一条含"近况/目标"语义的（供角色主动关心进展） */
+const FOLLOW_UP_RE =
+  /(面试|考试|体检|出差|下周|明天|后天|最近|目标|减肥|健身|学习|工作|搬家|报告|论文|答辩|开业|手术|比赛|旅行|开学|答辩)/;
+async function pickFollowUp(characterId: string, userId: string): Promise<string | undefined> {
+  try {
+    const mems = await memoryRepo.getByCharacter(characterId, userId);
+    const hits = mems
+      .filter((m) => FOLLOW_UP_RE.test(m.content))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    return hits[0]?.content;
+  } catch {
+    return undefined;
+  }
+}
+
 interface CharPreview {
   content: string;
   createdAt: number;
@@ -383,6 +398,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         mood: state.mood,
         lastMessageAt,
         kind,
+        // 周期性关心：挑一条"TA 最近说过的事"让角色自然过问进展（若记忆里有）
+        followUp: await pickFollowUp(target.id, userId),
       });
       if (content) {
         await get().addProactiveMessage(target.id, content);
@@ -476,6 +493,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         affinity: state.affinity,
         mood: state.mood,
         lastMessageAt,
+        followUp: await pickFollowUp(targetChar.id, userId),
       });
 
       if (result.content) {

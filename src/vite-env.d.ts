@@ -81,6 +81,8 @@ interface VirtuGeneAPI {
       affinity?: number;
       mood?: number;
       lastMessageAt?: number;
+      kind?: 'morning' | 'night';
+      followUp?: string;
     }) => Promise<{ content?: string; error?: string }>;
   };
   memory: {

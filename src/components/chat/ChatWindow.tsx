@@ -466,6 +466,29 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       }
     }
 
+    // 分享记忆：用户发图（日常分享）→ 让角色记住这个时刻（有配文则一并记住）
+    if (userMsg.image) {
+      try {
+        const shareText = text.trim();
+        const recent = await memoryRepo.getRecentByCharacter(character.id, userId, 5);
+        const dupKey = shareText ? `分享：${shareText}` : '分享照片';
+        if (!recent.some((m) => m.content.includes(dupKey))) {
+          await memoryRepo.create({
+            id: crypto.randomUUID(),
+            characterId: character.id,
+            userId,
+            content: shareText
+              ? `用户分享了一张照片：${shareText.slice(0, 100)}`
+              : '用户分享了一张照片（未配文）',
+            type: 'auto',
+            createdAt: Date.now(),
+          });
+        }
+      } catch {
+        /* 保存失败不影响发送 */
+      }
+    }
+
     // 主动回忆：约 1/4 概率随机翻一段旧记忆，氛围合适时自然提起（让记忆"活"起来）
     let recallContext = '';
     if (memories.length > 0 && Math.random() < 0.25) {
