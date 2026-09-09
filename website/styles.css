@@ -16,6 +16,10 @@
 /* Chinese reading rhythm: increase glyph spacing only for prose and controls. */
 .hero-lead,.hero-detail,.vision-copy>p,.product-heading>p,.boundary-copy>p,.feature-copy>p,.feature-copy li,.continuity p,.release-card p,.document p,.document li,.site-footer p,.button,.download-link{letter-spacing:.075em}
 /* 让首屏的中文标题与随后的介绍文字有更舒展的阅读节奏。 */
-.hero h1,.hero h1 em{letter-spacing:.045em}
-.hero-lead,.hero-detail{letter-spacing:.105em}
-@media(max-width:680px){.download-row{grid-template-columns:1fr}.hero h1,.hero h1 em{letter-spacing:.035em}.hero-lead,.hero-detail,.vision-copy>p,.product-heading>p,.boundary-copy>p,.feature-copy>p,.document p,.document li{letter-spacing:.06em}}
+.hero-title{font-size:clamp(60px,6.3vw,94px)!important;letter-spacing:0!important}
+.hero-title .title-line{display:flex;align-items:baseline;gap:clamp(10px,1.2vw,18px);width:max-content;white-space:nowrap}
+.hero-title .title-line+ .title-line{margin-top:.08em}
+.hero-title em.title-line{padding-right:0!important;font-style:italic}
+.hero-title .title-line>span{display:inline-block;letter-spacing:0}
+.hero-lead,.hero-detail{letter-spacing:.12em}
+@media(max-width:680px){.download-row{grid-template-columns:1fr}.hero-title{font-size:clamp(48px,14vw,56px)!important}.hero-title .title-line{gap:8px}.hero-lead,.hero-detail,.vision-copy>p,.product-heading>p,.boundary-copy>p,.feature-copy>p,.document p,.document li{letter-spacing:.06em}}
