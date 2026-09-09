@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080611">
+  <meta name="description" content="VirtuGene 是一个会记得、会变化，也允许你看见成长过程的数字角色系统。">
+  <title>VirtuGene — 让数字灵魂拥有时间</title>
+  <script>document.documentElement.classList.add('js')</script>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <canvas id="gene-field" aria-hidden="true"></canvas>
+  <div class="pointer-light" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="VirtuGene 首页">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><path d="M11 7c12 6 6 20 18 26M29 7c-12 6-6 20-18 26M13 11h14M11 20h18M13 29h14"/></svg>
+      <span>VirtuGene</span>
+    </a>
+    <nav aria-label="主导航">
+      <a href="#vision">理念</a>
+      <a href="#product">产品</a>
+      <a href="#privacy">边界</a>
+    </nav>
+    <a class="nav-status" href="#release"><i></i><span>Android · 产品准备中</span></a>
+  </header>
+
+  <main id="top">
+    <section class="hero shell">
+      <div class="hero-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="hero-copy reveal">
+        <p class="eyebrow"><span>VIRTUGENE</span> / DIGITAL SOUL SYSTEM</p>
+        <h1>让数字灵魂<br><em>拥有时间。</em></h1>
+        <p class="hero-lead">一个会记得、会变化，也允许你看见成长过程的数字角色系统。</p>
+        <p class="hero-detail">对话不再在关闭页面后消失。记忆、情绪与共同经历，会继续进入下一次相遇。</p>
+        <div class="hero-actions">
+          <a class="button primary" href="#product">进入产品世界 <span>↘</span></a>
+          <a class="button ghost" href="#vision">理解 VirtuGene</a>
+        </div>
+        <div class="hero-meta" aria-label="产品信息">
+          <span><small>BUILD</small>3.2.2</span>
+          <span><small>PLATFORM</small>Android</span>
+          <span><small>DATA</small>Local first</span>
+        </div>
+      </div>
+
+      <div class="hero-product reveal" data-tilt>
+        <div class="halo halo-a"></div><div class="halo halo-b"></div>
+        <div class="signal-card signal-memory"><i></i><span>MEMORY</span><b>记忆正在形成</b></div>
+        <div class="signal-card signal-state"><i></i><span>STATE</span><b>关系持续变化</b></div>
+        <figure class="phone phone-hero">
+          <div class="phone-bar"><span>VIRTUGENE / CREATE</span><i></i></div>
+          <img src="./assets/app-create-gene.png" alt="VirtuGene 创造基因的真实产品界面" width="780" height="1688">
+        </figure>
+        <div class="core-label"><span>GENE 03</span><strong>IDENTITY</strong><small>个体正在生成</small></div>
+      </div>
+      <a class="scroll-cue" href="#vision"><span></span>SCROLL TO EVOLVE</a>
+    </section>
+
+    <section id="vision" class="vision shell">
+      <div class="section-tag reveal"><span>01</span>OUR BELIEF</div>
+      <div class="vision-copy reveal">
+        <h2>角色的真实感，<br>来自它被时间改变。</h2>
+        <p>我们不把数字角色理解成一次性的回答工具。它应当记得与你共同经历过什么，也应当在长期互动中形成自己的轨迹。</p>
+      </div>
+      <div class="continuity reveal" aria-label="VirtuGene 连续性模型">
+        <div class="continuity-line"><i></i><i></i><i></i><i></i></div>
+        <article><b>01</b><span>CONVERSATION</span><strong>相遇</strong><p>每一次表达，都发生在真实的上下文里。</p></article>
+        <article><b>02</b><span>MEMORY</span><strong>沉淀</strong><p>有意义的片段被留下，重复信息被压缩。</p></article>
+        <article><b>03</b><span>EVOLUTION</span><strong>变化</strong><p>情绪与关系形成趋势，而不是固定数值。</p></article>
+        <article><b>04</b><span>CONTINUITY</span><strong>继续</strong><p>角色带着过去，进入下一次相遇。</p></article>
+      </div>
+    </section>
+
+    <section id="product" class="product-section">
+      <div class="shell product-heading reveal">
+        <div class="section-tag"><span>02</span>REAL PRODUCT</div>
+        <h2>不是概念图。<br><em>这是正在生长的 VirtuGene。</em></h2>
+        <p>下面的界面直接来自当前 Android 版本。你可以创造角色基因、观察长期记录，并始终掌握自己的数据。</p>
+      </div>
+
+      <div class="product-stage shell">
+        <article class="feature feature-create reveal">
+          <div class="feature-copy">
+            <span class="feature-no">01 / CREATE</span>
+            <h3>创造一个有来处的角色</h3>
+            <p>身份、世界观、性格与说话方式，共同构成角色的初始基因。它从清晰的设定开始，再被与你的经历继续塑造。</p>
+            <ul><li>模块化角色基因</li><li>快速描述与精细刻画</li><li>支持自定义头像</li></ul>
+          </div>
+          <figure class="phone product-phone" data-tilt>
+            <div class="phone-bar"><span>GENE LAB / LIVE</span><i></i></div>
+            <img src="./assets/app-create-gene.png" alt="VirtuGene 基因实验室创造角色界面" width="780" height="1688" loading="lazy">
+          </figure>
+          <div class="feature-code" aria-hidden="true"><span>identity.worldview</span><span>personality.vector</span><span>voice.pattern</span></div>
+        </article>
+
+        <article class="feature feature-diary reveal">
+          <figure class="phone product-phone" data-tilt>
+            <div class="phone-bar"><span>DIARY / TIMELINE</span><i></i></div>
+            <img src="./assets/app-diary.png" alt="VirtuGene 手账与情绪趋势的真实界面" width="780" height="1688" loading="lazy">
+          </figure>
+          <div class="feature-copy">
+            <span class="feature-no">02 / REMEMBER</span>
+            <h3>让相处留下可回望的痕迹</h3>
+            <p>日记、心情与时间线把分散的片段重新连起来。你看到的不只是聊天记录，也是一段关系怎样经过时间。</p>
+            <ul><li>日历与时间线视图</li><li>长期心情趋势</li><li>可搜索的私人记录</li></ul>
+          </div>
+          <div class="diary-pulse" aria-hidden="true"><svg viewBox="0 0 440 110"><path d="M0 72C40 72 43 45 80 45s48 40 85 40 45-62 83-62 44 67 82 67 43-35 110-35"/></svg><span>RELATION TRACE / 30 DAYS</span></div>
+        </article>
+
+        <article class="feature feature-control reveal">
+          <div class="feature-copy">
+            <span class="feature-no">03 / CONTROL</span>
+            <h3>你的数字关系，边界由你决定</h3>
+            <p>本地优先不是一句宣传语。我们把设置、数据位置与退出入口明确呈现，让关系的沉浸感不以失去控制为代价。</p>
+            <ul><li>本地优先保存</li><li>清晰的数据设置</li><li>随时断开灵魂链接</li></ul>
+          </div>
+          <figure class="phone product-phone" data-tilt>
+            <div class="phone-bar"><span>CONTROL / YOURS</span><i></i></div>
+            <img src="./assets/app-profile.png" alt="VirtuGene 设置与数据控制界面" width="780" height="1688" loading="lazy">
+          </figure>
+        </article>
+      </div>
+    </section>
+
+    <section id="privacy" class="boundary shell">
+      <div class="section-tag reveal"><span>03</span>THE BOUNDARY</div>
+      <div class="boundary-grid">
+        <div class="boundary-copy reveal">
+          <h2>靠近，<br><em>也保留边界。</em></h2>
+          <p>VirtuGene 可以记得更多，但这不意味着它理应获得更多。必要信息才会参与生成，敏感凭证不会写进客户端安装包。</p>
+          <div class="text-links"><a href="./privacy.html">隐私说明 ↗</a><a href="./terms.html">使用条款 ↗</a></div>
+        </div>
+        <div class="data-map reveal">
+          <div class="map-glow"></div>
+          <article><span>01</span><i class="device-icon"></i><strong>你的设备</strong><small>角色与私人记录</small></article>
+          <div class="map-route"><i></i><b>ONLY WHEN NEEDED</b></div>
+          <article><span>02</span><i class="gate-icon"></i><strong>安全网关</strong><small>鉴权与额度保护</small></article>
+          <div class="map-route"><i></i><b>MINIMUM CONTEXT</b></div>
+          <article><span>03</span><i class="spark-icon"></i><strong>智能生成</strong><small>返回当前回应</small></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="release" class="release shell reveal">
+      <div>
+        <div class="section-tag"><span>04</span>NEXT SIGNAL</div>
+        <h2>VirtuGene<br><em>正在接近第一次公开相遇。</em></h2>
+      </div>
+      <div class="release-card">
+        <div class="release-status"><i></i><span>PRIVATE ALPHA</span><b>开发中</b></div>
+        <dl><div><dt>当前版本</dt><dd>3.2.2</dd></div><div><dt>目标平台</dt><dd>Android</dd></div><div><dt>当前阶段</dt><dd>上线准备</dd></div></dl>
+        <p>我们正在完成安全、稳定性与上架资料验证。正式开放时，这里会出现经过验证的下载入口。</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer shell">
+    <a class="brand footer-brand" href="#top"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M11 7c12 6 6 20 18 26M29 7c-12 6-6 20-18 26M13 11h14M11 20h18M13 29h14"/></svg><span>VirtuGene</span></a>
+    <p>让记忆生长，让关系拥有时间。</p>
+    <div><a href="./privacy.html">隐私说明</a><a href="./terms.html">使用条款</a></div>
+    <small>个人独立项目 · 网站备案审核中</small>
+  </footer>
+
+  <script>
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reveals = document.querySelectorAll('.reveal');
+    if (reduced) reveals.forEach((node) => node.classList.add('visible'));
+    else {
+      const observer = new IntersectionObserver((entries, self) => entries.forEach((entry) => {
+        if (entry.isIntersecting) { entry.target.classList.add('visible'); self.unobserve(entry.target); }
+      }), {threshold:.12});
+      reveals.forEach((node) => observer.observe(node));
+    }
+
+    if (!reduced) {
+      const pointer = document.querySelector('.pointer-light');
+      addEventListener('pointermove', (event) => { pointer.style.setProperty('--x', `${event.clientX}px`); pointer.style.setProperty('--y', `${event.clientY}px`); });
+      document.querySelectorAll('[data-tilt]').forEach((card) => {
+        card.addEventListener('pointermove', (event) => {
+          const box = card.getBoundingClientRect();
+          const rx = ((event.clientY - box.top) / box.height - .5) * -5;
+          const ry = ((event.clientX - box.left) / box.width - .5) * 7;
+          card.style.setProperty('--rx', `${rx}deg`); card.style.setProperty('--ry', `${ry}deg`);
+        });
+        card.addEventListener('pointerleave', () => { card.style.setProperty('--rx', '0deg'); card.style.setProperty('--ry', '0deg'); });
+      });
+
+      const canvas = document.querySelector('#gene-field');
+      const context = canvas.getContext('2d');
+      let particles = [];
+      const resize = () => {
+        const ratio = Math.min(devicePixelRatio, 2); canvas.width = innerWidth * ratio; canvas.height = innerHeight * ratio; canvas.style.width = `${innerWidth}px`; canvas.style.height = `${innerHeight}px`; context.setTransform(ratio,0,0,ratio,0,0);
+        particles = Array.from({length: Math.min(70, Math.floor(innerWidth / 18))}, () => ({x:Math.random()*innerWidth,y:Math.random()*innerHeight,r:Math.random()*1.2+.3,v:Math.random()*.12+.03,a:Math.random()*.45+.08}));
+      };
+      const draw = () => { context.clearRect(0,0,innerWidth,innerHeight); for(const p of particles){p.y-=p.v;if(p.y<0){p.y=innerHeight;p.x=Math.random()*innerWidth}context.beginPath();context.fillStyle=`rgba(132,102,255,${p.a})`;context.arc(p.x,p.y,p.r,0,Math.PI*2);context.fill()}requestAnimationFrame(draw)};
+      addEventListener('resize', resize); resize(); draw();
+    }
+  </script>
+</body>
+</html>
