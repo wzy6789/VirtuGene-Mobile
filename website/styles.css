@@ -15,4 +15,7 @@
 
 /* Chinese reading rhythm: increase glyph spacing only for prose and controls. */
 .hero-lead,.hero-detail,.vision-copy>p,.product-heading>p,.boundary-copy>p,.feature-copy>p,.feature-copy li,.continuity p,.release-card p,.document p,.document li,.site-footer p,.button,.download-link{letter-spacing:.075em}
-@media(max-width:680px){.download-row{grid-template-columns:1fr}.hero-lead,.hero-detail,.vision-copy>p,.product-heading>p,.boundary-copy>p,.feature-copy>p,.document p,.document li{letter-spacing:.06em}}
+/* 让首屏的中文标题与随后的介绍文字有更舒展的阅读节奏。 */
+.hero h1,.hero h1 em{letter-spacing:.045em}
+.hero-lead,.hero-detail{letter-spacing:.105em}
+@media(max-width:680px){.download-row{grid-template-columns:1fr}.hero h1,.hero h1 em{letter-spacing:.035em}.hero-lead,.hero-detail,.vision-copy>p,.product-heading>p,.boundary-copy>p,.feature-copy>p,.document p,.document li{letter-spacing:.06em}}
