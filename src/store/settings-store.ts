@@ -5,9 +5,16 @@ interface SettingsState {
   /** 日记 AI 辅助（润色/续写/提炼对话）总开关 */
   diaryAiEnabled: boolean;
   setDiaryAiEnabled: (enabled: boolean) => void;
-  /** 是否允许角色在对话中看到你的日记片段（隐私开关，默认关） */
-  diarySharedWithCharacters: boolean;
-  setDiarySharedWithCharacters: (enabled: boolean) => void;
+  /**
+   * ⚠️ 已删除（5.0.0 Phase 2b-4）：`diarySharedWithCharacters`。
+   *
+   * 那个 4.x 的**全局**开关会把"最近几篇日记"注入**每一个**角色的上下文，
+   * 与 5.0 的逐条可见性（Diary.visibility / visibleTo）并存时构成了真实的隐私漏洞：
+   * 用户无法判断"到底谁能看到什么"。现在日记只有在你**逐条授权**（告诉某角色 / 加入共同世界）
+   * 之后才可能进入对应角色的上下文，且撤回后立即失效。
+   *
+   * 历史设置里即使还残留这个键（zustand persist 的旧数据），也**没有任何代码再读它**。
+   */
   /** 手账隐私锁 PIN（SHA-256 摘要；为空表示未启用） */
   diaryPin: string | null;
   setDiaryPin: (pinHash: string | null) => void;
@@ -39,8 +46,6 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       diaryAiEnabled: true,
       setDiaryAiEnabled: (diaryAiEnabled) => set({ diaryAiEnabled }),
-      diarySharedWithCharacters: false,
-      setDiarySharedWithCharacters: (diarySharedWithCharacters) => set({ diarySharedWithCharacters }),
       diaryPin: null,
       setDiaryPin: (diaryPin) => set({ diaryPin }),
       diaryReminderEnabled: false,

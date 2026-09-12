@@ -7,6 +7,7 @@ import { memoryRepo } from '../db/memory-repo';
 import { stateRepo } from '../db/state-repo';
 import { continuityRepo } from '../db/continuity-repo';
 import { sharedEventRepo } from '../db/shared-event-repo';
+import { worldRepo } from '../db/world-repo';
 import { useAuthStore } from './auth-store';
 import { useCharacterStateStore } from './character-state-store';
 import { deriveProactivity, GREETING_PROACTIVITY_THRESHOLD } from '../lib/personality';
@@ -639,6 +640,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 4.0 生命连续性：该角色的未完成事件与牵涉 TA 的人物共同事件一并清理
     await continuityRepo.deleteByCharacter(id, userId);
     await sharedEventRepo.deleteByCharacter(id, userId);
+    // 5.0 Living World：认知/关系随角色删除；世界事件与共同记忆保留历史、只摘掉该角色引用
+    await worldRepo.cleanupCharacter(userId, id);
 
     const { selectedCharacterId } = get();
     const all = await characterRepo.getAll();
@@ -686,6 +689,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // 4.0 生命连续性：未完成事件与人物共同事件全部清空
     await continuityRepo.clearForUser(userId);
     await sharedEventRepo.clearForUser(userId);
+    // 5.0 Living World：世界层全部数据（含世界本身）一并删除
+    await worldRepo.clearForUser(userId);
     await db.users.delete(userId);
 
     set({

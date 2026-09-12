@@ -1,5 +1,6 @@
 import type { Diary } from '../../db/index';
 import { formatDiaryHeader, moodEmoji, moodColor, DIARY_MOODS } from '../../lib/diary-utils';
+import { DiarySharingBadge } from './DiarySharing';
 
 interface Props {
   diary: Diary;
@@ -27,6 +28,7 @@ export function DiaryView({ diary }: Props) {
             {diary.weather && <span title="天气">{diary.weather}</span>}
           </div>
           <div className="flex items-center gap-1.5 text-sm">
+            <DiarySharingBadge diary={diary} />
             <span>{moodEmoji(mood)}</span>
             <span style={{ color: moodColor(mood) }}>
               {DIARY_MOODS.find((m) => m.value === mood)?.label ?? '一般'}

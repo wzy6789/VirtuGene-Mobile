@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>VirtuGene 5.0.0 Phase 3c 验收（幕次与选择分支）</title></head>
+<body>
+<div id="app">running…</div>
+<script>
+  function report(kind, detail) {
+    try { fetch('/result', { method: 'POST', body: kind + '\n' + detail }); } catch (e) { /* ignore */ }
+  }
+  window.addEventListener('error', function (e) {
+    report('PAGE ERROR: ' + (e.message || ''), String((e.error && e.error.stack) || e.filename || ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    report('UNHANDLED REJECTION', String((e.reason && e.reason.stack) || e.reason));
+  });
+</script>
+<script src="./phase3c.bundle.js"></script>
+</body>
+</html>

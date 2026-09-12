@@ -8,6 +8,7 @@ import { DiaryCalendar } from '../components/diary/DiaryCalendar';
 import { DiaryTimeline } from '../components/diary/DiaryTimeline';
 import { DiaryTagsView } from '../components/diary/DiaryTagsView';
 import { DiaryChatPage } from '../components/diary/DiaryChatPage';
+import { DiarySharingOverviewModal } from '../components/diary/DiarySharing';
 import { DiaryView } from '../components/diary/DiaryView';
 import { AutoGenModal } from '../components/diary/AutoGenModal';
 import { ReviewModal } from '../components/diary/ReviewModal';
@@ -39,8 +40,6 @@ export function DiaryPage() {
   const setActiveView = useUIStore((s) => s.setActiveView);
   const diaryAiEnabled = useSettingsStore((s) => s.diaryAiEnabled);
   const setDiaryAiEnabled = useSettingsStore((s) => s.setDiaryAiEnabled);
-  const diarySharedWithCharacters = useSettingsStore((s) => s.diarySharedWithCharacters);
-  const setDiarySharedWithCharacters = useSettingsStore((s) => s.setDiarySharedWithCharacters);
   const diaryPin = useSettingsStore((s) => s.diaryPin);
   const setDiaryPin = useSettingsStore((s) => s.setDiaryPin);
   const diaryReminderEnabled = useSettingsStore((s) => s.diaryReminderEnabled);
@@ -62,6 +61,8 @@ export function DiaryPage() {
   const [showYearReview, setShowYearReview] = useState(false);
   /** 回收站视图 */
   const [showTrash, setShowTrash] = useState(false);
+  /** 5.0：谁能看到我的日记（逐条授权的总览与收回入口，取代 4.x 的全局开关） */
+  const [sharingOpen, setSharingOpen] = useState(false);
   /** 隐私锁：应用会话内已解锁（Pin 校验通过） */
   const [unlocked, setUnlockedState] = useState(isDiaryUnlocked());
   /** 隐私锁设置弹窗 */
@@ -403,11 +404,11 @@ export function DiaryPage() {
                   <span className={`text-[11px] ${diaryAiEnabled ? 'text-gene-purple' : 'text-gray-400'}`}>{diaryAiEnabled ? '开' : '关'}</span>
                 </button>
                 <button
-                  onClick={() => { setDiarySharedWithCharacters(!diarySharedWithCharacters); }}
+                  onClick={() => { setSharingOpen(true); setMoreOpen(false); }}
                   className="w-full flex items-center justify-between gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  <span>🔓 角色可见</span>
-                  <span className={`text-[11px] ${diarySharedWithCharacters ? 'text-life-cyan' : 'text-gray-400'}`}>{diarySharedWithCharacters ? '开' : '关'}</span>
+                  <span>🔐 谁能看到我的日记</span>
+                  <span className="text-[11px] text-gray-400">逐条授权</span>
                 </button>
                 <button
                   onClick={() => { setReminderModal(true); setMoreOpen(false); }}
@@ -656,6 +657,9 @@ export function DiaryPage() {
       </div>
         </>
       )}
+
+      {/* 5.0：谁能看到我的日记（逐条授权总览 + 收回入口；取代 4.x 的全局「角色可见」开关） */}
+      <DiarySharingOverviewModal open={sharingOpen} onClose={() => setSharingOpen(false)} />
 
       {/* 回收站视图 */}
       {showTrash && (

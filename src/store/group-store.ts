@@ -302,6 +302,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       type: 'relationship',
       title: `进入共同场域「${group.name}」`,
       detail: '一个新的多角色关系开始形成。',
+      // 5.0：建群是**功能操作**，不是"关系变化" ⇒ 标记来源为 group，
+      // 世界层据此排除该来源（见 lib/world/world-writer.ts 的来源白名单）
+      source: 'group',
     })));
     await get().loadGroups();
     return group;

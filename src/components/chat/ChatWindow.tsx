@@ -22,8 +22,15 @@ import { diaryRepo, todayStr } from '../../db/diary-repo';
 import { stateRepo } from '../../db/state-repo';
 import { continuityRepo } from '../../db/continuity-repo';
 import { sharedEventRepo } from '../../db/shared-event-repo';
+import { sharedMemoryRepo } from '../../db/shared-memory-repo';
+import { worldRepo } from '../../db/world-repo';
+import { collectMessageAsSharedMemory, MEMORY_SOURCE_TYPE } from '../../lib/world/world-writer';
+import { selectRecallableSharedMemories, type RecallableSharedMemory } from '../../lib/world/recall';
+import { listMentionableDiaryIds } from '../../lib/world/diary-visibility';
+import { selectRecallableScenes, type RecallableScene } from '../../lib/world/scene-recall';
+import { buildContextTrace, hasTraceContent } from '../../lib/chat-trace';
 import { ipc } from '../../lib/ipc-client';
-import { buildTimeContext, buildRelationshipContext, buildUserEmotionContext, buildDayContext, buildMemoryRecall, buildCatchphrase, buildLifeContext, buildStoryRelationContext, buildContinuityThreadContext, buildSharedEventContext, pickContinuityThreads } from '../../lib/chat-context';
+import { buildTimeContext, buildRelationshipContext, buildUserEmotionContext, buildDayContext, buildMemoryRecall, buildCatchphrase, buildLifeContext, buildStoryRelationContext, buildContinuityThreadContext, buildSharedEventContext, buildSharedMemoryContext, buildDiaryContext, buildSceneContext, pickContinuityThreads } from '../../lib/chat-context';
 import { computeMessageDelays, splitReplyParts, prefersReducedMotion } from '../../lib/chat-pacing';
 import { checkReplyQuality } from '../../lib/reply-quality';
 import { DIARY_MOODS } from '../../lib/diary-utils';
@@ -36,7 +43,7 @@ import { compileChatContext, selectRelevantMemories } from '../../lib/chat-conte
 import { isAiGatewayConfigured } from '../../lib/ai/gateway';
 import { ModelPickModal } from './ModelPickModal';
 import { ImmersiveSceneCard } from './ImmersiveSceneCard';
-import type { ContinuityThread, Message, SharedStoryEvent } from '../../db/index';
+import type { ContinuityThread, Diary, Message, SharedStoryEvent } from '../../db/index';
 
 // 记忆依据弹窗只在长按菜单里用到：与手账/群聊同一套按需加载策略，不进首屏主包
 const MemoryBasisModal = lazy(() => import('./MemoryBasisModal').then((m) => ({ default: m.MemoryBasisModal })));
@@ -166,6 +173,10 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const [basisMessage, setBasisMessage] = useState<Message | null>(null);
   /** 图片识别失败自动降级为文字模式时的提示 */
   const [degradeNotice, setDegradeNotice] = useState<string | null>(null);
+  /** 已收藏为共同记忆的消息 id（长按菜单据此显示"已是共同记忆"） */
+  const [collectedIds, setCollectedIds] = useState<Set<string>>(() => new Set());
+  /** 收藏后的明确反馈（世界层是另一个页面，没有反馈用户会以为没生效） */
+  const [collectNotice, setCollectNotice] = useState<'created' | 'exists' | 'failed' | null>(null);
   /** 首次进入聊天：会话未锁定模型时弹出模型选择（选定后聊天中不可改） */
   const [showModelPick, setShowModelPick] = useState(false);
   /** 会话元信息：当前模型 + 累计消耗（右上角设置展示） */
@@ -443,6 +454,51 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     }
   };
 
+  /**
+   * 长按"收藏为共同记忆"（5.0）：把这条消息变成你们**共同经历过**的事。
+   *
+   * 与「记住」的分工：记住 = 关于用户的事实（memories）；收藏 = 你们之间发生的事（sharedMemories）。
+   * 写入全部在世界层完成（world-writer 的纯本地事务），**不产生任何 AI 调用**。
+   */
+  const handleCollectMemory = async (m: Message) => {
+    if (!character || !userId) return;
+    try {
+      const result = await collectMessageAsSharedMemory({
+        userId,
+        characterId: character.id,
+        message: m,
+      });
+      setCollectedIds((prev) => new Set(prev).add(m.id));
+      setCollectNotice(result.created ? 'created' : 'exists');
+    } catch {
+      // 记忆没存上要如实告诉用户（不能假装成功）
+      setCollectNotice('failed');
+    }
+  };
+
+  // 已收藏的消息 id：进入某个角色的会话时读一次（一次查询，不逐条查）
+  useEffect(() => {
+    if (!userId || !character) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const world = await worldRepo.ensureDefaultWorld(userId);
+        const ids = await sharedMemoryRepo.listSourceIds(userId, world.id, MEMORY_SOURCE_TYPE);
+        if (alive) setCollectedIds(new Set(ids));
+      } catch {
+        /* 世界层读不到不影响聊天：菜单只是少一个"已收藏"标记 */
+      }
+    })();
+    return () => { alive = false; };
+  }, [userId, character]);
+
+  // 收藏反馈自动消失（留足时间让用户点「去世界看看」）
+  useEffect(() => {
+    if (!collectNotice) return;
+    const timer = setTimeout(() => setCollectNotice(null), 4000);
+    return () => clearTimeout(timer);
+  }, [collectNotice]);
+
   /** 核心发送管线：构建上下文 → 调 API（带自检重试）→ 落库/上屏；失败则把用户消息标记为失败态 */
   const performSend = async (text: string, apiMessage: string, userMsg: Message, image?: string) => {
     const sessionId = userMsg.sessionId;
@@ -590,38 +646,79 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     const latestSnapshot = await emotionRepo.getLatest(sessionId);
     const userEmotionContext = buildUserEmotionContext(latestSnapshot?.userEmotion);
 
-    // 日记心情联动：今天日记记下低落/开心 → 影响回复语气（读取失败不影响发送）
+    // 5.0 共同记忆：角色确实知道、且这一轮适合提起的"你们一起经历过的事"。
+    // 三道闸门（可见性 / 认知 full 且可提起 / 只挑相关几条）都在 selectRecallableSharedMemories 里，
+    // 全程本地读取，不产生任何 AI 调用；读不到就当没有，不影响发送。
+    let recallableMemories: RecallableSharedMemory[] = [];
+    let sharedMemoryContext = '';
+    try {
+      const world = await worldRepo.ensureDefaultWorld(userId);
+      recallableMemories = await selectRecallableSharedMemories({
+        worldId: world.id,
+        characterId: character.id,
+      });
+      sharedMemoryContext = buildSharedMemoryContext(recallableMemories.map((item) => item.memory));
+    } catch {
+      /* 世界层读不到不影响聊天（与 4.x 各上下文区块同样的容错口径） */
+    }
+
+    /**
+     * 5.0 Phase 2b-4：R6 收口 + **日记心情也必须走同一道闸门**。
+     *
+     * 日记的**内容与心情**只来自"这个角色被允许知道、且确实知道"的那几页：
+     *   1) `listVisibleFor`：只有 visibility='selected' 命中该角色、或 'world' 的才返回，private 永不返回
+     *   2) `listMentionableDiaryIds`：该角色必须有 `diary:<id>` 锚点上的认知（full 且可提起）
+     *
+     * ⚠️ 曾经的问题（本阶段修复）：心情联动读的是**今天全部日记**，于是"私密日记"的
+     * 低落/开心照样会影响角色的语气——内容没泄露、**情绪泄露了**。现在两者共用同一个闸门，
+     * 授权外的日记连心情都不会被感知。撤回后**下一次发送立即失效**。
+     */
+    let knownDiaries: Diary[] = [];
+    let diaryShareContext = '';
     let diaryMoodContext = '';
     try {
-      const todayDiary = await diaryRepo.getByDate(userId, todayStr());
-      if (todayDiary.length > 0) {
-        const avg = todayDiary.reduce((s, d) => s + (d.mood ?? 3), 0) / todayDiary.length;
-        if (avg <= 2) {
-          diaryMoodContext = '\n\n[补充] 用户今天在日记里记下了低落的心情。你的回应要更体贴、更耐心，先安抚情绪。';
-        } else if (avg >= 4) {
-          diaryMoodContext = '\n\n[补充] 用户今天在日记里记下了不错的心情。你的回应可以更轻快、更有活力。';
+      const visible = await diaryRepo.listVisibleFor(character.id, userId, 8);
+      if (visible.length > 0) {
+        const worldForDiary = await worldRepo.ensureDefaultWorld(userId);
+        const mentionable = await listMentionableDiaryIds(userId, worldForDiary.id, character.id);
+        const allowed = visible.filter((d) => mentionable.has(d.id));
+        knownDiaries = allowed.slice(0, 3);
+        diaryShareContext = buildDiaryContext(knownDiaries);
+        // 心情联动只看"今天 + 被允许知道"的日记（与内容同一批授权，不额外放宽）
+        const today = allowed.filter((d) => d.date === todayStr());
+        if (today.length > 0) {
+          const avg = today.reduce((s, d) => s + (d.mood ?? 3), 0) / today.length;
+          if (avg <= 2) {
+            diaryMoodContext = '\n\n[补充] 用户今天在日记里记下了低落的心情。你的回应要更体贴、更耐心，先安抚情绪。';
+          } else if (avg >= 4) {
+            diaryMoodContext = '\n\n[补充] 用户今天在日记里记下了不错的心情。你的回应可以更轻快、更有活力。';
+          }
         }
       }
     } catch {
-      /* ignore */
+      /* 读不到就当没有，不影响发送 */
     }
 
-    // 角色可见日记（默认关闭）：开启后注入最近日记片段，角色可自然提及
-    let diaryShareContext = '';
-    if (useSettingsStore.getState().diarySharedWithCharacters) {
-      try {
-        const recentDiaries = (await diaryRepo.getByUser(userId))
-          .filter((d) => d.content.trim().length > 0)
-          .sort((a, b) => b.date.localeCompare(a.date))
-          .slice(0, 5);
-        if (recentDiaries.length > 0) {
-          diaryShareContext =
-            '\n\n[用户的日记（角色可见已开启，可自然提及，但不要生硬复述）]\n' +
-            recentDiaries.slice(0, 3).map((d) => `【${d.date}】${d.title ? `《${d.title}》` : ''}\n${d.content.slice(0, 120)}`).join('\n\n');
-        }
-      } catch {
-        /* ignore */
-      }
+    /**
+     * 5.0 Phase 3b：世界舞台的后果进入私聊——把"这个角色亲身参与过、并且已经结束"的戏召回来。
+     * 三道闸门见 lib/world/scene-recall.ts（参与过 + 知道且可提起 + 可见）。
+     * 全程本地读取；读不到就当没有，绝不影响发送。
+     */
+    let recalledScenes: RecallableScene[] = [];
+    let sceneContext = '';
+    try {
+      const worldForScene = await worldRepo.ensureDefaultWorld(userId);
+      recalledScenes = await selectRecallableScenes({ worldId: worldForScene.id, characterId: character.id });
+      sceneContext = buildSceneContext(
+        recalledScenes.map((item) => ({
+          title: item.scene.title,
+          place: item.scene.place,
+          timeLabel: item.scene.timeLabel,
+          summary: item.event.summary,
+        })),
+      );
+    } catch {
+      /* 世界层读不到不影响聊天 */
     }
 
     // 长会话滚动摘要：早期对话压缩，角色不用逐条回忆
@@ -655,6 +752,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         { key: 'relationship', text: relationshipContext, priority: 100 },
         { key: 'story-relationships', text: storyRelationContext, priority: 97 },
         { key: 'continuity', text: threadContext, priority: 94 },
+        { key: 'shared-memory', text: sharedMemoryContext, priority: 93 },
+        { key: 'scene', text: sceneContext, priority: 91 },
         { key: 'shared-events', text: sharedEventContext, priority: 88 },
         { key: 'life', text: lifeContext, priority: 92 },
         { key: 'current-time', text: timeContext, priority: 95 },
@@ -662,8 +761,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         { key: 'memory', text: memoryContext, priority: 85 },
         { key: 'taught-memory', text: teachContext, priority: 100 },
         { key: 'summary', text: summaryContext, priority: 75 },
+        { key: 'diary', text: diaryShareContext, priority: 70 },
         { key: 'diary-mood', text: diaryMoodContext, priority: 65 },
-        { key: 'diary-share', text: diaryShareContext, priority: 55 },
         { key: 'recall', text: recallContext, priority: 50 },
         { key: 'day', text: dayContext, priority: 45 },
         { key: 'catchphrase', text: catchphraseContext, priority: 35 },
@@ -672,26 +771,18 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     const enrichedPrompt = compiled.prompt;
 
     // 记忆依据（溯源）：只记录这一轮**真的完整注入**的本地数据 id，不是整段 prompt。
-    // 上下文编译器的预算不足时会截断区块（compiled.partial），被截断的区块无法确认
-    // 究竟哪几条真正进了 prompt，所以一律不记录——宁可少报，也不谎报"已参考"。
-    const fullyIncluded = new Set(compiled.included);
-    const tracedMemoryIds = new Set<string>();
-    if (fullyIncluded.has('memory')) for (const m of memories) tracedMemoryIds.add(m.id);
-    if (fullyIncluded.has('recall') && recalledMemoryId) tracedMemoryIds.add(recalledMemoryId);
-    const contextTrace = {
-      ...(tracedMemoryIds.size > 0 ? { memoryIds: [...tracedMemoryIds] } : {}),
-      ...(fullyIncluded.has('continuity') && injectedThreads.length > 0
-        ? { continuityThreadIds: injectedThreads.map((t) => t.id) }
-        : {}),
-      ...(fullyIncluded.has('shared-events') && sharedEvents.length > 0
-        ? { sharedEventIds: sharedEvents.map((e) => e.id) }
-        : {}),
-      at: Date.now(),
-    };
-    const hasTrace =
-      (contextTrace.memoryIds?.length ?? 0) > 0 ||
-      (contextTrace.continuityThreadIds?.length ?? 0) > 0 ||
-      (contextTrace.sharedEventIds?.length ?? 0) > 0;
+    // 规则与 4.x 完全一致（预算不足被截断的区块一律不记录），已抽成纯函数便于验收覆盖。
+    const contextTrace = buildContextTrace({
+      compiled,
+      memories,
+      recalledMemoryId,
+      continuityThreads: injectedThreads,
+      sharedEvents,
+      sharedMemories: recallableMemories.map((item) => item.memory),
+      diaries: knownDiaries,
+      scenes: recalledScenes.map((item) => item.scene),
+    });
+    const hasTrace = hasTraceContent(contextTrace);
 
     // 动态温度：按角色主动倾向微调——高冷/疏离用低温度（更克制稳定），活泼/话痨用高温度（更跳脱）
     const temperature = 0.6 + (character.proactivity ?? 0.5) * 0.3;
@@ -1058,6 +1149,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
                     moodEmoji={row.message.role === 'assistant' ? moodEmoji(charMood) : undefined}
                     characterName={row.message.role === 'assistant' ? character?.name : undefined}
                     onRemember={(m) => void handleRemember(m)}
+                    onCollectMemory={(m) => void handleCollectMemory(m)}
+                    collected={collectedIds.has(row.message.id)}
                     onShowBasis={setBasisMessage}
                   />
                 </div>
@@ -1082,6 +1175,35 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       </div>
 
       <BalanceBanner error={error} />
+
+      {/* 收藏反馈：世界层在另一个页面，必须让用户知道"真的记住了"并给一条去路 */}
+      {collectNotice && (
+        <div className="fixed bottom-24 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-2xl border border-life-cyan/30 bg-panel/95 px-4 py-2.5 shadow-2xl backdrop-blur-xl animate-fade-in">
+          <span className="text-xs text-ink">
+            {collectNotice === 'created' && '已收藏为共同记忆'}
+            {collectNotice === 'exists' && '这条已经是你们的共同记忆'}
+            {collectNotice === 'failed' && '没能存下来，稍后再试'}
+          </span>
+          {collectNotice !== 'failed' && (
+            <button
+              type="button"
+              onClick={() => {
+                setCollectNotice(null);
+                // 与底部一级导航 switchTab('world') 同一套语义：
+                // 清掉"从列表/角色页推入聊天"的标记并复位覆盖页，确保真的落到世界页
+                const ui = useUIStore.getState();
+                ui.setChatFromList(false);
+                ui.setChatFromCharacters(false);
+                ui.setActiveView('chat');
+                ui.setMobileTab('world');
+              }}
+              className="shrink-0 text-xs font-medium text-life-cyan"
+            >
+              去世界看看 →
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 记忆依据：只展示本机真实注入过的数据（已删除的条目会显示为"已不存在"） */}
       {basisMessage && (

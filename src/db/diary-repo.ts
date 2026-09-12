@@ -1,4 +1,6 @@
 import { db, type Diary } from './index';
+import { isVisibleToCharacter } from '../lib/world/visibility';
+import { clearDiarySharing } from '../lib/world/diary-visibility';
 
 export interface DiaryInput {
   userId: string;
@@ -8,6 +10,13 @@ export interface DiaryInput {
   mood: number;
   tags: string[];
   characterId?: string;
+  /**
+   * 5.0 可见性：不传时**一律 private**（§24：私人内容默认只有用户自己知道）。
+   * Phase 2b-4 起旧的全局开关 `diarySharedWithCharacters` 已被**彻底删除**：
+   * 新建时没有默认选项，第三方授权只能通过"告诉某角色 / 加入共同世界"逐条完成。
+   */
+  visibility?: Diary['visibility'];
+  visibleTo?: string[];
 }
 
 export const diaryRepo = {
@@ -44,8 +53,36 @@ export const diaryRepo = {
       .sortBy('createdAt');
   },
 
+  /** 按 id 取日记（记忆溯源"看当时说的话"用） */
   async getById(id: string): Promise<Diary | undefined> {
     return db.diaries.get(id);
+  },
+
+  /**
+   * 5.0 隐私查询：某个角色**被允许知道**的日记。
+   * - private（默认）永远不返回
+   * - selected 只在 visibleTo 命中时返回
+   * - world 才表示世界内角色可见（需用户显式选择）
+   * 闸门实现统一在 `lib/world/visibility.ts`（与共同记忆/世界事件同一份实现）。
+   */
+  async listVisibleFor(characterId: string, userId: string, limit = 20): Promise<Diary[]> {
+    const all = await db.diaries.where('userId').equals(userId).toArray();
+    return all
+      .filter((d) => !d.deletedAt)
+      .filter((d) => isVisibleToCharacter(d, characterId))
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, limit);
+  },
+
+  /** 可见性分布（迁移自检 + 设置页统计用） */
+  async countByVisibility(userId: string): Promise<Record<string, number>> {
+    const all = await db.diaries.where('userId').equals(userId).toArray();
+    const out: Record<string, number> = { private: 0, selected: 0, world: 0, unset: 0 };
+    for (const d of all) {
+      const key = d.visibility ?? 'unset';
+      out[key] = (out[key] ?? 0) + 1;
+    }
+    return out;
   },
 
   async create(input: DiaryInput): Promise<string> {
@@ -59,6 +96,9 @@ export const diaryRepo = {
       mood: input.mood,
       tags: input.tags ?? [],
       ...(input.characterId ? { characterId: input.characterId } : {}),
+      // 默认 private：只有用户自己知道；要进世界必须显式授权
+      visibility: input.visibility ?? 'private',
+      visibleTo: input.visibleTo ?? [],
       createdAt: now,
       updatedAt: now,
     };
@@ -88,16 +128,23 @@ export const diaryRepo = {
     await db.diaries.put({ ...rest, updatedAt: Date.now() } as Diary);
   },
 
-  /** 彻底删除（回收站内） */
+  /**
+   * 彻底删除（回收站内）。
+   * 5.0：连同"这一页的授权"一起收回——否则会留下指向已不存在日记的认知行，
+   * 角色会以为自己知道一件已经不存在的事。
+   */
   async purge(id: string): Promise<void> {
+    const diary = await db.diaries.get(id);
     await db.diaries.delete(id);
+    if (diary) await clearDiarySharing(diary.userId, id);
   },
 
-  /** 清理回收站中超过 7 天的日记（幂等） */
+  /** 清理回收站中超过 7 天的日记（幂等）；授权同样一并收回 */
   async purgeExpired(userId: string): Promise<void> {
     const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
     const trash = await db.diaries.where('userId').equals(userId).filter((d) => !!d.deletedAt && d.deletedAt! < cutoff).toArray();
     await db.diaries.bulkDelete(trash.map((d) => d.id));
+    for (const d of trash) await clearDiarySharing(userId, d.id);
   },
 
   /**

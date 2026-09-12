@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import type { ContinuityThread, Message, SharedStoryEvent, MemoryItem } from '../../db/index';
+import type { ContinuityThread, Message, SharedMemory, SharedStoryEvent, MemoryItem, WorldScene } from '../../db/index';
 import { memoryRepo } from '../../db/memory-repo';
 import { continuityRepo, KIND_LABEL, STATUS_LABEL } from '../../db/continuity-repo';
 import { sharedEventRepo } from '../../db/shared-event-repo';
+import { sharedMemoryRepo } from '../../db/shared-memory-repo';
+import { worldSceneRepo } from '../../db/world-scene-repo';
 import { Modal } from '../ui/Modal';
 
 type Trace = Message['contextTrace'];
@@ -26,6 +28,8 @@ export function MemoryBasisModal({
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [threads, setThreads] = useState<ContinuityThread[]>([]);
   const [events, setEvents] = useState<SharedStoryEvent[]>([]);
+  const [sharedMemories, setSharedMemories] = useState<SharedMemory[]>([]);
+  const [scenes, setScenes] = useState<WorldScene[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -33,6 +37,8 @@ export function MemoryBasisModal({
       setMemories([]);
       setThreads([]);
       setEvents([]);
+      setSharedMemories([]);
+      setScenes([]);
       return;
     }
     let active = true;
@@ -41,12 +47,16 @@ export function MemoryBasisModal({
       memoryRepo.getByIds(trace.memoryIds ?? []),
       continuityRepo.getByIds(trace.continuityThreadIds ?? []),
       sharedEventRepo.getByIds(trace.sharedEventIds ?? []),
+      sharedMemoryRepo.getByIds(trace.sharedMemoryIds ?? []),
+      worldSceneRepo.getByIds(trace.sceneIds ?? []),
     ])
-      .then(([m, t, e]) => {
+      .then(([m, t, e, s, sc]) => {
         if (!active) return;
         setMemories(m);
         setThreads(t);
         setEvents(e);
+        setSharedMemories(s);
+        setScenes(sc);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -57,8 +67,10 @@ export function MemoryBasisModal({
   const missingMemory = (trace?.memoryIds?.length ?? 0) - memories.length;
   const missingThread = (trace?.continuityThreadIds?.length ?? 0) - threads.length;
   const missingEvent = (trace?.sharedEventIds?.length ?? 0) - events.length;
+  const missingSharedMemory = (trace?.sharedMemoryIds?.length ?? 0) - sharedMemories.length;
+  const missingScene = (trace?.sceneIds?.length ?? 0) - scenes.length;
   const empty =
-    memories.length === 0 && threads.length === 0 && events.length === 0;
+    memories.length === 0 && threads.length === 0 && events.length === 0 && sharedMemories.length === 0 && scenes.length === 0;
 
   return (
     <Modal open={open} onClose={onClose} title="这条回复的记忆依据" width="max-w-md">
@@ -134,9 +146,51 @@ export function MemoryBasisModal({
           </section>
         )}
 
-        {!loading && (missingMemory > 0 || missingThread > 0 || missingEvent > 0) && (
+        {!loading && sharedMemories.length > 0 && (
+          <section>
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-gene-purple" />
+              <h3 className="text-xs font-semibold text-ink">你们一起经历过的事</h3>
+              <span className="text-[10px] text-gray-500">{sharedMemories.length} 条</span>
+            </div>
+            <ul className="space-y-1.5">
+              {sharedMemories.map((m) => (
+                <li key={m.id} className="rounded-xl border border-gene-purple/20 bg-gene-purple/[0.06] px-3 py-2">
+                  <p className="text-[12px] leading-relaxed text-ink">{m.title}</p>
+                  {m.summary && <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{m.summary}</p>}
+                  <p className="mt-1 text-[10px] text-gray-500">
+                    {new Date(m.createdAt).toLocaleDateString('zh-CN')} · 你收藏的共同记忆
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {!loading && scenes.length > 0 && (
+          <section>
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-life-cyan" />
+              <h3 className="text-xs font-semibold text-ink">你们一起演过的戏</h3>
+              <span className="text-[10px] text-gray-500">{scenes.length} 场</span>
+            </div>
+            <ul className="space-y-1.5">
+              {scenes.map((s) => (
+                <li key={s.id} className="rounded-xl border border-life-cyan/20 bg-life-cyan/[0.05] px-3 py-2">
+                  <p className="text-[12px] leading-relaxed text-ink">{s.title}</p>
+                  <p className="mt-1 text-[10px] text-gray-500">
+                    {s.place} · {s.timeLabel}
+                    {s.finishedAt ? ` · ${new Date(s.finishedAt).toLocaleDateString('zh-CN')}` : ''}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {!loading && (missingMemory > 0 || missingThread > 0 || missingEvent > 0 || missingSharedMemory > 0 || missingScene > 0) && (
           <p className="rounded-xl border border-line bg-surface/60 px-3 py-2 text-[10px] leading-relaxed text-gray-500">
-            有 {missingMemory + missingThread + missingEvent} 条当时的依据如今已不存在（可能已被你删除或自动清理），所以这里不再显示。
+            有 {missingMemory + missingThread + missingEvent + missingSharedMemory + missingScene} 条当时的依据如今已不存在（可能已被你删除或自动清理），所以这里不再显示。
           </p>
         )}
       </div>

@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { runWorldMigration } from '../lib/world/migrate-4x';
 
 export interface User {
   id: string;
@@ -86,6 +87,9 @@ export interface ContinuityThread {
   sourceMessageIds?: string[];
   /** 由谁创建：ai=自动分析产生 user=用户手动添加 */
   origin?: 'ai' | 'user';
+  /** 5.0：如果这条未完成故事来自某场 World Stage / 某条世界事件，记录来源 */
+  sourceSceneId?: string;
+  sourceWorldEventId?: string;
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
@@ -108,6 +112,273 @@ export interface SharedStoryEvent {
   updatedAt: number;
 }
 
+// ===========================================================================
+// 5.0.0 Living World 数据层（Dexie version 16）
+// ---------------------------------------------------------------------------
+// 原则：LLM 负责演，VirtuGene 负责记。
+// 这里只解决"世界记住了什么"，不解决"世界怎么演"（演在 Phase 3）。
+// 所有主表都带 worldId：5.0.0 每用户只有一个默认世界，但结构上为
+// 多世界 / 平行世界线 / 世界模板 / 世界导入复制预留，避免将来整层重迁移。
+// ===========================================================================
+
+/** 主体可见性：private=只有用户；selected=只有 visibleTo 里的角色；world=世界内可见 */
+export type WorldVisibility = 'private' | 'selected' | 'world';
+
+/** 世界（Living World 的容器实体） */
+export interface World {
+  id: string;
+  userId: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 5.0.0 每用户恰好一个默认世界；用户暂不需要在 UI 管理多个世界 */
+  isDefault: boolean;
+  description?: string;
+  theme?: string;
+}
+
+/**
+ * 世界事件类型（语义必须严格区分，禁止为了少写 enum 而混用）：
+ * - reality        现实生活（来自"我的生活"/日记的主动授权）
+ * - interaction    普通但有意义的互动（私聊/群聊里发生的事）
+ * - shared_memory  共同记忆（用户与角色真正共同经历的重要片段）
+ * - stage          World Stage 世界剧场的一次场景
+ * - relationship   关系发生变化
+ * - continuity     未完成的故事（承诺/计划/话题/分歧/提醒）
+ * - knowledge      认知边界变化（谁知道了什么）
+ * - life_trace     生命痕迹（一次场景留下的总结；指向其它事件）
+ */
+export type WorldEventType =
+  | 'reality'
+  | 'interaction'
+  | 'shared_memory'
+  | 'stage'
+  | 'relationship'
+  | 'continuity'
+  | 'knowledge'
+  | 'life_trace';
+
+/** 世界层"发生过什么"的统一记录：年表 / 最近发生 / Life Trace 都读它 */
+export interface WorldEvent {
+  id: string;
+  userId: string;
+  worldId: string;
+  type: WorldEventType;
+  title: string;
+  summary: string;
+  /** SubjectRef 列表（'u:<userId>' / 'c:<characterId>'）——实际参与者 */
+  participants: string[];
+  timestamp: number;
+  /** 重要度 0~1（影响年表排序与记忆召回） */
+  importance: number;
+  /** 来源类型：'chat' | 'group' | 'stage' | 'diary' | 'manual' | 'migration:lifeEvent' … */
+  sourceType: string;
+  sourceId: string;
+  visibility: WorldVisibility;
+  /** visibility='selected' 时允许知道的角色 id */
+  visibleTo?: string[];
+  resolved: boolean;
+  relatedEventIds: string[];
+  /** 关联的共同记忆 id（sharedMemories.id） */
+  memoryIds: string[];
+  tags: string[];
+  emotion?: string;
+  /** 溯源用原始信息（如迁移前的 lifeEventType / threadStatus） */
+  meta?: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 场景内某个角色的状态与目标（隐藏张力的载体：各角色目标不同才有真正的多角色互动） */
+export interface SceneParticipantState {
+  characterId: string;
+  /** 该角色本场想要什么 */
+  goals: string[];
+  /** 入场时已知道的事情（WorldEvent.id 列表） */
+  knowsEventIds: string[];
+  /** 本场隐瞒的事（自由文本；UI 不直接展示给用户） */
+  secrets: string[];
+  mood?: string;
+  state?: string;
+}
+
+/**
+ * 场景状态：必须结构化，不能只写进 Prompt。
+ * 注意：**场景正文不放在这里**，正文在 worldSceneEntries（长场景/分页/断点恢复）。
+ */
+export interface WorldSceneState {
+  sceneGoal?: string;
+  currentAct: number;
+  /** 当前张力 0~1 */
+  currentTension: number;
+  activeSecrets: string[];
+  activeConflicts: string[];
+  /** 已经发生、但后果尚未落地的变化 */
+  pendingConsequences: string[];
+  resolvedEventIds: string[];
+  newEventIds: string[];
+  participants: SceneParticipantState[];
+}
+
+/** 一场 World Stage（互动章节） */
+export interface WorldScene {
+  id: string;
+  userId: string;
+  worldId: string;
+  title: string;
+  place: string;
+  timeLabel: string;
+  mood: string;
+  theme?: string;
+  /** 参与者角色 id（用户恒在场景中，不入此数组） */
+  characterIds: string[];
+  status: 'draft' | 'active' | 'paused' | 'finished';
+  state: WorldSceneState;
+  templateId?: string;
+  startedAt: number;
+  finishedAt?: number;
+  /** 场景结束后生成的 WorldEvent.id（年表条目） */
+  worldEventId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * 场景正文条目（独立表，禁止塞进 worldScenes.state）：
+ * 支撑长场景、分页、断点恢复、暂停继续、单条重生成、幕次与旁白/对白/选择区分。
+ */
+export interface WorldSceneEntry {
+  id: string;
+  sceneId: string;
+  /** 场景内顺序（从 0 递增；配合 [sceneId+index] 复合索引分页） */
+  index: number;
+  kind: 'narration' | 'dialogue' | 'choice' | 'user_input' | 'system';
+  /** 所属幕次 */
+  act: number;
+  /** 说话角色 id（narration/system 为空） */
+  speakerId?: string;
+  content: string;
+  /** 选择项等附加信息 */
+  meta?: { options?: string[]; chosen?: string; rawNote?: string; [key: string]: unknown };
+  createdAt: number;
+}
+
+/**
+ * 角色认知边界：**"发生过" ≠ "某个角色知道"**。
+ * 秘密（CharacterSecret）暂时合并进本表：isSecret + secretOwnerId 即可表达
+ * "知道但不能主动说""这是某个角色的秘密"；复杂的秘密生命周期以后再独立建模。
+ */
+export interface CharacterKnowledge {
+  id: string;
+  userId: string;
+  worldId: string;
+  characterId: string;
+  /** 认知挂在哪条世界事件上（WorldEvent.id） */
+  eventId: string;
+  knowledgeLevel: 'none' | 'hint' | 'partial' | 'full';
+  /** 能否主动提起（false=知道但不主动说） */
+  canMention: boolean;
+  /** 是否秘密 */
+  isSecret: boolean;
+  /** 秘密归属：不愿说出口的角色 id（非秘密为空） */
+  secretOwnerId?: string;
+  /** 从谁那里得知（角色 id；亲身经历则为空） */
+  sourceCharacterId?: string;
+  learnedAt: number;
+  updatedAt: number;
+}
+
+/**
+ * 共同记忆：用户与角色**真正共同经历**的重要片段。
+ * 与 memories（关于用户的长期事实）严格分工，互不替代、互不迁移。
+ */
+export interface SharedMemory {
+  id: string;
+  userId: string;
+  worldId: string;
+  title: string;
+  summary: string;
+  /** 实际参与者（SubjectRef）——谁经历了这件事 */
+  participants: string[];
+  /** 涉及的角色 id（便于按角色检索；由 participants 派生） */
+  characterIds: string[];
+  createdAt: number;
+  sourceType: string;
+  sourceId: string;
+  importance: number;
+  visibility: WorldVisibility;
+  /**
+   * visibility='selected' 时允许知道这段记忆的角色 id。
+   * 注意：visibleTo 与 participants **不是一回事**——
+   * 参与者是"谁经历了"，visibleTo 是"谁被允许知道"。
+   */
+  visibleTo?: string[];
+  relatedCharacters: string[];
+  /** 关联的关系 pairKey 列表（subjectPairKey 形式） */
+  relatedRelationships: string[];
+  emotion?: string;
+  tags: string[];
+  updatedAt: number;
+}
+
+/**
+ * 关系分面（内部数值；UI 只显示语义等级，不显示数字）
+ *
+ * ⚠️ **R7 裁定（5.0.0 Phase 2b-6）**：这里**没有 `affinity`**。
+ * "用户 ↔ 角色 的好感度"的唯一来源是 4.x 的 `CharacterState.affinity`
+ * （由既有结算写入、无上限语义）。世界层**不再保存**这个数字——
+ * 否则会出现两套数值，迟早互相打架（旧的 `relationshipStates.affinity`
+ * 只是升级那一刻的快照，已经过时）。
+ *
+ * 因此世界层只负责 4.x 根本没有的四个分面，并且**只能通过 `applyEvent`（带 reason 的事件）变化**：
+ * 数值变了，就一定有可读的原因（这正是"关系网络可解释化"的基础）。
+ */
+export type RelationshipFacet = 'trust' | 'dependency' | 'conflict' | 'familiarity';
+
+export const RELATIONSHIP_FACETS: RelationshipFacet[] = ['trust', 'dependency', 'conflict', 'familiarity'];
+
+/**
+ * 当前关系状态（A ↔ B 现在是什么关系）。
+ * 同时支持"用户 ↔ 角色"与"角色 ↔ 角色"——后者是 5.0 的核心要求之一。
+ * 关系页读当前状态只读这张表，**禁止现场累加全部 relationshipEvents**。
+ * 好感度不在这张表里（见 `RelationshipFacet` 的说明）。
+ */
+export interface RelationshipState {
+  id: string;
+  userId: string;
+  worldId: string;
+  pairKey: string;
+  subjectA: string;
+  subjectB: string;
+  /** [subjectA, subjectB]（multiEntry 索引用：一次查出与某主体相关的全部关系） */
+  subjects: string[];
+  trust: number;
+  dependency: number;
+  conflict: number;
+  familiarity: number;
+  updatedAt: number;
+}
+
+/** 关系变化历史：解释"为什么会变成现在这样" */
+export interface RelationshipEvent {
+  id: string;
+  userId: string;
+  worldId: string;
+  pairKey: string;
+  subjectA: string;
+  subjectB: string;
+  /** [subjectA, subjectB]（multiEntry 索引用） */
+  subjects: string[];
+  /** 只记录发生变化的分面增量 */
+  facets: Partial<Record<RelationshipFacet, number>>;
+  /** 变化原因（自然语言，直接给用户看） */
+  reason: string;
+  /** 来源世界事件（WorldEvent.id） */
+  sourceEventId?: string;
+  sourceType: string;
+  createdAt: number;
+}
+
 /** 角色生命轨迹中的一个可回看的变化节点。 */
 export interface LifeEvent {
   id: string;
@@ -115,6 +386,14 @@ export interface LifeEvent {
   title: string;
   detail?: string;
   createdAt: number;
+  /**
+   * 5.0：这条轨迹**从哪来**（可追溯用，也用于决定是否进世界层）。
+   * - chat：私聊结算产生
+   * - group：群聊相关（如"进入共同场域"）——**属于功能操作，不进世界层**
+   * - manual：用户手动操作（长按记住/教记忆/分享照片等）
+   * 旧数据没有该字段，按 chat 处理。
+   */
+  source?: 'chat' | 'group' | 'manual';
 }
 
 export interface CharacterState {
@@ -203,6 +482,12 @@ export interface Message {
     memoryIds?: string[];
     continuityThreadIds?: string[];
     sharedEventIds?: string[];
+    /** 5.0 共同记忆（sharedMemories.id）：角色确实知道、且这一轮真的注入了的那些 */
+    sharedMemoryIds?: string[];
+    /** 5.0 日记（diaries.id）：用户显式允许这个角色知道、且这一轮真的注入了的那几页 */
+    diaryIds?: string[];
+    /** 5.0 世界舞台（worldScenes.id）：这个角色亲身参与过、且这一轮真的注入了的那几场戏 */
+    sceneIds?: string[];
     /** 记录时间 */
     at: number;
   };
@@ -268,6 +553,18 @@ export interface Diary {
   aiNoteAt?: number;
   /** 软删除时间戳：非空表示在回收站（7 天后自动清除） */
   deletedAt?: number;
+  // ---- 5.0 Living World ----
+  /**
+   * 可见性（默认 private）：
+   * - private  只有用户自己知道（**5.0.0 起既有日记升级后一律是这个值**）
+   * - selected 只有 visibleTo 里的角色知道
+   * - world    进入共同世界（世界内角色可以知道）
+   */
+  visibility?: WorldVisibility;
+  /** visibility='selected' 时允许知道的角色 id */
+  visibleTo?: string[];
+  /** 本条日记授权进入世界层后对应的 WorldEvent.id（未授权为空） */
+  worldEventId?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -284,6 +581,15 @@ export class VirtuGeneDB extends Dexie {
   groups!: Table<Group, string>;
   continuityThreads!: Table<ContinuityThread, string>;
   sharedStoryEvents!: Table<SharedStoryEvent, string>;
+  // 5.0 Living World（Dexie v16）
+  worlds!: Table<World, string>;
+  worldEvents!: Table<WorldEvent, string>;
+  worldScenes!: Table<WorldScene, string>;
+  worldSceneEntries!: Table<WorldSceneEntry, string>;
+  characterKnowledge!: Table<CharacterKnowledge, string>;
+  sharedMemories!: Table<SharedMemory, string>;
+  relationshipStates!: Table<RelationshipState, string>;
+  relationshipEvents!: Table<RelationshipEvent, string>;
 
   constructor() {
     super('virtugene');
@@ -459,6 +765,21 @@ export class VirtuGeneDB extends Dexie {
     });
     // User-scoped world reads need an index; the compound key cannot index its second field alone.
     this.version(16).stores({ characterStates: '[characterId+userId],userId' });
+    // v17: 5.0.0 Living World 数据基础（Phase 1）。
+    // 只新增 8 张表 + 由 migrate-4x 做幂等派生回填；既有 11 张表一律不改写、不删除。
+    // 幂等键统一为 userId + worldId + sourceType + sourceId（并据此生成确定性 id）。
+    this.version(17).stores({
+      worlds: 'id,userId,isDefault',
+      worldEvents: 'id,userId,worldId,type,[worldId+timestamp],[worldId+type],[worldId+sourceType+sourceId],sourceType,sourceId,timestamp',
+      worldScenes: 'id,userId,worldId,status,[worldId+status],updatedAt',
+      worldSceneEntries: 'id,sceneId,[sceneId+index],index',
+      characterKnowledge: 'id,userId,worldId,characterId,eventId,[characterId+eventId],[worldId+characterId]',
+      sharedMemories: 'id,userId,worldId,[worldId+createdAt],sourceType,sourceId,[worldId+sourceType+sourceId],*characterIds',
+      relationshipStates: 'id,userId,worldId,pairKey,[worldId+pairKey],*subjects',
+      relationshipEvents: 'id,userId,worldId,pairKey,[worldId+pairKey],*subjects,sourceEventId,createdAt',
+    }).upgrade(async (tx) => {
+      await runWorldMigration(tx);
+    });
   }
 }
 

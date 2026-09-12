@@ -2,7 +2,7 @@
  * 局域网同步数据：全量收集（导出）与合并写入（导入）。
  * 桌面端与手机端共用同一份格式，通过 HTTP 互传。
  */
-import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent } from '../db/index';
+import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent } from '../db/index';
 
 export interface SyncExportData {
   __meta__: {
@@ -24,6 +24,15 @@ export interface SyncExportData {
   continuityThreads?: ContinuityThread[];
   /** 4.0 人物共同事件（新字段，旧数据包没有时按空处理） */
   sharedStoryEvents?: SharedStoryEvent[];
+  // ---- 5.0 Living World（旧数据包没有这些字段时按空处理）----
+  worlds?: World[];
+  worldEvents?: WorldEvent[];
+  worldScenes?: WorldScene[];
+  worldSceneEntries?: WorldSceneEntry[];
+  characterKnowledge?: CharacterKnowledge[];
+  sharedMemories?: SharedMemory[];
+  relationshipStates?: RelationshipState[];
+  relationshipEvents?: RelationshipEvent[];
 }
 
 /** 收集当前设备全部业务数据（不含账号密码与 API Key，隐私不外传） */
@@ -31,7 +40,8 @@ export async function collectSyncData(
   userId: string | null,
   username: string | null,
 ): Promise<SyncExportData> {
-  const [characters, sessions, messages, memories, emotionSnapshots, characterStates, diaries, continuityThreads, sharedStoryEvents] =
+  const [characters, sessions, messages, memories, emotionSnapshots, characterStates, diaries, continuityThreads, sharedStoryEvents,
+    worlds, worldEvents, worldScenes, worldSceneEntries, characterKnowledge, sharedMemories, relationshipStates, relationshipEvents] =
     await Promise.all([
       db.characters.toArray(),
       db.sessions.toArray(),
@@ -42,6 +52,14 @@ export async function collectSyncData(
       db.diaries.toArray(),
       db.continuityThreads.toArray(),
       db.sharedStoryEvents.toArray(),
+      db.worlds.toArray(),
+      db.worldEvents.toArray(),
+      db.worldScenes.toArray(),
+      db.worldSceneEntries.toArray(),
+      db.characterKnowledge.toArray(),
+      db.sharedMemories.toArray(),
+      db.relationshipStates.toArray(),
+      db.relationshipEvents.toArray(),
     ]);
   return {
     __meta__: {
@@ -61,6 +79,14 @@ export async function collectSyncData(
     diaries,
     continuityThreads,
     sharedStoryEvents,
+    worlds,
+    worldEvents,
+    worldScenes,
+    worldSceneEntries,
+    characterKnowledge,
+    sharedMemories,
+    relationshipStates,
+    relationshipEvents,
   };
 }
 
@@ -89,7 +115,8 @@ export async function importSyncData(
     const counts: Record<string, number> = {};
     await db.transaction(
       'rw',
-      [db.characters, db.sessions, db.messages, db.memories, db.emotionSnapshots, db.characterStates, db.diaries, db.continuityThreads, db.sharedStoryEvents],
+      [db.characters, db.sessions, db.messages, db.memories, db.emotionSnapshots, db.characterStates, db.diaries, db.continuityThreads, db.sharedStoryEvents,
+        db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents],
       async () => {
         let n = 0;
         for (const c of data.characters ?? []) {
@@ -155,6 +182,66 @@ export async function importSyncData(
           n += 1;
         }
         counts.sharedStoryEvents = n;
+
+        // ---- 5.0 Living World：旧数据包没有这些字段时整段跳过 ----
+        n = 0;
+        for (const w of data.worlds ?? []) {
+          await db.worlds.put(w);
+          n += 1;
+        }
+        counts.worlds = n;
+
+        n = 0;
+        for (const e of data.worldEvents ?? []) {
+          await db.worldEvents.put(e);
+          n += 1;
+        }
+        counts.worldEvents = n;
+
+        n = 0;
+        for (const s of data.worldScenes ?? []) {
+          await db.worldScenes.put(s);
+          n += 1;
+        }
+        counts.worldScenes = n;
+
+        n = 0;
+        for (const e of data.worldSceneEntries ?? []) {
+          await db.worldSceneEntries.put(e);
+          n += 1;
+        }
+        counts.worldSceneEntries = n;
+
+        n = 0;
+        for (const k of data.characterKnowledge ?? []) {
+          await db.characterKnowledge.put(k);
+          n += 1;
+        }
+        counts.characterKnowledge = n;
+
+        n = 0;
+        for (const m of data.sharedMemories ?? []) {
+          await db.sharedMemories.put(m);
+          n += 1;
+        }
+        counts.sharedMemories = n;
+
+        n = 0;
+        for (const s of data.relationshipStates ?? []) {
+          // R7 裁定：世界层不保存好感度。旧备份里可能还带着早期版本写的 `affinity` 快照，
+          // 导入时直接剥掉，避免把"第二个数值来源"又搬回来。
+          const { affinity: _legacyAffinity, ...rest } = s as RelationshipState & { affinity?: number };
+          await db.relationshipStates.put(rest as RelationshipState);
+          n += 1;
+        }
+        counts.relationshipStates = n;
+
+        n = 0;
+        for (const e of data.relationshipEvents ?? []) {
+          await db.relationshipEvents.put(e);
+          n += 1;
+        }
+        counts.relationshipEvents = n;
       },
     );
     return { ok: true, counts };

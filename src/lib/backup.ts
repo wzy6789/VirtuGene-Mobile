@@ -47,6 +47,15 @@ export interface BackupData {
   diaries: SyncExportData['diaries'];
   continuityThreads?: SyncExportData['continuityThreads'];
   sharedStoryEvents?: SyncExportData['sharedStoryEvents'];
+  // 5.0 Living World（旧备份包没有这些字段时按空处理）
+  worlds?: SyncExportData['worlds'];
+  worldEvents?: SyncExportData['worldEvents'];
+  worldScenes?: SyncExportData['worldScenes'];
+  worldSceneEntries?: SyncExportData['worldSceneEntries'];
+  characterKnowledge?: SyncExportData['characterKnowledge'];
+  sharedMemories?: SyncExportData['sharedMemories'];
+  relationshipStates?: SyncExportData['relationshipStates'];
+  relationshipEvents?: SyncExportData['relationshipEvents'];
 }
 
 /** 收集全量数据（含账号表，用于完整备份） */
@@ -65,6 +74,14 @@ export async function collectBackupData(userId: string | null, username: string 
     diaries: base.diaries,
     continuityThreads: base.continuityThreads,
     sharedStoryEvents: base.sharedStoryEvents,
+    worlds: base.worlds,
+    worldEvents: base.worldEvents,
+    worldScenes: base.worldScenes,
+    worldSceneEntries: base.worldSceneEntries,
+    characterKnowledge: base.characterKnowledge,
+    sharedMemories: base.sharedMemories,
+    relationshipStates: base.relationshipStates,
+    relationshipEvents: base.relationshipEvents,
   };
 }
 
@@ -153,6 +170,14 @@ export async function restoreBackup(password: string): Promise<{
       diaries: data.diaries ?? [],
       continuityThreads: data.continuityThreads ?? [],
       sharedStoryEvents: data.sharedStoryEvents ?? [],
+      worlds: data.worlds ?? [],
+      worldEvents: data.worldEvents ?? [],
+      worldScenes: data.worldScenes ?? [],
+      worldSceneEntries: data.worldSceneEntries ?? [],
+      characterKnowledge: data.characterKnowledge ?? [],
+      sharedMemories: data.sharedMemories ?? [],
+      relationshipStates: data.relationshipStates ?? [],
+      relationshipEvents: data.relationshipEvents ?? [],
     };
     const r = await importSyncData(syncPayload);
     if (!r.ok) return { ok: false, error: r.error ?? '数据导入失败' };

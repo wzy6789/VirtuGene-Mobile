@@ -37,6 +37,15 @@ export function compileChatContext(
 
   const ordered = [...sections]
     .filter((section) => section.text.trim().length > 0)
+    // 同一个 key 只允许注入一次：重复的区块（例如不小心把 diary 写了两遍）会让同一段
+    // 内容被塞进 Prompt 两次——既浪费预算，也让模型看到重复信息。
+    // 保留优先级最高的那一条；优先级相同则保留先出现的那条（可预测）。
+    .reduce<PromptSection[]>((acc, section) => {
+      const existing = acc.findIndex((s) => s.key === section.key);
+      if (existing === -1) acc.push(section);
+      else if (section.priority > acc[existing].priority) acc[existing] = section;
+      return acc;
+    }, [])
     .sort((a, b) => b.priority - a.priority);
 
   for (const section of ordered) {

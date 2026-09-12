@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Diary } from '../../db/index';
 import { moodEmoji, moodColor, formatDateFull } from '../../lib/diary-utils';
 import { HighlightText } from '../../lib/diary-highlight';
+import { DiarySharingBadge } from './DiarySharing';
 
 interface Props {
   entries: Diary[];
@@ -82,6 +83,7 @@ export function DiaryTimeline({ entries, onEdit, highlight }: Props) {
                         <span className="text-sm font-semibold text-ink truncate">
                           <HighlightText text={d.title || '无标题'} terms={terms} />
                         </span>
+                        <DiarySharingBadge diary={d} />
                         {d.images && d.images.length > 0 && (
                           <span className="text-[10px] text-gray-400 shrink-0">🖼️{d.images.length}</span>
                         )}

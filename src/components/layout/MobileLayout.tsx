@@ -2,10 +2,13 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { ChatPage } from '../../pages/ChatPage';
 import { MobileChatListPage } from '../chat/MobileChatListPage';
 import { NotificationCloud } from '../chat/NotificationCloud';
-import { useUIStore, type MobileTab } from '../../store/ui-store';
+import { useUIStore, MOBILE_TABS, type MobileTab } from '../../store/ui-store';
 import { useChatStore } from '../../store/chat-store';
+import { MobileWorldPage } from '../world/MobileWorldPage';
+import { MobileRelationsPage } from '../world/MobileRelationsPage';
+import { MobileStagePage } from '../world/MobileStagePage';
 
-// 手账包含日历、导出和多种 AI 辅助；仅在用户进入手账页时下载。
+// 手账包含日历、导出和多种 AI 辅助；仅在用户从「世界 → 我的生活」进入时下载。
 const DiaryPage = lazy(() => import('../../pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
 const MobileCharacterPage = lazy(() => import('../character/MobileCharacterPage').then((m) => ({ default: m.MobileCharacterPage })));
 const MobileMePage = lazy(() => import('./MobileMePage').then((m) => ({ default: m.MobileMePage })));
@@ -38,13 +41,16 @@ function TabIcon({ name, active }: { name: MobileTab; active: boolean }) {
         <circle cx="12" cy="7" r="4" />
       </svg>
     );
-  if (name === 'diary')
+  if (name === 'world')
     return (
       <svg width="22" height="22" viewBox="0 0 24 24" {...common}>
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+        {/* 世界：一颗星球 + 运行轨迹（Living World） */}
+        <circle cx="12" cy="12" r="7.2" />
+        <path d="M3.6 10.4c3.4-1.7 7.9-2.4 12-1.6 2.6.5 4.6 1.4 5.4 2.4" />
+        <path d="M20.4 15.2c-3.4 1.5-7.6 2.1-11.5 1.4-2.7-.5-4.7-1.5-5.5-2.5" />
       </svg>
     );
+  // 手账已下沉为「世界 → 我的生活」内容页，不再是底部 tab，因此这里没有 diary 图标
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" {...common}>
       <circle cx="12" cy="8" r="4" />
@@ -54,7 +60,8 @@ function TabIcon({ name, active }: { name: MobileTab; active: boolean }) {
 }
 
 /**
- * 手机端外壳：微信式底部四栏导航（聊天 / 角色 / 手账 / 我的）。
+ * 手机端外壳：微信式底部四栏一级导航（5.0：消息 / 世界 / 角色 / 我的）。
+ * - 手账不是 tab：从「世界 → 我的生活」进入，进入后底部导航保持可见（点任意一级导航即退出）
  * - tab 状态放 ui-store（聊天页可返回角色页）
  * - 键盘弹出（输入聚焦）时隐藏底部导航，避免四个 tab 被顶到输入框上面
  * - 激活 tab 有胶囊高亮 + 顶部小圆点强调（学习微信/QQ）
@@ -77,12 +84,14 @@ export function MobileLayout() {
     [unreadByCharacter],
   );
 
-  // 外部 activeView 变化（如手账内点「返回聊天」）→ 同步底部 tab
-  useEffect(() => {
-    if (activeView === 'diary' && tab !== 'diary') setTab('diary');
-    if (activeView === 'chat' && tab === 'diary') setTab('chat');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeView]);
+  // 5.0：手账不再是底部 tab，而是「世界 → 我的生活」打开的内容（复用 activeView === 'diary'）。
+  // 它**不隐藏底部导航**，所以手机端不会出现"进去了出不来"；此时高亮「世界」。
+  // 同一条规则适用于「关系网络」（activeView === 'relations'）与「世界剧场」（'stage'）。
+  const diaryOpen = activeView === 'diary';
+  const relationsOpen = activeView === 'relations';
+  const stageOpen = activeView === 'stage';
+  const overlayOpen = diaryOpen || relationsOpen || stageOpen;
+  const activeTab: MobileTab = overlayOpen ? 'world' : tab;
 
   // 定时刷新未读数（主动消息到达时保持 tab 徽标新鲜；角色页也会自行拉取）
   useEffect(() => {
@@ -142,8 +151,8 @@ export function MobileLayout() {
     if (t !== 'characters') useUIStore.getState().setChatFromCharacters(false);
     if (t !== 'chat') useUIStore.getState().setChatFromList(false);
     setTab(t);
-    if (t === 'chat') useUIStore.getState().setActiveView('chat');
-    if (t === 'diary') useUIStore.getState().setActiveView('diary');
+    // 手账/关系网络是覆盖页：点任何一级导航都退出它（含点「世界」本身）
+    useUIStore.getState().setActiveView('chat');
   };
 
   /** 进入聊天：从会话列表或角色页推入（微信式），只保留当前来源的推入标记 */
@@ -176,30 +185,41 @@ export function MobileLayout() {
         <main className="flex-1 min-h-0 overflow-hidden">
           <Suspense fallback={<div className="vg-loading" role="status">正在打开你的空间…</div>}>
           <div
-            key={tab + (chatFromCharacters || chatFromList ? '-chat' : '')}
+            key={tab + (diaryOpen ? '-diary' : '') + (relationsOpen ? '-relations' : '') + (stageOpen ? '-stage' : '') + (chatFromCharacters || chatFromList ? '-chat' : '')}
             className="h-full animate-tab-in"
           >
-            {tab === 'chat' &&
-              (chatFromList ? (
-                /* 微信式：会话列表推入聊天，返回回到会话列表（底部 tab 仍高亮「聊天」） */
-                <ChatPage />
-              ) : (
-                <MobileChatListPage onSelect={(c) => { void useChatStore.getState().selectCharacter(c.id); openChat('list'); }} />
-              ))}
-            {tab === 'characters' && (
-              chatFromCharacters ? (
-                /* 微信式：角色页推入聊天覆盖层，返回后回到角色列表（底部 tab 仍高亮「角色」） */
-                <ChatPage />
-              ) : (
-                <MobileCharacterPage onSelect={() => openChat('characters')} />
-              )
-            )}
-            {tab === 'diary' && (
-              <Suspense fallback={<div className="h-full flex items-center justify-center text-sm text-gray-500">正在打开手账…</div>}>
+            {stageOpen ? (
+              /* 世界剧场：从「世界」进入的内容页；底部导航保持可见，点任意一级导航即退出 */
+              <MobileStagePage />
+            ) : relationsOpen ? (
+              /* 关系网络：从「世界」进入的内容页；底部导航保持可见，点任意一级导航即退出 */
+              <MobileRelationsPage />
+            ) : diaryOpen ? (
+              /* 我的生活（手账）：从「世界」进入的内容页；底部导航保持可见，点任意一级导航即退出 */
+              <Suspense fallback={<div className="h-full flex items-center justify-center text-sm text-gray-500">正在打开我的生活…</div>}>
                 <DiaryPage />
               </Suspense>
+            ) : (
+              <>
+                {tab === 'chat' &&
+                  (chatFromList ? (
+                    /* 微信式：会话列表推入聊天，返回回到会话列表（底部 tab 仍高亮「消息」） */
+                    <ChatPage />
+                  ) : (
+                    <MobileChatListPage onSelect={(c) => { void useChatStore.getState().selectCharacter(c.id); openChat('list'); }} />
+                  ))}
+                {tab === 'world' && <MobileWorldPage />}
+                {tab === 'characters' && (
+                  chatFromCharacters ? (
+                    /* 微信式：角色页推入聊天覆盖层，返回后回到角色列表（底部 tab 仍高亮「角色」） */
+                    <ChatPage />
+                  ) : (
+                    <MobileCharacterPage onSelect={() => openChat('characters')} />
+                  )
+                )}
+                {tab === 'me' && <MobileMePage />}
+              </>
             )}
-            {tab === 'me' && <MobileMePage />}
           </div>
           </Suspense>
         </main>
@@ -213,15 +233,8 @@ export function MobileLayout() {
               : 'vg-navigation flex items-stretch pb-[env(safe-area-inset-bottom)]'
           }`}
         >
-          {(
-            [
-              { key: 'chat', label: '聊天' },
-              { key: 'characters', label: '角色' },
-              { key: 'diary', label: '手账' },
-              { key: 'me', label: '我的' },
-            ] as { key: MobileTab; label: string }[]
-          ).map((t) => {
-            const active = tab === t.key;
+          {MOBILE_TABS.map((t) => {
+            const active = activeTab === t.key;
             return (
               <button
                 key={t.key}

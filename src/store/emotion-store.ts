@@ -243,6 +243,8 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
       type: upgraded ? 'relationship' : 'interaction',
       title: eventTitle,
       detail: result.summary?.trim().slice(0, 220),
+      // 5.0：标明来源（私聊结算）——世界层据此决定是否派生世界事件
+      source: 'chat',
     });
 
     const csStore = useCharacterStateStore.getState();

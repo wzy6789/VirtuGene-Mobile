@@ -1,7 +1,24 @@
 import { create } from 'zustand';
 
-export type ActiveView = 'chat' | 'diary';
-export type MobileTab = 'chat' | 'characters' | 'diary' | 'me';
+/**
+ * 桌面端主内容区（聊天 / 手账）。手机端手账已下沉为「世界 → 我的生活」覆盖页，仍复用 activeView。
+ * 5.0 Phase 2b-5：「关系网络」同样从「世界」进入，也是覆盖页（保持底部导航可见）。
+ * 5.0 Phase 3：「世界剧场」同理（打开/离开舞台不消耗模型调用）。
+ */
+export type ActiveView = 'chat' | 'diary' | 'relations' | 'stage';
+/** 手机端底部一级导航（5.0：消息｜世界｜角色｜我的） */
+export type MobileTab = 'chat' | 'world' | 'characters' | 'me';
+
+/**
+ * 底部一级导航的唯一来源（外壳与验收脚本共用，避免"两处各写一份"）。
+ * 手账不再是 tab：它从「世界 → 我的生活」进入（5.0 起 世界 是核心一级入口）。
+ */
+export const MOBILE_TABS: { key: MobileTab; label: string }[] = [
+  { key: 'chat', label: '消息' },
+  { key: 'world', label: '世界' },
+  { key: 'characters', label: '角色' },
+  { key: 'me', label: '我的' },
+];
 
 interface UIState {
   activeView: ActiveView;

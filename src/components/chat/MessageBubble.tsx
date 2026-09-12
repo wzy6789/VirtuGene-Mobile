@@ -86,11 +86,15 @@ interface Props {
   characterName?: string;
   /** 长按菜单"记住"：把消息存进角色记忆 */
   onRemember?: (message: Message) => void;
+  /** 长按菜单"收藏为共同记忆"：把这条消息变成你们共同经历过的事（5.0 世界层） */
+  onCollectMemory?: (message: Message) => void;
+  /** 这条消息是否已经被收藏为共同记忆（菜单据此显示已收藏态，而不是再收藏一次） */
+  collected?: boolean;
   /** 长按菜单"查看记忆依据"：仅当这条消息记录了本机注入数据时出现 */
   onShowBasis?: (message: Message) => void;
 }
 
-export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, moodEmoji, characterName, onRemember, onShowBasis }: Props) {
+export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, moodEmoji, characterName, onRemember, onCollectMemory, collected, onShowBasis }: Props) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -367,10 +371,32 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                     💾 记住
                   </button>
                 )}
+                {/* 收藏为共同记忆：4.x 的「记住」存的是"关于用户的事实"，
+                    这里存的是"你们一起经历过的事"——两者互不替代 */}
+                {onCollectMemory && (
+                  collected ? (
+                    <div className="w-full flex items-center gap-2 px-4 py-2 text-sm text-life-cyan/70">
+                      ✓ 已是共同记忆
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        onCollectMemory(message);
+                        setMenu(null);
+                      }}
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
+                    >
+                      🧠 收藏为共同记忆
+                    </button>
+                  )
+                )}
                 {onShowBasis && (
                   (message.contextTrace?.memoryIds?.length ?? 0) > 0 ||
                   (message.contextTrace?.continuityThreadIds?.length ?? 0) > 0 ||
-                  (message.contextTrace?.sharedEventIds?.length ?? 0) > 0
+                  (message.contextTrace?.sharedEventIds?.length ?? 0) > 0 ||
+                  (message.contextTrace?.sharedMemoryIds?.length ?? 0) > 0 ||
+                  (message.contextTrace?.diaryIds?.length ?? 0) > 0 ||
+                  (message.contextTrace?.sceneIds?.length ?? 0) > 0
                 ) && (
                   <button
                     onClick={() => {

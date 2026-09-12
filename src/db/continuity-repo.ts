@@ -1,4 +1,8 @@
 import { db, type ContinuityThread } from './index';
+import {
+  removeContinuityThreadFromWorld,
+  syncContinuityThreadToWorld,
+} from '../lib/world/world-writer';
 
 /** 每个角色最多同时挂着的「未完成事件」数量；超出时把最旧的归档，而不是删掉。 */
 export const MAX_OPEN_THREADS = 8;
@@ -58,6 +62,23 @@ function similarity(a: string, b: string): number {
 
 const DUPLICATE_THRESHOLD = 0.55;
 
+/** 世界层同步一律"失败不阻断"：派生数据写不进去，不能影响未完成事件本身 */
+async function syncThreadSafely(thread: ContinuityThread): Promise<void> {
+  try {
+    await syncContinuityThreadToWorld({ userId: thread.userId, thread });
+  } catch (err) {
+    console.warn('[world] 未完成事件同步失败（不影响线索）:', err);
+  }
+}
+
+async function removeThreadFromWorldSafely(userId: string, threadIds: string[]): Promise<void> {
+  try {
+    await removeContinuityThreadFromWorld(userId, threadIds);
+  } catch (err) {
+    console.warn('[world] 派生世界事件移除失败（不影响线索删除）:', err);
+  }
+}
+
 /**
  * 判断两条线索是不是同一件事：
  * - 文字高度相似（≥0.55）
@@ -84,6 +105,9 @@ export interface NewThreadInput {
   dueAt?: number;
   sourceMessageIds?: string[];
   origin?: 'ai' | 'user';
+  /** 5.0：来自某场 World Stage / 某条世界事件时的来源（4.x 数据为空） */
+  sourceSceneId?: string;
+  sourceWorldEventId?: string;
 }
 
 /**
@@ -117,6 +141,17 @@ export const continuityRepo = {
       .sort((a, b) => (a.dueAt ?? a.createdAt) - (b.dueAt ?? b.createdAt));
   },
 
+  /**
+   * 该用户**全部角色**还挂着的未完成事件（世界页「未完成的故事」用）。
+   * 按约定时间/创建时间排序，让"最该先看见的"排在前面。
+   */
+  async getOpenByUser(userId: string): Promise<ContinuityThread[]> {
+    const all = await db.continuityThreads.where('userId').equals(userId).toArray();
+    return all
+      .filter((t) => t.status === 'open')
+      .sort((a, b) => (a.dueAt ?? a.createdAt) - (b.dueAt ?? b.createdAt));
+  },
+
   async getAllByUser(userId: string): Promise<ContinuityThread[]> {
     return db.continuityThreads.where('userId').equals(userId).toArray();
   },
@@ -136,6 +171,8 @@ export const continuityRepo = {
     const characterId = inputs[0].characterId;
     const userId = inputs[0].userId;
     let created = 0;
+    /** 需要同步进世界层的线索（新增的 + 被更新的同一件事） */
+    const touched: ContinuityThread[] = [];
 
     await db.transaction('rw', db.continuityThreads, async () => {
       const existing = (await db.continuityThreads.where('characterId').equals(characterId).toArray())
@@ -150,15 +187,18 @@ export const continuityRepo = {
         const duplicate = pool.find((t) => sameThread(t, { title, kind: input.kind }));
         if (duplicate) {
           const mergedIds = Array.from(new Set([...(duplicate.sourceMessageIds ?? []), ...(input.sourceMessageIds ?? [])]));
-          await db.continuityThreads.put({
+          const merged: ContinuityThread = {
             ...duplicate,
             detail: input.detail?.trim().slice(0, 200) || duplicate.detail,
             dueAt: input.dueAt ?? duplicate.dueAt,
             sourceMessageIds: mergedIds.slice(-6),
             updatedAt: now,
-          });
+          };
+          await db.continuityThreads.put(merged);
           const idx = pool.findIndex((t) => t.id === duplicate.id);
-          if (idx >= 0) pool[idx] = { ...duplicate, updatedAt: now };
+          if (idx >= 0) pool[idx] = merged;
+          // 同一件事再次被提起：也要同步（世界层是幂等的，只更新同一条）
+          touched.push(merged);
           continue;
         }
         const thread: ContinuityThread = {
@@ -171,12 +211,15 @@ export const continuityRepo = {
           status: 'open',
           ...(input.dueAt ? { dueAt: input.dueAt } : {}),
           sourceMessageIds: (input.sourceMessageIds ?? []).slice(-6),
+          ...(input.sourceSceneId ? { sourceSceneId: input.sourceSceneId } : {}),
+          ...(input.sourceWorldEventId ? { sourceWorldEventId: input.sourceWorldEventId } : {}),
           origin: input.origin ?? 'ai',
           createdAt: now + created,
           updatedAt: now + created,
         };
         await db.continuityThreads.put(thread);
         pool.push(thread);
+        touched.push(thread);
         created += 1;
       }
 
@@ -186,12 +229,23 @@ export const continuityRepo = {
       if (stillOpen.length > MAX_OPEN_THREADS) {
         // 超出上限只「自动收起」最旧的几条（保留原文与时间，用户可随时重新挂起），不做删除。
         // 用 archived 而不是 dropped：dropped 是用户自己说"稍后再说"，系统不该混用这个语义。
-        const archive = stillOpen.slice(MAX_OPEN_THREADS);
-        await db.continuityThreads.bulkPut(
-          archive.map((t) => ({ ...t, status: 'archived' as const })),
-        );
+        const archived = stillOpen
+          .slice(MAX_OPEN_THREADS)
+          .map((t) => ({ ...t, status: 'archived' as const }));
+        await db.continuityThreads.bulkPut(archived);
+        // 归档也是状态变化：派生世界事件必须同步（否则世界里仍显示为"还挂着"）
+        touched.push(...archived);
       }
     });
+
+    // 5.0（Phase 2b-0）：约定 / 未完成事项同步进世界层（零额外 AI 调用，纯本地派生）
+    for (const thread of touched) {
+      try {
+        await syncContinuityThreadToWorld({ userId, thread });
+      } catch (err) {
+        console.warn('[world] 未完成事件同步进世界层失败（不影响线索本身）:', err);
+      }
+    }
 
     return created;
   },
@@ -230,7 +284,7 @@ export const continuityRepo = {
     const existing = await db.continuityThreads.get(id);
     if (!existing) return;
     const now = Date.now();
-    await db.continuityThreads.put({
+    const next: ContinuityThread = {
       ...existing,
       status: 'done',
       completedAt: now,
@@ -238,20 +292,28 @@ export const continuityRepo = {
       ...(sourceMessageIds?.length
         ? { sourceMessageIds: Array.from(new Set([...(existing.sourceMessageIds ?? []), ...sourceMessageIds])).slice(-6) }
         : {}),
-    });
+    };
+    await db.continuityThreads.put(next);
+    // 世界层同步：完成 ⇒ 同一条世界事件的 resolved 变 true（不新增）
+    await syncThreadSafely(next);
   },
 
   /** 「稍后再说」：标记为不再挂起（仍可在时间线里回看） */
   async drop(id: string): Promise<void> {
     const existing = await db.continuityThreads.get(id);
     if (!existing) return;
-    await db.continuityThreads.put({ ...existing, status: 'dropped', updatedAt: Date.now() });
+    const next: ContinuityThread = { ...existing, status: 'dropped', updatedAt: Date.now() };
+    await db.continuityThreads.put(next);
+    // dropped ≠ 已解决，世界事件仍保留为「未完成」
+    await syncThreadSafely(next);
   },
 
   async reopen(id: string): Promise<void> {
     const existing = await db.continuityThreads.get(id);
     if (!existing) return;
-    await db.continuityThreads.put({ ...existing, status: 'open', completedAt: undefined, updatedAt: Date.now() });
+    const next: ContinuityThread = { ...existing, status: 'open', completedAt: undefined, updatedAt: Date.now() };
+    await db.continuityThreads.put(next);
+    await syncThreadSafely(next);
   },
 
   async update(
@@ -260,28 +322,36 @@ export const continuityRepo = {
   ): Promise<void> {
     const existing = await db.continuityThreads.get(id);
     if (!existing) return;
-    await db.continuityThreads.put({
+    const next: ContinuityThread = {
       ...existing,
       ...patch,
       title: patch.title !== undefined ? patch.title.trim().slice(0, 60) || existing.title : existing.title,
       detail: patch.detail !== undefined ? patch.detail.trim().slice(0, 200) || undefined : existing.detail,
       updatedAt: Date.now(),
-    });
+    };
+    await db.continuityThreads.put(next);
+    await syncThreadSafely(next);
   },
 
   async remove(id: string): Promise<void> {
+    const existing = await db.continuityThreads.get(id);
     await db.continuityThreads.delete(id);
+    // 用户主动删除：派生事件一并移除，避免世界里留下无法解释的孤儿
+    if (existing) await removeThreadFromWorldSafely(existing.userId, [id]);
   },
 
   async deleteByCharacter(characterId: string, userId: string): Promise<void> {
     const all = await db.continuityThreads.where('characterId').equals(characterId).toArray();
     const ids = all.filter((t) => t.userId === userId).map((t) => t.id);
     if (ids.length) await db.continuityThreads.bulkDelete(ids);
+    // 该角色的约定随角色一起消失 ⇒ 派生世界事件也移除
+    await removeThreadFromWorldSafely(userId, ids);
   },
 
   async clearForUser(userId: string): Promise<void> {
     const all = await db.continuityThreads.where('userId').equals(userId).toArray();
     const ids = all.map((t) => t.id);
     if (ids.length) await db.continuityThreads.bulkDelete(ids);
+    await removeThreadFromWorldSafely(userId, ids);
   },
 };

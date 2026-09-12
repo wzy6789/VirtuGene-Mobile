@@ -1,5 +1,6 @@
 import { db, type CharacterState, type LifeEvent, type RelationMilestone, type StoryRelation } from './index';
 import { RELATION_LEVELS, getRelationLevel } from '../lib/affinity';
+import { syncLifeEventToWorld } from '../lib/world/world-writer';
 
 const DEFAULT_AFFINITY = 0;
 const DEFAULT_MOOD = 70;
@@ -143,15 +144,19 @@ export const stateRepo = {
   /**
    * 写入一条可回看的共同事件，并把它作为角色当下的关注点。
    * 事件只保留最近 24 条，避免角色生命轨迹无限膨胀。
+   *
+   * 5.0（Phase 2b-0）：写入成功后把"真正值得留下的事"同步进世界层
+   * （关系变化 / 用户显式记住的片段 / 约定；普通互动刻意不写——见 world-writer 的说明）。
+   * 同步在事务**之外**执行：世界层是派生数据，写不进去不能影响生命轨迹本身。
    */
   async recordLifeEvent(
     characterId: string,
     userId: string,
     event: Omit<LifeEvent, 'id' | 'createdAt'> & Partial<Pick<LifeEvent, 'id' | 'createdAt'>>,
   ): Promise<CharacterState> {
-    return db.transaction('rw', db.characterStates, async () => {
+    const { state, lifeEvent } = await db.transaction('rw', db.characterStates, async () => {
       const existing = await db.characterStates.get([characterId, userId]);
-      const state: CharacterState = existing ?? {
+      const current: CharacterState = existing ?? {
         characterId,
         userId,
         affinity: DEFAULT_AFFINITY,
@@ -165,19 +170,28 @@ export const stateRepo = {
         title: event.title.slice(0, 48),
         detail: event.detail?.slice(0, 220),
         createdAt: event.createdAt ?? Date.now(),
+        // 来源必须一并保留：世界层按来源决定是否派生世界事件（漏掉它会让白名单失效）
+        ...(event.source ? { source: event.source } : {}),
       };
-      const lifeEvents = [...(state.lifeEvents ?? []), nextEvent]
+      const lifeEvents = [...(current.lifeEvents ?? []), nextEvent]
         .sort((a, b) => b.createdAt - a.createdAt)
         .slice(0, 24);
       const next: CharacterState = {
-        ...state,
+        ...current,
         lifeFocus: nextEvent.title,
         lifeEvents,
         updatedAt: Date.now(),
       };
       await db.characterStates.put(next);
-      return next;
+      return { state: next, lifeEvent: nextEvent };
     });
+
+    try {
+      await syncLifeEventToWorld({ userId, characterId, lifeEvent });
+    } catch (err) {
+      console.warn('[world] 生命轨迹同步进世界层失败（不影响记录本身）:', err);
+    }
+    return state;
   },
 
   /**

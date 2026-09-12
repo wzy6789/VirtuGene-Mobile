@@ -4,6 +4,7 @@ import { FilterSelect } from '../ui/FilterSelect';
 import { SwipeBackView } from '../ui/SwipeBackView';
 import { ExtractModal } from './ExtractModal';
 import { DiaryView } from './DiaryView';
+import { DiarySharingControl } from './DiarySharing';
 import { useDiaryStore } from '../../store/diary-store';
 import { useSettingsStore } from '../../store/settings-store';
 import { useAuthStore } from '../../store/auth-store';
@@ -399,6 +400,16 @@ export function DiaryChatPage({ date, onBack }: Props) {
         )}
 
         <div className="flex-1 min-w-0" />
+
+        {/* 5.0：这一页谁能看到（仅自己 / 告诉某角色 / 加入共同世界）。
+            与下面的「分享给角色」是两件事：分享=发一条消息；授权=TA 以后能知道并能提起它 */}
+        {diary && (
+          <DiarySharingControl
+            diary={diary}
+            compact={isPast}
+            onChange={(next) => { diaryRef.current = next; setDiary(next); }}
+          />
+        )}
 
         {!isPast && (
           <>

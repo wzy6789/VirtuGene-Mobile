@@ -1,5 +1,5 @@
 import { getRelationLevel } from './affinity';
-import type { Character, CharacterState, ContinuityThread, SharedStoryEvent } from '../db/index';
+import type { Character, CharacterState, ContinuityThread, Diary, SharedMemory, SharedStoryEvent } from '../db/index';
 
 /**
  * 时间感知：让角色知道"现在是几点、距上次聊天多久"。
@@ -192,6 +192,75 @@ export function buildContinuityThreadContext(threads: ContinuityThread[]): strin
     '这些是你们之前真实发生过、但还没有结束的事。如果这一轮对话的氛围合适，可以像真人一样自然地接上（问一句、提一句、继续那个话题）。' +
     '要求：不要像待办清单或客服一样逐条复述或催办；不要因为"没做完"就反复念叨；' +
     '绝不要声称用户做过 TA 没有说过、没有做过的事；用户不想聊就顺着用户。'
+  );
+}
+
+/**
+ * 共同记忆注入（5.0）：角色记得"你们一起经历过的事"。
+ *
+ * 与 4.x 的两个区块严格区分，不要混为一谈：
+ * - `buildMemoryRecall` / 长期记忆：**关于用户的事实**（"用户喜欢猫"）
+ * - `buildSharedEventContext`：**角色与其他角色**之间发生的故事
+ * - 本函数：**用户与这个角色**共同经历过、且角色确实知道的事
+ *
+ * 传进来的条目已经过"可见性 + 认知（full 且可提起）"两道闸门（见 lib/world/recall.ts），
+ * 这里只负责把它写成角色能自然使用的一段话。
+ */
+export function buildSharedMemoryContext(memories: SharedMemory[]): string {
+  const list = memories.slice(0, 3);
+  if (list.length === 0) return '';
+  const lines = list
+    .map((memory) => `- ${memory.title}${memory.summary ? `（${memory.summary.slice(0, 160)}）` : ''}`)
+    .join('\n');
+  return (
+    `\n\n[你和用户一起经历过的事]\n${lines}\n` +
+    '这些是你们**共同经历过**、你也确实记得的事。如果这一轮话题自然相关，可以像真人一样提起它（提一句、接着聊、或者只是语气里带着这份熟悉感）。' +
+    '要求：不要每次都提；不要像念清单一样逐条复述；不要编造细节、不要把这些事说成是别的角色和你经历的；' +
+    '如果用户不接这个话题，就顺着用户。'
+  );
+}
+
+/**
+ * 日记注入（5.0 Phase 2b-4）：**只注入你显式允许这个角色知道的那几页**。
+ *
+ * 取代了 4.x 的全局开关 `diarySharedWithCharacters`（那个开关会把最近日记注入**每一个**角色）。
+ * 传进来的日记已经过两道闸门：`diaryRepo.listVisibleFor`（逐条可见性，private 永不返回）
+ * + `listMentionableDiaryIds`（该角色确实知道且可提起）。
+ */
+export function buildDiaryContext(diaries: Diary[]): string {
+  const list = diaries.slice(0, 3);
+  if (list.length === 0) return '';
+  const lines = list
+    .map((d) => `【${d.date}】${d.title ? `《${d.title}》\n` : ''}${d.content.trim().slice(0, 200)}`)
+    .join('\n\n');
+  return (
+    `\n\n[用户主动让你知道的日记]\n${lines}\n` +
+    '这些是用户**明确让你知道**的日记内容（不是你自己偷看到的，也不代表你能看到 TA 的其他日记）。' +
+    '如果话题自然相关，可以像知道这件事的朋友一样提起；要求：不要每次都提、不要大段复述原文、' +
+    '不要把它当成"聊天记录"来引用，更不要暗示你知道 TA 没让你知道的其它日记。'
+  );
+}
+
+/**
+ * 舞台回忆注入（Phase 3b）：这个角色**亲身参与过、并且已经结束**的那几场戏。
+ *
+ * 与其它区块的分工：
+ * - `buildSharedMemoryContext`：你收藏下来的共同记忆（一句话级）
+ * - 本函数：你们**一起演过的一场戏**（有地点、有时间、有一句"发生了什么"）
+ *
+ * 传进来的内容已经过"参与过 + 知道且可提起 + 可见"三道闸门（见 lib/world/scene-recall.ts）。
+ */
+export function buildSceneContext(scenes: { title: string; place: string; timeLabel: string; summary?: string }[]): string {
+  const list = scenes.slice(0, 2);
+  if (list.length === 0) return '';
+  const lines = list
+    .map((s) => `- 《${s.title}》（${s.place} · ${s.timeLabel}）${s.summary ? `：${s.summary.slice(0, 160)}` : ''}`)
+    .join('\n');
+  return (
+    `\n\n[你们一起经历过的事（世界舞台）]\n${lines}\n` +
+    '这些不是听说的——你**亲身在场**，和用户一起经历过。话题自然相关时，可以像回忆一件真事那样提起（提一句、带上当时的细节或情绪）。' +
+    '要求：不要每次都提；不要逐字复述整段经过；不要编造没有发生过的细节；' +
+    '也不要把它说成是你和**别的**角色一起经历的；用户不想聊就顺着用户。'
   );
 }
 
