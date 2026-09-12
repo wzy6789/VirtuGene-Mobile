@@ -1,0 +1,145 @@
+import { useEffect, useState } from 'react';
+import type { ContinuityThread, Message, SharedStoryEvent, MemoryItem } from '../../db/index';
+import { memoryRepo } from '../../db/memory-repo';
+import { continuityRepo, KIND_LABEL, STATUS_LABEL } from '../../db/continuity-repo';
+import { sharedEventRepo } from '../../db/shared-event-repo';
+import { Modal } from '../ui/Modal';
+
+type Trace = Message['contextTrace'];
+
+/**
+ * 记忆依据：这条回复当时**真的**参考了哪些本地数据。
+ * 只读取 contextTrace 里记录的 id —— 不重新推理、不展示整段 prompt，
+ * 记忆被删除后也不会再出现在这里（会明确显示"已不存在"）。
+ */
+export function MemoryBasisModal({
+  open,
+  onClose,
+  trace,
+  characterName,
+}: {
+  open: boolean;
+  onClose: () => void;
+  trace: Trace;
+  characterName: string;
+}) {
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [threads, setThreads] = useState<ContinuityThread[]>([]);
+  const [events, setEvents] = useState<SharedStoryEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || !trace) {
+      setMemories([]);
+      setThreads([]);
+      setEvents([]);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    void Promise.all([
+      memoryRepo.getByIds(trace.memoryIds ?? []),
+      continuityRepo.getByIds(trace.continuityThreadIds ?? []),
+      sharedEventRepo.getByIds(trace.sharedEventIds ?? []),
+    ])
+      .then(([m, t, e]) => {
+        if (!active) return;
+        setMemories(m);
+        setThreads(t);
+        setEvents(e);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, [open, trace]);
+
+  const missingMemory = (trace?.memoryIds?.length ?? 0) - memories.length;
+  const missingThread = (trace?.continuityThreadIds?.length ?? 0) - threads.length;
+  const missingEvent = (trace?.sharedEventIds?.length ?? 0) - events.length;
+  const empty =
+    memories.length === 0 && threads.length === 0 && events.length === 0;
+
+  return (
+    <Modal open={open} onClose={onClose} title="这条回复的记忆依据" width="max-w-md">
+      <div className="p-5 space-y-4">
+        <p className="text-[11px] leading-relaxed text-gray-500">
+          这里记录的是生成这条回复时，本机**实际注入**给{characterName || '角色'}的资料。全部保存在你的手机上，不会被上传。
+        </p>
+
+        {loading && <p className="py-8 text-center text-xs text-gray-500">正在读取本地记忆…</p>}
+
+        {!loading && empty && (
+          <div className="py-8 text-center text-xs text-gray-500">
+            这条回复没有依赖本机记忆——{characterName || '角色'}当时只根据你们的对话本身回应。
+          </div>
+        )}
+
+        {!loading && memories.length > 0 && (
+          <section>
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-gene-purple" />
+              <h3 className="text-xs font-semibold text-ink">长期记忆</h3>
+              <span className="text-[10px] text-gray-500">{memories.length} 条</span>
+            </div>
+            <ul className="space-y-1.5">
+              {memories.map((m) => (
+                <li key={m.id} className="rounded-xl border border-gene-purple/20 bg-gene-purple/[0.06] px-3 py-2">
+                  <p className="text-[12px] leading-relaxed text-ink">{m.content}</p>
+                  <p className="mt-1 text-[10px] text-gray-500">
+                    {new Date(m.createdAt).toLocaleDateString('zh-CN')}
+                    {m.sourceMessageIds && m.sourceMessageIds.length > 0 ? ' · 有原话依据' : ' · 由对话总结'}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {!loading && threads.length > 0 && (
+          <section>
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-life-cyan" />
+              <h3 className="text-xs font-semibold text-ink">还没做完的事</h3>
+              <span className="text-[10px] text-gray-500">{threads.length} 条</span>
+            </div>
+            <ul className="space-y-1.5">
+              {threads.map((t) => (
+                <li key={t.id} className="rounded-xl border border-life-cyan/20 bg-life-cyan/[0.06] px-3 py-2">
+                  <p className="text-[12px] leading-relaxed text-ink">{t.title}</p>
+                  <p className="mt-1 text-[10px] text-gray-500">
+                    {KIND_LABEL[t.kind]} · {STATUS_LABEL[t.status]}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {!loading && events.length > 0 && (
+          <section>
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#A99CF9]" />
+              <h3 className="text-xs font-semibold text-ink">人物之间的故事</h3>
+              <span className="text-[10px] text-gray-500">{events.length} 条</span>
+            </div>
+            <ul className="space-y-1.5">
+              {events.map((e) => (
+                <li key={e.id} className="rounded-xl border border-line bg-surface/70 px-3 py-2">
+                  <p className="text-[12px] leading-relaxed text-ink">{e.title}</p>
+                  <p className="mt-1 text-[10px] text-gray-500">{e.type}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {!loading && (missingMemory > 0 || missingThread > 0 || missingEvent > 0) && (
+          <p className="rounded-xl border border-line bg-surface/60 px-3 py-2 text-[10px] leading-relaxed text-gray-500">
+            有 {missingMemory + missingThread + missingEvent} 条当时的依据如今已不存在（可能已被你删除或自动清理），所以这里不再显示。
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}

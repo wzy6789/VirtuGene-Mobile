@@ -18,6 +18,13 @@ export interface GroupMemberBrief {
   privateChat?: string;
   /** 该成员与用户的灵魂状态（等阶名·好感度·心情；仅 TA 自己知道） */
   soulState?: string;
+  /** 用户设定的角色间故事关系；成员会据此保持一致的互动立场。 */
+  storyRelations?: string;
+  /**
+   * 该成员与群内其他成员之间真实发生过的共同事件（只读）。
+   * 群聊可以自然地承接这些往事，但绝不允许在群聊里新建或修改它们。
+   */
+  sharedHistory?: string;
 }
 
 export interface GroupTurn {
@@ -40,6 +47,7 @@ const GROUP_INSTRUCTION =
   '- 成员的"最近私聊记录"是 TA 刚刚和用户私下聊过的内容（列在成员信息里）。相关成员可以自然承接私聊话题（比如用户私下说过的事，TA 在群里可以接话/回应）；**不要整段复述私聊记录**\n' +
   '- **私聊是私密的：每个成员只知道 TA 自己的私聊记录，不知道别人的。** 只有某成员自己私下和用户聊过的事，才由 TA 在群里说出来；其他成员不该表现出知道（除非 TA 在群里说了）\n' +
   '- **灵魂状态（等阶/好感度/心情）同样是私密的**：每个成员只知道 TA 自己的（列在成员信息里），会自然影响 TA 的言行（亲近者更随意、心情差者更闷）；其他成员不该知道别人的灵魂状态\n' +
+  '- 「共同事件」是成员之间真实发生过的事（只读资料）：话题相关时可以像真人一样自然提起，但**不允许在群聊里新编、改写或宣布它们没发生过**\n' +
   '- 没有记忆的成员不要假装有共同经历\n' +
   '- 禁止用括号写动作描写（如（笑）（叹气））\n' +
   '输出要求（务必遵守）：\n' +
@@ -99,7 +107,9 @@ async function attemptTurn(
         const mem = m.memory ? `\n　· 与用户的共同记忆：${m.memory}` : '';
         const priv = m.privateChat ? `\n　· 与用户的最近私聊记录：\n${m.privateChat.split('\n').map((l) => '　　' + l).join('\n')}` : '';
         const soul = m.soulState ? `\n　· 与用户的灵魂状态（仅 TA 自己知道）：${m.soulState}` : '';
-        return `${m.name}：${m.persona}${mem}${priv}${soul}`;
+        const story = m.storyRelations ? `\n　· TA 知道的故事关系：${m.storyRelations}` : '';
+        const past = m.sharedHistory ? `\n　· TA 与群内其他成员之间真实发生过的共同事件（只读）：${m.sharedHistory}` : '';
+        return `${m.name}：${m.persona}${mem}${priv}${soul}${story}${past}`;
       })
       .join('\n');
     const rawHistory = params.history.slice(-16).map((h) => ({

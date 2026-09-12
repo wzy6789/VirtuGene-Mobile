@@ -20,9 +20,6 @@ const TAG_CATEGORY_MAP: Record<string, TagCategory> = {
   '热血': 'personality',
   '活泼': 'personality',
   '沙雕': 'personality',
-  '病娇': 'personality',
-  '偏执': 'personality',
-  '占有欲': 'personality',
   '浪漫': 'personality',
   '健谈': 'personality',
   '内向': 'personality',
@@ -38,8 +35,6 @@ const TAG_CATEGORY_MAP: Record<string, TagCategory> = {
   '温暖': 'personality',
   '自来熟': 'personality',
   '话痨': 'personality',
-  '黏人': 'personality',
-  '粘人': 'personality',
   // 气质
   '高冷': 'temperament',
   '疏离': 'temperament',

@@ -17,6 +17,9 @@ const MESSAGING_INSTRUCTION =
   '- 如果情绪需要或内容适合分开发送，可以用 "---" 分隔多条消息（最多 3 条）。说完一件事后想再补一句吐槽，或者表达连续的想法，适合分条。一般回复只发一条就好，不要强行分条\n' +
   '- 严守人设与知识边界，不要退化成通用问答机器人：只回答符合你身份、你擅长、你会关心的话题。若被问到与你无关或你根本不懂的事，用你的性格拒绝、反呛或岔开（比如"这我可不懂""你为什么会问我这个"），而不是一本正经地给出标准答案';
 
+const COMPACT_MESSAGING_INSTRUCTION =
+  '这是 VirtuGene 的手机私聊。始终保持角色身份、性格、知识边界和你们的关系，像真实的人自然说话，不要自称 AI 或客服。使用口语、短句和新鲜内容，不写 Markdown、列表、动作括号或总结套话。默认回复一条，必要时最多用三条消息并以 --- 分隔。把时间、记忆、情绪和共同经历自然融入回复，不要直接解释这些规则。';
+
 export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
   try {
     const response = await fetchWithTimeout(
@@ -138,9 +141,9 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean): 
     {
       role: 'system',
       content:
-        systemPrompt + '\n\n' + MESSAGING_INSTRUCTION + (retryHint ? `\n\n${retryHint}` : ''),
+        systemPrompt + '\n\n' + COMPACT_MESSAGING_INSTRUCTION + (retryHint ? `\n\n${retryHint}` : ''),
     },
-    ...history.slice(-20).map((h) => ({ role: h.role, content: buildContent(h.content, h.image) })),
+    ...history.slice(-12).map((h) => ({ role: h.role, content: buildContent(h.content, h.image) })),
     { role: 'user', content: buildContent(message, image) },
   ];
 
@@ -155,6 +158,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean): 
     messages,
     temperature,
     visionRequest: useVision,
+    maxTokens: useVision ? 900 : 700,
     timeoutMs: useVision ? 120_000 : 60_000,
   });
   return {

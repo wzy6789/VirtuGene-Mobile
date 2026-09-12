@@ -62,6 +62,11 @@ export function EmotionChart({ dimensions, previousDimensions, size = 220 }: Pro
       onMouseLeave={() => setHover(null)}
     >
       <defs>
+        <radialGradient id={`radar-space-${uid}`} cx="50%" cy="45%" r="65%">
+          <stop offset="0%" stopColor="#6C5CE7" stopOpacity="0.18" />
+          <stop offset="70%" stopColor="#00CEC9" stopOpacity="0.04" />
+          <stop offset="100%" stopColor="#0F0F1A" stopOpacity="0" />
+        </radialGradient>
         <linearGradient id={fillId} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#6C5CE7" stopOpacity="0.55" />
           <stop offset="100%" stopColor="#00CEC9" stopOpacity="0.32" />
@@ -74,6 +79,15 @@ export function EmotionChart({ dimensions, previousDimensions, size = 220 }: Pro
           <feGaussianBlur stdDeviation="3.2" />
         </filter>
       </defs>
+
+      <circle cx={cx} cy={cy} r={maxR + 19} fill={`url(#radar-space-${uid})`} />
+      {[15, 78, 145, 218, 286, 332].map((angle, i) => {
+        const star = polarToCartesian(cx, cy, maxR + 10 + (i % 2) * 7, angle);
+        return <circle key={`star-${i}`} cx={star.x} cy={star.y} r={i % 3 === 0 ? 1.8 : 1} fill={i % 2 ? '#00CEC9' : '#A99CF9'} opacity="0.55" />;
+      })}
+
+      <circle cx={cx} cy={cy} r="3" fill="#FFFFFF" opacity="0.88" />
+      <circle cx={cx} cy={cy} r="8" fill="none" stroke="#00CEC9" strokeOpacity="0.35" strokeWidth="1" className="animate-point-pulse" />
 
       {/* Grid: concentric hexagons */}
       {levels.map((level) => {

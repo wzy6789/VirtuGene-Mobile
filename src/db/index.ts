@@ -6,8 +6,11 @@ export interface User {
   avatar?: string;
   passwordHash: string;
   passwordSalt: string;
-  apiKeyIv: string;
-  apiKeyCiphertext: string;
+  /** 旧版 BYOK 用户的本地加密凭据；网关账号可以为空。 */
+  apiKeyIv?: string;
+  apiKeyCiphertext?: string;
+  /** 成年用户确认时间；当前服务不向未成年人开放。 */
+  adultConfirmedAt?: number;
   createdAt: number;
 }
 
@@ -40,11 +43,78 @@ export interface Character {
   model?: { provider: string; model: string };
   /** 口头禅（用户可设置；角色偶尔自然地使用，注入语气） */
   catchphrase?: string;
+  /** 互动边界（用户明确设定的禁区与退出方式） */
+  boundaries?: string;
+}
+
+/** 用户设定的角色间故事关系。保存于各自的生命状态中，因而只属于当前用户的世界。 */
+export interface StoryRelation {
+  targetCharacterId: string;
+  label: string;
+  description?: string;
+  createdAt: number;
 }
 
 export interface RelationMilestone {
   level: string;
   reachedAt: number;
+}
+
+/**
+ * 未完成事件（生命连续性）：用户与角色之间「说好了、但还没发生完」的事。
+ * 只记录对话里明确出现的约定 / 计划 / 悬而未决的话题 / 冲突 / 提醒，寒暄闲聊绝不入库。
+ */
+export interface ContinuityThread {
+  id: string;
+  characterId: string;
+  userId: string;
+  /** promise=承诺约定 plan=共同计划 topic=悬而未决的话题 conflict=未化解的分歧 reminder=提醒事项 */
+  kind: 'promise' | 'plan' | 'topic' | 'conflict' | 'reminder';
+  title: string;
+  detail?: string;
+  /**
+   * open=还挂着；
+   * done=已完成；
+   * dropped=用户自己说了「稍后再说」（不再主动提起，AI 也不会去动它）；
+   * archived=因为超过同时挂 8 件的上限被系统自动收起（仍然算真实发生过的事，
+   *          对话里明确做完时允许被标记完成，也可以由用户重新挂起）。
+   */
+  status: 'open' | 'done' | 'dropped' | 'archived';
+  /** 约定的时间点（可空） */
+  dueAt?: number;
+  /** 这条线索来自哪些消息（真实存在的消息 id；未知时为空数组，绝不编造） */
+  sourceMessageIds?: string[];
+  /** 由谁创建：ai=自动分析产生 user=用户手动添加 */
+  origin?: 'ai' | 'user';
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+/** 人物之间的共同事件（角色↔角色）：与群聊无关，两个角色之间的独立故事线。 */
+export interface SharedStoryEvent {
+  id: string;
+  userId: string;
+  /** 两个角色 id，始终按字典序存放，保证同一对人只有一种键 */
+  characterIds: [string, string];
+  type: '相识' | '约定' | '分歧' | '离别' | '重逢' | '转折';
+  title: string;
+  detail?: string;
+  /** 各方视角（key=角色 id）：同一件事在两人眼里不一样，保留差异 */
+  viewpoints?: Record<string, string>;
+  /** 由谁创建：user=用户手动添加 ai=由角色关系/群聊沉淀 */
+  origin?: 'ai' | 'user';
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 角色生命轨迹中的一个可回看的变化节点。 */
+export interface LifeEvent {
+  id: string;
+  type: 'interaction' | 'memory' | 'relationship' | 'goal';
+  title: string;
+  detail?: string;
+  createdAt: number;
 }
 
 export interface CharacterState {
@@ -54,6 +124,12 @@ export interface CharacterState {
   affinity: number;
   mood: number;
   milestones: RelationMilestone[];
+  /** 角色此刻最在意的事情，由共同经历逐步形成。 */
+  lifeFocus?: string;
+  /** 用户与角色共同经历后留下的成长轨迹。 */
+  lifeEvents?: LifeEvent[];
+  /** 创建角色时建立的故事关系，与后续聊天和群聊无关。 */
+  storyRelations?: StoryRelation[];
   /** 自定义等阶名（key=默认等阶名 → 用户自定义名；等阶名可随便改） */
   tierNames?: Record<string, string>;
   updatedAt: number;
@@ -119,6 +195,17 @@ export interface Message {
   replyToContent?: string;
   /** 发送失败标记（微信式：失败消息显示红色感叹号，点击重发） */
   failed?: boolean;
+  /**
+   * 本机上下文溯源：生成这条消息时，真正被注入的本地数据 id。
+   * 只记录实际注入的条目（不是整段 prompt），记忆被删除后这里不再指向任何内容。
+   */
+  contextTrace?: {
+    memoryIds?: string[];
+    continuityThreadIds?: string[];
+    sharedEventIds?: string[];
+    /** 记录时间 */
+    at: number;
+  };
 }
 
 export interface MemoryItem {
@@ -128,6 +215,13 @@ export interface MemoryItem {
   content: string;
   type: 'auto' | 'summary';
   createdAt: number;
+  /** 这条记忆来自哪个会话（可空：早期数据或用户手动添加） */
+  sourceSessionId?: string;
+  /** 这条记忆来自哪些消息（真实消息 id；未知时为空，绝不靠文本相似度猜测） */
+  sourceMessageIds?: string[];
+  /** 提取置信度 0~1（有消息依据时更高） */
+  confidence?: number;
+  updatedAt?: number;
 }
 
 export interface EmotionDimensions {
@@ -188,6 +282,8 @@ export class VirtuGeneDB extends Dexie {
   characterStates!: Table<CharacterState, [string, string]>;
   diaries!: Table<Diary, string>;
   groups!: Table<Group, string>;
+  continuityThreads!: Table<ContinuityThread, string>;
+  sharedStoryEvents!: Table<SharedStoryEvent, string>;
 
   constructor() {
     super('virtugene');
@@ -346,6 +442,23 @@ export class VirtuGeneDB extends Dexie {
         s.type = s.type ?? 'single';
       });
     });
+    // v15: 生命连续性 —— 未完成事件（continuityThreads）+ 人物共同事件（sharedStoryEvents）。
+    //      纯新增表，不动任何既有数据；MemoryItem 的溯源字段与 Message.contextTrace 均为可选字段。
+    this.version(15).stores({
+      users: 'id,username',
+      characters: 'id,isPreset,published,createdBy',
+      sessions: 'id,characterId,userId,[characterId+userId],updatedAt,groupId',
+      messages: 'id,sessionId,[sessionId+createdAt]',
+      memories: 'id,characterId,userId,createdAt',
+      emotionSnapshots: 'id,sessionId,characterId,createdAt',
+      characterStates: '[characterId+userId]',
+      diaries: 'id,userId,date,[userId+date]',
+      groups: 'id,userId',
+      continuityThreads: 'id,characterId,userId,[characterId+userId],[characterId+status],status,createdAt',
+      sharedStoryEvents: 'id,userId,*characterIds,createdAt',
+    });
+    // User-scoped world reads need an index; the compound key cannot index its second field alone.
+    this.version(16).stores({ characterStates: '[characterId+userId],userId' });
   }
 }
 

@@ -9,11 +9,14 @@ interface AuthState {
   username: string | null;
   avatar: string | null;
   apiKey: string | null;
+  gatewayAccessToken: string | null;
+  gatewayRefreshToken: string | null;
   isLoggedIn: boolean;
 
-  login: (userId: string, username: string, apiKey: string, avatar: string) => void;
+  login: (userId: string, username: string, apiKey: string | null, avatar: string, gatewayTokens?: { accessToken: string; refreshToken: string }) => void;
   logout: () => void;
   setApiKey: (apiKey: string) => void;
+  setGatewayTokens: (tokens: { accessToken: string; refreshToken: string } | null) => void;
   setAvatar: (avatar: string) => void;
 }
 
@@ -24,15 +27,26 @@ export const useAuthStore = create<AuthState>()(
       username: null,
       avatar: null,
       apiKey: null,
+      gatewayAccessToken: null,
+      gatewayRefreshToken: null,
       isLoggedIn: false,
 
-      login: (userId, username, apiKey, avatar) =>
-        set({ userId, username, apiKey, avatar, isLoggedIn: true }),
+      login: (userId, username, apiKey, avatar, gatewayTokens) =>
+        set({
+          userId,
+          username,
+          apiKey,
+          avatar,
+          gatewayAccessToken: gatewayTokens?.accessToken ?? null,
+          gatewayRefreshToken: gatewayTokens?.refreshToken ?? null,
+          isLoggedIn: true,
+        }),
 
       logout: () =>
-        set({ userId: null, username: null, avatar: null, apiKey: null, isLoggedIn: false }),
+        set({ userId: null, username: null, avatar: null, apiKey: null, gatewayAccessToken: null, gatewayRefreshToken: null, isLoggedIn: false }),
 
       setApiKey: (apiKey) => set({ apiKey }),
+      setGatewayTokens: (tokens) => set({ gatewayAccessToken: tokens?.accessToken ?? null, gatewayRefreshToken: tokens?.refreshToken ?? null }),
       setAvatar: (avatar) => set({ avatar }),
     }),
     {
@@ -45,10 +59,11 @@ export const useAuthStore = create<AuthState>()(
             userId: state.userId,
             username: state.username,
             avatar: state.avatar,
+            gatewayRefreshToken: state.gatewayRefreshToken,
             isLoggedIn: state.isLoggedIn,
           };
         }
-        return { userId: state.userId, username: state.username };
+        return { userId: state.userId, username: state.username, gatewayRefreshToken: state.gatewayRefreshToken, isLoggedIn: state.isLoggedIn };
       },
     }
   )

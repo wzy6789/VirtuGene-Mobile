@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { EmojiPicker } from '../ui/EmojiPicker';
 import { ipc } from '../../lib/ipc-client';
+import { stateRepo } from '../../db/state-repo';
 import type { Character } from '../../db/index';
 
 interface CreateGeneTabProps {
@@ -29,14 +30,26 @@ const STEP_FIELDS = [
   { key: 'personality', title: '性格', placeholder: 'TA 的性格特质、情感倾向（如：开朗、好奇、偶尔毒舌）' },
   { key: 'speechStyle', title: '说话风格', placeholder: 'TA 怎么说话？口头禅、语气、句式（如：喜欢用星空比喻情感）' },
   { key: 'speechExamples', title: '说话示例', placeholder: '给 1-2 句 TA 会说的话作为参考' },
+  { key: 'boundaries', title: '互动边界', placeholder: 'TA 不应该做什么？哪些话题要谨慎？（如：尊重现实关系，不诱导依赖）' },
   { key: 'supplement', title: '补充', placeholder: '其他任何想让 TA 记住的设定' },
 ] as const;
 
 type FieldKey = (typeof STEP_FIELDS)[number]['key'];
 
+const RELATIONSHIP_PRESETS = [
+  { label: '同伴', description: '彼此信任，在关键时刻会并肩行动。' },
+  { label: '家人', description: '有天然的牵挂与长期形成的默契。' },
+  { label: '宿敌', description: '彼此较劲，却认可对方的能力与存在。' },
+  { label: '恋人', description: '有明确的在意、亲密与相互尊重。' },
+  { label: '师徒', description: '一方引导，一方学习，也会在成长中重新理解彼此。' },
+  { label: '旧识', description: '共享一段过去，对彼此有未说尽的了解。' },
+] as const;
+
 export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const isEdit = !!editCharacter;
   const apiKey = useAuthStore((s) => s.apiKey);
+  const userId = useAuthStore((s) => s.userId) ?? '';
+  const existingCharacters = useChatStore((s) => s.characters);
   const createCharacter = useChatStore((s) => s.createCharacter);
   const updateCharacter = useChatStore((s) => s.updateCharacter);
 
@@ -47,16 +60,20 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const [signature, setSignature] = useState(editCharacter?.signature ?? '');
   const [greeting, setGreeting] = useState(editCharacter?.greeting ?? '');
   const [catchphrase, setCatchphrase] = useState(editCharacter?.catchphrase ?? '');
+  const [boundaries, setBoundaries] = useState(editCharacter?.boundaries ?? '');
   const [tagInput, setTagInput] = useState('');
   const [enableWebSearch, setEnableWebSearch] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [published, setPublished] = useState(editCharacter?.published ?? false);
+  const [relationshipTargets, setRelationshipTargets] = useState<string[]>([]);
+  const [relationshipMeta, setRelationshipMeta] = useState<Record<string, { label: string; description: string }>>({});
 
   const [fields, setFields] = useState<Record<FieldKey, string>>({
     identity: '',
     personality: '',
     speechStyle: '',
     speechExamples: '',
+    boundaries: '',
     supplement: '',
   });
   const [mode, setMode] = useState<'simple' | 'guided'>('guided');
@@ -66,6 +83,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     personality: false,
     speechStyle: false,
     speechExamples: false,
+    boundaries: false,
     supplement: false,
   });
 
@@ -89,6 +107,21 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editCharacter || !userId) return;
+    let alive = true;
+    void stateRepo.get(editCharacter.id, userId).then((state) => {
+      if (!alive || !state) return;
+      const links = state.storyRelations ?? [];
+      setRelationshipTargets(links.map((link) => link.targetCharacterId));
+      setRelationshipMeta(Object.fromEntries(links.map((link) => [link.targetCharacterId, {
+        label: link.label,
+        description: link.description ?? '',
+      }])));
+    });
+    return () => { alive = false; };
+  }, [editCharacter, userId]);
 
   const filledCount = STEP_FIELDS.filter((f) => fields[f.key].trim().length > 0).length;
   const canGenerate = name.trim().length >= 2 && !isEdit && (
@@ -235,6 +268,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     setSignature(c.signature);
     setGreeting(c.greeting);
     setSystemPrompt(c.systemPrompt);
+    setBoundaries((current) => current || fields.boundaries.trim());
     setCandidates(null);
   };
 
@@ -257,32 +291,48 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     }
 
     setIsSaving(true);
+    const finalSystemPrompt = [
+      systemPrompt.trim(),
+      boundaries.trim() ? `\n[互动边界]\n${boundaries.trim()}` : '',
+    ].filter(Boolean).join('\n');
 
     if (isEdit) {
       await updateCharacter(editCharacter.id, {
         name: name.trim(),
         avatar,
-        systemPrompt: systemPrompt.trim(),
+        systemPrompt: finalSystemPrompt,
         tags,
         signature: signature.trim(),
         greeting: greeting.trim(),
         catchphrase: catchphrase.trim() || undefined,
+        boundaries: boundaries.trim() || undefined,
         published,
       });
+      await stateRepo.replaceStoryRelations(editCharacter.id, userId, relationshipTargets.map((characterId) => ({
+        characterId,
+        label: relationshipMeta[characterId]?.label ?? '故事关联',
+        description: relationshipMeta[characterId]?.description ?? '',
+      })));
     } else {
-      await createCharacter({
+      const created = await createCharacter({
         name: name.trim(),
         avatar,
-        systemPrompt: systemPrompt.trim(),
+        systemPrompt: finalSystemPrompt,
         tags,
         signature: signature.trim(),
         greeting: greeting.trim(),
         catchphrase: catchphrase.trim() || undefined,
+        boundaries: boundaries.trim() || undefined,
         isPreset: false,
         isCustom: true,
         published,
         createdBy: '',
       });
+      await stateRepo.replaceStoryRelations(created.id, userId, relationshipTargets.map((characterId) => ({
+        characterId,
+        label: relationshipMeta[characterId]?.label ?? '故事关联',
+        description: relationshipMeta[characterId]?.description ?? '',
+      })));
     }
 
     setIsSaving(false);
@@ -362,9 +412,95 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         </div>
       </div>
 
-      {/* Create-mode input: toggle between simple description & 5-step guide */}
+      <section className="rounded-2xl border border-life-cyan/20 bg-gradient-to-br from-life-cyan/[0.07] to-gene-purple/[0.08] p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] tracking-[0.18em] text-life-cyan">STORY RELATIONSHIPS</p>
+            <h3 className="mt-1 text-sm font-semibold text-ink">把 TA 放进你的故事世界</h3>
+            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">设定的关系会直接出现在关系网络中；群聊和普通对话不会自动改变它。</p>
+          </div>
+          <span className="shrink-0 rounded-full bg-life-cyan/10 px-2 py-1 text-[10px] text-life-cyan">{relationshipTargets.length} 条连接</span>
+        </div>
+
+        {existingCharacters.filter((character) => character.id !== editCharacter?.id).length === 0 ? (
+          <p className="mt-3 rounded-xl border border-dashed border-line px-3 py-3 text-xs text-gray-500">创建更多角色后，就能在这里为他们设定同伴、宿敌、家人或任何你想要的故事关系。</p>
+        ) : (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {existingCharacters.filter((character) => character.id !== editCharacter?.id).map((character) => {
+              const selected = relationshipTargets.includes(character.id);
+              return (
+                <button
+                  type="button"
+                  key={character.id}
+                  onClick={() => {
+                    if (selected) {
+                      setRelationshipTargets((current) => current.filter((id) => id !== character.id));
+                      return;
+                    }
+                    setRelationshipTargets((current) => [...current, character.id]);
+                    setRelationshipMeta((current) => ({ ...current, [character.id]: current[character.id] ?? { label: '故事关联', description: '' } }));
+                  }}
+                  className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition-colors ${selected ? 'border-life-cyan/50 bg-life-cyan/12 text-life-cyan' : 'border-line bg-panel text-gray-500 hover:border-life-cyan/30'}`}
+                >
+                  <span className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-full bg-surface text-xs">{character.avatar.startsWith('data:') ? <img src={character.avatar} alt="" className="h-full w-full object-cover" /> : character.avatar}</span>
+                  {character.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {relationshipTargets.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {relationshipTargets.map((targetId) => {
+              const target = existingCharacters.find((character) => character.id === targetId);
+              if (!target) return null;
+              const meta = relationshipMeta[targetId] ?? { label: '故事关联', description: '' };
+              return (
+                <div key={targetId} className="rounded-xl border border-line bg-panel/75 p-2.5">
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-ink"><span className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-lg bg-surface text-xs">{target.avatar.startsWith('data:') ? <img src={target.avatar} alt="" className="h-full w-full object-cover" /> : target.avatar}</span>{target.name}</div>
+                  <div className="mb-2 flex flex-wrap gap-1.5">
+                    {RELATIONSHIP_PRESETS.map((preset) => (
+                      <button
+                        type="button"
+                        key={preset.label}
+                        onClick={() => setRelationshipMeta((current) => ({
+                          ...current,
+                          [targetId]: { label: preset.label, description: meta.description || preset.description },
+                        }))}
+                        className={`rounded-full border px-2 py-1 text-[10px] transition-colors ${meta.label === preset.label ? 'border-life-cyan/50 bg-life-cyan/12 text-life-cyan' : 'border-line bg-surface text-gray-500 hover:border-life-cyan/35 hover:text-life-cyan'}`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <input value={meta.label} onChange={(event) => setRelationshipMeta((current) => ({ ...current, [targetId]: { ...meta, label: event.target.value } }))} maxLength={18} placeholder="关系名称，例如：搭档" className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none focus:border-life-cyan/45" />
+                    <input value={meta.description} onChange={(event) => setRelationshipMeta((current) => ({ ...current, [targetId]: { ...meta, description: event.target.value } }))} maxLength={100} placeholder="关系锚点：他们为何如此相处？" className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none focus:border-life-cyan/45" />
+                  </div>
+                  <p className="mt-2 text-[10px] leading-relaxed text-gray-500">关系锚点会保留在人物网络中，并在话题相关时成为两位角色理解彼此的共同背景。</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Create-mode input: toggle between simple description & 6-step guide */}
       {!isEdit && (
         <div className="space-y-3">
+          <div className="rounded-2xl border border-gene-purple/20 bg-gradient-to-r from-gene-purple/[0.10] to-life-cyan/[0.06] px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-ink">创造一个有边界的数字人格</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-gray-500">角色可以有鲜明性格，也应尊重你的现实生活、关系和退出选择。</p>
+              </div>
+              <span className="shrink-0 rounded-full border border-life-cyan/25 bg-panel/60 px-2 py-1 text-[10px] text-life-cyan">已填写 {filledCount}/6</span>
+            </div>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gene-purple/10">
+              <div className="h-full rounded-full bg-gradient-to-r from-gene-purple to-life-cyan transition-all" style={{ width: `${Math.max(8, (filledCount / 6) * 100)}%` }} />
+            </div>
+          </div>
           <div className="flex gap-1 p-1 rounded-xl bg-surface border border-line">
             <button
               type="button"
@@ -397,7 +533,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
           ) : (
             <div className="space-y-2">
               <p className="text-xs text-gray-500">
-                至少填写一项即可生成，填写越完整基因序列越精准
+                至少填写一项即可生成。身份、语气和互动边界会让角色更鲜明，也更可控。
               </p>
               {STEP_FIELDS.map((f, i) => (
                 <div key={f.key} className="rounded-xl border border-line bg-surface overflow-hidden">

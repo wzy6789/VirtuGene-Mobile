@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useChatStore } from '../../store/chat-store';
 import { useCharacterStateStore } from '../../store/character-state-store';
@@ -11,6 +11,7 @@ import { ChatInput } from './ChatInput';
 import type { ChatInputHandle } from './ChatInput';
 import { BalanceBanner, type ChatError } from './BalanceBanner';
 import { ChatHeaderMoreMenu } from './ChatHeaderMoreMenu';
+import { getRelationLevel } from '../../lib/affinity';
 import { SwipeBackView } from '../ui/SwipeBackView';
 import { IS_MOBILE } from '../../lib/platform';
 import { messageRepo } from '../../db/message-repo';
@@ -19,8 +20,11 @@ import { memoryRepo } from '../../db/memory-repo';
 import { emotionRepo } from '../../db/emotion-repo';
 import { diaryRepo, todayStr } from '../../db/diary-repo';
 import { stateRepo } from '../../db/state-repo';
+import { continuityRepo } from '../../db/continuity-repo';
+import { sharedEventRepo } from '../../db/shared-event-repo';
 import { ipc } from '../../lib/ipc-client';
-import { buildTimeContext, buildRelationshipContext, buildUserEmotionContext, buildDayContext, buildMemoryRecall, buildCatchphrase } from '../../lib/chat-context';
+import { buildTimeContext, buildRelationshipContext, buildUserEmotionContext, buildDayContext, buildMemoryRecall, buildCatchphrase, buildLifeContext, buildStoryRelationContext, buildContinuityThreadContext, buildSharedEventContext, pickContinuityThreads } from '../../lib/chat-context';
+import { computeMessageDelays, splitReplyParts, prefersReducedMotion } from '../../lib/chat-pacing';
 import { checkReplyQuality } from '../../lib/reply-quality';
 import { DIARY_MOODS } from '../../lib/diary-utils';
 import { useNotificationStore } from '../../store/notification-store';
@@ -28,16 +32,24 @@ import { useUIStore } from '../../store/ui-store';
 import { useTTS, synthesizeSpeech, audioBufToDataUrl, audioDurationSec } from '../../lib/tts';
 import { DEFAULT_VOICE, ALL_VOICES } from '../../lib/voice-map';
 import { resolveModel, findModel } from '../../lib/ai/llm';
+import { compileChatContext, selectRelevantMemories } from '../../lib/chat-context-compiler';
+import { isAiGatewayConfigured } from '../../lib/ai/gateway';
 import { ModelPickModal } from './ModelPickModal';
-import type { Message } from '../../db/index';
+import { ImmersiveSceneCard } from './ImmersiveSceneCard';
+import type { ContinuityThread, Message, SharedStoryEvent } from '../../db/index';
+
+// 记忆依据弹窗只在长按菜单里用到：与手账/群聊同一套按需加载策略，不进首屏主包
+const MemoryBasisModal = lazy(() => import('./MemoryBasisModal').then((m) => ({ default: m.MemoryBasisModal })));
 
 const FIVE_MINUTES = 5 * 60 * 1000;
 /** 会话保留窗口：最近 30 条消息原样保留，更早的滚动压缩为摘要 */
-const SUMMARY_WINDOW = 30;
+const SUMMARY_WINDOW = 18;
 /** 摘要再生成阈值：滚动出窗口的消息累积到该数量才重新压缩 */
-const SUMMARY_REGENERATE_THRESHOLD = 10;
-/** 分条回复的逐条发出间隔（ms），模拟真人打字节奏 */
-const PART_DELAY_MS = 600;
+const SUMMARY_REGENERATE_THRESHOLD = 8;
+const MAX_CHARACTER_PROMPT_CHARS = 12_000;
+const MAX_SUMMARY_CHARS = 2_500;
+const MAX_MEMORY_CHARS = 220;
+const MAX_HISTORY_MESSAGE_CHARS = 1_200;
 
 function formatTimeLabel(ts: number): string {
   const d = new Date(ts);
@@ -137,16 +149,21 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const hasMoreMessages = useChatStore((s) => s.hasMoreMessages);
   const loadEarlierMessages = useChatStore((s) => s.loadEarlierMessages);
   const apiKey = useAuthStore((s) => s.apiKey);
+  const hasAiAccess = Boolean(apiKey) || isAiGatewayConfigured();
   const userId = useAuthStore((s) => s.userId) ?? '';
   const userAvatar = useAuthStore((s) => s.avatar) ?? DEFAULT_USER_AVATAR;
   /** 角色当前心情（气泡角上的小表情） */
   const charMood = useCharacterStateStore((s) => s.mood);
+  const affinity = useCharacterStateStore((s) => s.affinity);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
+  const fillSceneDraft = useCallback((text: string) => inputRef.current?.setDraft(text), []);
 
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<ChatError>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  /** 记忆依据（长按消息 → 查看这条回复参考了哪些本地记忆/未完成事件/共同事件） */
+  const [basisMessage, setBasisMessage] = useState<Message | null>(null);
   /** 图片识别失败自动降级为文字模式时的提示 */
   const [degradeNotice, setDegradeNotice] = useState<string | null>(null);
   /** 首次进入聊天：会话未锁定模型时弹出模型选择（选定后聊天中不可改） */
@@ -159,6 +176,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
 
   const character = characters.find((c) => c.id === selectedCharacterId);
+  const relationName = getRelationLevel(affinity).level.name;
 
   /** 朗读一条 AI 消息：优先角色声线（Edge 音色）；声线缺失/非法时现场分配性别正确的声线再播，
    *  分配超时才用默认音色兜底（保证点喇叭一定有声音，且默认兜底也是 Edge 音色而非系统音） */
@@ -254,7 +272,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 72,
     overscan: 8,
-    getItemKey: (index) => rows[index].key,
+    getItemKey: (index: number) => rows[index].key,
   });
 
   // Keep scrolled to the latest message on new messages / session switch /
@@ -314,7 +332,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
 
   const handleSend = async (text: string) => {
     const sessionId = currentSessionId;
-    if (!sessionId || !character || !apiKey) return;
+    if (!sessionId || !character || !hasAiAccess) return;
 
     setError(null);
 
@@ -344,7 +362,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   /** 发送图片消息（微信式：图片为主，文字可选） */
   const handleSendImage = async (dataUrl: string) => {
     const sessionId = currentSessionId;
-    if (!sessionId || !character || !apiKey) return;
+    if (!sessionId || !character || !hasAiAccess) return;
     setError(null);
     const userMsg: Message = {
       id: crypto.randomUUID(),
@@ -366,7 +384,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   /** 发送语音消息（微信式）：录音转文字作为 content 发给 AI（AI 理解文字），音频存消息可回听 */
   const handleSendVoice = async (voice: { dataUrl: string; duration: number; text: string }) => {
     const sessionId = currentSessionId;
-    if (!sessionId || !character || !apiKey) return;
+    if (!sessionId || !character || !hasAiAccess) return;
     const text = voice.text.trim();
     if (!text) return;
     setError(null);
@@ -389,7 +407,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
 
   /** 微信式重发：点击失败消息的红色感叹号，重发原内容（复用同一消息记录） */
   const handleRetry = async (failedMsg: Message) => {
-    if (!currentSessionId || !character || !apiKey || sending) return;
+    if (!currentSessionId || !character || !hasAiAccess || sending) return;
     if (failedMsg.sessionId !== currentSessionId) return;
     const apiMessage = failedMsg.replyToContent
       ? `（你在引用这条消息：「${failedMsg.replyToContent}」）\n${failedMsg.content}`
@@ -401,13 +419,24 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   const handleRemember = async (m: Message) => {
     if (!character || !currentSessionId) return;
     try {
+      const now = Date.now();
       await memoryRepo.create({
         id: crypto.randomUUID(),
         characterId: character.id,
         userId,
         content: m.content.slice(0, 200),
         type: 'auto',
-        createdAt: Date.now(),
+        createdAt: now,
+        // 溯源：用户手动记住的记忆，明确指向这一条消息
+        sourceSessionId: currentSessionId,
+        sourceMessageIds: [m.id],
+        confidence: 1,
+        updatedAt: now,
+      });
+      await stateRepo.recordLifeEvent(character.id, userId, {
+        type: 'memory',
+        title: '你把一段话郑重地留在了记忆里',
+        detail: m.content.slice(0, 180),
       });
     } catch {
       /* 静默：保存失败不影响聊天 */
@@ -417,7 +446,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
   /** 核心发送管线：构建上下文 → 调 API（带自检重试）→ 落库/上屏；失败则把用户消息标记为失败态 */
   const performSend = async (text: string, apiMessage: string, userMsg: Message, image?: string) => {
     const sessionId = userMsg.sessionId;
-    if (!character || !apiKey) return;
+    if (!character || !hasAiAccess) return;
 
     // 新一轮发送开始：清掉上次的降级提示（若本次又降级会重新出现）
     setDegradeNotice(null);
@@ -432,16 +461,17 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     // 注意：allMsgs 已包含刚发送的 userMsg，history 需排除最后一条，
     // 否则模型会看到同一条用户消息两遍（deepseek.ts 会再 append 一次）。
     const allMsgs = useChatStore.getState().messages;
-    const history = allMsgs.slice(-21, -1).map((m) => ({
+    const history = allMsgs.slice(-13, -1).map((m) => ({
       role: m.role as 'user' | 'assistant',
-      content: m.content,
+      content: m.content.slice(0, MAX_HISTORY_MESSAGE_CHARS),
       image: m.image,
     }));
 
-    // Inject character memories into system prompt (最近 15 条，避免上下文膨胀)
-    const memories = await memoryRepo.getRecentByCharacter(character.id, userId, 15);
+    // Inject character memories into system prompt (最近 8 条，避免上下文膨胀)
+    const allMemories = await memoryRepo.getByCharacter(character.id, userId);
+    const memories = selectRelevantMemories(allMemories, text, 8);
     const memoryContext = memories.length > 0
-      ? '\n\n[关于用户的长期记忆]\n' + memories.map((m) => `- ${m.content}`).join('\n')
+      ? '\n\n[关于用户的长期记忆]\n' + memories.map((m) => `- ${m.content.slice(0, MAX_MEMORY_CHARS)}`).join('\n')
       : '';
 
     // 手动教记忆：用户说"记住……" → 存入角色记忆，并让角色当场确认记住了
@@ -450,13 +480,23 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     let teachContext = '';
     if (taughtMemory) {
       try {
+        const taughtAt = Date.now();
         await memoryRepo.create({
           id: crypto.randomUUID(),
           characterId: character.id,
           userId,
           content: taughtMemory,
           type: 'auto',
-          createdAt: Date.now(),
+          createdAt: taughtAt,
+          sourceSessionId: sessionId,
+          sourceMessageIds: [userMsg.id],
+          confidence: 1,
+          updatedAt: taughtAt,
+        });
+        await stateRepo.recordLifeEvent(character.id, userId, {
+          type: 'memory',
+          title: '你们约定记住一件事',
+          detail: taughtMemory,
         });
         teachContext =
           `\n\n[用户刚告诉你一件重要的事]\n用户说："${taughtMemory}" —— 你已把它记在心里。` +
@@ -473,6 +513,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         const recent = await memoryRepo.getRecentByCharacter(character.id, userId, 5);
         const dupKey = shareText ? `分享：${shareText}` : '分享照片';
         if (!recent.some((m) => m.content.includes(dupKey))) {
+          const shareAt = Date.now();
           await memoryRepo.create({
             id: crypto.randomUUID(),
             characterId: character.id,
@@ -481,7 +522,11 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
               ? `用户分享了一张照片：${shareText.slice(0, 100)}`
               : '用户分享了一张照片（未配文）',
             type: 'auto',
-            createdAt: Date.now(),
+            createdAt: shareAt,
+            sourceSessionId: sessionId,
+            sourceMessageIds: [userMsg.id],
+            confidence: 1,
+            updatedAt: shareAt,
           });
         }
       } catch {
@@ -491,8 +536,11 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
 
     // 主动回忆：约 1/4 概率随机翻一段旧记忆，氛围合适时自然提起（让记忆"活"起来）
     let recallContext = '';
+    let recalledMemoryId: string | undefined;
     if (memories.length > 0 && Math.random() < 0.25) {
-      recallContext = buildMemoryRecall(memories[Math.floor(Math.random() * memories.length)].content);
+      const recalled = memories[Math.floor(Math.random() * memories.length)];
+      recallContext = buildMemoryRecall(recalled.content);
+      recalledMemoryId = recalled.id;
     }
 
     // 今天是什么日子：认识天数特殊节点
@@ -512,6 +560,31 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     // 关系状态文字化：等阶（含用户自定义名）+ 好感度 + 心情 → 角色可见灵魂状态
     const state = await stateRepo.getOrCreate(character.id, userId);
     const relationshipContext = buildRelationshipContext(state.affinity, state.mood, state.tierNames);
+    const lifeContext = buildLifeContext(state);
+    const storyRelationContext = buildStoryRelationContext(state, characters);
+
+    // 4.0 生命连续性：还没做完的事（未完成事件）——挑最相关的 1~3 条，让角色能自然接上
+    let openThreads: ContinuityThread[] = [];
+    let injectedThreads: ContinuityThread[] = [];
+    let threadContext = '';
+    try {
+      openThreads = await continuityRepo.getOpenByCharacter(character.id, userId);
+      injectedThreads = pickContinuityThreads(openThreads, text, 3);
+      threadContext = buildContinuityThreadContext(injectedThreads);
+    } catch {
+      /* 读不到就当没有，不影响发送 */
+    }
+
+    // 4.0 人物共同事件：角色与其他角色之间的故事（与用户无关，但角色自己记得）
+    let sharedEvents: SharedStoryEvent[] = [];
+    let sharedEventContext = '';
+    try {
+      sharedEvents = await sharedEventRepo.getRecentByCharacter(character.id, userId, 3);
+      const nameOf = (id: string) => characters.find((c) => c.id === id)?.name;
+      sharedEventContext = buildSharedEventContext(sharedEvents, character.id, nameOf);
+    } catch {
+      /* ignore */
+    }
 
     // 用户情绪感知：最近一次结算感知到的用户情绪
     const latestSnapshot = await emotionRepo.getLatest(sessionId);
@@ -544,7 +617,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         if (recentDiaries.length > 0) {
           diaryShareContext =
             '\n\n[用户的日记（角色可见已开启，可自然提及，但不要生硬复述）]\n' +
-            recentDiaries.map((d) => `【${d.date}】${d.title ? `《${d.title}》` : ''}\n${d.content.slice(0, 200)}`).join('\n\n');
+            recentDiaries.slice(0, 3).map((d) => `【${d.date}】${d.title ? `《${d.title}》` : ''}\n${d.content.slice(0, 120)}`).join('\n\n');
         }
       } catch {
         /* ignore */
@@ -570,14 +643,55 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       await sessionRepo.update(sessionId, { tempVisionRounds: tempRounds });
     }
     const summaryContext = sessionData?.summary
-      ? `\n\n[早前对话摘要（更早的内容已压缩，不必逐条回忆，若与当前话题相关可自然提及）]\n${sessionData.summary}`
+      ? `\n\n[早前对话摘要（更早的内容已压缩，不必逐条回忆，若与当前话题相关可自然提及）]\n${sessionData.summary.slice(0, MAX_SUMMARY_CHARS)}`
       : '';
 
     // 用户的时代/社会背景：角色从对话里主动适配用户所述的时代与生活语境
     const userBackgroundContext = '';
 
-    const enrichedPrompt =
-      character.systemPrompt + memoryContext + teachContext + recallContext + timeContext + relationshipContext + userEmotionContext + userBackgroundContext + dayContext + catchphraseContext + diaryMoodContext + diaryShareContext + summaryContext;
+    const compiled = compileChatContext(
+      character.systemPrompt.slice(0, MAX_CHARACTER_PROMPT_CHARS),
+      [
+        { key: 'relationship', text: relationshipContext, priority: 100 },
+        { key: 'story-relationships', text: storyRelationContext, priority: 97 },
+        { key: 'continuity', text: threadContext, priority: 94 },
+        { key: 'shared-events', text: sharedEventContext, priority: 88 },
+        { key: 'life', text: lifeContext, priority: 92 },
+        { key: 'current-time', text: timeContext, priority: 95 },
+        { key: 'user-emotion', text: userEmotionContext, priority: 90 },
+        { key: 'memory', text: memoryContext, priority: 85 },
+        { key: 'taught-memory', text: teachContext, priority: 100 },
+        { key: 'summary', text: summaryContext, priority: 75 },
+        { key: 'diary-mood', text: diaryMoodContext, priority: 65 },
+        { key: 'diary-share', text: diaryShareContext, priority: 55 },
+        { key: 'recall', text: recallContext, priority: 50 },
+        { key: 'day', text: dayContext, priority: 45 },
+        { key: 'catchphrase', text: catchphraseContext, priority: 35 },
+      ],
+    );
+    const enrichedPrompt = compiled.prompt;
+
+    // 记忆依据（溯源）：只记录这一轮**真的完整注入**的本地数据 id，不是整段 prompt。
+    // 上下文编译器的预算不足时会截断区块（compiled.partial），被截断的区块无法确认
+    // 究竟哪几条真正进了 prompt，所以一律不记录——宁可少报，也不谎报"已参考"。
+    const fullyIncluded = new Set(compiled.included);
+    const tracedMemoryIds = new Set<string>();
+    if (fullyIncluded.has('memory')) for (const m of memories) tracedMemoryIds.add(m.id);
+    if (fullyIncluded.has('recall') && recalledMemoryId) tracedMemoryIds.add(recalledMemoryId);
+    const contextTrace = {
+      ...(tracedMemoryIds.size > 0 ? { memoryIds: [...tracedMemoryIds] } : {}),
+      ...(fullyIncluded.has('continuity') && injectedThreads.length > 0
+        ? { continuityThreadIds: injectedThreads.map((t) => t.id) }
+        : {}),
+      ...(fullyIncluded.has('shared-events') && sharedEvents.length > 0
+        ? { sharedEventIds: sharedEvents.map((e) => e.id) }
+        : {}),
+      at: Date.now(),
+    };
+    const hasTrace =
+      (contextTrace.memoryIds?.length ?? 0) > 0 ||
+      (contextTrace.continuityThreadIds?.length ?? 0) > 0 ||
+      (contextTrace.sharedEventIds?.length ?? 0) > 0;
 
     // 动态温度：按角色主动倾向微调——高冷/疏离用低温度（更克制稳定），活泼/话痨用高温度（更跳脱）
     const temperature = 0.6 + (character.proactivity ?? 0.5) * 0.3;
@@ -599,11 +713,11 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       } = { error: 'server:error' };
       let retryHint: string | undefined;
       let retries = 0;
-      const MAX_RETRIES = 2;
+      const MAX_RETRIES = 1;
 
       for (;;) {
         result = await ipc.chat.send({
-          apiKey,
+          apiKey: apiKey ?? '',
           systemPrompt: enrichedPrompt,
           message: apiMessage,
           image,
@@ -650,10 +764,10 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         setSessionMeta((meta) => ({ ...meta, cost: next }));
       }
 
-      // 保证「对方正在输入…」至少展示约 0.7s，避免秒回一闪而过
+      // 保证「对方正在输入…」自然停留一会儿，而不是秒回一闪而过
       const elapsed = Date.now() - startedAt;
-      if (elapsed < 700) {
-        await new Promise((r) => setTimeout(r, 700 - elapsed));
+      if (elapsed < 620) {
+        await new Promise((r) => setTimeout(r, 620 - elapsed));
       }
 
       if (result.error) {
@@ -663,9 +777,19 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         await messageRepo.markFailed(userMsg.id, true);
         updateMessage(userMsg.id, { failed: true });
       } else if (result.content?.trim()) {
-        // Split multi-message responses on "---"，逐条延迟发出，模拟真人打字
-        const parts = result.content.split('---').map((p: string) => p.trim()).filter((p: string) => p.length > 0);
+        // 自然聊天节奏：默认一条；只有回复本身自然分段（---）时才分成 2~3 条，
+        // 逐条按真人打字时间出现（第一条 350~900ms，后续 450~1100ms / 长句最多 1800ms，总长 ≤3500ms）。
+        const parts = splitReplyParts(result.content);
+        const reduced = prefersReducedMotion();
+        // 网络本身的耗时也算进第一条的节奏里：模型慢时不额外硬等，模型秒回时也让气泡自然出现
+        const delays = computeMessageDelays(parts, {
+          reducedMotion: reduced,
+          alreadyElapsedMs: Date.now() - startedAt,
+        });
         for (let i = 0; i < parts.length; i++) {
+          if (delays[i] > 0) {
+            await new Promise((r) => setTimeout(r, delays[i]));
+          }
           // 被 max_tokens 截断时，最后一条补「…」（真人发整条，但偶尔也像话没说完）
           const isLast = i === parts.length - 1;
           const content = isLast && result.truncated ? parts[i] + '…' : parts[i];
@@ -679,6 +803,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
             content,
             createdAt: Date.now() + i, // ensure unique timestamps for ordering
             isProactive: false,
+            ...(hasTrace ? { contextTrace } : {}),
             ...(aiVoiceOn ? { audio: { dataUrl: '', duration: 0, text: content } } : {}),
           };
           await messageRepo.create(aiMsg);
@@ -702,9 +827,6 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
               }
             })();
           }
-          if (!isLast) {
-            await new Promise((r) => setTimeout(r, PART_DELAY_MS));
-          }
         }
         await sessionRepo.touch(sessionId);
 
@@ -719,10 +841,10 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         }
 
         // 每 3 条用户消息合并结算一次：情绪 + 记忆 + 好感度（单次 API 调用）。
-        // 2026-08-30：5 → 3，记忆更及时入库（群聊需要角色立刻知道私聊里说过的事）。
+        // 每 5 条用户消息结算一次，平衡关系更新及时性和后台调用成本。
         // 注意：allMsgs 在 addMessage(userMsg) 之后读取，已包含刚发的这条，不能再 +1
         const userMsgCount = allMsgs.filter((m) => m.role === 'user').length;
-        if (userMsgCount > 0 && userMsgCount % 3 === 0) {
+        if (userMsgCount > 0 && userMsgCount % 5 === 0) {
           void useEmotionStore.getState().settle(character.id, sessionId, character.name);
         }
 
@@ -749,7 +871,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
 
   /** 长会话滚动摘要：超出保留窗口的早期对话压缩成摘要，持久化到会话 */
   const maybeSummarize = async (sessionId: string) => {
-    if (!apiKey) return;
+    if (!hasAiAccess) return;
     try {
       const msgs = await messageRepo.getBySession(sessionId);
       if (msgs.length <= SUMMARY_WINDOW) return;
@@ -760,8 +882,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       const uncovered = oldMsgs.filter((m) => m.createdAt > lastCovered);
       if (uncovered.length < SUMMARY_REGENERATE_THRESHOLD) return;
 
-      const history = oldMsgs.slice(-200).map((m) => ({ role: m.role, content: m.content }));
-      const result = await ipc.context.summarize({ apiKey, history });
+      const history = oldMsgs.slice(-80).map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_MESSAGE_CHARS) }));
+      const result = await ipc.context.summarize({ apiKey: apiKey ?? '', history });
       if (result.summary) {
         await sessionRepo.updateSummary(sessionId, result.summary);
       }
@@ -808,9 +930,10 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       enabled={IS_MOBILE && !!character}
       onBack={backToCharacters}
     >
-    <div className="h-full flex flex-col">
+    <div className="chat-room h-full flex flex-col">
       {/* Header */}
-      <div className="h-12 flex items-center gap-1 px-3 sm:px-4 border-b border-line shrink-0">
+      <div className="chat-header relative z-30 h-14 flex items-center gap-1 px-3 sm:px-4 border-b border-line shrink-0 bg-gradient-to-r from-gene-purple/[0.07] via-transparent to-life-cyan/[0.05]">
+        <div className="absolute bottom-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-gene-purple/45 to-transparent" />
         {/* 手机端返回角色页（微信式）：聊天 → 回到选人界面 */}
         {IS_MOBILE && (
           <button
@@ -824,14 +947,20 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           </button>
         )}
         {character && (
-          <div key={selectedCharacterId} className="animate-fade-in flex items-center gap-2 min-w-0">
+          <div key={selectedCharacterId} className="animate-fade-in flex items-center gap-2.5 min-w-0">
             {character.avatar.startsWith('data:') ? (
-              <img src={character.avatar} alt={character.name} className="w-7 h-7 rounded-lg object-cover shrink-0" />
+              <img src={character.avatar} alt={character.name} className="w-8 h-8 rounded-xl object-cover shrink-0 ring-1 ring-life-cyan/35 shadow-[0_0_12px_rgba(0,206,201,.16)]" />
             ) : (
-              <span className="text-lg shrink-0">{character.avatar}</span>
+              <span className="w-8 h-8 rounded-xl bg-panel border border-life-cyan/25 flex items-center justify-center text-lg shrink-0 shadow-[0_0_12px_rgba(0,206,201,.12)]">{character.avatar}</span>
             )}
-            <span className="text-sm font-medium text-ink truncate">{character.name}</span>
-            {sending && <span className="text-xs text-gray-500 shrink-0 hidden sm:inline">对方正在输入…</span>}
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold text-ink truncate">{character.name}</span>
+                <span className="hidden sm:inline-flex items-center gap-1 rounded-full border border-gene-purple/20 bg-gene-purple/10 px-1.5 py-0.5 text-[9px] text-gene-purple">✦ {relationName}</span>
+              </div>
+              <p className="hidden sm:block text-[10px] text-gray-500 truncate">数字人格正在与你共同生长</p>
+            </div>
+            {sending && <span className="text-xs text-life-cyan shrink-0 hidden sm:inline animate-pulse">正在输入…</span>}
           </div>
         )}
         <div className="flex-1 min-w-0" />
@@ -847,11 +976,33 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
 
       {/* Messages — 桌面端点击空白聚焦输入（像微信）；
           手机端不全局聚焦：只有点输入框才弹键盘（避免点喇叭/气泡误弹） */}
-      <div key={currentSessionId} ref={scrollRef} className="animate-message-in flex-1 overflow-y-auto px-4 py-3" onClick={IS_MOBILE ? undefined : () => inputRef.current?.focus()}>
+      {character && (
+        <ImmersiveSceneCard
+          key={selectedCharacterId}
+          character={character}
+          userId={userId}
+          sessionId={currentSessionId}
+          affinity={affinity}
+          mood={charMood}
+          lastMessageAt={messages.length > 0 ? messages[messages.length - 1].createdAt : undefined}
+          onPrompt={fillSceneDraft}
+        />
+      )}
+
+      <div key={currentSessionId} ref={scrollRef} className="chat-thread immersive-chat-scroll animate-message-in flex-1 overflow-y-auto px-4 py-3" onClick={IS_MOBILE ? undefined : () => inputRef.current?.focus()}>
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
-            <p className="text-xs text-gray-600">
-              {character ? '聊点什么吧' : '去「角色」页选一个角色，开始对话吧'}
+            {character && (
+              <div className="opening-scene max-w-sm text-center px-7 py-8">
+                <div className="opening-orbit mx-auto mb-5"><span>{character.avatar.startsWith('data:') ? '✦' : character.avatar}</span></div>
+                <p className="text-[10px] tracking-[0.25em] uppercase text-life-cyan/80">new chapter</p>
+                <h2 className="mt-2 text-lg font-semibold text-ink">{character.name} 的故事从这里开始</h2>
+                <p className="mt-2 text-xs leading-6 text-gray-500">不是一次提问，而是一段会留下轨迹的相遇。说出第一句话，角色会记得它。</p>
+                <button onClick={() => inputRef.current?.setDraft('今天我想和你聊聊。')} className="mt-5 opening-action">写下第一句</button>
+              </div>
+            )}
+            <p className={character ? 'hidden' : 'text-xs text-gray-600'}>
+              {character ? '从一句真实的话开始，让这段连接慢慢生长。' : '去「角色」页选一个角色，开始一段新的连接。'}
             </p>
           </div>
         ) : (
@@ -870,7 +1021,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
               </div>
             )}
             <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
-            {virtualizer.getVirtualItems().map((vi) => {
+            {virtualizer.getVirtualItems().map((vi: { index: number; start: number }) => {
               const row = rows[vi.index];
               return (
                 <div
@@ -905,7 +1056,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
                     speakingKey={speakingKey}
                     busyKey={busyKey}
                     moodEmoji={row.message.role === 'assistant' ? moodEmoji(charMood) : undefined}
+                    characterName={row.message.role === 'assistant' ? character?.name : undefined}
                     onRemember={(m) => void handleRemember(m)}
+                    onShowBasis={setBasisMessage}
                   />
                 </div>
               );
@@ -929,6 +1082,18 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       </div>
 
       <BalanceBanner error={error} />
+
+      {/* 记忆依据：只展示本机真实注入过的数据（已删除的条目会显示为"已不存在"） */}
+      {basisMessage && (
+        <Suspense fallback={null}>
+          <MemoryBasisModal
+            open
+            onClose={() => setBasisMessage(null)}
+            trace={basisMessage.contextTrace}
+            characterName={character?.name ?? ''}
+          />
+        </Suspense>
+      )}
 
       {/* 首次进入聊天：选择对话模型（选定后锁定，聊天中不可改） */}
       {showModelPick && currentSessionId && (

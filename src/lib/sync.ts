@@ -2,7 +2,7 @@
  * 局域网同步数据：全量收集（导出）与合并写入（导入）。
  * 桌面端与手机端共用同一份格式，通过 HTTP 互传。
  */
-import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary } from '../db/index';
+import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent } from '../db/index';
 
 export interface SyncExportData {
   __meta__: {
@@ -20,6 +20,10 @@ export interface SyncExportData {
   emotionSnapshots: EmotionSnapshot[];
   characterStates: CharacterState[];
   diaries: Diary[];
+  /** 4.0 生命连续性：未完成事件（新字段，旧数据包没有时按空处理） */
+  continuityThreads?: ContinuityThread[];
+  /** 4.0 人物共同事件（新字段，旧数据包没有时按空处理） */
+  sharedStoryEvents?: SharedStoryEvent[];
 }
 
 /** 收集当前设备全部业务数据（不含账号密码与 API Key，隐私不外传） */
@@ -27,7 +31,7 @@ export async function collectSyncData(
   userId: string | null,
   username: string | null,
 ): Promise<SyncExportData> {
-  const [characters, sessions, messages, memories, emotionSnapshots, characterStates, diaries] =
+  const [characters, sessions, messages, memories, emotionSnapshots, characterStates, diaries, continuityThreads, sharedStoryEvents] =
     await Promise.all([
       db.characters.toArray(),
       db.sessions.toArray(),
@@ -36,6 +40,8 @@ export async function collectSyncData(
       db.emotionSnapshots.toArray(),
       db.characterStates.toArray(),
       db.diaries.toArray(),
+      db.continuityThreads.toArray(),
+      db.sharedStoryEvents.toArray(),
     ]);
   return {
     __meta__: {
@@ -53,6 +59,8 @@ export async function collectSyncData(
     emotionSnapshots,
     characterStates,
     diaries,
+    continuityThreads,
+    sharedStoryEvents,
   };
 }
 
@@ -81,7 +89,7 @@ export async function importSyncData(
     const counts: Record<string, number> = {};
     await db.transaction(
       'rw',
-      [db.characters, db.sessions, db.messages, db.memories, db.emotionSnapshots, db.characterStates, db.diaries],
+      [db.characters, db.sessions, db.messages, db.memories, db.emotionSnapshots, db.characterStates, db.diaries, db.continuityThreads, db.sharedStoryEvents],
       async () => {
         let n = 0;
         for (const c of data.characters ?? []) {
@@ -133,6 +141,20 @@ export async function importSyncData(
           n += 1;
         }
         counts.diaries = n;
+
+        n = 0;
+        for (const t of data.continuityThreads ?? []) {
+          await db.continuityThreads.put(t);
+          n += 1;
+        }
+        counts.continuityThreads = n;
+
+        n = 0;
+        for (const e of data.sharedStoryEvents ?? []) {
+          await db.sharedStoryEvents.put(e);
+          n += 1;
+        }
+        counts.sharedStoryEvents = n;
       },
     );
     return { ok: true, counts };

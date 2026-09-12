@@ -256,7 +256,7 @@ export function DiaryPage() {
   };
 
   return (
-    <div className="relative h-full flex flex-col bg-app">
+    <div className="vg-diary relative h-full flex flex-col bg-app">
       {/* 隐私锁门：设置过 PIN 且本会话未解锁 → 只显示解锁界面 */}
       {diaryPin && !unlocked ? (
         <DiaryLockScreen onUnlock={() => setUnlocked(true)} />
@@ -459,6 +459,22 @@ export function DiaryPage() {
         </button>
         )}
         <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 pb-20">        <div className="max-w-4xl mx-auto space-y-4">
+          <section className="vg-archive-hero relative overflow-hidden rounded-[28px] border border-gene-purple/25 bg-[#17152D] px-5 py-5">
+            <div className="absolute -right-12 -top-10 h-44 w-44 rounded-full border border-life-cyan/20" />
+            <div className="absolute right-5 top-4 h-24 w-24 rounded-full bg-life-cyan/10 blur-2xl" />
+            <div className="absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-gene-purple/35 blur-2xl" />
+            <div className="relative flex items-end justify-between gap-4">
+              <div>
+                <p className="text-[10px] tracking-[0.26em] text-life-cyan/80">PERSONAL ARCHIVE</p>
+                <h2 className="mt-2 text-[27px] font-medium leading-[1.5] tracking-[0.04em] text-white">把今天，<br />留给未来的你。</h2>
+                <p className="mt-2 max-w-md text-xs leading-relaxed text-white/55">这里记录你的感受、片段与变化；它们会慢慢长成只属于你的生命轨迹。</p>
+              </div>
+              <div className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-right backdrop-blur-sm">
+                <div className="text-lg font-bold tabular-nums text-white">{stats.streak}</div>
+                <div className="text-[10px] text-white/55">连续记录</div>
+              </div>
+            </div>
+          </section>
           {/* 统计条（窄屏 2×2，宽屏 4 列） */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[

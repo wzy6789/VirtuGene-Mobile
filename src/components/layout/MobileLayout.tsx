@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { ChatPage } from '../../pages/ChatPage';
-import { DiaryPage } from '../../pages/DiaryPage';
 import { MobileChatListPage } from '../chat/MobileChatListPage';
-import { MobileCharacterPage } from '../character/MobileCharacterPage';
-import { MobileMePage } from './MobileMePage';
 import { NotificationCloud } from '../chat/NotificationCloud';
 import { useUIStore, type MobileTab } from '../../store/ui-store';
 import { useChatStore } from '../../store/chat-store';
+
+// 手账包含日历、导出和多种 AI 辅助；仅在用户进入手账页时下载。
+const DiaryPage = lazy(() => import('../../pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
+const MobileCharacterPage = lazy(() => import('../character/MobileCharacterPage').then((m) => ({ default: m.MobileCharacterPage })));
+const MobileMePage = lazy(() => import('./MobileMePage').then((m) => ({ default: m.MobileMePage })));
 
 /** 未读总数上限显示 99+ */
 function formatUnread(n: number): string {
@@ -15,7 +17,7 @@ function formatUnread(n: number): string {
 
 /** 底部 tab 线性图标（SVG，替代 emoji，更克制更像微信/QQ） */
 function TabIcon({ name, active }: { name: MobileTab; active: boolean }) {
-  const stroke = active ? '#6C5CE7' : 'currentColor';
+  const stroke = 'currentColor';
   const common = {
     fill: 'none',
     stroke,
@@ -96,6 +98,7 @@ export function MobileLayout() {
   // 恢复一律由 focusout 延迟检测完成，避免误把「键盘开着」覆盖回 false（tab 又顶上来）。
   useEffect(() => {
     const vv = window.visualViewport;
+    let focusTimer: ReturnType<typeof setTimeout> | undefined;
     const confirmOpen = () => {
       const ratio = vv ? vv.height / window.innerHeight : 1;
       if (ratio < 0.85) setKeyboardOpen(true);
@@ -105,6 +108,7 @@ export function MobileLayout() {
       vv.addEventListener('scroll', confirmOpen);
     }
     const onFocusIn = (e: FocusEvent) => {
+      clearTimeout(focusTimer);
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) {
         setKeyboardOpen(true);
@@ -112,14 +116,16 @@ export function MobileLayout() {
     };
     const onFocusOut = () => {
       // 延迟恢复：等键盘收起动画结束再显示导航；键盘仍开着（ratio 未恢复）则不恢复
-      setTimeout(() => {
+      focusTimer = setTimeout(() => {
         const ratio = vv ? vv.height / window.innerHeight : 1;
-        if (ratio >= 0.85) setKeyboardOpen(false);
+        const focused = document.activeElement;
+        if (ratio >= 0.85 && !focused?.matches('input, textarea')) setKeyboardOpen(false);
       }, 250);
     };
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     return () => {
+      clearTimeout(focusTimer);
       if (vv) {
         vv.removeEventListener('resize', confirmOpen);
         vv.removeEventListener('scroll', confirmOpen);
@@ -147,10 +153,9 @@ export function MobileLayout() {
   };
 
   return (
-    <div className="relative h-full w-full flex flex-col bg-app overflow-hidden">
+    <div className="mobile-layout relative h-full w-full flex flex-col bg-app overflow-hidden">
       {/* 沉浸光感：氛围光晕 + DNA 点阵底纹 */}
-      <div className="absolute inset-0 aurora pointer-events-none z-0" />
-      <div className="absolute inset-0 dna-dots pointer-events-none z-0" />
+      <div className="vg-atmosphere absolute inset-0 pointer-events-none z-0" />
 
       {/* 顶部状态栏深色条：品牌深色，覆盖状态栏区域。
           无刘海屏 env(safe-area-inset-top)=0，故叠加固定 24px 兜底，
@@ -168,7 +173,8 @@ export function MobileLayout() {
         <NotificationCloud />
 
         {/* 内容区：tab 切换带淡入动画 */}
-        <main className="flex-1 overflow-hidden">
+        <main className="flex-1 min-h-0 overflow-hidden">
+          <Suspense fallback={<div className="vg-loading" role="status">正在打开你的空间…</div>}>
           <div
             key={tab + (chatFromCharacters || chatFromList ? '-chat' : '')}
             className="h-full animate-tab-in"
@@ -188,18 +194,23 @@ export function MobileLayout() {
                 <MobileCharacterPage onSelect={() => openChat('characters')} />
               )
             )}
-            {tab === 'diary' && <DiaryPage />}
+            {tab === 'diary' && (
+              <Suspense fallback={<div className="h-full flex items-center justify-center text-sm text-gray-500">正在打开手账…</div>}>
+                <DiaryPage />
+              </Suspense>
+            )}
             {tab === 'me' && <MobileMePage />}
           </div>
+          </Suspense>
         </main>
 
-        {/* 底部导航（含手势安全区）；键盘弹出时折叠为 0 高度（不占位），
-            输入框直接贴住消息区——避免留出导航高度的深色空隙 */}
+        {/* 底部导航（含手势安全区）。输入框聚焦后直接从布局移除：
+            键盘出现时四个导航不会经历“向上浮起”的动画，也不会占据输入框下方空间。 */}
         <nav
-          className={`shrink-0 overflow-hidden transition-[max-height] duration-300 ${
-            keyboardOpen
-              ? 'max-h-0 !border-t-0'
-              : 'max-h-24 flex items-stretch border-t border-line bg-glass/85 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]'
+          className={`mobile-bottom-nav shrink-0 ${
+            keyboardOpen || (tab === 'chat' && chatFromList) || (tab === 'characters' && chatFromCharacters)
+              ? 'hidden'
+              : 'vg-navigation flex items-stretch pb-[env(safe-area-inset-bottom)]'
           }`}
         >
           {(
@@ -214,14 +225,15 @@ export function MobileLayout() {
             return (
               <button
                 key={t.key}
+                aria-current={active ? 'page' : undefined}
                 className={`relative flex-1 h-14 flex flex-col items-center justify-center gap-1 text-[11px] transition-colors active:bg-surface ${
-                  active ? 'text-gene-purple' : 'text-gray-400'
+                  active ? 'text-life-cyan' : 'text-gray-400'
                 }`}
                 onClick={() => switchTab(t.key)}
               >
                 {/* 激活态顶部小圆点（微信/QQ 式强调） */}
                 {active && (
-                  <span className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-gene-purple shadow-[0_0_6px_rgba(108,92,231,0.8)]" />
+                  <span className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-life-cyan shadow-[0_0_8px_rgba(0,206,201,0.9)]" />
                 )}
                 {/* 聊天 tab 未读徽标（微信式红点 + 数字） */}
                 {t.key === 'chat' && totalUnread > 0 && (

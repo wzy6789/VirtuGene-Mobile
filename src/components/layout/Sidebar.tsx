@@ -15,6 +15,7 @@ import { UserProfileModal } from '../settings/UserProfileModal';
 import { Avatar } from '../ui/Avatar';
 import { Modal } from '../ui/Modal';
 import { useResizable } from '../../hooks/useResizable';
+import { GatewayStatusBadge } from '../settings/GatewayStatusBadge';
 
 /** 收起时仅剩左侧工具条的宽度 */
 const SIDEBAR_COLLAPSED = 48;
@@ -126,6 +127,7 @@ export function Sidebar() {
             <span className="text-base font-bold tracking-wide bg-gradient-to-r from-gene-purple to-life-cyan bg-clip-text text-transparent">
               VirtuGene
             </span>
+            <GatewayStatusBadge compact />
           </div>
 
           {/* 基因实验室入口 —— 放在「搜索基因」上方（常驻青色微光） */}

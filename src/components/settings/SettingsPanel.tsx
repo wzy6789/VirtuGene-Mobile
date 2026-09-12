@@ -17,6 +17,8 @@ import { BackupSection } from './BackupSection';
 import { ChangePasswordSection } from './ChangePasswordSection';
 import { ModelSection } from './ModelSection';
 import { IS_ELECTRON, IS_MOBILE } from '../../lib/platform';
+import { deleteGatewayAccount, isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from '../../lib/ai/gateway';
+import { LegalNoticeModal, type LegalDocument } from '../compliance/LegalNoticeModal';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -29,7 +31,7 @@ function maskKey(apiKey: string): string {
 }
 
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
-  const { userId, username, apiKey, setApiKey, logout } = useAuthStore();
+  const { userId, username, apiKey, gatewayRefreshToken, setApiKey, logout } = useAuthStore();
   const deleteAccount = useChatStore((s) => s.deleteAccount);
   const updateStatus = useUpdateStore((s) => s.status);
   const updateChecking = useUpdateStore((s) => s.checking);
@@ -51,6 +53,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   // Delete account state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [legalDocument, setLegalDocument] = useState<LegalDocument | null>(null);
 
   // App version
   const [appVersion, setAppVersion] = useState('');
@@ -140,15 +144,30 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   const handleDeleteAccount = async () => {
     setIsDeleting(true);
-    await deleteAccount();
-    useCharacterStateStore.getState().clear();
-    useEmotionStore.getState().clearCurrent();
-    resetDiaryUnlock();
-    localStorage.clear();
-    logout();
-    setIsDeleting(false);
-    setShowDeleteConfirm(false);
-    onClose();
+    setDeleteError('');
+    try {
+      if (isAiGatewayConfigured()) {
+        if (gatewayRefreshToken) {
+          const session = await refreshGatewaySession(gatewayRefreshToken);
+          setGatewayAccessToken(session.accessToken);
+          useAuthStore.getState().setGatewayTokens(session);
+        }
+        await deleteGatewayAccount();
+      }
+      await deleteAccount();
+      useCharacterStateStore.getState().clear();
+      useEmotionStore.getState().clearCurrent();
+      resetDiaryUnlock();
+      setGatewayAccessToken(null);
+      localStorage.clear();
+      logout();
+      setShowDeleteConfirm(false);
+      onClose();
+    } catch {
+      setDeleteError('服务器账号未能删除，请检查网络后重试。本机数据尚未清除。');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const masked = apiKey ? maskKey(apiKey) : '';
@@ -156,7 +175,22 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   return (
     <>
       <Modal open={open} onClose={onClose} title="设置">
-        <div className="p-6 space-y-6">
+        <div className="vg-settings p-6 space-y-6">
+          <section className="relative overflow-hidden rounded-2xl border border-gene-purple/25 bg-[#17152D] px-4 py-4 shadow-[0_14px_32px_rgba(63,48,128,0.20)]">
+            <div className="absolute -right-5 -top-8 h-28 w-28 rounded-full border border-life-cyan/25" />
+            <div className="absolute right-1 top-2 h-16 w-16 rounded-full bg-life-cyan/15 blur-2xl" />
+            <div className="relative flex items-end justify-between gap-3">
+              <div>
+                <p className="text-[10px] tracking-[0.24em] text-life-cyan/80">PERSONAL CONSOLE</p>
+                <h3 className="mt-1 text-lg font-bold text-white">你的数字生命控制台</h3>
+                <p className="mt-1 text-xs text-white/55">数据由你掌握，连接由你决定。</p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.06] px-2.5 py-2 text-right">
+                <div className="text-xs font-semibold text-white">{apiKey ? '已就绪' : '待配置'}</div>
+                <div className="mt-0.5 text-[10px] text-white/50">连接状态</div>
+              </div>
+            </div>
+          </section>
           {/* API Key section */}
           <div>
             <h3 className="text-sm font-medium text-ink mb-3">基因序列标识</h3>
@@ -422,9 +456,16 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   <span className="text-xs text-life-cyan">Unlock Your Digital Soul</span>
                 </div>
                 <div className="py-2">
-                  <p className="text-[11px] text-gray-500 leading-relaxed">
-                    VirtuGene 手机版：数据全部存储在本机，支持局域网同步与加密备份。
-                  </p>
+                  <div className="space-y-2 text-[11px] text-gray-500 leading-relaxed">
+                    <p>聊天记录与日记优先保存在本机，支持局域网同步与加密备份。</p>
+                    <p>角色回复由人工智能模型生成，可能存在不准确或不符合预期的内容，请结合自己的判断使用。</p>
+                    <p>连接云端 AI 服务时，必要的角色设定、最近对话和当前输入会被发送至 VirtuGene 网关及模型服务商；不会上传你的供应商密钥。</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-5 py-3">
+                  <button type="button" onClick={() => setLegalDocument('privacy')} className="text-xs text-life-cyan hover:underline">隐私说明</button>
+                  <button type="button" onClick={() => setLegalDocument('terms')} className="text-xs text-life-cyan hover:underline">使用说明</button>
+                  <button type="button" onClick={() => { onClose(); window.dispatchEvent(new Event('virtugene:open-onboarding')); }} className="text-xs text-life-cyan hover:underline">重新查看引导</button>
                 </div>
               </div>
             </div>
@@ -437,7 +478,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               注销后所有基因序列和对话记录将被永久抹除，此操作不可撤销。
             </p>
             <button
-              onClick={() => setShowDeleteConfirm(true)}
+              onClick={() => { setDeleteError(''); setShowDeleteConfirm(true); }}
               className="px-4 py-2 rounded-lg text-sm bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
             >
               注销账号
@@ -445,6 +486,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           </div>
         </div>
       </Modal>
+      <LegalNoticeModal document={legalDocument} onClose={() => setLegalDocument(null)} />
 
       {/* Delete account confirmation modal */}
       <Modal open={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}>
@@ -453,6 +495,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             所有基因序列和对话记录将被永久抹除，此操作不可撤销。
           </p>
           <p className="text-xs text-gray-500 mb-6">确认注销？</p>
+          {deleteError && <p className="text-xs text-red-400 mb-4">{deleteError}</p>}
           <div className="flex gap-3 justify-end">
             <button
               onClick={() => setShowDeleteConfirm(false)}

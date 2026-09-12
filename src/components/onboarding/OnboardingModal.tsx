@@ -95,6 +95,21 @@ export function OnboardingModal({ open, onClose }: OnboardingModalProps) {
             和 Ta 像微信一样聊天吧。
           </p>
 
+          <div className="rounded-2xl border border-line bg-surface/50 p-3.5 mb-5 space-y-2.5">
+            <p className="text-[11px] font-medium text-life-cyan tracking-wide">开始前，先了解 VirtuGene</p>
+            {[
+              ['🧬', '创造角色', '从一句描述开始，逐步设定身份、性格、语气和边界。'],
+              ['💬', '长期记忆', '重要对话会沉淀为可查看、可修改、可删除的记忆。'],
+              ['🕸️', '多角色关系', '把不同数字角色放进群聊，观察观点、关系和共同故事如何变化。'],
+              ['🌙', '连接现实', 'AI 是创作和记录工具，不替代现实中的家人、朋友或专业帮助。'],
+            ].map(([icon, title, desc]) => (
+              <div key={title} className="flex items-start gap-2.5">
+                <span className="text-base leading-5">{icon}</span>
+                <p className="text-[11px] text-gray-500 leading-relaxed"><span className="text-sub font-medium">{title}：</span>{desc}</p>
+              </div>
+            ))}
+          </div>
+
           {/* 推荐角色 */}
           {recommended && (
             <div className="rounded-2xl border border-line bg-surface/60 p-4 mb-5 flex items-center gap-3">
@@ -148,7 +163,7 @@ export function OnboardingModal({ open, onClose }: OnboardingModalProps) {
               onClick={onClose}
               className="w-full py-2 text-xs text-gray-500 hover:text-sub transition-colors"
             >
-              稍后再说
+              跳过引导，之后可从设置重新查看
             </button>
           </div>
         </div>

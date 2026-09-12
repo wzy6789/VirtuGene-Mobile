@@ -2,6 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
+/* VirtuGene space system: solid surfaces keep scrolling inexpensive on WebView. */
+.vg-atmosphere {
+  background: radial-gradient(ellipse 90% 35% at 0% 0%, rgba(126,105,230,.10), transparent 75%);
+}
+.vg-space-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:24px 22px 20px; flex-shrink:0; }
+.vg-eyebrow { font-size:9px; font-weight:600; letter-spacing:.2em; color:var(--text-secondary); }
+.vg-space-heading h1 { margin-top:9px; font-size:27px; line-height:1.4; letter-spacing:.04em; font-weight:600; color:var(--text); }
+.vg-heading-detail { margin-top:7px; font-size:12px; line-height:1.8; color:var(--text-secondary); letter-spacing:.025em; }
+.vg-loading { height:100%; display:grid; place-items:center; color:var(--text-secondary); font-size:13px; }
+.vg-modal-panel { background:var(--bg-panel); border:1px solid var(--border); box-shadow:0 24px 70px rgba(0,0,0,.2); }
+.vg-mobile-sheet { width:100%; max-width:640px; border-radius:26px 26px 0 0; padding-bottom:env(safe-area-inset-bottom); }
+.vg-mobile-sheet > .overflow-y-auto { max-height:calc(85dvh - 76px - env(safe-area-inset-bottom)); overscroll-behavior:contain; }
+.vg-mobile-sheet .glass-card, .vg-mobile-sheet [class*="backdrop-blur"] { backdrop-filter:none; -webkit-backdrop-filter:none; }
+.vg-settings > div { padding:16px; border:1px solid var(--border); border-radius:18px; background:var(--bg); }
+.vg-settings > section { background:linear-gradient(120deg,#28213e,#1c2934); box-shadow:none; }
+.vg-settings > section h3 { letter-spacing:.04em; font-weight:500; }
+.vg-emotion-panel { background:var(--bg-panel); }
+.vg-emotion-panel .blur-2xl { display:none; }
+.vg-emotion-panel .rounded-xl { border-radius:18px; }
+.vg-navigation { margin:8px 14px 10px; border:1px solid var(--border); border-radius:22px; background:var(--bg-panel); }
+.vg-navigation button { height:62px; }
+.vg-navigation button[aria-current="page"] { color:#8c79eb; }
+.vg-navigation button[aria-current="page"] > span:last-child { letter-spacing:.06em; }
+.vg-navigation button[aria-current="page"] > span:first-child { box-shadow:none; background:#a291f4; }
+.vg-conversation-summary { background:linear-gradient(120deg,#26213f,#172932); }
+.vg-conversation-scroll { overscroll-behavior-y:contain; }
+.vg-personal > button:first-of-type { flex-shrink:0; margin-top:0; min-height:142px; }
+.vg-personal > * { flex-shrink:0; }
+.vg-world-hero { margin-top:0; margin-bottom:16px; }
+.vg-archive-hero { background:linear-gradient(140deg,#29213e,#222836); }
+
+/* Remove perpetual repaints while retaining feedback for loading and interaction. */
+.mobile-layout .aurora, .mobile-layout .dna-dots,
+.mobile-layout .gene-orbit, .mobile-layout .life-breath,
+.mobile-layout .opening-orbit { animation:none; }
+.mobile-layout .animate-ping { display:none; }
+.mobile-layout [class*="backdrop-blur"],
+.mobile-layout .chat-header, .mobile-layout .chat-composer { backdrop-filter:none; -webkit-backdrop-filter:none; }
+.mobile-layout .chat-header { background:var(--bg-panel); box-shadow:none; }
+.mobile-layout .chat-composer { background:var(--bg); box-shadow:none; border-top:1px solid var(--border); }
+.mobile-layout .scene-orb { filter:none; opacity:.1; background:radial-gradient(circle, #9b8bed, transparent 70%); }
+.mobile-layout .scene-card { border-radius:20px; box-shadow:none; }
+.mobile-layout .chat-thread { background:radial-gradient(ellipse at 90% 5%,rgba(123,98,217,.055),transparent 60%),var(--bg); }
+.mobile-layout .chat-thread::before, .mobile-layout .chat-thread::after { display:none; }
+.mobile-layout .chat-composer-input { box-shadow:none; border-radius:18px; }
+.mobile-layout .vg-message-bubble { box-shadow:none; line-height:1.85; letter-spacing:.015em; }
+.mobile-layout button:focus-visible, .mobile-layout input:focus-visible { outline:2px solid #9c8bf0; outline-offset:3px; }
+.mobile-layout .vg-conversations img { object-fit:cover; }
+
+@media (max-height:650px) {
+  .vg-space-heading { padding:14px 20px; }
+  .vg-space-heading h1 { font-size:23px; }
+  .vg-conversation-summary { display:none; }
+}
+
 :root {
   --color-gene-purple: #6C5CE7;
   --color-life-cyan: #00CEC9;
@@ -49,6 +104,8 @@ html {
 body {
   background: var(--bg);
   color: var(--text);
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  letter-spacing: 0.01em;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -62,6 +119,20 @@ body {
   backdrop-filter: blur(24px);
   border: 1px solid var(--border);
   box-shadow: 0 8px 32px rgba(15, 15, 26, 0.10), 0 0 0 1px rgba(108, 92, 231, 0.04);
+}
+
+/* 产品主视觉：只让关键节点发光，避免界面被特效淹没 */
+.gene-orbit {
+  box-shadow: 0 0 0 1px rgba(108, 92, 231, 0.08), 0 0 18px rgba(108, 92, 231, 0.16);
+  animation: geneOrbit 4s ease-in-out infinite;
+}
+@keyframes geneOrbit {
+  0%, 100% { transform: translateY(0); box-shadow: 0 0 0 1px rgba(108, 92, 231, 0.08), 0 0 14px rgba(108, 92, 231, 0.12); }
+  50% { transform: translateY(-1px); box-shadow: 0 0 0 1px rgba(0, 206, 201, 0.16), 0 0 22px rgba(0, 206, 201, 0.2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
 
 /* ============ 1.1.2 沉浸光感 ============ */
@@ -219,6 +290,100 @@ body {
 .animate-tab-in {
   animation: tabIn 0.22s ease-out;
 }
+
+/* 首页主卡片的轻微呼吸，让“数字生命”保持活着的感觉。 */
+@keyframes lifeBreath {
+  0%, 100% { box-shadow: 0 16px 44px rgba(18, 13, 52, .34); }
+  50% { box-shadow: 0 20px 52px rgba(52, 35, 128, .46), 0 0 24px rgba(0, 206, 201, .08); }
+}
+
+.life-breath {
+  animation: lifeBreath 4.8s ease-in-out infinite;
+}
+
+/* Chat as a living scene: one restrained stage above the conversation, not a decorative banner. */
+.scene-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(154, 139, 255, .25);
+  border-radius: 18px;
+  color: white;
+  background: linear-gradient(118deg, #19143b 0%, #24205b 48%, #103d52 100%);
+  box-shadow: 0 8px 20px rgba(18, 13, 52, .18), inset 0 1px 0 rgba(255,255,255,.08);
+}
+.scene-card::after { content: ''; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.045) 52%, transparent 72%); pointer-events: none; }
+.scene-morning { background: linear-gradient(118deg, #2c1d51 0%, #5d3a71 50%, #245a68 100%); }
+.scene-day { background: linear-gradient(118deg, #1c3151 0%, #294c70 50%, #15616a 100%); }
+.scene-dusk { background: linear-gradient(118deg, #2f1c44 0%, #754262 52%, #28526b 100%); }
+.scene-grain { position:absolute; inset:0; opacity:.16; background-image:radial-gradient(rgba(255,255,255,.28) .5px, transparent .7px); background-size:10px 10px; pointer-events:none; }
+.scene-orb { position:absolute; width:130px; height:130px; border-radius:999px; filter:blur(18px); opacity:.28; pointer-events:none; }
+.scene-orb-a { right:-28px; top:-65px; background:#8374ff; }
+.scene-orb-b { left:35%; bottom:-100px; background:#00cec9; }
+.scene-sigil { width:35px; height:35px; flex:0 0 auto; border-radius:12px; overflow:hidden; display:grid; place-items:center; background:rgba(255,255,255,.13); border:1px solid rgba(255,255,255,.24); box-shadow:0 0 18px rgba(0,206,201,.22); }
+.scene-sigil img { width:100%; height:100%; object-fit:cover; }
+.scene-sigil span { font-size:18px; }
+.scene-stat { min-width:0; border-radius:10px; padding:8px 9px; background:rgba(5,9,30,.2); border:1px solid rgba(255,255,255,.1); }
+.scene-stat span { display:block; font-size:9px; letter-spacing:.12em; color:rgba(255,255,255,.5); }
+.scene-stat b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:3px; font-size:12px; font-weight:600; color:rgba(255,255,255,.92); }
+.scene-prompt { flex:0 0 auto; max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border-radius:999px; border:1px solid rgba(255,255,255,.18); background:rgba(255,255,255,.09); padding:7px 10px; color:rgba(255,255,255,.85); font-size:11px; transition:background .2s, transform .2s; }
+.scene-prompt:active { transform:scale(.97); background:rgba(255,255,255,.18); }
+/* Shared Space 2.0：未完成事件卡与内联小按钮（静态，无持续扫光/无粒子） */
+.scene-thread { border-radius:12px; padding:9px 10px; background:rgba(5,9,30,.26); border:1px solid rgba(0,206,201,.2); }
+.scene-mini { border-radius:999px; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.1); padding:5px 10px; font-size:10.5px; color:rgba(255,255,255,.88); transition:background .2s, transform .2s; }
+.scene-mini:active { transform:scale(.97); background:rgba(255,255,255,.2); }
+@keyframes sceneFloat { 0%,100%{transform:translate3d(0,0,0) scale(1)} 50%{transform:translate3d(-7px,9px,0) scale(1.08)} }
+@keyframes sceneSweep { 0%,54%{transform:translateX(-130%)} 76%,100%{transform:translateX(230%)} }
+
+.chat-room { position:relative; isolation:isolate; background:linear-gradient(180deg, rgba(108,92,231,.035), transparent 18%, rgba(0,206,201,.018)); }
+.chat-room::before { content:''; position:absolute; z-index:-1; inset:0; pointer-events:none; background:radial-gradient(ellipse 52% 18% at 50% 0%, rgba(108,92,231,.07), transparent 72%); }
+.chat-header { background-color:rgba(15,15,26,.72); backdrop-filter:blur(18px); box-shadow:0 1px 0 rgba(255,255,255,.025); }
+.chat-thread {
+  scroll-behavior:auto;
+  position:relative;
+  overflow-x:hidden;
+  background:
+    radial-gradient(ellipse 64% 34% at 50% -8%, rgba(108,92,231,.13), transparent 72%),
+    radial-gradient(circle 210px at 92% 82%, rgba(0,206,201,.055), transparent 72%),
+    linear-gradient(rgba(108,92,231,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(108,92,231,.025) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(15,15,26,.12), transparent 24%);
+  background-size:auto, auto, 46px 46px, 46px 46px, auto;
+  background-position:center, center, center top, center top, center;
+}
+.chat-thread::before {
+  content:'';
+  position:absolute;
+  top:36px;
+  right:-88px;
+  width:240px;
+  height:240px;
+  border:1px solid rgba(167,139,250,.10);
+  border-radius:50%;
+  box-shadow:0 0 0 42px rgba(167,139,250,.025), 0 0 0 84px rgba(0,206,201,.014);
+  pointer-events:none;
+}
+.chat-thread::after {
+  content:'';
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:linear-gradient(90deg, rgba(15,15,26,.06), transparent 18%, transparent 82%, rgba(15,15,26,.05));
+}
+.chat-thread > * { position:relative; z-index:1; }
+.dark .chat-thread { background-color:#11111e; }
+
+/* Android WebView 有时会错过 focusin；这里以输入框焦点兜底，确保导航不会随键盘上浮。 */
+.mobile-layout:has(.chat-composer-input:focus) .mobile-bottom-nav { display:none !important; }
+.opening-scene { position:relative; overflow:hidden; border:1px solid rgba(108,92,231,.16); border-radius:24px; background:linear-gradient(145deg, rgba(108,92,231,.1), rgba(0,206,201,.035)); box-shadow:0 15px 45px rgba(28,19,74,.08); }
+.opening-scene::before { content:''; position:absolute; inset:0; background:radial-gradient(circle at 50% 0%, rgba(0,206,201,.12), transparent 42%); pointer-events:none; }
+.opening-orbit { width:58px; height:58px; display:grid; place-items:center; border-radius:999px; color:white; font-size:24px; background:linear-gradient(135deg,#6c5ce7,#00cec9); box-shadow:0 0 0 7px rgba(108,92,231,.08), 0 0 28px rgba(0,206,201,.26); animation:geneOrbit 3.6s ease-in-out infinite; }
+.opening-action { position:relative; border-radius:999px; padding:9px 17px; color:white; font-size:12px; background:linear-gradient(110deg,#6c5ce7,#00aeb0); box-shadow:0 7px 16px rgba(108,92,231,.26); transition:transform .2s, box-shadow .2s; }
+.opening-action:active { transform:scale(.96); box-shadow:0 3px 8px rgba(108,92,231,.2); }
+
+.chat-composer { background:linear-gradient(180deg, rgba(15,15,26,.12), rgba(15,15,26,.78)); backdrop-filter:blur(18px); box-shadow:0 -10px 28px rgba(9,8,26,.08); }
+.chat-composer-inner { position:relative; }
+.chat-composer-input { min-height:44px; box-shadow:inset 0 1px 0 rgba(255,255,255,.055), 0 5px 16px rgba(8,7,20,.13); }
+.dark .chat-composer-input { background:linear-gradient(135deg,rgba(40,36,76,.76),rgba(22,24,53,.92)); }
 
 /* Emotion chart polygon appear */
 @keyframes chartAppear {

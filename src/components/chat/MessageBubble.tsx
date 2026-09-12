@@ -82,11 +82,15 @@ interface Props {
   busyKey?: string | null;
   /** 角色当前心情小表情（仅 AI 消息；显示在气泡角上） */
   moodEmoji?: string;
+  /** 角色名作为每段对话的发言锚点，让阅读时更接近故事分镜。 */
+  characterName?: string;
   /** 长按菜单"记住"：把消息存进角色记忆 */
   onRemember?: (message: Message) => void;
+  /** 长按菜单"查看记忆依据"：仅当这条消息记录了本机注入数据时出现 */
+  onShowBasis?: (message: Message) => void;
 }
 
-export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, moodEmoji, onRemember }: Props) {
+export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, moodEmoji, characterName, onRemember, onShowBasis }: Props) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -123,7 +127,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
     <div className={`group flex items-start gap-2 mb-4 ${isUser ? 'flex-row-reverse' : 'flex-row'} ${
       animate ? 'animate-message-in' : ''
     }`}>
-      <Avatar avatar={avatar} size="sm" />
+      <Avatar avatar={avatar} size="sm" className={isUser ? 'ring-1 ring-white/20' : 'ring-1 ring-life-cyan/35 shadow-[0_0_14px_rgba(0,206,201,.16)]'} />
       {isUser && message.failed && (
         <button
           onClick={() => onRetry?.(message)}
@@ -138,13 +142,19 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
         </button>
       )}
       <div className="relative max-w-[75%]">
+        {!isUser && characterName && (
+          <div className="mb-1 flex items-center gap-1.5 text-[10px] tracking-[0.08em] text-gray-500">
+            <span className="w-1 h-1 rounded-full bg-life-cyan shadow-[0_0_6px_rgba(0,206,201,.9)]" />
+            {characterName}
+          </div>
+        )}
         {/* 角色当前心情小表情（AI 消息，气泡角上） */}
         {!isUser && moodEmoji && (
           <span className="absolute -top-2 -right-1.5 text-[11px] leading-none select-none">{moodEmoji}</span>
         )}
         <div
           onContextMenu={handleContextMenu}
-          className={`px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words transition-shadow ${
+          className={`vg-message-bubble px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words transition-shadow ${
             isLatest && !isUser ? 'animate-message-sweep' : ''
           } ${
             isUser
@@ -355,6 +365,21 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                     className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                   >
                     💾 记住
+                  </button>
+                )}
+                {onShowBasis && (
+                  (message.contextTrace?.memoryIds?.length ?? 0) > 0 ||
+                  (message.contextTrace?.continuityThreadIds?.length ?? 0) > 0 ||
+                  (message.contextTrace?.sharedEventIds?.length ?? 0) > 0
+                ) && (
+                  <button
+                    onClick={() => {
+                      onShowBasis(message);
+                      setMenu(null);
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
+                  >
+                    🔍 查看记忆依据
                   </button>
                 )}
                 <button

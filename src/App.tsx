@@ -13,10 +13,11 @@ import { useSettingsStore } from './store/settings-store';
 import { IS_MOBILE } from './lib/platform';
 import { diaryRepo, todayStr } from './db/diary-repo';
 import { getChangelog, LAST_SEEN_VERSION_KEY } from './lib/changelog';
-import { initSeedCharacters } from './lib/seed-init';
 import { notifyLocal, requestNotificationPermission } from './lib/notify';
 import { loadPersistedApiKey } from './lib/api-key-storage';
 import { useGroupStore } from './store/group-store';
+import { isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from './lib/ai/gateway';
+import { UseTimeReminder } from './components/compliance/UseTimeReminder';
 
 // 手账按需加载：首次进入才拉取日记相关代码，加快主聊天页启动
 const DiaryPage = lazy(() => import('./pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
@@ -32,7 +33,11 @@ export default function App() {
   const [updateNotes, setUpdateNotes] = useState<{ version: string; notes: string[] } | null>(null);
 
   useEffect(() => {
-    initSeedCharacters().finally(() => setReady(true));
+    // 预置角色包含头像与较长的人格基因，延后到应用壳加载后再拉取，避免把大段种子数据塞进首屏主包。
+    void import('./lib/seed-init')
+      .then(({ initSeedCharacters }) => initSeedCharacters())
+      .catch(() => undefined)
+      .finally(() => setReady(true));
   }, []);
 
   // 同一台手机「记住登录」：persist 恢复了登录态但 apiKey 在内存为 null，
@@ -40,7 +45,18 @@ export default function App() {
   // 恢复失败（如 Key 存储被清）→ 退出登录回登录页，避免"已登录但无法对话"。
   useEffect(() => {
     const s = useAuthStore.getState();
-    if (s.isLoggedIn && !s.apiKey) {
+    if (s.isLoggedIn && isAiGatewayConfigured() && s.gatewayRefreshToken) {
+      void refreshGatewaySession(s.gatewayRefreshToken)
+        .then((session) => {
+          setGatewayAccessToken(session.accessToken);
+          useAuthStore.getState().setGatewayTokens(session);
+        })
+        .catch(() => {
+          setGatewayAccessToken(null);
+          if (!s.apiKey) useAuthStore.setState({ isLoggedIn: false, gatewayAccessToken: null, gatewayRefreshToken: null });
+        });
+    }
+    if (s.isLoggedIn && !s.apiKey && !isAiGatewayConfigured()) {
       void loadPersistedApiKey().then((key) => {
         if (key) {
           s.setApiKey(key);
@@ -52,6 +68,11 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const gatewayAccessToken = useAuthStore((s) => s.gatewayAccessToken);
+  useEffect(() => {
+    setGatewayAccessToken(gatewayAccessToken);
+  }, [gatewayAccessToken]);
 
   // Splash 淡出过渡：ready 后先淡出再卸载
   useEffect(() => {
@@ -177,8 +198,9 @@ export default function App() {
         version={updateNotes?.version ?? ''}
         notes={updateNotes?.notes ?? []}
       />
-      {/* 新手引导：仅桌面端（手机端为 4-tab 导航，引导锚点在桌面侧栏，手机上不显示） */}
-      {isLoggedIn && !IS_MOBILE && <OnboardingGuide />}
+      {isLoggedIn && <UseTimeReminder />}
+      {/* 新手引导：手机端展示完整说明，桌面端继续提供锚点式指引 */}
+      {isLoggedIn && <OnboardingGuide />}
     </div>
   );
 }

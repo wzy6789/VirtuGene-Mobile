@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat-store';
 import { useGroupStore } from '../../store/group-store';
 import { useUIStore } from '../../store/ui-store';
 import { SwipeActionItem } from '../ui/SwipeActionItem';
-import { GroupChatPage } from './GroupChatPage';
 import { Avatar } from '../ui/Avatar';
 import type { Character } from '../../db/index';
+import { SpaceHeading } from '../ui/SpaceHeading';
+
+// 群聊是次级视图：与手账/角色页/我的同一套按需加载策略，不进首屏主包，打开时才拉取
+const GroupChatPage = lazy(() => import('./GroupChatPage').then((m) => ({ default: m.GroupChatPage })));
 
 /** 会话列表时间：今天 HH:MM / 昨天 / 今年 M月D日 / 更早 YYYY/M/D */
 function formatListTime(ts: number): string {
@@ -109,17 +112,29 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
   };
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="vg-conversations h-full flex flex-col">
       {/* 头部 */}
-      <div className="h-12 flex items-center gap-2 px-4 border-b border-line shrink-0">
-        <span className="text-base font-bold bg-gradient-to-r from-gene-purple to-life-cyan bg-clip-text text-transparent">
-          聊天
-        </span>
-        <span className="text-[10px] text-gray-400">{sorted.length} 位灵魂</span>
-      </div>
+      <SpaceHeading eyebrow="VIRTUGENE / CONNECTIONS" title="对话，有了以后。" detail="记住彼此，让每一次相遇延续。" />
+
+      <section className="vg-conversation-summary relative mx-3 overflow-hidden rounded-[24px] border border-gene-purple/25 bg-[#17152D] px-4 py-4 shrink-0">
+        <div className="absolute -right-10 -top-12 h-32 w-32 rounded-full border border-life-cyan/25" />
+        <div className="absolute right-2 top-3 h-20 w-20 rounded-full bg-life-cyan/10 blur-2xl" />
+        <div className="absolute -bottom-12 left-12 h-24 w-24 rounded-full bg-gene-purple/30 blur-2xl" />
+        <div className="relative flex items-end justify-between gap-3">
+          <div>
+            <p className="text-[10px] tracking-[0.24em] text-life-cyan/80">ONGOING CONNECTIONS</p>
+            <h2 className="mt-1 text-lg font-semibold text-white">让故事接着发生</h2>
+            <p className="mt-1 text-xs leading-relaxed text-white/55">每段对话都会让关系留下新的痕迹。</p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-right backdrop-blur-sm">
+            <div className="text-lg font-bold tabular-nums text-white">{sorted.length}</div>
+            <div className="text-[10px] text-white/55">正在连接</div>
+          </div>
+        </div>
+      </section>
 
       {/* 会话搜索（微信式） */}
-      <div className="px-3 py-2 border-b border-line shrink-0">
+      <div className="px-3 py-3 shrink-0">
         <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-line focus-within:border-gene-purple/40 transition-all">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-gray-400 shrink-0">
             <circle cx="11" cy="11" r="8" />
@@ -141,7 +156,8 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
         </div>
       </div>
 
-      {/* 群聊区块（微信式：群会话在聊天列表顶部） */}
+      <div className="flex-1 min-h-0 overflow-y-auto vg-conversation-scroll">
+      {/* 群聊和私聊共享滚动容器，群聊较多时不会挤走私聊。 */}
       {groups.length > 0 && (
         <div className="px-3 pt-2 shrink-0">
           <p className="text-[10px] text-gray-400 mb-1 px-1">群聊（{groups.length}）</p>
@@ -196,7 +212,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
       )}
 
       {/* 会话列表 */}
-      <div className="flex-1 overflow-y-auto py-1">
+      <div className="py-1">
         {sorted.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-500 px-8 text-center">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-50">
@@ -237,7 +253,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
                   key={c.id}
                   actions={actions}
                   onClick={() => handleItemClick(c)}
-                  contentClassName={c.pinned ? 'bg-gene-purple/[0.06]' : ''}
+                  contentClassName={c.pinned ? 'border border-gene-purple/20 bg-gene-purple/[0.08] shadow-[0_6px_18px_rgba(108,92,231,0.08)]' : 'border border-transparent bg-panel/30'}
                 >
                   <button
                     onContextMenu={(e) => {
@@ -288,6 +304,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
           </div>
         )}
       </div>
+      </div>
 
       {/* 长按操作菜单 */}
       {menu && (
@@ -334,8 +351,18 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
 
       {/* 长按「从聊天列表删除」提示：仅隐藏列表项，记录保留（无需确认弹窗） */}
 
-      {/* 群聊覆盖层 */}
-      {showGroups && <GroupChatPage onClose={() => { setShowGroups(false); void loadGroups(); }} initialGroupId={entryGroupId} />}
+      {/* 群聊覆盖层（按需加载：与 GroupChatPage 自身的 fixed inset-0 z-[70] 布局对齐） */}
+      {showGroups && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-[70] bg-app grid place-items-center text-sm text-gray-500" role="status">
+              正在打开群聊…
+            </div>
+          }
+        >
+          <GroupChatPage onClose={() => { setShowGroups(false); void loadGroups(); }} initialGroupId={entryGroupId} />
+        </Suspense>
+      )}
     </div>
   );
 }

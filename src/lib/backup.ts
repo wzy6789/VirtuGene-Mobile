@@ -45,6 +45,8 @@ export interface BackupData {
   emotionSnapshots: SyncExportData['emotionSnapshots'];
   characterStates: SyncExportData['characterStates'];
   diaries: SyncExportData['diaries'];
+  continuityThreads?: SyncExportData['continuityThreads'];
+  sharedStoryEvents?: SyncExportData['sharedStoryEvents'];
 }
 
 /** 收集全量数据（含账号表，用于完整备份） */
@@ -61,6 +63,8 @@ export async function collectBackupData(userId: string | null, username: string 
     emotionSnapshots: base.emotionSnapshots,
     characterStates: base.characterStates,
     diaries: base.diaries,
+    continuityThreads: base.continuityThreads,
+    sharedStoryEvents: base.sharedStoryEvents,
   };
 }
 
@@ -147,6 +151,8 @@ export async function restoreBackup(password: string): Promise<{
       emotionSnapshots: data.emotionSnapshots ?? [],
       characterStates: data.characterStates ?? [],
       diaries: data.diaries ?? [],
+      continuityThreads: data.continuityThreads ?? [],
+      sharedStoryEvents: data.sharedStoryEvents ?? [],
     };
     const r = await importSyncData(syncPayload);
     if (!r.ok) return { ok: false, error: r.error ?? '数据导入失败' };

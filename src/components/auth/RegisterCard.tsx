@@ -5,6 +5,7 @@ import { persistApiKey } from '../../lib/api-key-storage';
 import { userRepo } from '../../db/user-repo';
 import type { User } from '../../db/index';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
+import { LegalNoticeModal, type LegalDocument } from '../compliance/LegalNoticeModal';
 
 interface Props {
   onSwitch: () => void;
@@ -17,6 +18,8 @@ export function RegisterCard({ onSwitch }: Props) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
+  const [adultConfirmed, setAdultConfirmed] = useState(false);
+  const [legalDocument, setLegalDocument] = useState<LegalDocument | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'form' | 'validating' | 'creating'>('form');
@@ -42,6 +45,11 @@ export function RegisterCard({ onSwitch }: Props) {
 
     if (password !== confirmPassword) {
       setError('两次输入的密码不匹配');
+      return;
+    }
+
+    if (!adultConfirmed) {
+      setError('当前服务仅向年满 18 周岁的用户开放');
       return;
     }
 
@@ -72,22 +80,24 @@ export function RegisterCard({ onSwitch }: Props) {
     try {
       const { hash, salt } = await hashPassword(password);
       const saltBytes = Uint8Array.from(atob(salt), (c) => c.charCodeAt(0));
-      const { iv, ciphertext } = await encryptApiKey(apiKey.trim(), password, saltBytes);
+      const key = apiKey.trim();
+      const encrypted = await encryptApiKey(key, password, saltBytes);
 
       const user: User = {
         id: crypto.randomUUID(),
         username: username.trim(),
         passwordHash: hash,
         passwordSalt: salt,
-        apiKeyIv: iv,
-        apiKeyCiphertext: ciphertext,
+        apiKeyIv: encrypted.iv,
+        apiKeyCiphertext: encrypted.ciphertext,
+        adultConfirmedAt: Date.now(),
         createdAt: Date.now(),
       };
 
       await userRepo.create(user);
-      login(user.id, user.username, apiKey.trim(), DEFAULT_USER_AVATAR);
+      login(user.id, user.username, key, DEFAULT_USER_AVATAR);
       // 同一台手机「记住登录」
-      void persistApiKey(apiKey.trim());
+      void persistApiKey(key);
       ipc.window.setSize(1200, 800);
     } catch {
       setError('注册基因失败，请重试');
@@ -98,12 +108,31 @@ export function RegisterCard({ onSwitch }: Props) {
   };
 
   return (
+    <>
     <form onSubmit={handleSubmit} className="w-full space-y-4">
       {/* Header */}
       <div className="text-center space-y-2">
         <div className="text-3xl">🌱</div>
         <h2 className="text-lg font-semibold text-ink">注册你的基因</h2>
       </div>
+
+      <label className="flex items-start gap-2.5 rounded-lg border border-line bg-surface/60 px-3 py-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={adultConfirmed}
+          onChange={(event) => setAdultConfirmed(event.target.checked)}
+          className="mt-0.5 accent-[#6C5CE7]"
+        />
+        <span className="text-[11px] leading-relaxed text-gray-400">
+          我已年满 18 周岁，并知悉角色回复由模型生成，必要的对话上下文会发送至云端模型处理。
+        </span>
+      </label>
+      <p className="text-center text-[10px] text-gray-500">
+        注册前请阅读{' '}
+        <button type="button" onClick={() => setLegalDocument('privacy')} className="text-life-cyan hover:underline">隐私说明</button>
+        {' '}和{' '}
+        <button type="button" onClick={() => setLegalDocument('terms')} className="text-life-cyan hover:underline">使用说明</button>
+      </p>
 
       {error && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-xs text-red-400">
@@ -158,7 +187,7 @@ export function RegisterCard({ onSwitch }: Props) {
 
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || !adultConfirmed}
         className="w-full py-2.5 rounded-lg bg-life-cyan text-[#0F0F1A] text-sm font-semibold hover:bg-[#00B8B3] transition-colors disabled:opacity-50"
       >
         {step === 'validating' && '正在验证基因序列...'}
@@ -173,5 +202,7 @@ export function RegisterCard({ onSwitch }: Props) {
         </button>
       </p>
     </form>
+    <LegalNoticeModal document={legalDocument} onClose={() => setLegalDocument(null)} />
+    </>
   );
 }

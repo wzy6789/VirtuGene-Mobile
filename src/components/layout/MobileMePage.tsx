@@ -11,8 +11,10 @@ import { Modal } from '../ui/Modal';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import { UserProfileModal } from '../settings/UserProfileModal';
 import { ApiKeyManager } from '../settings/ApiKeyManager';
+import { WeeklyLifeReviewModal } from '../insights/WeeklyLifeReviewModal';
 import { checkUpdate, openApkDownload } from '../../lib/mobile-update';
 import { clearPersistedApiKey } from '../../lib/api-key-storage';
+import { SpaceHeading } from '../ui/SpaceHeading';
 
 /** 功能列表线性图标（SVG，克制不花哨） */
 function RowIcon({ name }: { name: 'settings' | 'theme' | 'version' }) {
@@ -58,6 +60,7 @@ export function MobileMePage() {
   const [showSettings, setShowSettings] = useState(false);
   const [showApiKeys, setShowApiKeys] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showWeeklyReview, setShowWeeklyReview] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [version, setVersion] = useState('');
   /** 更新状态：idle / checking / found / downloading / error */
@@ -113,27 +116,51 @@ export function MobileMePage() {
     'w-full flex items-center gap-3 px-4 py-4 text-sm text-ink transition-colors active:bg-surface';
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto pb-6">
+    <div className="vg-personal h-full flex flex-col overflow-y-auto pb-6">
+      <SpaceHeading eyebrow="VIRTUGENE / YOUR SPACE" title="我的生命空间" detail="你的偏好、记忆与创造，都有归处。" />
       {/* 用户卡（点头像换头像，微信式） */}
       <button
         onClick={() => setShowProfile(true)}
-        className="flex items-center gap-3.5 px-5 pt-8 pb-6 text-left transition-colors active:bg-surface"
+        className="relative mx-4 mt-4 flex items-center gap-3.5 overflow-hidden rounded-[26px] border border-white/10 bg-[radial-gradient(circle_at_90%_10%,rgba(0,206,201,.28),transparent_28%),linear-gradient(135deg,#261B53,#151B38_58%,#10272B)] px-5 py-6 text-left shadow-[0_16px_36px_rgba(22,15,58,.30)] transition-transform active:scale-[.985]"
       >
+        <span className="absolute -right-7 -bottom-10 h-36 w-36 rounded-full border border-life-cyan/20" />
         <div className="relative shrink-0">
-          <Avatar avatar={avatar ?? DEFAULT_USER_AVATAR} size="lg" className="ring-2 ring-gene-purple/30" />
+          <Avatar avatar={avatar ?? DEFAULT_USER_AVATAR} size="lg" className="relative ring-2 ring-white/35" />
           <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-gene-purple/15 border border-line flex items-center justify-center text-[10px]">
             ✎
           </span>
         </div>
         <div className="min-w-0">
-          <p className="text-lg font-semibold text-ink truncate">{username ?? '数字灵魂'}</p>
-          <p className="text-xs text-gray-500 mt-0.5">点击头像更换</p>
+          <p className="text-[10px] tracking-[0.18em] text-life-cyan">YOUR GENOME</p>
+          <p className="mt-1 text-lg font-semibold text-white truncate">{username ?? '数字灵魂'}</p>
+          <p className="text-xs text-white/55 mt-0.5">管理你的数字生命空间</p>
         </div>
-        <span className="text-gray-400 text-sm ml-auto">›</span>
+        <span className="relative text-white/70 text-sm ml-auto">›</span>
       </button>
 
       {/* 功能列表 */}
-      <div className="mx-4 rounded-2xl bg-surface border border-line overflow-hidden divide-y divide-line">
+      <div className="mx-4 mt-3 grid grid-cols-3 overflow-hidden rounded-2xl border border-line bg-surface/80">
+        <div className="border-r border-line px-2 py-3 text-center"><span className="block text-base font-semibold text-ink">{useChatStore.getState().characters.length}</span><span className="text-[10px] text-gray-500">角色</span></div>
+        <div className="border-r border-line px-2 py-3 text-center"><span className="block text-base font-semibold text-life-cyan">{Object.keys(useCharacterStateStore.getState().affinityByCharacter).length}</span><span className="text-[10px] text-gray-500">连接</span></div>
+        <div className="px-2 py-3 text-center"><span className="block text-base font-semibold text-gene-purple">v{version || '4.1.0'}</span><span className="text-[10px] text-gray-500">版本</span></div>
+      </div>
+
+      <button
+        onClick={() => setShowWeeklyReview(true)}
+        className="relative mx-4 mt-3 flex overflow-hidden rounded-2xl border border-life-cyan/20 bg-[radial-gradient(circle_at_88%_25%,rgba(0,206,201,.16),transparent_24%),linear-gradient(130deg,rgba(108,92,231,.14),rgba(0,206,201,.06))] px-4 py-3.5 text-left shadow-[0_10px_26px_rgba(38,29,95,.10)] transition-transform active:scale-[.99]"
+      >
+        <span className="absolute -right-5 -bottom-8 h-24 w-24 rounded-full border border-life-cyan/15" />
+        <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gene-purple/15 text-lg">✦</span>
+        <span className="relative ml-3 min-w-0 flex-1">
+          <span className="block text-[10px] tracking-[0.18em] text-life-cyan/80">WEEKLY LIFE REVIEW</span>
+          <span className="mt-0.5 block text-sm font-semibold text-ink">本周生命回顾</span>
+          <span className="mt-0.5 block text-[11px] text-gray-500">看看关系、记忆与情绪如何一起生长</span>
+        </span>
+        <span className="relative self-center text-life-cyan">›</span>
+      </button>
+
+      <p className="mx-5 mt-6 text-[10px] tracking-[0.22em] text-gray-500">YOUR SPACE</p>
+      <div className="mx-4 mt-2 rounded-2xl bg-surface border border-line overflow-hidden divide-y divide-line">
         <button className={rowCls} onClick={() => setShowApiKeys(true)}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-gene-purple/70 shrink-0">
             <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4" />
@@ -201,6 +228,7 @@ export function MobileMePage() {
 
       <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
       <UserProfileModal open={showProfile} onClose={() => setShowProfile(false)} />
+      <WeeklyLifeReviewModal open={showWeeklyReview} onClose={() => setShowWeeklyReview(false)} />
       {showApiKeys && <ApiKeyManager onClose={() => setShowApiKeys(false)} />}
 
       {/* 断开灵魂链接二次确认 */}

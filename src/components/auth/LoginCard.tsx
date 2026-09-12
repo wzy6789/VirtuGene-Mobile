@@ -4,6 +4,7 @@ import { hashPassword, decryptApiKey } from '../../lib/crypto';
 import { persistApiKey } from '../../lib/api-key-storage';
 import { userRepo } from '../../db/user-repo';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
+import { LegalNoticeModal, type LegalDocument } from '../compliance/LegalNoticeModal';
 
 interface Props {
   onSwitch: () => void;
@@ -15,6 +16,8 @@ export function LoginCard({ onSwitch }: Props) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [adultConfirmed, setAdultConfirmed] = useState(false);
+  const [legalDocument, setLegalDocument] = useState<LegalDocument | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,6 +25,10 @@ export function LoginCard({ onSwitch }: Props) {
 
     if (!username.trim() || !password) {
       setError('请填写用户名和密码');
+      return;
+    }
+    if (!adultConfirmed) {
+      setError('当前服务仅向年满 18 周岁的用户开放');
       return;
     }
 
@@ -40,13 +47,14 @@ export function LoginCard({ onSwitch }: Props) {
         return;
       }
 
-      const key = await decryptApiKey(
-        user.apiKeyIv,
-        user.apiKeyCiphertext,
-        password,
-        saltBytes
-      );
+      const key = user.apiKeyIv && user.apiKeyCiphertext
+        ? await decryptApiKey(user.apiKeyIv, user.apiKeyCiphertext, password, saltBytes)
+        : null;
 
+      if (!key) {
+        setError('该账号没有保存 API Key，请重新注册并填写 API Key');
+        return;
+      }
       login(user.id, user.username, key, user.avatar ?? DEFAULT_USER_AVATAR);
       // 同一台手机「记住登录」：API Key 加密持久化，下次启动自动恢复
       void persistApiKey(key);
@@ -59,6 +67,7 @@ export function LoginCard({ onSwitch }: Props) {
   };
 
   return (
+    <>
     <form onSubmit={handleSubmit} className="w-full space-y-5">
       {/* Header */}
       <div className="text-center space-y-2">
@@ -90,9 +99,19 @@ export function LoginCard({ onSwitch }: Props) {
         />
       </div>
 
+      <label className="flex items-start gap-2.5 rounded-lg border border-line bg-surface/60 px-3 py-2.5 cursor-pointer">
+        <input type="checkbox" checked={adultConfirmed} onChange={(event) => setAdultConfirmed(event.target.checked)} className="mt-0.5 accent-[#6C5CE7]" />
+        <span className="text-[11px] leading-relaxed text-gray-400">我已年满18周岁，并知悉角色回复由人工智能生成。</span>
+      </label>
+      <p className="text-center text-[10px] text-gray-500">
+        <button type="button" onClick={() => setLegalDocument('privacy')} className="text-life-cyan hover:underline">隐私说明</button>
+        {' · '}
+        <button type="button" onClick={() => setLegalDocument('terms')} className="text-life-cyan hover:underline">使用说明</button>
+      </p>
+
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || !adultConfirmed}
         className="w-full py-2.5 rounded-lg bg-gene-purple text-white text-sm font-medium hover:bg-[#5B4BD4] transition-colors disabled:opacity-50"
       >
         {loading ? '正在唤醒...' : '登录'}
@@ -105,5 +124,7 @@ export function LoginCard({ onSwitch }: Props) {
         </button>
       </p>
     </form>
+    <LegalNoticeModal document={legalDocument} onClose={() => setLegalDocument(null)} />
+    </>
   );
 }

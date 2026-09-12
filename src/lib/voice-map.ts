@@ -159,6 +159,6 @@ export const VOICE_SELECT_PROMPT =
   '- band 从上面 6 个档位中选择，先性别后气质：如男性长者/威严选 male-deep，青年男子选 male-mature 或 male-young；女性温柔选 female-soft，甜美少女选 female-bright\n' +
   '- Edge voice 从音色池选择，气质需与 band 一致（如 band=male-young → 云希/云夏）\n' +
   '- 语速 rate：话痨/活泼 +20%，高冷/慵懒 -10%~-20%，一般 +0%\n' +
-  '- 音调 pitch：轻柔/病娇 +8Hz~+15Hz，低沉/威严 -8Hz~-15Hz，一般 +0Hz\n' +
+  '- 音调 pitch：轻柔 +8Hz~+15Hz，低沉/威严 -8Hz~-15Hz，一般 +0Hz\n' +
   '- 严格输出 JSON：{"gender":"male","voice":"zh-CN-YunyangNeural","band":"male-mature","rate":"+10%","pitch":"-8Hz","reason":"先说明角色性别，再一句话说明为什么这个声线贴合"}，不要任何额外文字\n\n' +
   '角色的形象与性格：\n';

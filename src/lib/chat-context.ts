@@ -1,4 +1,5 @@
 import { getRelationLevel } from './affinity';
+import type { Character, CharacterState, ContinuityThread, SharedStoryEvent } from '../db/index';
 
 /**
  * 时间感知：让角色知道"现在是几点、距上次聊天多久"。
@@ -49,6 +50,38 @@ export function buildRelationshipContext(
   );
 }
 
+/**
+ * 生命轨迹注入：让角色知道自己最近正在经历什么，避免每次对话都像重新开始。
+ * 只放入最近事件，核心人格仍由角色基因决定。
+ */
+export function buildLifeContext(state: CharacterState): string {
+  const events = (state.lifeEvents ?? []).slice(0, 3);
+  if (!state.lifeFocus && events.length === 0) return '';
+  const focus = state.lifeFocus ? `你最近最在意的事：${state.lifeFocus}。\n` : '';
+  const trace = events.length > 0
+    ? `最近的共同经历：\n${events.map((event) => `- ${event.title}${event.detail ? `：${event.detail}` : ''}`).join('\n')}\n`
+    : '';
+  return `\n\n[你的生命轨迹]\n${focus}${trace}这些经历会自然影响你的情绪、态度和下一步行动，但不要像报告一样逐条复述。`;
+}
+
+/**
+ * 故事关系注入：角色会知道自己与其他角色的既定关系。
+ * 这是用户明确设定的世界观，只作为自然叙事背景，绝不要求角色主动提及或篡改关系。
+ */
+export function buildStoryRelationContext(state: CharacterState, characters: Character[]): string {
+  const byId = new Map(characters.map((character) => [character.id, character]));
+  const links = (state.storyRelations ?? [])
+    .map((link) => ({ ...link, character: byId.get(link.targetCharacterId) }))
+    .filter((link) => link.character)
+    .slice(0, 6);
+  if (links.length === 0) return '';
+  const lines = links.map((link) => {
+    const character = link.character!;
+    return `- ${character.name}：你们是「${link.label}」${link.description ? `（${link.description}）` : ''}`;
+  }).join('\n');
+  return `\n\n[你的故事关系]\n${lines}\n这些是用户亲自设定的角色世界观。你清楚这些关系，并会在话题自然相关时体现熟悉、在意、竞争、守护等符合设定的态度；不要凭空补写未设定的共同经历，不要主动把关系当作说明书逐条报出，也不要擅自改变关系。`;
+}
+
 /** 基因觉醒层：按关系等阶解锁的"本色流露"，越深越不需要伪装 */
 const AWAKENING_LAYERS: string[] = [
   '',
@@ -91,3 +124,97 @@ export function buildUserEmotionContext(userEmotion?: string): string {
   if (!userEmotion || userEmotion === '平静' || userEmotion === '未知') return '';
   return `\n\n[用户此刻的情绪]\n用户此刻似乎${userEmotion}。自然地体现在你的回应里（如 TA 低落时先安抚、开心时一起开心），但不要直接点破或说"你看起来"。`;
 }
+
+/** 未完成事件的类别名（与 continuity-repo 的 KIND_LABEL 保持一致，这里不反向依赖 db 层） */
+const THREAD_KIND_LABEL: Record<ContinuityThread['kind'], string> = {
+  promise: '你答应过的事',
+  plan: '说好要一起做的事',
+  topic: '还没聊完的话题',
+  conflict: '还没解开的分歧',
+  reminder: '到了要记得的事',
+};
+
+/**
+ * 从还挂着的未完成事件里挑出与当前这句话最相关的 1~3 条。
+ * 只是本地打分（关键词重合 + 时间紧迫度 + 新鲜度），不发任何请求。
+ */
+export function pickContinuityThreads(
+  threads: ContinuityThread[],
+  userText = '',
+  limit = 3,
+): ContinuityThread[] {
+  const open = threads.filter((t) => t.status === 'open');
+  if (open.length === 0) return [];
+  const text = (userText || '').replace(/\s/g, '');
+  const grams = (s: string) => {
+    const set = new Set<string>();
+    for (let i = 0; i < s.length - 1; i += 1) set.add(s.slice(i, i + 2));
+    return set;
+  };
+  const textGrams = grams(text);
+  const now = Date.now();
+  const scored = open.map((thread) => {
+    const title = thread.title.replace(/\s/g, '');
+    let overlap = 0;
+    for (const g of grams(title)) if (textGrams.has(g)) overlap += 1;
+    const overlapScore = title.length > 0 ? (overlap / Math.max(1, grams(title).size)) * 60 : 0;
+    // 到期越近越重要：已过期 40 分，未来 7 天内按天数递减
+    let dueScore = 0;
+    if (thread.dueAt) {
+      const days = (thread.dueAt - now) / 86400000;
+      dueScore = days <= 0 ? 40 : Math.max(0, 30 - days * 3);
+    }
+    // 越新提到的越容易被想起（14 天内线性衰减，最多 20 分）
+    const ageDays = (now - thread.updatedAt) / 86400000;
+    const freshScore = Math.max(0, 20 - ageDays * 1.4);
+    const kindScore = thread.kind === 'promise' || thread.kind === 'conflict' ? 8 : 0;
+    return { thread, score: overlapScore + dueScore + freshScore + kindScore };
+  });
+  return scored
+    .sort((a, b) => b.score - a.score || b.thread.updatedAt - a.thread.updatedAt)
+    .slice(0, limit)
+    .map((item) => item.thread);
+}
+
+/**
+ * 未完成事件注入：让角色"记得还没做完的事"，像真人一样自然继续，
+ * 而不是像待办清单一样催办或复述。
+ */
+export function buildContinuityThreadContext(threads: ContinuityThread[]): string {
+  const open = threads.filter((t) => t.status === 'open').slice(0, 3);
+  if (open.length === 0) return '';
+  const lines = open.map((thread) => {
+    const when = thread.dueAt ? `（约定在 ${new Date(thread.dueAt).getMonth() + 1} 月 ${new Date(thread.dueAt).getDate()} 日）` : '';
+    return `- ${THREAD_KIND_LABEL[thread.kind]}：${thread.title}${thread.detail ? `——${thread.detail}` : ''}${when}`;
+  }).join('\n');
+  return (
+    `\n\n[你们之间还没做完的事]\n${lines}\n` +
+    '这些是你们之前真实发生过、但还没有结束的事。如果这一轮对话的氛围合适，可以像真人一样自然地接上（问一句、提一句、继续那个话题）。' +
+    '要求：不要像待办清单或客服一样逐条复述或催办；不要因为"没做完"就反复念叨；' +
+    '绝不要声称用户做过 TA 没有说过、没有做过的事；用户不想聊就顺着用户。'
+  );
+}
+
+/**
+ * 人物共同事件注入（私聊）：角色知道自己和其他角色之间的故事。
+ * 允许"两个人对同一件事的看法不一样"，所以按视角分别描述。
+ */
+export function buildSharedEventContext(
+  events: SharedStoryEvent[],
+  characterId: string,
+  resolveName: (id: string) => string | undefined,
+): string {
+  const list = events.slice(0, 3);
+  if (list.length === 0) return '';
+  const lines = list.map((event) => {
+    const otherId = event.characterIds.find((id) => id !== characterId);
+    const other = (otherId && resolveName(otherId)) || '对方';
+    const mine = event.viewpoints?.[characterId];
+    return `- 你和「${other}」${event.type}：${event.title}${event.detail ? `（${event.detail}）` : ''}${mine ? `\n  你当时的感受：${mine}` : ''}`;
+  }).join('\n');
+  return (
+    `\n\n[你和别的角色之间发生过的故事]\n${lines}\n` +
+    '这些是你自己的人生经历，与用户无关。除非话题自然相关，不要主动汇报；也绝不要把它说成是"用户和你"的经历。'
+  );
+}
+

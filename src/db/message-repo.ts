@@ -33,6 +33,17 @@ export const messageRepo = {
     return db.messages.where('sessionId').equals(sessionId).count();
   },
 
+  /** 按 id 取消息（记忆溯源"看当时说的话"用） */
+  async getById(id: string): Promise<Message | undefined> {
+    return db.messages.get(id);
+  },
+
+  async getByIds(ids: string[]): Promise<Message[]> {
+    if (ids.length === 0) return [];
+    const items = await db.messages.bulkGet(ids);
+    return items.filter((item): item is Message => !!item);
+  },
+
   /** 取会话最后一条消息（利用复合索引，避免全量加载） */
   async getLast(sessionId: string): Promise<Message | undefined> {
     return db.messages

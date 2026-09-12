@@ -5,6 +5,8 @@ import { sessionRepo } from '../db/session-repo';
 import { messageRepo, MESSAGE_PAGE_SIZE } from '../db/message-repo';
 import { memoryRepo } from '../db/memory-repo';
 import { stateRepo } from '../db/state-repo';
+import { continuityRepo } from '../db/continuity-repo';
+import { sharedEventRepo } from '../db/shared-event-repo';
 import { useAuthStore } from './auth-store';
 import { useCharacterStateStore } from './character-state-store';
 import { deriveProactivity, GREETING_PROACTIVITY_THRESHOLD } from '../lib/personality';
@@ -634,6 +636,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await characterRepo.deleteById(id);
     await memoryRepo.clearForCharacter(id, userId);
     await stateRepo.deleteByCharacter(id, userId);
+    // 4.0 生命连续性：该角色的未完成事件与牵涉 TA 的人物共同事件一并清理
+    await continuityRepo.deleteByCharacter(id, userId);
+    await sharedEventRepo.deleteByCharacter(id, userId);
 
     const { selectedCharacterId } = get();
     const all = await characterRepo.getAll();
@@ -678,6 +683,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await db.characters.where('createdBy').equals(userId).delete();
     // 注销账号一并删除该用户的日记（含回收站）
     await db.diaries.where('userId').equals(userId).delete();
+    // 4.0 生命连续性：未完成事件与人物共同事件全部清空
+    await continuityRepo.clearForUser(userId);
+    await sharedEventRepo.clearForUser(userId);
     await db.users.delete(userId);
 
     set({

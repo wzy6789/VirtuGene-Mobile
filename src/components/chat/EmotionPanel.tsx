@@ -242,12 +242,15 @@ export function EmotionPanel() {
     useEmotionStore.setState({ currentSnapshot: snapshot, previousSnapshot: prev });
   };
 
+  // A closed panel should not render charts and timelines during chat updates.
+  if (!isPanelOpen) return null;
+
   return (
     <div
-      className={`relative h-full flex flex-col bg-app border-l border-line shrink-0 overflow-hidden ${
-        IS_MOBILE ? 'absolute inset-y-0 right-0 z-40 shadow-2xl' : ''
+      className={`vg-emotion-panel h-full flex flex-col bg-app border-l border-line shrink-0 overflow-hidden ${
+        IS_MOBILE ? 'absolute inset-0 z-40' : 'relative'
       }`}
-      style={{ width: isPanelOpen ? width : 0, opacity: isPanelOpen ? 1 : 0 }}
+      style={{ width: IS_MOBILE ? '100%' : width }}
     >
       {isPanelOpen && !IS_MOBILE && (
         <div
@@ -255,14 +258,16 @@ export function EmotionPanel() {
           className="absolute inset-y-0 left-0 w-1.5 cursor-col-resize hover:bg-gene-purple/30 transition-colors z-10"
         />
       )}
-      <div className="flex flex-col h-full" style={{ minWidth: width }}>
+      <div className="flex flex-col h-full min-w-0">
         {/* Header */}
-        <div className="h-12 flex items-center justify-between px-4 border-b border-line shrink-0">
+        <div className="min-h-20 flex items-center justify-between px-5 border-b border-line shrink-0">
           <span className="text-sm font-medium text-ink">
+            <span className="vg-eyebrow block mb-2">INNER LANDSCAPE</span>
             {character ? `${character.name} 的情绪图谱` : '情绪图谱'}
           </span>
           <button
             onClick={closePanel}
+            aria-label="关闭情绪图谱"
             className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-sub hover:bg-surface transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -516,17 +521,25 @@ export function EmotionPanel() {
               )}
 
               {/* Radar chart */}
-              <div className="flex justify-center">
-                <EmotionChart
-                  dimensions={currentSnapshot.dimensions}
-                  previousDimensions={previousSnapshot?.dimensions}
-                  size={220}
-                />
+              <div className="relative overflow-hidden rounded-[24px] border border-gene-purple/20 bg-[#151427] px-2 py-3 shadow-[0_12px_30px_rgba(63,48,128,0.16)]">
+                <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full border border-life-cyan/15" />
+                <div className="absolute -bottom-10 -left-8 h-28 w-28 rounded-full bg-gene-purple/15 blur-2xl" />
+                <div className="relative flex items-center justify-between px-3">
+                  <span className="text-[10px] tracking-[0.22em] text-life-cyan/75">EMOTIONAL CONSTELLATION</span>
+                  <span className="text-[10px] text-white/45">六维情绪坐标</span>
+                </div>
+                <div className="relative flex justify-center">
+                  <EmotionChart
+                    dimensions={currentSnapshot.dimensions}
+                    previousDimensions={previousSnapshot?.dimensions}
+                    size={220}
+                  />
+                </div>
               </div>
 
               {/* 愉悦度曲线 */}
               {snapshots.length >= 2 && (
-                <div className="space-y-1">
+                <div className="space-y-1 rounded-2xl border border-line bg-panel/55 px-3 py-3">
                   <SectionTitle>心情曲线</SectionTitle>
                   <EmotionCurve snapshots={snapshots} />
                 </div>

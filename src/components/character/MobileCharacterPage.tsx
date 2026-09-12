@@ -4,9 +4,15 @@ import { useAuthStore } from '../../store/auth-store';
 import { CharacterAddModal } from './CharacterAddModal';
 import { CharacterProfileModal } from './CharacterProfileModal';
 import { GroupChatPage } from '../chat/GroupChatPage';
+import { RelationNetworkModal } from './RelationNetworkModal';
+import { LivingWorldHero } from './LivingWorldHero';
+import { SpaceHeading } from '../ui/SpaceHeading';
+import { GatewayStatusBadge } from '../settings/GatewayStatusBadge';
 import { Modal } from '../ui/Modal';
 import { getInitial, getSortKey, INDEX_LETTERS } from '../../lib/pinyin';
 import type { Character } from '../../db/index';
+import { stateRepo } from '../../db/state-repo';
+import { getRelationLevel, levelProgress } from '../../lib/affinity';
 
 interface Props {
   /** 选择角色后回调（切回聊天 tab） */
@@ -30,9 +36,11 @@ export function MobileCharacterPage({ onSelect }: Props) {
   const userId = useAuthStore((s) => s.userId) ?? '';
   const [showLab, setShowLab] = useState(false);
   const [showGroups, setShowGroups] = useState(false);
+  const [showNetwork, setShowNetwork] = useState(false);
   const [editChar, setEditChar] = useState<Character | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Character | null>(null);
   const [profileChar, setProfileChar] = useState<Character | null>(null);
+  const [worldStates, setWorldStates] = useState<Record<string, { affinity: number; mood: number; updatedAt: number; lifeFocus?: string }>>({});
   const [search, setSearch] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -42,6 +50,21 @@ export function MobileCharacterPage({ onSelect }: Props) {
     void loadCharacters();
     void fetchUnreadCounts();
   }, [loadCharacters, fetchUnreadCounts]);
+
+  useEffect(() => {
+    if (!userId || characters.length === 0) return;
+    let active = true;
+    void stateRepo.getAllByUser(userId).then((states) => {
+      if (!active) return;
+      setWorldStates(Object.fromEntries(states.map((state) => [state.characterId, {
+        affinity: state.affinity,
+        mood: state.mood,
+        updatedAt: state.updatedAt,
+        lifeFocus: state.lifeFocus,
+      }])));
+    });
+    return () => { active = false; };
+  }, [characters, userId]);
 
   /** 搜索过滤（名字/标签/签名/性格片段） */
   const filtered = useMemo(() => {
@@ -114,17 +137,18 @@ export function MobileCharacterPage({ onSelect }: Props) {
   const isOwn = (c: Character) => !c.isPreset && c.createdBy === userId;
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="vg-characters h-full flex flex-col">
       {/* 头部 */}
-      <div className="h-12 flex items-center gap-2 px-4 border-b border-line shrink-0">
-        <span className="text-base font-bold bg-gradient-to-r from-gene-purple to-life-cyan bg-clip-text text-transparent">
-          我的角色
-        </span>
-        <span className="text-[10px] text-gray-400">{characters.length} 位灵魂</span>
-      </div>
+      <SpaceHeading eyebrow="VIRTUGENE / LIVING WORLD" title="我的角色宇宙" detail="人格由你创造，故事从此生长。" action={<GatewayStatusBadge compact />} />
 
       {/* 滚动容器（relative：字母索引条相对可视区域定位，滚动时固定在右侧中间） */}
       <div className="relative flex-1 overflow-y-auto py-1">
+        <LivingWorldHero
+          characters={characters}
+          states={worldStates}
+          onCreate={() => setShowLab(true)}
+          onOpenNetwork={() => setShowNetwork(true)}
+        />
         {/* 搜索框（微信通讯录式） */}
         <div className="mx-3 mb-2 mt-1">
           <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-line focus-within:border-gene-purple/40 transition-all">
@@ -148,26 +172,6 @@ export function MobileCharacterPage({ onSelect }: Props) {
           </div>
         </div>
 
-        {/* 基因实验室入口：放在所有人物之上，醒目（紫青渐变横条） */}
-        <button
-          onClick={() => setShowLab(true)}
-          className="mx-3 mb-2 w-[calc(100%-1.5rem)] flex items-center gap-3 px-4 py-3.5 rounded-2xl text-left overflow-hidden relative transition-all active:scale-[0.98] bg-gradient-to-r from-gene-purple to-[#00CEC9] shadow-[0_4px_16px_rgba(108,92,231,0.35)]"
-        >
-          <span className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-white/15 blur-xl pointer-events-none" />
-          <span className="absolute -bottom-8 -left-4 w-24 h-24 rounded-full bg-white/10 blur-2xl pointer-events-none" />
-          <span className="relative shrink-0 w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 12c-2-2.5-5.5-4-8-4M12 12c2-2.5 5.5-4 8-4M12 12c-2 2.5-2 7.5 0 10M12 12c2 2.5 2 7.5 0 10M4 8c0-2 2-3 4-3M20 8c0-2-2-3-4-3M4 16c0 2 2 3 4 3M20 16c0 2-2 3-4 3" />
-            </svg>
-          </span>
-          <span className="relative min-w-0 flex-1">
-            <span className="block text-sm font-semibold text-white">基因实验室</span>
-            <span className="block text-[11px] text-white/85 mt-0.5 truncate">培育新的数字灵魂</span>
-          </span>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="relative shrink-0 opacity-90">
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </button>
 
         {/* 群聊入口（微信式：把数字灵魂拉进群） */}
         <button
@@ -190,6 +194,11 @@ export function MobileCharacterPage({ onSelect }: Props) {
           </svg>
         </button>
 
+        {!search && <WorldPulseCard characters={characters} states={worldStates} />}
+        <div className="flex items-center justify-between px-5 pt-3 pb-2">
+          <h2 className="text-sm font-semibold text-ink">{search ? '搜索结果' : '相识的生命'}</h2>
+          <span className="text-xs text-gray-500">{filtered.length} 位</span>
+        </div>
         {/* 角色列表（按字母分组；搜索时扁平显示） */}
         <div>
           {filtered.length === 0 ? (
@@ -231,7 +240,7 @@ export function MobileCharacterPage({ onSelect }: Props) {
         </div>
 
         {/* 右侧字母索引条（微信通讯录式；搜索时隐藏；略下移避开顶部搜索+基因实验室横条） */}
-        {!search && filtered.length > 0 && (
+        {!search && filtered.length > 15 && (
           <div className="absolute right-0 top-[58%] -translate-y-1/2 z-20 flex flex-col items-center gap-[1px] px-0.5 py-1 select-none">
             {INDEX_LETTERS.map((l) => {
               const has = availableLetters.has(l);
@@ -305,6 +314,7 @@ export function MobileCharacterPage({ onSelect }: Props) {
       {profileChar && (
         <CharacterProfileModal
           character={profileChar}
+          worldCharacters={characters}
           userId={userId}
           onClose={() => setProfileChar(null)}
           onChat={async (c) => {
@@ -335,11 +345,62 @@ export function MobileCharacterPage({ onSelect }: Props) {
         }}
       />
       {showGroups && <GroupChatPage onClose={() => setShowGroups(false)} />}
+      <RelationNetworkModal open={showNetwork} onClose={() => setShowNetwork(false)} characters={characters} userId={userId} />
     </div>
   );
 }
 
 /** 角色行（头像 / 名字 / 标签 / 签名 / 未读 / 选中态） */
+function WorldPulseCard({ characters, states }: {
+  characters: Character[];
+  states: Record<string, { affinity: number; mood: number; updatedAt: number; lifeFocus?: string }>;
+}) {
+  const active = characters
+    .map((character) => ({ character, state: states[character.id] }))
+    .filter((item) => item.state)
+    .sort((a, b) => (b.state?.updatedAt ?? 0) - (a.state?.updatedAt ?? 0))
+    .slice(0, 3);
+
+  if (active.length === 0) return null;
+
+  return (
+    <details className="mx-3 mb-3 rounded-2xl border border-line bg-surface overflow-hidden">
+      <summary className="px-4 py-3 flex items-center justify-between cursor-pointer list-none">
+        <div>
+          <p className="text-sm font-semibold text-ink">正在生长的关系</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">角色的情绪和连接，会随着共同经历变化</p>
+        </div>
+        <span className="text-xs text-life-cyan shrink-0 ml-2">查看动态 ⌄</span>
+      </summary>
+      <div className="px-3 pb-3 space-y-2">
+        {active.map(({ character, state }) => {
+          const relation = getRelationLevel(state!.affinity);
+          const progress = levelProgress(state!.affinity, relation.level, relation.next);
+          const moodColor = state!.mood >= 70 ? '#00CEC9' : state!.mood >= 45 ? '#A78BFA' : '#FB7185';
+          return (
+            <div key={character.id} className="flex items-center gap-2.5 rounded-xl bg-white/[0.035] px-2.5 py-2">
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-panel border border-white/10 flex items-center justify-center text-base shrink-0">
+                {character.avatar.startsWith('data:') ? <img src={character.avatar} alt="" className="w-full h-full object-cover" /> : character.avatar}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-ink truncate">{character.name}</span>
+                  <span className="text-[10px]" style={{ color: moodColor }}>{state!.mood >= 70 ? '状态明亮' : state!.mood >= 45 ? '情绪平稳' : '需要关注'}</span>
+                </div>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <div className="h-1 flex-1 rounded-full bg-white/10 overflow-hidden"><div className="h-full rounded-full transition-all" style={{ width: `${progress}%`, background: 'linear-gradient(90deg, #6C5CE7, #00CEC9)' }} /></div>
+                  <span className="text-[10px] text-gray-500 shrink-0">{relation.level.name}</span>
+                </div>
+                {state!.lifeFocus && <p className="mt-1 text-[10px] text-gray-500 truncate">{state!.lifeFocus}</p>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
 function CharacterRow({ c, selected, unread, onSelect, onLongPress }: {
   c: Character;
   selected: boolean;
@@ -359,12 +420,13 @@ function CharacterRow({ c, selected, unread, onSelect, onLongPress }: {
       onTouchEnd={() => { if (pressRef.current) clearTimeout(pressRef.current); }}
       onTouchMove={() => { if (pressRef.current) clearTimeout(pressRef.current); }}
       onContextMenu={(e) => { e.preventDefault(); onLongPress(e.clientX, e.clientY); }}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors active:bg-surface ${selected ? 'bg-gene-purple/8' : ''}`}
+      className={`relative mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-center gap-3 overflow-hidden rounded-2xl border px-3.5 py-3 text-left shadow-[0_6px_18px_rgba(15,15,26,0.04)] transition-all active:scale-[0.99] ${selected ? 'border-gene-purple/35 bg-gene-purple/[0.10] shadow-[0_8px_22px_rgba(108,92,231,0.13)]' : 'border-line bg-panel/45 hover:border-life-cyan/25'}`}
     >
+      {selected && <span className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-gradient-to-b from-gene-purple to-life-cyan" />}
       {c.avatar.startsWith('data:') ? (
-        <img src={c.avatar} alt={c.name} className="w-10 h-10 rounded-full object-cover shrink-0" />
+        <img src={c.avatar} alt={c.name} className="w-11 h-11 rounded-2xl object-cover shrink-0 ring-1 ring-white/10" />
       ) : (
-        <span className="w-10 h-10 rounded-full bg-surface flex items-center justify-center text-xl shrink-0">
+        <span className="w-11 h-11 rounded-2xl bg-surface flex items-center justify-center text-xl shrink-0 border border-line">
           {c.avatar}
         </span>
       )}
@@ -372,7 +434,7 @@ function CharacterRow({ c, selected, unread, onSelect, onLongPress }: {
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-ink truncate">{c.name}</span>
           {c.tags.slice(0, 2).map((tag) => (
-            <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-surface text-gray-400 shrink-0">
+            <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-gene-purple/8 text-gene-purple/75 shrink-0">
               {tag}
             </span>
           ))}

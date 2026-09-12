@@ -1,0 +1,21 @@
+[Unit]
+Description=VirtuGene AI Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=virtugene
+Group=virtugene
+WorkingDirectory=/opt/virtugene
+EnvironmentFile=/etc/virtugene/gateway.env
+ExecStart=/usr/bin/node /opt/virtugene/gateway.mjs
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/virtugene
+
+[Install]
+WantedBy=multi-user.target

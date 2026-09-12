@@ -3,6 +3,16 @@
 /** 构建时由 vite.config.ts 注入的 package.json version */
 declare const __APP_VERSION__: string;
 
+interface ImportMetaEnv {
+  readonly VITE_AI_GATEWAY_URL?: string;
+  /** 构建时可选的网关令牌；正式包应使用登录后签发的短期令牌。 */
+  readonly VITE_AI_GATEWAY_TOKEN?: string;
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
+
 type UpdateStatus =
   | { state: 'checking' }
   | { state: 'available'; version: string }
@@ -109,7 +119,17 @@ interface VirtuGeneAPI {
       history: { role: string; content: string }[];
       characterName: string;
     }) => Promise<{
-      memories?: string[];
+      /** 记忆条目：content + 依据的消息编号（对应传入 history 的下标，未知时为空数组） */
+      memories?: { content: string; evidence: number[] }[];
+      /** 未完成事件：新建或完成（由同一次结算调用顺带产出） */
+      threads?: {
+        action: 'create' | 'complete';
+        kind: 'promise' | 'plan' | 'topic' | 'conflict' | 'reminder';
+        title: string;
+        detail?: string;
+        dueAt?: number;
+        evidence: number[];
+      }[];
       dimensions?: { valence: number; arousal: number; intimacy: number; engagement: number; expressiveness: number; stability: number };
       dominantEmotion?: string;
       userEmotion?: string;

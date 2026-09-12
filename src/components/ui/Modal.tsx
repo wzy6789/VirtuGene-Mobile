@@ -1,5 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { IS_MOBILE } from '../../lib/platform';
+
+const modalStack: symbol[] = [];
+let previousOverflow = '';
 
 interface ModalProps {
   open: boolean;
@@ -12,38 +16,53 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, children, width = 'max-w-lg', closeOnBackdrop = true }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
+    const token = Symbol('modal');
+    const previousFocus = document.activeElement as HTMLElement | null;
+    if (modalStack.length === 0) previousOverflow = document.body.style.overflow;
+    modalStack.push(token);
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (modalStack[modalStack.length - 1] !== token) return;
+      if (e.key === 'Escape') { e.preventDefault(); closeRef.current(); }
     };
     document.addEventListener('keydown', handleKey);
     document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', handleKey);
-      document.body.style.overflow = '';
+      const index = modalStack.indexOf(token);
+      if (index !== -1) modalStack.splice(index, 1);
+      if (modalStack.length === 0) document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
   return createPortal(
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className={`vg-modal-overlay fixed inset-0 z-50 flex justify-center bg-black/60 ${IS_MOBILE ? 'items-end' : 'items-center'}`}
       onClick={(e) => {
         if (closeOnBackdrop && e.target === overlayRef.current) onClose();
       }}
     >
       <div
-        className={`relative z-10 glass-card rounded-2xl w-[calc(100%-2rem)] ${width} p-0 overflow-hidden animate-fade-in`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        className={`vg-modal-panel relative z-10 rounded-2xl w-[calc(100%-2rem)] ${width} p-0 overflow-hidden animate-fade-in ${IS_MOBILE ? 'vg-mobile-sheet' : ''}`}
       >
         {title && (
           <div className="flex items-center justify-between px-6 py-4 border-b border-line">
-            <h2 className="text-base font-semibold text-ink">{title}</h2>
+            <h2 id={titleId} className="text-base font-semibold text-ink">{title}</h2>
             <button
               onClick={onClose}
+              aria-label="关闭"
               className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-ink hover:bg-surface transition-colors"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

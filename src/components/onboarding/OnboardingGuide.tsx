@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
 import { OnboardingModal } from './OnboardingModal';
+import { IS_MOBILE } from '../../lib/platform';
 
 const ONBOARDED_PREFIX = 'virtugene:onboarded:';
 
@@ -112,10 +113,19 @@ export function OnboardingGuide() {
   const [showWelcome, setShowWelcome] = useState(() => userId !== '' && localStorage.getItem(onboardedKey) == null);
   const [tipStep, setTipStep] = useState<0 | 1 | 2 | 3>(0);
 
+  useEffect(() => {
+    const reopen = () => {
+      setShowWelcome(true);
+      setTipStep(0);
+    };
+    window.addEventListener('virtugene:open-onboarding', reopen);
+    return () => window.removeEventListener('virtugene:open-onboarding', reopen);
+  }, []);
+
   const closeWelcome = () => {
     setShowWelcome(false);
     localStorage.setItem(onboardedKey, '1');
-    setTipStep(1);
+    setTipStep(IS_MOBILE ? 0 : 1);
   };
 
   return (

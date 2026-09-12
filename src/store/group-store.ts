@@ -8,6 +8,7 @@ import { memoryRepo } from '../db/memory-repo';
 import { useAuthStore } from './auth-store';
 import { useNotificationStore } from './notification-store';
 import { stateRepo } from '../db/state-repo';
+import { sharedEventRepo } from '../db/shared-event-repo';
 import { getRelationLevel } from '../lib/affinity';
 import { ipc } from '../lib/ipc-client';
 import { notifyLocal } from '../lib/notify';
@@ -26,9 +27,9 @@ const BANTER_COOLDOWN_MS = 4 * 60 * 60_000;
 /** 每天最多自运转次数（localStorage 按日期计数） */
 const BANTER_DAILY_MAX = 3;
 /** 长会话滚动摘要窗口：超过该条数的早期消息压缩成摘要 */
-const SUMMARY_WINDOW = 60;
+const SUMMARY_WINDOW = 36;
 /** 摘要增量重建阈值：新增未覆盖消息数达到该值才重新生成 */
-const SUMMARY_REGENERATE_THRESHOLD = 20;
+const SUMMARY_REGENERATE_THRESHOLD = 12;
 
 interface GroupState {
   groups: Group[];
@@ -109,13 +110,40 @@ async function buildBriefs(group: Group, userId: string): Promise<GroupMemberBri
         /* 私聊记录取不到不影响群聊 */
       }
       let soulState: string | undefined;
+      let storyRelations: string | undefined;
+      let sharedHistory: string | undefined;
       try {
         const st = await stateRepo.getOrCreate(c.id, userId);
         const lvl = getRelationLevel(st.affinity);
         const name = (st.tierNames && st.tierNames[lvl.level.name]) || lvl.level.name;
         soulState = `${name} · 好感度 ${Math.round(st.affinity)} · 心情 ${Math.round(st.mood)}/100`;
+        storyRelations = (st.storyRelations ?? [])
+          .map((link) => {
+            const target = members.find((member) => member.id === link.targetCharacterId);
+            return target ? `与${target.name}是「${link.label}」${link.description ? `（${link.description}）` : ''}` : '';
+          })
+          .filter(Boolean)
+          .slice(0, 4)
+          .join('；') || undefined;
       } catch {
         /* 灵魂状态取不到不影响群聊 */
+      }
+      // 人物共同事件：群聊里只能"读到"，不能新建/修改（数据只由用户在关系详情里维护）
+      try {
+        const events = await sharedEventRepo.getRecentByCharacter(c.id, userId, 6);
+        sharedHistory = events
+          .map((event) => {
+            const otherId = event.characterIds.find((id) => id !== c.id);
+            const other = members.find((member) => member.id === otherId);
+            if (!other) return '';
+            const mine = event.viewpoints?.[c.id];
+            return `与${other.name}${event.type}：${event.title}${mine ? `（你的感受：${mine}）` : ''}`;
+          })
+          .filter(Boolean)
+          .slice(0, 3)
+          .join('；') || undefined;
+      } catch {
+        /* 共同事件取不到不影响群聊 */
       }
       return {
         id: c.id,
@@ -124,6 +152,8 @@ async function buildBriefs(group: Group, userId: string): Promise<GroupMemberBri
         memory: memText || undefined,
         privateChat,
         soulState,
+        storyRelations,
+        sharedHistory,
       };
     }),
   );
@@ -147,7 +177,7 @@ async function maybeSummarizeGroup(sessionId: string, apiKey: string): Promise<v
     const lastCovered = sessionData?.summaryUpdatedAt ?? 0;
     const uncovered = oldMsgs.filter((m) => m.createdAt > lastCovered);
     if (uncovered.length < SUMMARY_REGENERATE_THRESHOLD) return;
-    const history = oldMsgs.slice(-200).map((m) => ({ role: m.role, content: m.content }));
+    const history = oldMsgs.slice(-80).map((m) => ({ role: m.role, content: m.content.slice(0, 1200) }));
     const result = await ipc.context.summarize({ apiKey, history });
     if (result.summary) {
       await sessionRepo.updateSummary(sessionId, result.summary);
@@ -163,8 +193,8 @@ async function maybeExtractGroupMemories(sessionId: string, memberIds: string[],
     const userId = useAuthStore.getState().userId ?? '';
     const msgs = await messageRepo.getBySession(sessionId);
     const userCount = msgs.filter((m) => m.role === 'user').length;
-    if (userCount < 3 || userCount % 3 !== 0) return;
-    const history = msgs.slice(-30).map((m) => ({ role: m.role, content: m.content }));
+    if (userCount < 6 || userCount % 6 !== 0) return;
+    const history = msgs.slice(-18).map((m) => ({ role: m.role, content: m.content.slice(0, 1200) }));
     const result = await extractMemories({ apiKey, history });
     if (!result.memories || result.memories.length === 0) return;
     for (const charId of memberIds) {
@@ -268,6 +298,11 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     const now = Date.now();
     const group: Group = { id: crypto.randomUUID(), userId, name: name.trim() || '角色群', characterIds, createdAt: now, updatedAt: now };
     await groupRepo.create(group);
+    await Promise.all(characterIds.map((characterId) => stateRepo.recordLifeEvent(characterId, userId, {
+      type: 'relationship',
+      title: `进入共同场域「${group.name}」`,
+      detail: '一个新的多角色关系开始形成。',
+    })));
     await get().loadGroups();
     return group;
   },

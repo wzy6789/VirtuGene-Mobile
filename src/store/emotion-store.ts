@@ -6,6 +6,7 @@ import { messageRepo } from '../db/message-repo';
 import { memoryRepo } from '../db/memory-repo';
 import { emotionRepo } from '../db/emotion-repo';
 import { stateRepo } from '../db/state-repo';
+import { continuityRepo } from '../db/continuity-repo';
 import { ipc } from '../lib/ipc-client';
 import { computeAffinityDelta } from '../lib/affinity';
 import type { EmotionSnapshot } from '../db/index';
@@ -139,6 +140,12 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
       return;
     }
 
+    // 溯源：分析时给模型的 history 下标 → 真实消息 id。
+    // 记忆/未完成事件只接受模型回传的编号，绝不按文本相似度猜消息。
+    const indexedMessages = msgs.slice(-100);
+    const idsForEvidence = (evidence: number[] | undefined): string[] =>
+      Array.from(new Set((evidence ?? []).map((i) => indexedMessages[i]?.id).filter((id): id is string => !!id)));
+
     const dims = result.dimensions;
     const userId = useAuthStore.getState().userId ?? '';
     const snapshot: EmotionSnapshot = {
@@ -162,25 +169,59 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
         const existing = await memoryRepo.getByCharacter(characterId, userId);
         const existingContents = new Set(existing.map((m) => m.content.trim()));
         const fresh = result.memories
-          .map((c) => c.trim())
-          .filter((c) => c.length > 0 && !existingContents.has(c))
+          .map((m) => ({ content: m.content.trim(), evidence: m.evidence ?? [] }))
+          .filter((m) => m.content.length > 0 && !existingContents.has(m.content))
           .slice(0, 20);
         if (fresh.length > 0) {
           const now = Date.now();
           await memoryRepo.createMany(
-            fresh.map((content, i) => ({
-              id: crypto.randomUUID(),
-              characterId,
-              userId,
-              content,
-              type: 'auto' as const,
-              createdAt: now + i,
-            })),
+            fresh.map((m, i) => {
+              const sourceMessageIds = idsForEvidence(m.evidence);
+              return {
+                id: crypto.randomUUID(),
+                characterId,
+                userId,
+                content: m.content,
+                type: 'auto' as const,
+                createdAt: now + i,
+                sourceSessionId: sessionId,
+                sourceMessageIds,
+                // 有真实消息依据的记忆更可信；只凭总结出来的给较低的置信度
+                confidence: sourceMessageIds.length > 0 ? 0.9 : 0.6,
+                updatedAt: now + i,
+              };
+            }),
           );
         }
       }
     } catch (err) {
       console.warn('[settle] 记忆保存失败（不影响结算）:', err);
+    }
+
+    // 生命连续性：把「说好了还没做完的事」沉淀成未完成事件。
+    // 同一次结算调用顺带产出，不额外增加任何 API 请求；失败不影响情绪与好感度结算。
+    try {
+      const created = (result.threads ?? []).filter((t) => t.action === 'create' && t.title.trim());
+      const completed = (result.threads ?? []).filter((t) => t.action === 'complete' && t.title.trim());
+      if (created.length > 0) {
+        await continuityRepo.createMany(
+          created.map((t) => ({
+            characterId,
+            userId,
+            kind: t.kind,
+            title: t.title,
+            detail: t.detail,
+            dueAt: t.dueAt,
+            sourceMessageIds: idsForEvidence(t.evidence),
+            origin: 'ai' as const,
+          })),
+        );
+      }
+      for (const t of completed) {
+        await continuityRepo.completeByTitle(characterId, userId, t.title, idsForEvidence(t.evidence), t.kind);
+      }
+    } catch (err) {
+      console.warn('[settle] 未完成事件写入失败（不影响结算）:', err);
     }
 
     const delta = computeAffinityDelta(dims);
@@ -193,6 +234,16 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
       delta,
       moodDelta,
     );
+
+    // 4.0 生命轨迹：每次完整结算都会留下一个共同事件，让关系变化可回看、可解释。
+    const eventTitle = upgraded
+      ? `关系进入「${upgraded.level}」阶段`
+      : result.summary?.trim().slice(0, 48) || '一次新的共同经历';
+    await stateRepo.recordLifeEvent(characterId, userId, {
+      type: upgraded ? 'relationship' : 'interaction',
+      title: eventTitle,
+      detail: result.summary?.trim().slice(0, 220),
+    });
 
     const csStore = useCharacterStateStore.getState();
     if (csStore.characterId === characterId) {

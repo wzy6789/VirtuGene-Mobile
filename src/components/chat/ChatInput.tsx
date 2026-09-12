@@ -8,6 +8,7 @@ import { transcribeWithSiliconFlow, CLOUD_ASR_KEY_NAME } from '../../lib/cloud-a
 
 export interface ChatInputHandle {
   focus: () => void;
+  setDraft: (text: string) => void;
 }
 
 export interface VoicePayload {
@@ -103,6 +104,16 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 
   useImperativeHandle(ref, () => ({
     focus: () => inputRef.current?.focus(),
+    setDraft: (next) => {
+      setText(next);
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.focus();
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+      });
+    },
   }));
 
   const showToast = (msg: string, ms = 2000) => {
@@ -287,14 +298,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const recording = recState === 'recording';
 
   return (
-    <div className="relative border-t border-line p-4">
+    <div className="chat-composer relative border-t border-line p-3 sm:p-4">
       {/* 输入区浮动提示 */}
       {toast && (
         <div className="absolute -top-9 left-1/2 -translate-x-1/2 z-50 glass-card rounded-full px-4 py-1.5 text-xs text-ink animate-fade-in whitespace-nowrap shadow-lg">
           {toast}
         </div>
       )}
-      <div className="flex items-end gap-2 max-w-3xl mx-auto">
+      <div className="chat-composer-inner flex items-end gap-2 max-w-3xl mx-auto">
         {/* 手机端「+」：相册发图（微信式） */}
         {IS_MOBILE && onSendImage && (
           <button
@@ -354,7 +365,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             placeholder="发消息…"
             disabled={disabled}
             rows={1}
-            className="flex-1 resize-none bg-surface border border-line-strong rounded-xl px-4 py-3 text-sm text-ink placeholder-gray-500 outline-none focus:border-gene-purple focus:shadow-[0_0_0_3px_rgba(108,92,231,0.14),0_0_18px_rgba(108,92,231,0.22)] transition-all disabled:opacity-40"
+            className="chat-composer-input flex-1 resize-none bg-surface border border-line-strong rounded-xl px-4 py-3 text-sm text-ink placeholder-gray-500 outline-none focus:border-gene-purple focus:shadow-[0_0_0_3px_rgba(108,92,231,0.14),0_0_18px_rgba(108,92,231,0.22)] transition-all disabled:opacity-40"
           />
         ) : (
           /* 录音状态条：声波 + 计时，点击停止发送 */

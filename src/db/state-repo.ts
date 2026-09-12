@@ -1,4 +1,4 @@
-import { db, type CharacterState, type RelationMilestone } from './index';
+import { db, type CharacterState, type LifeEvent, type RelationMilestone, type StoryRelation } from './index';
 import { RELATION_LEVELS, getRelationLevel } from '../lib/affinity';
 
 const DEFAULT_AFFINITY = 0;
@@ -140,7 +140,121 @@ export const stateRepo = {
     });
   },
 
+  /**
+   * 写入一条可回看的共同事件，并把它作为角色当下的关注点。
+   * 事件只保留最近 24 条，避免角色生命轨迹无限膨胀。
+   */
+  async recordLifeEvent(
+    characterId: string,
+    userId: string,
+    event: Omit<LifeEvent, 'id' | 'createdAt'> & Partial<Pick<LifeEvent, 'id' | 'createdAt'>>,
+  ): Promise<CharacterState> {
+    return db.transaction('rw', db.characterStates, async () => {
+      const existing = await db.characterStates.get([characterId, userId]);
+      const state: CharacterState = existing ?? {
+        characterId,
+        userId,
+        affinity: DEFAULT_AFFINITY,
+        mood: DEFAULT_MOOD,
+        milestones: [],
+        updatedAt: Date.now(),
+      };
+      const nextEvent: LifeEvent = {
+        id: event.id ?? crypto.randomUUID(),
+        type: event.type,
+        title: event.title.slice(0, 48),
+        detail: event.detail?.slice(0, 220),
+        createdAt: event.createdAt ?? Date.now(),
+      };
+      const lifeEvents = [...(state.lifeEvents ?? []), nextEvent]
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 24);
+      const next: CharacterState = {
+        ...state,
+        lifeFocus: nextEvent.title,
+        lifeEvents,
+        updatedAt: Date.now(),
+      };
+      await db.characterStates.put(next);
+      return next;
+    });
+  },
+
+  /**
+   * 用一次事务重建一个角色的故事关系，并同步写入另一端。
+   * 关系是用户主动设定的世界观，不会被群聊或普通对话自动创建。
+   */
+  async replaceStoryRelations(
+    characterId: string,
+    userId: string,
+    targets: Array<{ characterId: string; label: string; description?: string }>,
+  ): Promise<void> {
+    await db.transaction('rw', db.characterStates, async () => {
+      const all = await db.characterStates.where('userId').equals(userId).toArray();
+      const byId = new Map(all.map((state) => [state.characterId, state]));
+      const now = Date.now();
+      const createBase = (id: string): CharacterState => ({
+        characterId: id,
+        userId,
+        affinity: DEFAULT_AFFINITY,
+        mood: DEFAULT_MOOD,
+        milestones: [],
+        updatedAt: now,
+      });
+      const source = byId.get(characterId) ?? createBase(characterId);
+      byId.set(characterId, source);
+
+      // First remove the old inverse links, leaving every unrelated relation intact.
+      for (const [id, state] of byId) {
+        if (id === characterId) continue;
+        const nextLinks = (state.storyRelations ?? []).filter((link) => link.targetCharacterId !== characterId);
+        if (nextLinks.length !== (state.storyRelations ?? []).length) {
+          byId.set(id, { ...state, storyRelations: nextLinks, updatedAt: now });
+        }
+      }
+
+      const unique = new Map<string, { characterId: string; label: string; description?: string }>();
+      for (const target of targets) {
+        if (target.characterId !== characterId) unique.set(target.characterId, target);
+      }
+      const oldLinks = new Map((source.storyRelations ?? []).map((link) => [link.targetCharacterId, link]));
+      const sourceLinks: StoryRelation[] = [];
+
+      for (const target of unique.values()) {
+        const previous = oldLinks.get(target.characterId);
+        const link: StoryRelation = {
+          targetCharacterId: target.characterId,
+          label: target.label.trim().slice(0, 18) || '故事关联',
+          ...(target.description?.trim() ? { description: target.description.trim().slice(0, 100) } : {}),
+          createdAt: previous?.createdAt ?? now,
+        };
+        sourceLinks.push(link);
+        const targetState = byId.get(target.characterId) ?? createBase(target.characterId);
+        const inverse = (targetState.storyRelations ?? []).filter((item) => item.targetCharacterId !== characterId);
+        byId.set(target.characterId, {
+          ...targetState,
+          storyRelations: [...inverse, { ...link, targetCharacterId: characterId }],
+          updatedAt: now,
+        });
+      }
+
+      byId.set(characterId, { ...source, storyRelations: sourceLinks, updatedAt: now });
+      await db.characterStates.bulkPut([...byId.values()]);
+    });
+  },
+
   async deleteByCharacter(characterId: string, userId: string): Promise<void> {
-    await db.characterStates.delete([characterId, userId]);
+    await db.transaction('rw', db.characterStates, async () => {
+      const all = await db.characterStates.where('userId').equals(userId).toArray();
+      await db.characterStates.delete([characterId, userId]);
+      const affected = all
+        .filter((state) => state.characterId !== characterId && (state.storyRelations ?? []).some((link) => link.targetCharacterId === characterId))
+        .map((state) => ({
+          ...state,
+          storyRelations: (state.storyRelations ?? []).filter((link) => link.targetCharacterId !== characterId),
+          updatedAt: Date.now(),
+        }));
+      if (affected.length) await db.characterStates.bulkPut(affected);
+    });
   },
 };
