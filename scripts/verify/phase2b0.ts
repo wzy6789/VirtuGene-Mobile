@@ -217,11 +217,13 @@ async function run() {
   // ---------- F. 端到端：世界页 ----------
   section('F. 端到端：世界页真的显示这条事件');
   const text = await renderWorldPage();
-  check('不再显示空状态', !text.includes('你的世界还没有开始'), text.slice(0, 160));
+  check('不再声称世界是空的', !text.includes('这里还没有发生任何事情'), text.slice(0, 160));
   check('显示「最近发生」区块', text.includes('最近发生'));
   check('列出真实事件标题', text.includes('周末一起去看电影'), text.slice(0, 220));
   check('显示关系变化事件（等阶升级）', text.includes('熟悉'));
-  check('统计行显示真实件数', text.includes('已经记下了 2 件事'), text.slice(0, 220));
+  // 5.0 最终版：统计行改为"第 N 天 · X 位角色 · Y 段共同经历"（世界层没有"件事"这个说法了），
+  // 这里断言的是**同一件事**：统计行反映真实的世界事件条数（此时 2 条）。
+  check('统计行反映真实世界事件条数', (await countEvents()) === 2 && text.includes('第 ') && text.includes('共同经历'), text.slice(0, 220));
 
   // ---------- G. 删除不留孤儿 ----------
   section('G. 删除未完成事件 / 删除角色 → 派生事件一并移除');

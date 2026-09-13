@@ -5,8 +5,9 @@
 <div id="app">running…</div>
 <script>
   // 顶层错误上报：任何模块级/未捕获异常都直接回传，便于定位（否则页面静默失败）
+  var realFetch = window.fetch.bind(window);
   function report(kind, detail) {
-    try { fetch('/result', { method: 'POST', body: kind + '\n' + detail }); } catch (e) { /* ignore */ }
+    try { realFetch('/result?suite=phase2a', { method: 'POST', body: kind + '\n' + detail }); } catch (e) { /* ignore */ }
   }
   window.addEventListener('error', function (e) {
     report('PAGE ERROR: ' + (e.message || ''), String((e.error && e.error.stack) || e.filename || ''));

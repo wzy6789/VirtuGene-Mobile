@@ -123,6 +123,40 @@ export const worldSceneRepo = {
     await db.worldScenes.put({ ...existing, status, updatedAt: Date.now() });
   },
 
+  /**
+   * 让一个角色进入当前片段（§19「让星遥过来」。
+   * 自然语言与人物 chips 走的是同一个函数，因此两者效果必然一致）。
+   */
+  async addParticipant(sceneId: string, characterId: string): Promise<WorldScene | undefined> {
+    return db.transaction('rw', db.worldScenes, async () => {
+      const existing = await db.worldScenes.get(sceneId);
+      if (!existing) return undefined;
+      if (existing.characterIds.includes(characterId)) return existing;
+      const next: WorldScene = {
+        ...existing,
+        characterIds: [...existing.characterIds, characterId],
+        updatedAt: Date.now(),
+      };
+      await db.worldScenes.put(next);
+      return next;
+    });
+  },
+
+  /** 让一个角色离开当前片段（TA 的认知与历史不受影响，只是这一刻不在场） */
+  async removeParticipant(sceneId: string, characterId: string): Promise<WorldScene | undefined> {
+    return db.transaction('rw', db.worldScenes, async () => {
+      const existing = await db.worldScenes.get(sceneId);
+      if (!existing) return undefined;
+      const next: WorldScene = {
+        ...existing,
+        characterIds: existing.characterIds.filter((id) => id !== characterId),
+        updatedAt: Date.now(),
+      };
+      await db.worldScenes.put(next);
+      return next;
+    });
+  },
+
   /** 结束场景并挂上它产生的世界事件（年表条目） */
   async finishScene(id: string, worldEventId?: string): Promise<void> {
     const existing = await db.worldScenes.get(id);
@@ -182,6 +216,19 @@ export const worldSceneRepo = {
   /** 删除单条（用于"单条重新生成"） */
   async removeEntry(entryId: string): Promise<void> {
     await db.worldSceneEntries.delete(entryId);
+  },
+
+  /**
+   * 改写某条正文（一致性守护发现问题时用）。
+   *
+   * 为什么需要它：正文是**边生成边显示**的（§57 渐进式回应），
+   * 而一致性守护在所有角色生成完之后才跑。如果守护改写的内容不落回那一行，
+   * 用户看到的就会是"未被修正"的版本——守护等于白跑。
+   */
+  async updateEntryContent(entryId: string, content: string): Promise<void> {
+    const existing = await db.worldSceneEntries.get(entryId);
+    if (!existing) return;
+    await db.worldSceneEntries.put({ ...existing, content });
   },
 
   /**

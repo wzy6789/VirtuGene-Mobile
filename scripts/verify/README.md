@@ -1,33 +1,34 @@
-# VirtuGene 5.0.0 验收脚本（Phase 1 / 2a / 2b-0 / 2b-1 / 2b-2）
+# VirtuGene 5.0.0 验收脚本（Phase 1 / 2a / 2b-0 … 2b-6 / Phase 3 / 3b / 3c / Living World A–E）
 
 在**真实浏览器 + 真实 IndexedDB**（多数套件还加上**真实渲染组件**与**真实业务流程**）上验证 5.0 的每一项声称。
-不是模拟、不是 mock：Phase 1 会先用 **4.1.0 的 v15 schema** 建库写入 4.x 形态数据，
-再用应用真实的 `db`（v17）打开，从而触发 Dexie 真实的 `version(16)` / `version(17)` 升级与幂等迁移。
+不是模拟、不是 mock：Phase 1 与 worldE 会先用 **旧的 v15 / v17 schema** 建库写入旧形态数据，
+再用应用真实的 `db`（v18）打开，从而触发 Dexie 真实的升级与幂等迁移。
 
-## 运行
+## 运行（推荐：一键全量回归）
 
 ```powershell
 $env:PATH = "C:\Program Files\Lenovo\AIAgent\mcp\node-v22.16.0-win-x64;$env:PATH"
 cd F:\VirtuGene-Mobile
 
-# 1) 打包两个验收脚本（**推荐：统一走 build.mjs**）
-node scripts\verify\build.mjs
-#    build.mjs 会一并注入 iife 产物缺少的两样东西：
-#      - import.meta.env（Vite 平时注入 VITE_AI_GATEWAY_URL / VITE_AI_GATEWAY_TOKEN）
-#      - __APP_VERSION__（vite.config.ts 注入的裸标识符）
-#    手工调用 esbuild 时必须自己补 --define，否则切到「我的」页面会在验收环境直接报错。
+# 0) worldD 会验证**真实布局**（滚动容器是否可滚、内容会不会被强拉到底部），
+#    因此需要先构建一次真实 CSS（build.mjs 会把它复制成 scripts/verify/verify.css）
+& .\node_modules\.bin\vite.cmd build
 
-# 2) 起一个临时静态服务器（结果会打到它的 stdout）
+# 1) 打包全部验收脚本（统一走 build.mjs，它会补上 iife 产物缺少的
+#    import.meta.env 与 __APP_VERSION__）
+node scripts\verify\build.mjs
+
+# 2) 起一个临时静态服务器（结果打到 stdout，同时按套件落到 .last-result-<suite>.txt）
 node scripts\verify\serve.cjs      # 监听 127.0.0.1:17899
 
-# 3) 用无头 Chrome 打开（**必须用全新的 user-data-dir**：Phase 1 脚本要从 v15 升级，
-#    复用旧 profile 会因为库已经是 v17 而报 VersionError）
-& "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --disable-gpu `
-  --no-first-run --user-data-dir="$env:TEMP\vg-verify-$(Get-Date -Format HHmmss)" `
-  http://127.0.0.1:17899/phase2a.html      # Phase 1 用 index.html
-
-# 4) 约 20~30 秒后，服务器 stdout 会打印 =====RESULT===== 段（最后一行 ALL PASS 或 N FAILED）
+# 3) 一键跑完 17 套（每套一个**全新 user-data-dir**：迁移类套件必须从零开始）
+powershell -ExecutionPolicy Bypass -File scripts\verify\run-all.ps1
+#    只跑几套： -Suites worldA,worldD
+#    单套手跑：用无头 Chrome 打开 http://127.0.0.1:17899/worldA.html
 ```
+
+> `run-all.ps1` 必须保存为 **UTF-8 with BOM**（Windows PowerShell 5.1 否则会把中文注释读成乱码而语法报错）。
+> `serve.cjs` 会把 `.css` 以 `text/css` 返回——否则 Chrome 会拒绝应用样式表，worldD 的布局断言会失去意义。
 
 ## 覆盖范围
 
@@ -35,21 +36,39 @@ node scripts\verify\serve.cjs      # 监听 127.0.0.1:17899
 
 | 套件 | 页面 | 断言数 |
 |---|---|---|
-| Phase 1 数据层升级迁移（12 组） | `index.html` | 77 |
-| Phase 2a 世界入口 + 外壳回归 | `phase2a.html` | 49 |
+| Phase 1 数据层升级迁移（v15 → v18） | `index.html` | 81 |
+| Phase 2a 世界入口 + 外壳回归 | `phase2a.html` | 48 |
 | Phase 2b-0 最小闭环（结算 → 世界事件） | `phase2b0.html` | 43 |
 | Phase 2b-1 世界首页接真实内容 | `phase2b1.html` | 32 |
 | Phase 2b-2 收藏为共同记忆（含隐私边界回归） | `phase2b2.html` | 77 |
 | Phase 2b-3 让角色说得出来（共同记忆进入上下文） | `phase2b3.html` | 45 |
-| Phase 2b-4 我的生活三级可见性 + R6 收口（含审核 P1/P2 回归） | `phase2b4.html` | 84 |
+| Phase 2b-4 我的生活三级可见性 + R6 收口（含审核 P1/P2 回归） | `phase2b4.html` | 85 |
 | Phase 2b-5 关系网络可解释化（2B） | `phase2b5.html` | 48 |
 | Phase 2b-6 R7 裁定：关系数值的唯一来源 | `phase2b6.html` | 30 |
-| Phase 3 世界舞台（Scene Director） | `phase3.html` | 63 |
+| Phase 3 世界舞台（Scene Director） | `phase3.html` | 72 |
 | Phase 3b 舞台后果进入私聊上下文（闭环） | `phase3b.html` | 35 |
 | Phase 3c 幕次与选择分支 | `phase3c.html` | 44 |
+| **Living World A 意图理解与自由度**（§12–§16 / §95 / §96） | `worldA.html` | 59 |
+| **Living World B 多智能体与知识隔离**（§18–§27 / §40 / §97 / §98） | `worldB.html` | 34 |
+| **Living World C 结算 / 设定 / 时间线 / 关系 / 隐私 / 撤销**（§28–§46 / §100–§103） | `worldC.html` | 57 |
+| **Living World D 世界空间 UI**（§5–§12 / §37 / §66–§70 / §78） | `worldD.html` | 43 |
+| **Living World E 失败恢复 / 解析兼容 / 性能 / 迁移**（§51–§55 / §63 / §104 / §106 / §107） | `worldE.html` | 62 |
+| **合计** | | **895** |
 
 > 计数口径说明：更早的 2b-0 报告里写的"38 项"与本 README 曾经的"32/44 项"是当时的粗略标签，
 > 与脚本实际打印的行数不一致；此处以**实际打印行数**为准（2b-2 报告 §8 已披露这次更正）。
+> Living World 落地时，Phase 2a / 2b-0 / 2b-1 / 2b-2 / 2b-4 / Phase 3 的部分断言**随 UI 重做而更新**
+> （例如"世界剧场"一级入口按 §77 退出主 UI），逐条差异记在《5.0.0-LIVING-WORLD-FINAL.md》第 21 节。
+
+### Living World A–E：公共装置
+
+`world-harness.ts` 提供三样东西，5 套验收共用（避免各写一份而漂移）：
+
+| 装置 | 作用 |
+|---|---|
+| `installFakeLlm()` | 同时提供**注入式 caller**（单元级，可断言 prompt 内容与调用次数）与**假 HTTP 端点**（`window.fetch` 上的 `chat/completions`，用于走真实 UI 路径），并统计"不该联网"的请求数 |
+| `mount / unmount / typeInto / pressEnter` | 真实 React 挂载与真实输入事件（绕过受控组件的 value 缓存） |
+| `setDelay(ms)` | 给假 LLM 加人为延迟，用来复现"用户正在向上翻阅时新内容才姗姗来迟"的真实时序（§70） |
 
 ### Phase 1：数据层升级迁移
 

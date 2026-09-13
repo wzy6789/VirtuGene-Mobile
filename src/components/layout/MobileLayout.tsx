@@ -2,11 +2,15 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { ChatPage } from '../../pages/ChatPage';
 import { MobileChatListPage } from '../chat/MobileChatListPage';
 import { NotificationCloud } from '../chat/NotificationCloud';
-import { useUIStore, MOBILE_TABS, type MobileTab } from '../../store/ui-store';
+import { useUIStore, MOBILE_TABS, IMMERSIVE_VIEWS, isWorldOverlay, type MobileTab } from '../../store/ui-store';
 import { useChatStore } from '../../store/chat-store';
 import { MobileWorldPage } from '../world/MobileWorldPage';
 import { MobileRelationsPage } from '../world/MobileRelationsPage';
 import { MobileStagePage } from '../world/MobileStagePage';
+import { WorldCanvas } from '../world/WorldCanvas';
+import { WorldMemoryPage } from '../world/WorldMemoryPage';
+import { WorldTimelinePage } from '../world/WorldTimelinePage';
+import { WorldSettingsPage } from '../world/WorldSettingsPage';
 
 // 手账包含日历、导出和多种 AI 辅助；仅在用户从「世界 → 我的生活」进入时下载。
 const DiaryPage = lazy(() => import('../../pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
@@ -84,13 +88,19 @@ export function MobileLayout() {
     [unreadByCharacter],
   );
 
+  // 沉浸式视图（世界空间）：隐藏底部一级导航，进入真正的"世界"（§67）
+  const immersive = IMMERSIVE_VIEWS.includes(activeView);
+
   // 5.0：手账不再是底部 tab，而是「世界 → 我的生活」打开的内容（复用 activeView === 'diary'）。
   // 它**不隐藏底部导航**，所以手机端不会出现"进去了出不来"；此时高亮「世界」。
-  // 同一条规则适用于「关系网络」（activeView === 'relations'）与「世界剧场」（'stage'）。
+  // 同一条规则适用于关系网络 / 记忆 / 时间线 / 世界设定（以及保留的旧剧场页）。
   const diaryOpen = activeView === 'diary';
   const relationsOpen = activeView === 'relations';
   const stageOpen = activeView === 'stage';
-  const overlayOpen = diaryOpen || relationsOpen || stageOpen;
+  const memoryOpen = activeView === 'memory';
+  const timelineOpen = activeView === 'timeline';
+  const settingsOpen = activeView === 'worldSettings';
+  const overlayOpen = isWorldOverlay(activeView);
   const activeTab: MobileTab = overlayOpen ? 'world' : tab;
 
   // 定时刷新未读数（主动消息到达时保持 tab 徽标新鲜；角色页也会自行拉取）
@@ -185,15 +195,27 @@ export function MobileLayout() {
         <main className="flex-1 min-h-0 overflow-hidden">
           <Suspense fallback={<div className="vg-loading" role="status">正在打开你的空间…</div>}>
           <div
-            key={tab + (diaryOpen ? '-diary' : '') + (relationsOpen ? '-relations' : '') + (stageOpen ? '-stage' : '') + (chatFromCharacters || chatFromList ? '-chat' : '')}
+            key={activeView + tab + (chatFromCharacters || chatFromList ? '-chat' : '')}
             className="h-full animate-tab-in"
           >
-            {stageOpen ? (
-              /* 世界剧场：从「世界」进入的内容页；底部导航保持可见，点任意一级导航即退出 */
+            {immersive ? (
+              /* 世界空间：沉浸式全屏（§67：进入后隐藏底部一级导航） */
+              <WorldCanvas />
+            ) : stageOpen ? (
+              /* 旧剧场页（§77：不再是主 UI 的一级入口，但场景列表/回看能力保留） */
               <MobileStagePage />
             ) : relationsOpen ? (
               /* 关系网络：从「世界」进入的内容页；底部导航保持可见，点任意一级导航即退出 */
               <MobileRelationsPage />
+            ) : memoryOpen ? (
+              /* 我们经历过的事（§45：用户 UI 里不出现 SharedMemory 这种内部词汇） */
+              <WorldMemoryPage />
+            ) : timelineOpen ? (
+              /* 时间线（§46：一段生活史，不显示数据库类型） */
+              <WorldTimelinePage />
+            ) : settingsOpen ? (
+              /* 世界设定（§32：自然语言卡片，不做表单） */
+              <WorldSettingsPage />
             ) : diaryOpen ? (
               /* 我的生活（手账）：从「世界」进入的内容页；底部导航保持可见，点任意一级导航即退出 */
               <Suspense fallback={<div className="h-full flex items-center justify-center text-sm text-gray-500">正在打开我的生活…</div>}>
@@ -228,7 +250,7 @@ export function MobileLayout() {
             键盘出现时四个导航不会经历“向上浮起”的动画，也不会占据输入框下方空间。 */}
         <nav
           className={`mobile-bottom-nav shrink-0 ${
-            keyboardOpen || (tab === 'chat' && chatFromList) || (tab === 'characters' && chatFromCharacters)
+            immersive || keyboardOpen || (tab === 'chat' && chatFromList) || (tab === 'characters' && chatFromCharacters)
               ? 'hidden'
               : 'vg-navigation flex items-stretch pb-[env(safe-area-inset-bottom)]'
           }`}

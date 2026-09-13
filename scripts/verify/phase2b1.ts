@@ -111,15 +111,16 @@ async function run() {
   stubAi();
   const world = await worldRepo.ensureDefaultWorld(U, '智毅');
 
-  // ---------- E. 没有等着继续的事：大卡隐藏 ----------
-  section('E. 没有任何未完成事件时，大卡不出现');
+  // ---------- E. 没有等着继续的事：列表区块隐藏 ----------
+  section('E. 没有任何未完成事件时，「还没做完的事」区块不出现');
   await worldEventRepo.create({
     userId: U, worldId: world.id, type: 'relationship', title: '关系进入「熟悉」阶段', summary: '',
     participants: [`u:${U}`, `c:${C1}`], sourceType: 'test', sourceId: 'ev-rel', importance: 0.7,
   });
   let text = await render();
-  check('有事件、没有未完成事 → 不出现「正在等待你的故事」', !text.includes('正在等待你的故事'), text.slice(0, 200));
-  check('仍显示世界已经开始', text.includes('你的世界已经开始'));
+  check('有事件、没有未完成事 → 不出现「还没做完的事」',
+    !text.includes('还没做完的事') && !text.includes('继续这件事'), text.slice(0, 200));
+  check('仍然显示真实世界数据（最近发生）', text.includes('最近发生'), text.slice(0, 200));
 
   // ---------- A/B/C/D. 有线索 ----------
   section('A/B/C/D. 有真实未完成事件时的世界首页');
@@ -128,33 +129,38 @@ async function run() {
   await continuityRepo.create({ characterId: C2, userId: U, kind: 'topic', title: '没聊完的那本书', origin: 'user' });
 
   text = await render();
-  check('出现第一视觉核心「正在等待你的故事」', text.includes('正在等待你的故事'));
-  check('大卡显示的是逾期那条（真实挑选结果）', text.includes('答应陪她去看海'), text.slice(0, 260));
-  check('大卡显示参与者与类别', text.includes('星遥') && text.includes('· 你') && text.includes('承诺'), text.slice(0, 260));
-  check('大卡显示真实细节', text.includes('你们说好等忙完这一阵就去。'));
-  check('大卡给出真实动作', text.includes('继续这件事'));
-  check('「未完成的故事」区块列出其余线索', text.includes('未完成的故事') && text.includes('那次没有说开的争执') && text.includes('没聊完的那本书'));
-  check('大卡那条不在列表里重复出现', text.split('答应陪她去看海').length - 1 === 1, text.split('答应陪她去看海').length - 1);
-  check('区块计数是"其余件数"（3 条线索 → 大卡 1 条 + 其余 2 件）', text.includes('2 件'), text.slice(0, 300));
+  // 5.0 最终版：首页的视觉核心是「此刻」（§6），"正等着继续的事"落在「还没做完的事」区块里，
+  // 不再是过去那种"大卡 + 其余列表"的两级结构（§7：不再有剧情式一级入口）。
+  check('出现视觉核心「此刻」', text.includes('此刻'));
+  check('「还没做完的事」里能看见逾期那条（真实挑选结果）', text.includes('答应陪她去看海'), text.slice(0, 260));
+  check('线索行显示参与者与类别', text.includes('星遥') && text.includes('承诺'), text.slice(0, 300));
+  check('线索行显示真实细节', text.includes('你们说好等忙完这一阵就去。'));
+  check('给出真实动作（行本身可点开 4.x 面板 + 管理入口）', text.includes('管理这些事'));
+  check('「还没做完的事」区块列出全部线索（不再分"大卡/其余"）',
+    text.includes('还没做完的事') && text.includes('那次没有说开的争执') && text.includes('没聊完的那本书'));
+  check('同一条线索在首屏只出现一次', text.split('答应陪她去看海').length - 1 === 1, text.split('答应陪她去看海').length - 1);
+  check('区块计数是真实线索数（3 条 → 3 件）', text.includes('3 件'), text.slice(0, 300));
   check('最近发生用相对时间（今天）', text.includes('今天'));
-  check('最近发生用人话类别', text.includes('你们之间的关系'));
+  check('最近发生用人话类别', text.includes('关系变了'));
   check('不暴露任何内部数值字段', !/trust|affinity|conflict|familiarity|\+[0-9]|-[0-9]/.test(text), text.slice(0, 300));
 
-  // ---------- B. 「继续这件事」 ----------
-  section('B. 「继续这件事」真的进入与该角色的聊天');
+  // ---------- B. 「进入世界」 ----------
+  section('B. 「进入世界」真的进入沉浸式世界空间');
   useUIStore.getState().setMobileTab('me');
   useUIStore.getState().setChatFromList(false);
-  const btn = Array.from(host!.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('继续这件事'));
-  check('按钮存在', !!btn);
+  useUIStore.getState().setActiveView('chat');
+  text = await render();
+  const btn = Array.from(host!.querySelectorAll('button')).find((b) => (b.textContent ?? '').trim() === '进入世界');
+  check('按钮存在', !!btn, text.slice(0, 200));
   btn?.click();
-  await sleep(120);
-  const chat = useChatStore.getState();
+  await sleep(150);
   const ui = useUIStore.getState();
-  check('选中了该线索所属角色', chat.selectedCharacterId === C1, chat.selectedCharacterId);
-  check('切到「消息」tab 且是推入语义（返回回到会话列表）', ui.mobileTab === 'chat' && ui.chatFromList === true, { tab: ui.mobileTab, fromList: ui.chatFromList });
+  check('切到世界空间（沉浸式视图）', ui.activeView === 'canvas', ui.activeView);
+  check('世界空间未指定片段（进去时自动取/建「此刻」）', ui.canvasSceneId === null, ui.canvasSceneId);
+  useUIStore.getState().setActiveView('chat');
 
   // ---------- C. 点线索打开 4.x 面板 ----------
-  section('C. 点「未完成的故事」条目打开既有面板');
+  section('C. 点「还没做完的事」条目打开既有面板');
   useUIStore.getState().setMobileTab('world');
   text = await render();
   const row = Array.from(host!.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('没聊完的那本书'));
@@ -166,8 +172,8 @@ async function run() {
   check('打开了该角色的「还没做完的事」面板', modalText.includes('还没做完的事'), modalText.slice(0, 300));
   check('面板里能看到该角色的线索', modalText.includes('没聊完的那本书'), modalText.slice(0, 400));
 
-  // ---------- G. 只有一条线索时：区块整块隐藏（审核发现的展示瑕疵） ----------
-  section('G. 只有一条未完成事项时，「未完成的故事」区块不应出现');
+  // ---------- G. 只剩一条线索时，计数必须如实 ----------
+  section('G. 只有一条未完成事项时，计数如实、不出现"空区块"');
   useUIStore.getState().setMobileTab('world');
   const allOpen = await continuityRepo.getOpenByUser(U);
   for (const t of allOpen) {
@@ -175,9 +181,10 @@ async function run() {
   }
   check('现在只剩 1 条线索', (await continuityRepo.getOpenByUser(U)).length === 1);
   text = await render();
-  check('大卡仍然展示这条线索', text.includes('正在等待你的故事') && text.includes('答应陪她去看海'), text.slice(0, 200));
-  check('不再出现空的「未完成的故事」区块', !text.includes('未完成的故事'), text.slice(0, 300));
-  check('不再出现"1 件"这种自相矛盾的计数', !text.includes('1 件'), text.slice(0, 300));
+  check('仍然展示这条线索', text.includes('答应陪她去看海'), text.slice(0, 200));
+  check('计数如实为 1 件（不是"其余 0 件"）', text.includes('1 件'), text.slice(0, 300));
+  check('列表里有内容（不存在"区块在但列表空"的自相矛盾）',
+    text.includes('还没做完的事') && text.includes('答应陪她去看海'));
 
   // ---------- F. 零 AI 调用 ----------
   section('F. 世界页不产生任何 AI 调用');

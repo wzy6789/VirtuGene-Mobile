@@ -33,6 +33,148 @@
 .vg-world-hero { margin-top:0; margin-bottom:16px; }
 .vg-archive-hero { background:linear-gradient(140deg,#29213e,#222836); }
 
+/* 5.0 世界层：用静态深空层次表达“持续生长”，不使用滤镜或无限动画，保证 Android WebView 滚动稳定。 */
+.vg-world-page { position:relative; isolation:isolate; background:linear-gradient(180deg, rgba(108,92,231,.055), transparent 260px); }
+.vg-world-page::before { content:""; position:absolute; z-index:-1; top:0; right:-95px; width:250px; height:250px; border:1px solid rgba(108,92,231,.10); border-radius:50%; box-shadow:0 0 0 30px rgba(108,92,231,.025), 0 0 0 68px rgba(0,206,201,.012); pointer-events:none; }
+.vg-world-page .vg-space-heading { padding:4px 4px 0; }
+.vg-world-page .vg-space-heading h1 { font-size:29px; letter-spacing:.06em; }
+.vg-world-meta { padding-left:4px; letter-spacing:.035em; }
+.vg-world-empty { background:linear-gradient(140deg,rgba(108,92,231,.10),rgba(0,206,201,.045)); }
+.vg-world-shortcuts button { display:flex; min-height:66px; flex-direction:column; align-items:center; justify-content:center; gap:5px; border:1px solid var(--border); border-radius:17px; color:var(--text-secondary); background:var(--bg-panel); transition:transform .16s ease,border-color .16s ease; }
+.vg-world-shortcuts button:nth-child(2) { border-color:rgba(108,92,231,.32); background:linear-gradient(145deg,rgba(108,92,231,.13),rgba(0,206,201,.06)); }
+.vg-world-shortcuts span { color:#82e8e3; font-size:15px; line-height:1; }
+.vg-world-shortcuts b { font-size:10px; font-weight:500; color:var(--text); letter-spacing:.025em; }
+.vg-world-shortcuts button:active { transform:scale(.95); }
+
+.vg-stage-room { background:linear-gradient(180deg, rgba(108,92,231,.065), transparent 230px); }
+.vg-stage-room .vg-space-heading, .vg-stage-active .vg-space-heading { padding:4px 4px 0; }
+.vg-stage-room .vg-space-heading h1, .vg-stage-active .vg-space-heading h1 { font-size:29px; letter-spacing:.055em; }
+.vg-stage-active { position:relative; isolation:isolate; background:linear-gradient(180deg,rgba(108,92,231,.09),transparent 190px); }
+.vg-stage-active::before { content:""; position:absolute; z-index:-1; top:-112px; right:-96px; width:310px; height:310px; border:1px solid rgba(0,206,201,.16); border-radius:50%; box-shadow:0 0 0 42px rgba(108,92,231,.025); pointer-events:none; }
+.vg-stage-active-header { background:linear-gradient(180deg,rgba(15,15,31,.06),transparent); }
+.vg-stage-transcript { scroll-behavior:auto; background:linear-gradient(90deg,rgba(108,92,231,.025) 1px,transparent 1px),linear-gradient(rgba(108,92,231,.025) 1px,transparent 1px); background-size:38px 38px; }
+.vg-stage-transcript > ul { position:relative; }
+.vg-stage-transcript > ul::before { content:""; position:absolute; left:17px; top:7px; bottom:7px; width:1px; background:linear-gradient(transparent,rgba(0,206,201,.18),transparent); pointer-events:none; }
+.vg-stage-composer { background:linear-gradient(180deg,transparent,var(--bg)); box-shadow:0 -12px 22px rgba(15,15,26,.055); }
+.vg-splash { position:relative; isolation:isolate; overflow:hidden; color:white; background:radial-gradient(circle at 50% 42%,rgba(112,95,236,.25),transparent 24%),radial-gradient(circle at 18% 82%,rgba(0,206,201,.12),transparent 30%),linear-gradient(145deg,#0d0c1d 0%,#171234 54%,#092b36 100%); }
+.vg-splash::before, .vg-splash::after { content:""; position:absolute; z-index:-1; border-radius:50%; pointer-events:none; }
+.vg-splash::before { width:340px; height:340px; border:1px solid rgba(155,140,255,.17); box-shadow:0 0 0 36px rgba(155,140,255,.035),0 0 0 82px rgba(0,206,201,.018); }
+.vg-splash::after { width:2px; height:2px; left:calc(50% + 86px); top:calc(50% - 88px); background:#74eee9; box-shadow:-156px 66px 0 rgba(116,238,233,.7),84px 132px 0 rgba(172,158,255,.75),126px -26px 0 rgba(116,238,233,.55),-112px -102px 0 rgba(172,158,255,.55); }
+.vg-splash-orbit { position:absolute; z-index:-1; width:178px; height:178px; border:1px solid rgba(0,206,201,.20); border-radius:50%; box-shadow:inset 0 0 28px rgba(108,92,231,.10),0 0 34px rgba(0,206,201,.05); }
+
+/* ===========================================================================
+   5.0.0 Living World —— 世界空间（World Canvas）
+   只使用静态渐变与单次过渡：Android WebView 上滚动必须稳，不做无限粒子/高频动画（§71）。
+   =========================================================================== */
+.vg-canvas { position:relative; display:flex; height:100%; min-height:0; flex-direction:column; background:linear-gradient(180deg,rgba(108,92,231,.07),transparent 220px); }
+.vg-canvas-top { display:flex; align-items:center; gap:8px; padding:12px 16px 10px; text-align:left; border-bottom:1px solid var(--border); background:var(--bg-panel); }
+.vg-canvas-place { flex:1; min-width:0; font-size:13px; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.vg-canvas-people { flex-shrink:0; max-width:46%; font-size:10px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.vg-canvas-more { flex-shrink:0; font-size:10px; color:#82e8e3; }
+.vg-canvas-panel { padding:10px 16px 12px; border-bottom:1px solid var(--border); background:var(--bg-panel); font-size:11px; line-height:1.9; color:var(--text-secondary); }
+.vg-canvas-panel-note { margin-top:4px; font-size:10px; color:var(--text-secondary); opacity:.7; }
+.vg-canvas-scroll { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:14px 16px 6px; -webkit-overflow-scrolling:touch; }
+.vg-canvas-loading { padding:36px 0; text-align:center; font-size:12px; color:var(--text-secondary); }
+.vg-canvas-empty { padding:26px 4px; text-align:center; font-size:12px; line-height:2; color:var(--text-secondary); }
+.vg-canvas-empty-hint { margin-top:8px; font-size:11px; opacity:.75; }
+.vg-canvas-empty button { margin-top:6px; padding:9px 16px; border:1px solid rgba(0,206,201,.34); border-radius:999px; font-size:12px; color:#82e8e3; background:rgba(0,206,201,.07); }
+.vg-canvas-hint { margin:14px 0 4px; padding:10px 12px; border:1px dashed var(--border); border-radius:14px; font-size:11px; line-height:1.9; color:var(--text-secondary); }
+.vg-canvas-hint button { margin-top:6px; font-size:10px; color:#82e8e3; }
+.vg-canvas-error { margin:14px 0; padding:12px; border:1px solid rgba(244,63,94,.28); border-radius:14px; background:rgba(244,63,94,.06); font-size:12px; color:var(--text); }
+.vg-canvas-error button { margin-top:8px; padding:7px 14px; border-radius:10px; border:1px solid var(--border); font-size:11px; color:var(--text); }
+.vg-canvas-bottom { position:relative; flex-shrink:0; border-top:1px solid var(--border); background:var(--bg); padding-bottom:env(safe-area-inset-bottom); }
+.vg-canvas-saved { padding:0 16px 8px; font-size:10px; color:var(--text-secondary); }
+.vg-load-earlier { display:block; width:100%; padding:8px 0 12px; text-align:center; font-size:11px; color:var(--text-secondary); }
+.vg-new-content { position:absolute; right:16px; bottom:132px; z-index:5; padding:6px 12px; border:1px solid rgba(0,206,201,.35); border-radius:999px; background:var(--bg-panel); font-size:11px; color:#82e8e3; box-shadow:0 6px 18px rgba(15,15,26,.18); }
+.vg-toast { position:absolute; left:50%; bottom:120px; transform:translateX(-50%); z-index:20; padding:8px 14px; border-radius:999px; background:rgba(15,15,26,.9); font-size:11px; color:#fff; }
+
+/* 世界流：旁白无气泡、对白按角色分组、用户行动是轻量文本（§11） */
+.vg-stream { display:flex; flex-direction:column; gap:14px; }
+.vg-narration { padding:2px 2px; font-size:12.5px; line-height:2; color:var(--text-secondary); letter-spacing:.02em; }
+.vg-user-action { padding-left:10px; border-left:2px solid rgba(108,92,231,.4); font-size:12.5px; line-height:1.95; color:var(--text); }
+.vg-system-note { text-align:center; font-size:10.5px; color:var(--text-secondary); opacity:.8; }
+.vg-beat { display:flex; gap:9px; }
+.vg-beat-name { font-size:10.5px; font-weight:600; color:#82e8e3; }
+.vg-beat-line { margin-top:3px; font-size:13.5px; line-height:1.95; color:var(--text); }
+.vg-beat-action { margin-top:3px; font-size:12.5px; line-height:1.9; color:var(--text-secondary); font-style:normal; }
+.vg-trace { margin:2px 0; }
+.vg-trace-line { display:flex; align-items:center; gap:6px; width:100%; padding:7px 10px; border:1px solid rgba(0,206,201,.22); border-radius:12px; background:rgba(0,206,201,.05); font-size:11px; color:#82e8e3; text-align:left; }
+.vg-trace-more { margin-left:auto; font-size:10px; color:var(--text-secondary); }
+.vg-trace-panel { margin-top:6px; padding:9px 11px; border:1px solid var(--border); border-radius:12px; background:var(--bg-panel); }
+
+/* 在场人物 chips（§19） */
+.vg-chips { display:flex; flex-wrap:wrap; gap:6px; padding:9px 16px 2px; }
+.vg-chip { display:inline-flex; align-items:center; gap:5px; padding:3px 9px 3px 4px; border:1px solid var(--border); border-radius:999px; font-size:11px; color:var(--text-secondary); background:var(--bg-panel); }
+.vg-chip-on { border-color:rgba(0,206,201,.3); color:var(--text); }
+.vg-chip-menu { position:absolute; bottom:calc(100% + 6px); left:0; z-index:10; min-width:132px; padding:5px; border:1px solid var(--border); border-radius:14px; background:var(--bg-panel); box-shadow:0 10px 26px rgba(15,15,26,.22); }
+.vg-chip-menu button { display:flex; align-items:center; gap:7px; width:100%; padding:6px 7px; border-radius:10px; font-size:11.5px; color:var(--text); text-align:left; }
+
+/* 灵感建议（§37：可点、可无视，绝不强推） */
+.vg-suggestions { display:flex; align-items:center; gap:6px; overflow-x:auto; padding:7px 16px 0; }
+.vg-suggestions-label { flex-shrink:0; font-size:10px; color:var(--text-secondary); }
+.vg-suggestion { flex-shrink:0; padding:5px 11px; border:1px solid rgba(108,92,231,.3); border-radius:999px; font-size:11.5px; color:var(--text); background:rgba(108,92,231,.07); }
+.vg-suggestion-close { flex-shrink:0; padding:0 6px; font-size:14px; color:var(--text-secondary); }
+
+/* 输入区（§12：输入框是整个世界的操作系统） */
+.vg-composer { padding:8px 12px 10px; }
+.vg-composer-warn { margin-bottom:7px; padding:7px 10px; border:1px solid rgba(245,158,11,.3); border-radius:11px; background:rgba(245,158,11,.07); font-size:11px; color:var(--text); }
+.vg-composer-row { display:flex; align-items:flex-end; gap:7px; }
+.vg-composer-control { flex-shrink:0; width:38px; height:38px; border:1px solid var(--border); border-radius:12px; font-size:15px; color:#82e8e3; background:var(--bg-panel); }
+.vg-composer-input { flex:1; min-height:38px; max-height:120px; padding:9px 12px; border:1px solid var(--border); border-radius:14px; font-size:13px; line-height:1.6; color:var(--text); background:var(--bg-panel); outline:none; resize:none; }
+.vg-composer-input:focus { border-color:rgba(108,92,231,.5); }
+.vg-composer-send { flex-shrink:0; height:38px; padding:0 15px; border-radius:12px; background:#6C5CE7; font-size:13px; font-weight:500; color:#fff; }
+.vg-composer-send:disabled { opacity:.45; }
+
+/* 世界控制面板（§39） */
+.vg-sheet-backdrop { position:fixed; inset:0; z-index:60; display:flex; align-items:flex-end; background:rgba(9,9,18,.5); }
+.vg-sheet { width:100%; max-height:82%; overflow-y:auto; padding:10px 16px calc(18px + env(safe-area-inset-bottom)); border-radius:22px 22px 0 0; background:var(--bg); }
+.vg-sheet-grab { width:38px; height:3px; margin:0 auto 10px; border-radius:999px; background:var(--border-strong); }
+.vg-sheet-title { font-size:14px; font-weight:600; color:var(--text); }
+.vg-sheet-hint { margin-top:4px; font-size:11px; line-height:1.8; color:var(--text-secondary); }
+.vg-sheet-group { margin-top:12px; border:1px solid var(--border); border-radius:16px; overflow:hidden; background:var(--bg-panel); }
+.vg-sheet-group > button { display:block; width:100%; padding:11px 13px; text-align:left; border-bottom:1px solid var(--border); }
+.vg-sheet-group > button:last-child { border-bottom:none; }
+.vg-sheet-group b { display:block; font-size:13px; font-weight:500; color:var(--text); }
+.vg-sheet-group span { display:block; margin-top:2px; font-size:10.5px; color:var(--text-secondary); }
+.vg-sheet-group button:disabled { opacity:.45; }
+.vg-sheet-sub { padding:9px 13px 0; font-size:10.5px; color:var(--text-secondary); }
+.vg-sheet-row { display:flex; flex-wrap:wrap; gap:6px; padding:8px 13px 11px; }
+.vg-sheet-row button { padding:6px 11px; border:1px solid var(--border); border-radius:999px; font-size:11.5px; color:var(--text); }
+.vg-sheet-cancel { width:100%; margin-top:12px; padding:11px; border:1px solid var(--border); border-radius:14px; font-size:13px; color:var(--text-secondary); }
+
+/* 世界主页的"此刻"（§6：唯一的最大区域） */
+.vg-now { position:relative; overflow:hidden; margin-top:16px; padding:20px 18px; border:1px solid rgba(108,92,231,.28); border-radius:26px; background:linear-gradient(150deg,rgba(108,92,231,.16),rgba(0,206,201,.07)); }
+.vg-now-label { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:#82e8e3; }
+.vg-now-title { margin-top:9px; font-size:19px; font-weight:600; line-height:1.5; color:var(--text); }
+.vg-now-line { margin-top:7px; font-size:12px; line-height:1.95; color:var(--text-secondary); }
+.vg-now-enter { width:100%; margin-top:15px; padding:12px; border-radius:14px; background:#6C5CE7; font-size:14px; font-weight:500; color:#fff; }
+.vg-now-enter-quiet { background:transparent; border:1px solid var(--border); color:var(--text); }
+.vg-now-quiet { margin-top:10px; font-size:12.5px; line-height:2; color:var(--text); }
+.vg-now-note { font-size:11.5px; line-height:1.95; color:var(--text-secondary); }
+.vg-world-entries { margin-top:14px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.vg-world-entries button { display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:13px 13px; border:1px solid var(--border); border-radius:17px; background:var(--bg-panel); text-align:left; }
+.vg-world-entries b { font-size:12.5px; font-weight:500; color:var(--text); }
+.vg-world-entries span { font-size:10px; color:var(--text-secondary); }
+.vg-inspiration { margin-top:14px; padding:12px 14px; border:1px dashed var(--border); border-radius:17px; }
+.vg-inspiration p { font-size:10.5px; color:var(--text-secondary); }
+.vg-inspiration button { display:block; width:100%; margin-top:7px; padding:9px 11px; border:1px solid var(--border); border-radius:12px; font-size:12px; color:var(--text); text-align:left; background:var(--bg-panel); }
+
+/* 世界设定（§32：自然语言卡片，不做表单） */
+.vg-setting-card { margin-top:8px; padding:12px 13px; border:1px solid var(--border); border-radius:16px; background:var(--bg-panel); }
+.vg-setting-card p { font-size:12.5px; line-height:1.9; color:var(--text); }
+.vg-setting-card .vg-setting-off { opacity:.5; }
+.vg-setting-actions { display:flex; gap:8px; margin-top:9px; }
+.vg-setting-actions button { padding:5px 11px; border:1px solid var(--border); border-radius:999px; font-size:10.5px; color:var(--text-secondary); }
+
+/* 时间线（§46：一段生活史，不显示数据库类型） */
+.vg-timeline-day { margin-top:16px; font-size:10.5px; letter-spacing:.12em; color:var(--text-secondary); }
+.vg-timeline-item { position:relative; margin-top:9px; padding-left:14px; border-left:1px solid var(--border); }
+.vg-timeline-item::before { content:""; position:absolute; left:-3.5px; top:9px; width:6px; height:6px; border-radius:50%; background:#6C5CE7; }
+.vg-timeline-kind { font-size:10px; color:#82e8e3; }
+.vg-timeline-title { margin-top:2px; font-size:12.5px; line-height:1.8; color:var(--text); }
+.vg-timeline-detail { margin-top:3px; font-size:11px; line-height:1.85; color:var(--text-secondary); }
+.vg-timeline-names { margin-top:3px; font-size:10px; color:var(--text-secondary); opacity:.8; }
+
 /* Remove perpetual repaints while retaining feedback for loading and interaction. */
 .mobile-layout .aurora, .mobile-layout .dna-dots,
 .mobile-layout .gene-orbit, .mobile-layout .life-breath,

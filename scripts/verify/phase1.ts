@@ -145,7 +145,7 @@ async function run() {
   await db.open();
 
   section('基础：版本与表');
-  check('Dexie 版本为 17', db.verno === 17, db.verno);
+  check('Dexie 版本为 18（v17 建立世界层，v18 增补世界事实与世界轮次）', db.verno === 18, db.verno);
   const tableNames = db.tables.map((t) => t.name);
   const newTables = ['worlds', 'worldEvents', 'worldScenes', 'worldSceneEntries', 'characterKnowledge', 'sharedMemories', 'relationshipStates', 'relationshipEvents'];
   check('8 张世界层新表已建立', newTables.every((t) => tableNames.includes(t)), tableNames);

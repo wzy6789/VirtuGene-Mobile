@@ -267,14 +267,17 @@ async function run() {
   const host = mount(createElement(MobileWorldPage));
   await sleep(800);
   const text = host.innerText;
-  check('弱化统计显示真实共同记忆条数（1 段）', text.includes('1 段共同记忆'), text.slice(0, 200));
-  check('共同记忆区块出现并列出真实内容',
-    blockText(host, '共同记忆').includes(splitForMemory(AI_TEXT).title), blockText(host, '共同记忆'));
+  check('弱化统计显示真实共同经历条数（1 段）', text.includes('1 段共同经历'), text.slice(0, 200));
+  // 5.0 最终版：共同记忆的列表搬到「记忆」页（§7/§45），首页只保留「最近发生」；
+  // 这里断言的是**同一件事**：这段记忆确实被世界记住了，而且能在首屏找到入口。
+  check('共同记忆确实进了世界层，并且首页有「记忆」入口可达',
+    (await sharedMemoryRepo.countByWorld(world.id)) === 1 &&
+    text.includes('记忆') && text.includes('我们经历过的事'), text.slice(0, 300));
   check('「最近发生」照常渲染其他真实事件', blockText(host, '最近发生').includes('关系进入「熟悉」阶段'), blockText(host, '最近发生'));
   check('同一段记忆不在「最近发生」里重复出现（同屏只说一次）',
     blockText(host, '最近发生').length > 0 && !blockText(host, '最近发生').includes(splitForMemory(AI_TEXT).title.slice(0, 12)),
     blockText(host, '最近发生'));
-  check('事件计数把这条记忆算进去了（2 件事）', /已经记下了 2 件事/.test(text), text.slice(0, 240));
+  check('弱化统计把这条记忆算进去了（1 段共同经历）', text.includes('1 段共同经历'), text.slice(0, 240));
   check('页面不暴露任何内部数值字段', !/trust|affinity|conflict|familiarity/i.test(text), text.slice(0, 300));
   unmount();
 

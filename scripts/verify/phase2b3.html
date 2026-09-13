@@ -4,8 +4,9 @@
 <body>
 <div id="app">running…</div>
 <script>
+  var realFetch = window.fetch.bind(window);
   function report(kind, detail) {
-    try { fetch('/result', { method: 'POST', body: kind + '\n' + detail }); } catch (e) { /* ignore */ }
+    try { realFetch('/result?suite=phase2b3', { method: 'POST', body: kind + '\n' + detail }); } catch (e) { /* ignore */ }
   }
   window.addEventListener('error', function (e) {
     report('PAGE ERROR: ' + (e.message || ''), String((e.error && e.error.stack) || e.filename || ''));

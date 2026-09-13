@@ -77,6 +77,14 @@ export const worldEventRepo = {
     return { id, created: true };
   },
 
+  /**
+   * 按来源查（id 由 userId+worldId+sourceType+sourceId 确定性生成 ⇒ 一次 get 即可）。
+   * 用于"这件事是不是已经写进世界层了"这类判断，**不产生任何写入**。
+   */
+  async getBySource(userId: string, worldId: string, sourceType: string, sourceId: string): Promise<WorldEvent | undefined> {
+    return db.worldEvents.get(derivedWorldEventId(userId, worldId, sourceType, sourceId));
+  },
+
   async getById(id: string): Promise<WorldEvent | undefined> {
     return db.worldEvents.get(id);
   },

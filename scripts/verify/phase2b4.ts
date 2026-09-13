@@ -375,9 +375,9 @@ async function run() {
     const worldHost = mount(createElement(MobileWorldPage));
     await sleep(800);
     const text = worldHost.innerText;
-    check('① 事件计数把 reality 事件算进去了', /已经记下了 \d+ 件事/.test(text), text.slice(0, 200));
+    check('① 世界统计行如实反映真实数据（天数 / 角色数 / 共同经历）', /第 \d+ 天/.test(text) && text.includes('共同经历'), text.slice(0, 200));
     check('②「最近发生」列出这条现实生活', text.includes('最近发生') && text.includes(WORLD_TEXT.slice(0, 12)), text.slice(0, 400));
-    check('③ 类别用人话「你的生活」', text.includes('你的生活'));
+    check('③ 类别用人话「你写下的生活」', text.includes('你写下的生活'), text.slice(0, 400));
     unmount();
   }
 

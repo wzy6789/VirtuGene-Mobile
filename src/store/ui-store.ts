@@ -2,10 +2,13 @@ import { create } from 'zustand';
 
 /**
  * 桌面端主内容区（聊天 / 手账）。手机端手账已下沉为「世界 → 我的生活」覆盖页，仍复用 activeView。
- * 5.0 Phase 2b-5：「关系网络」同样从「世界」进入，也是覆盖页（保持底部导航可见）。
- * 5.0 Phase 3：「世界剧场」同理（打开/离开舞台不消耗模型调用）。
+ *
+ * 5.0.0 Living World 的视图语义（重要）：
+ * - `canvas` 是**沉浸式**的：进入世界空间后底部一级导航隐藏（§67），返回键先收键盘再退出。
+ * - `diary` / `relations` / `memory` / `timeline` / `worldSettings` / `stage` 都是「世界」下的
+ *   **内容页**：底部导航保持可见，点任意一级导航即退出（不会出现"进去了出不来"）。
  */
-export type ActiveView = 'chat' | 'diary' | 'relations' | 'stage';
+export type ActiveView = 'chat' | 'diary' | 'relations' | 'stage' | 'canvas' | 'memory' | 'timeline' | 'worldSettings';
 /** 手机端底部一级导航（5.0：消息｜世界｜角色｜我的） */
 export type MobileTab = 'chat' | 'world' | 'characters' | 'me';
 
@@ -20,6 +23,11 @@ export const MOBILE_TABS: { key: MobileTab; label: string }[] = [
   { key: 'me', label: '我的' },
 ];
 
+/** 哪些视图是"世界"下的内容页（底部导航保持可见） */
+export const WORLD_OVERLAY_VIEWS: ActiveView[] = ['diary', 'relations', 'stage', 'memory', 'timeline', 'worldSettings'];
+/** 沉浸式视图（隐藏底部导航） */
+export const IMMERSIVE_VIEWS: ActiveView[] = ['canvas'];
+
 interface UIState {
   activeView: ActiveView;
   setActiveView: (view: ActiveView) => void;
@@ -32,9 +40,17 @@ interface UIState {
   /** 微信式推入：从「聊天」tab 的会话列表进入聊天（返回回到会话列表，不跳角色页） */
   chatFromList: boolean;
   setChatFromList: (v: boolean) => void;
+  /**
+   * 世界空间当前展示的片段 id（空 = 进去时自动取/建"此刻"）。
+   * 放在这里而不是组件内部：从世界主页"继续"、从记忆页点开某一段，都走同一条路径。
+   */
+  canvasSceneId: string | null;
+  setCanvasSceneId: (id: string | null) => void;
+  /** 进入世界空间（可指定继续哪一段） */
+  openCanvas: (sceneId?: string | null) => void;
 }
 
-/** 主内容区视图切换（聊天 / 日记）+ 手机端底部 tab */
+/** 主内容区视图切换 + 手机端底部 tab + 世界空间入口 */
 export const useUIStore = create<UIState>((set) => ({
   activeView: 'chat',
   setActiveView: (activeView) => set({ activeView }),
@@ -44,4 +60,11 @@ export const useUIStore = create<UIState>((set) => ({
   setChatFromCharacters: (chatFromCharacters) => set({ chatFromCharacters }),
   chatFromList: false,
   setChatFromList: (chatFromList) => set({ chatFromList }),
+  canvasSceneId: null,
+  setCanvasSceneId: (canvasSceneId) => set({ canvasSceneId }),
+  openCanvas: (sceneId) => set({ activeView: 'canvas', canvasSceneId: sceneId ?? null }),
 }));
+
+export function isWorldOverlay(view: ActiveView): boolean {
+  return WORLD_OVERLAY_VIEWS.includes(view);
+}

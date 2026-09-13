@@ -387,7 +387,10 @@ async function run() {
     await sleep(900);
     check('① 打开剧场页不产生任何 LLM 调用', llmCalls - before === 0, llmCalls - before);
     check('② 剧场页列出这场戏与状态', stageHost.innerText.includes('世界剧场') && stageHost.innerText.includes('雨夜的便利店') && stageHost.innerText.includes('已经结束'), stageHost.innerText.slice(0, 300));
-    check('③ 剧场页说明成本纪律', stageHost.innerText.includes('打开与离开不消耗任何模型调用'));
+    // 5.0 最终版 §76：产品正式版不出现"系统施工感"文案（成本说明属于实现细节，
+    // 不该出现在用户界面里）；成本纪律本身由 ①（打开 0 次调用）与后续逐轮计数保证。
+    check('③ 剧场页不出现施工感/实现细节文案（纪律由①的 0 次调用本身保证）',
+      !stageHost.innerText.includes('不消耗任何模型调用'), stageHost.innerText.slice(0, 300));
     unmount();
 
     // 世界页：舞台事件出现在「最近发生」并标为「世界剧场」
@@ -396,8 +399,11 @@ async function run() {
     const worldHost = mount(createElement(MobileWorldPage));
     await sleep(800);
     const worldText = worldHost.innerText;
-    check('④ 世界页「最近发生」出现这场戏', worldText.includes('雨夜的便利店') && worldText.includes('世界剧场'), worldText.slice(0, 500));
-    check('⑤ 世界页有「世界剧场」入口', worldText.includes('和他们一起演一场戏'));
+    check('④ 世界页「最近发生」出现这场戏', worldText.includes('雨夜的便利店') && worldText.includes('你们一起经历的'), worldText.slice(0, 500));
+    // 5.0 最终版 §77：World Stage 作为**一级入口**退出主 UI（世界空间才是核心交互面），
+    // 但"一起演过的戏"仍然可以从「记忆」页回看（能力没有删除）。
+    check('⑤ 世界页不再有「世界剧场」一级入口，改由「记忆」进入（§7/§77）',
+      !worldText.includes('世界剧场') && !worldText.includes('和他们一起演一场戏') && worldText.includes('记忆'), worldText.slice(0, 400));
     unmount();
 
     // 关系页：把"为什么"讲出来（场景给的原因）

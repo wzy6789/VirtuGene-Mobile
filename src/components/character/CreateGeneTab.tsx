@@ -4,6 +4,7 @@ import { useChatStore } from '../../store/chat-store';
 import { EmojiPicker } from '../ui/EmojiPicker';
 import { ipc } from '../../lib/ipc-client';
 import { stateRepo } from '../../db/state-repo';
+import { memoryRepo } from '../../db/memory-repo';
 import type { Character } from '../../db/index';
 
 interface CreateGeneTabProps {
@@ -67,6 +68,9 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const [published, setPublished] = useState(editCharacter?.published ?? false);
   const [relationshipTargets, setRelationshipTargets] = useState<string[]>([]);
   const [relationshipMeta, setRelationshipMeta] = useState<Record<string, { label: string; description: string }>>({});
+  /** 默认关闭：新角色不会在未经用户确认时继承既有聊天中的内容。 */
+  const [importUserMemories, setImportUserMemories] = useState(false);
+  const [importableMemoryCount, setImportableMemoryCount] = useState(0);
 
   const [fields, setFields] = useState<Record<FieldKey, string>>({
     identity: '',
@@ -122,6 +126,17 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     });
     return () => { alive = false; };
   }, [editCharacter, userId]);
+
+  useEffect(() => {
+    if (isEdit || !userId) return;
+    let alive = true;
+    void memoryRepo.getRecentByUser(userId, 36).then((items) => {
+      if (!alive) return;
+      const unique = new Set(items.map((item) => item.content.trim()).filter(Boolean));
+      setImportableMemoryCount(Math.min(12, unique.size));
+    });
+    return () => { alive = false; };
+  }, [isEdit, userId]);
 
   const filledCount = STEP_FIELDS.filter((f) => fields[f.key].trim().length > 0).length;
   const canGenerate = name.trim().length >= 2 && !isEdit && (
@@ -328,6 +343,9 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         published,
         createdBy: '',
       });
+      if (importUserMemories) {
+        await memoryRepo.importRecentUserMemories(created.id, userId);
+      }
       await stateRepo.replaceStoryRelations(created.id, userId, relationshipTargets.map((characterId) => ({
         characterId,
         label: relationshipMeta[characterId]?.label ?? '故事关联',
@@ -411,6 +429,28 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
           </button>
         </div>
       </div>
+
+      {!isEdit && (
+        <section className="rounded-2xl border border-gene-purple/20 bg-gene-purple/[0.05] px-4 py-3.5">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={importUserMemories}
+              disabled={importableMemoryCount === 0}
+              onChange={(event) => setImportUserMemories(event.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-line-strong bg-surface text-gene-purple focus:ring-gene-purple/30 disabled:opacity-40"
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-ink">带上我已分享过的记忆</span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-gray-500">
+                {importableMemoryCount > 0
+                  ? `导入最多 ${importableMemoryCount} 条关于你的记忆摘要；不会导入原始聊天记录。`
+                  : '还没有可导入的记忆。以后聊天沉淀下来的内容也仍由你决定是否分享。'}
+              </span>
+            </span>
+          </label>
+        </section>
+      )}
 
       <section className="rounded-2xl border border-life-cyan/20 bg-gradient-to-br from-life-cyan/[0.07] to-gene-purple/[0.08] p-4">
         <div className="flex items-start justify-between gap-3">

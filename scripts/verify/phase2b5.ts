@@ -317,9 +317,9 @@ async function run() {
     useUIStore.getState().setMobileTab('world');
     const worldHost = mount(createElement(MobileWorldPage));
     await sleep(800);
-    check('① 世界页有「关系网络」入口', worldHost.innerText.includes('关系网络'), worldHost.innerText.slice(0, 300));
+    check('① 世界页有「关系」入口', worldHost.innerText.includes('关系'), worldHost.innerText.slice(0, 300));
     check('② 点击后真的进入关系网络（activeView = relations）',
-      clickButtonByText('关系网络', worldHost) && useUIStore.getState().activeView === 'relations',
+      clickButtonByText('关系', worldHost) && useUIStore.getState().activeView === 'relations',
       useUIStore.getState().activeView);
 
     const shellHost = mount(createElement(MobileLayout), 900);

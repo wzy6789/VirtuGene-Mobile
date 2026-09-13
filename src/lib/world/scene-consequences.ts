@@ -12,6 +12,7 @@
  * 被丢弃的内容会如实记录在 `dropped` 里（便于验收与排查），绝不"猜一个"。
  */
 import { RELATIONSHIP_FACETS, type RelationshipFacet } from '../../db/index';
+import { safeParseAIResponse } from '../ai/safe-json';
 import { characterRef, userRef } from './subjects';
 
 export interface SettlementRelationshipChange {
@@ -31,6 +32,12 @@ export interface SettlementUnresolved {
 export interface SceneSettlementProposal {
   summary?: string;
   memory?: { title: string; summary?: string };
+  /**
+   * 5.0.0 Living World：一次结算可以留下**多段**共同记忆（`sharedMemories` 数组）。
+   * `memory`（单数）保留给 Phase 3 的场景结算，两者互为兼容：
+   * 模型给哪种都读得出来，`memory` 恒等于 `memories[0]`。
+   */
+  memories: { title: string; summary?: string }[];
   relationshipChanges: SettlementRelationshipChange[];
   unresolved: SettlementUnresolved[];
 }
@@ -83,15 +90,13 @@ export function validateSettlement(
   ctx: SettlementContext,
 ): { proposal: SceneSettlementProposal; dropped: string[] } {
   const dropped: string[] = [];
-  const proposal: SceneSettlementProposal = { relationshipChanges: [], unresolved: [] };
+  const proposal: SceneSettlementProposal = { relationshipChanges: [], unresolved: [], memories: [] };
   let data: unknown = raw;
   if (typeof raw === 'string') {
-    try {
-      const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-      data = JSON.parse((fenced ? fenced[1] : raw).trim());
-    } catch {
-      return { proposal, dropped: ['无法解析结算 JSON'] };
-    }
+    // §63：所有结构化 AI 输出走同一个兼容解析层（围栏 / 前后有解释 / 尾随逗号 / 单引号）
+    const parsed = safeParseAIResponse(raw);
+    if (parsed.via === 'none') return { proposal, dropped: ['无法解析结算 JSON'] };
+    data = parsed.value;
   }
   if (!data || typeof data !== 'object') return { proposal, dropped: ['结算内容为空'] };
   const obj = data as Record<string, unknown>;
@@ -99,16 +104,26 @@ export function validateSettlement(
   const summary = asString(obj.summary, 300);
   if (summary) proposal.summary = summary;
 
-  const memoryRaw = (obj.memory ?? null) as Record<string, unknown> | null;
-  if (memoryRaw && typeof memoryRaw === 'object') {
-    const title = asString(memoryRaw.title, 120);
-    if (title) {
-      const memSummary = asString(memoryRaw.summary, 400);
-      proposal.memory = { title, ...(memSummary ? { summary: memSummary } : {}) };
-    } else {
+  /**
+   * 共同记忆：同时兼容两种写法（extend, don't duplicate）——
+   * - `memory`：Phase 3 场景结算的单数对象
+   * - `sharedMemories`：Living World 结算的数组（§29）
+   */
+  const rawMemories: unknown[] = [
+    ...(Array.isArray(obj.sharedMemories) ? obj.sharedMemories : []),
+    ...(obj.memory && typeof obj.memory === 'object' ? [obj.memory] : []),
+  ];
+  for (const item of rawMemories) {
+    const row = (item ?? {}) as Record<string, unknown>;
+    const title = asString(row.title, 120);
+    if (!title) {
       dropped.push('共同记忆缺标题');
+      continue;
     }
+    const memSummary = asString(row.summary, 400);
+    proposal.memories.push({ title, ...(memSummary ? { summary: memSummary } : {}) });
   }
+  if (proposal.memories.length > 0) proposal.memory = proposal.memories[0];
 
   const changes = Array.isArray(obj.relationshipChanges) ? obj.relationshipChanges : [];
   for (const item of changes) {
@@ -138,8 +153,16 @@ export function validateSettlement(
     proposal.relationshipChanges.push({ a, b, facets, reason });
   }
 
-  const unresolved = Array.isArray(obj.unresolved) ? obj.unresolved : [];
-  for (const item of unresolved) {
+  /**
+   * 未完成的事：同样兼容两种写法——
+   * `unresolved`（Phase 3 场景结算）/ `continuityChanges`（Living World 结算，§29）。
+   * 两者字段相同（who / kind / title / detail），所以直接合并读取。
+   */
+  const unresolvedRaw: unknown[] = [
+    ...(Array.isArray(obj.unresolved) ? obj.unresolved : []),
+    ...(Array.isArray(obj.continuityChanges) ? obj.continuityChanges : []),
+  ];
+  for (const item of unresolvedRaw) {
     const row = (item ?? {}) as Record<string, unknown>;
     const who = asString(row.who, 40);
     const characterId = ctx.resolveCharacter(who);

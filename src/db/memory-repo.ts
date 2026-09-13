@@ -26,6 +26,38 @@ export const memoryRepo = {
       .then((items) => items.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit));
   },
 
+  /**
+   * 创建角色时由用户明确选择的记忆移交。
+   * 只复制沉淀后的摘要，绝不复制原始聊天记录、会话 id 或消息 id。
+   */
+  async importRecentUserMemories(characterId: string, userId: string, limit = 12): Promise<number> {
+    const candidates = await this.getRecentByUser(userId, limit * 3);
+    const seen = new Set<string>();
+    const selected = candidates
+      .filter((memory) => memory.content.trim().length > 0)
+      .filter((memory) => {
+        const key = memory.content.trim();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, limit);
+
+    const now = Date.now();
+    await this.createMany(selected.map((memory) => ({
+      id: crypto.randomUUID(),
+      characterId,
+      userId,
+      content: memory.content,
+      // 表示它不是新角色从一段对话中自动提取出的结论。
+      type: 'summary' as const,
+      createdAt: now,
+      confidence: memory.confidence,
+      updatedAt: now,
+    })));
+    return selected.length;
+  },
+
   async getByCharacter(characterId: string, userId: string): Promise<MemoryItem[]> {
     const all = await db.memories.where('characterId').equals(characterId).toArray();
     return all.filter((m) => m.userId === userId).sort((a, b) => a.createdAt - b.createdAt);

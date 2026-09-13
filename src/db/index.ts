@@ -218,6 +218,14 @@ export interface WorldSceneState {
   resolvedEventIds: string[];
   newEventIds: string[];
   participants: SceneParticipantState[];
+  /**
+   * 5.0.0 Living World（v18）：这一片段把世界时钟相对真实时间推了多久（毫秒）。
+   * 「直接到第二天早上」这类时间跳跃只改这一个数 + `WorldScene.timeLabel`，
+   * 不伪造任何历史事件，也不产生额外 AI 调用。
+   */
+  timeOffsetMs?: number;
+  /** 最近一次世界状态变化的人话说明（仅内部/调试，UI 默认不展示数字） */
+  lastWorldChange?: string;
 }
 
 /** 一场 World Stage（互动章节） */
@@ -252,7 +260,17 @@ export interface WorldSceneEntry {
   sceneId: string;
   /** 场景内顺序（从 0 递增；配合 [sceneId+index] 复合索引分页） */
   index: number;
-  kind: 'narration' | 'dialogue' | 'choice' | 'user_input' | 'system';
+  /**
+   * 世界流的内容形态（5.0.0 Living World 增补 action / suggestion）：
+   * - narration   世界旁白（全宽、无气泡）
+   * - dialogue    角色对白
+   * - action      角色动作（**不是**气泡：与同一角色的对白合成一个视觉组）
+   * - user_input  用户行动（轻量行动文本，不套聊天气泡）
+   * - choice      选择/灵感建议（UI 只把 options 渲染成输入框上方的建议 chips）
+   * - suggestion  灵感建议（v18 新增；`meta.options` 为建议文本，用户可无视）
+   * - system      系统标记（地点/时间变化、幕次等）
+   */
+  kind: 'narration' | 'dialogue' | 'action' | 'user_input' | 'choice' | 'suggestion' | 'system';
   /** 所属幕次 */
   act: number;
   /** 说话角色 id（narration/system 为空） */
@@ -377,6 +395,128 @@ export interface RelationshipEvent {
   sourceEventId?: string;
   sourceType: string;
   createdAt: number;
+}
+
+/* ---------------------------------------------------------------------------
+ * 5.0.0 Living World（v18）：世界事实 + 世界轮次
+ * ------------------------------------------------------------------------- */
+
+/** 世界事实的分类（决定它如何进入上下文，以及在世界设定页怎么分组） */
+export type WorldFactCategory =
+  | 'rule'
+  | 'location'
+  | 'atmosphere'
+  | 'history'
+  | 'shared_knowledge'
+  | 'character_fact'
+  | 'custom';
+
+/**
+ * 世界事实（World Fact）：这个世界的**长期设定**。
+ *
+ * 与其它表的严格分工：
+ * - `WorldEvent`   "发生过什么"（时间线上的一件事）
+ * - `SharedMemory` "你们共同经历了什么"（有情绪重量的片段）
+ * - `WorldFact`    "这个世界是什么样"（规则 / 地点 / 氛围 / 历史 / 共识 / 角色事实）
+ *
+ * 它是"世界设定"页的唯一数据源，也是 World Canvas 里「这里以后一直是秋天」这类
+ * 自然语言指令的落点：LLM 只提出建议，程序校验后才写这里（§30）。
+ */
+export interface WorldFact {
+  id: string;
+  userId: string;
+  worldId: string;
+  category: WorldFactCategory;
+  /** 自然语言正文（用户看到的就是这一句，不做结构化表单） */
+  content: string;
+  visibility: WorldVisibility;
+  visibleTo?: string[];
+  /** 来源：'user'（用户在设定页/世界空间里说的）|'settlement'（世界结算沉淀的）|'migration:4x' */
+  sourceType: string;
+  sourceId?: string;
+  /** 重要度 0~1：注入上下文时按它排序（规则类默认更高） */
+  priority: number;
+  /** 该事实是否生效（用户可"暂停"一条设定而不删除） */
+  active: boolean;
+  /** 结构化补充（例如 character_fact 的 characterId；仅供程序使用） */
+  data?: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 一轮世界交互的状态机（§52）——用户输入先落库，AI 失败也不会丢 */
+export type WorldTurnStatus =
+  | 'pending'
+  | 'interpreting'
+  | 'planning'
+  | 'responding'
+  | 'settling'
+  | 'completed'
+  | 'failed'
+  | 'undone';
+
+/** 世界状态快照（撤销一轮时用来精确还原"此刻"） */
+export interface WorldTurnSnapshot {
+  place: string;
+  timeLabel: string;
+  mood: string;
+  timeOffsetMs: number;
+  characterIds: string[];
+}
+
+/**
+ * 世界轮次：一次用户输入 = 一行。
+ *
+ * 存在的三个理由（缺一不可）：
+ * 1. **失败恢复**：用户原话先落库，任何 AI 阶段失败都只是 status='failed'，
+ *    原话与已产生的正文（若调用方已经写入）都还在，重试复用同一行、同一条正文。
+ * 2. **Undo / Retcon**：记下这一轮写了哪些正文、哪些世界事件/记忆/关系/设定，
+ *    撤销时按 id 精确回收，而不是"猜哪几条是这一轮的"。
+ * 3. **事务队列**：下一轮必须等这一轮结算写完才能读状态，避免读到半完成状态（§58）。
+ */
+export interface WorldTurn {
+  id: string;
+  userId: string;
+  worldId: string;
+  sceneId: string;
+  /** 用户原话（永不丢失、永不重复插入） */
+  input: string;
+  /** 用户这轮的动作来源：'text'（自己打的）|'suggestion'（点了灵感建议）|'control'（控制面板快捷方式） */
+  origin: 'text' | 'suggestion' | 'control' | 'auto';
+  /** 这一轮解析出的结构化意图（UI 不展示；解析失败为 undefined） */
+  action?: import('../lib/world/world-actions').WorldAction;
+  status: WorldTurnStatus;
+  /** 用户输入落成的那条世界流正文 id（撤销时一并回收） */
+  userEntryId?: string;
+  /** 本轮新增的世界流正文 id（顺序即产生顺序） */
+  entryIds: string[];
+  /** 本轮结算写入的各类产物 id（撤销时精确回收） */
+  settledEventIds: string[];
+  settledMemoryIds: string[];
+  settledRelationshipEventIds: string[];
+  settledThreadIds: string[];
+  /** 本轮**新写下**的世界设定（撤销时删除） */
+  settledFactIds: string[];
+  /** 本轮因冲突而**停用**的旧设定（撤销时恢复启用，绝不删除） */
+  deactivatedFactIds: string[];
+  /** 本轮结算写的生命轨迹 id（撤销时精确回收"为什么变了"那条记录） */
+  settledLifeEventIds: string[];
+  /** 本轮对 4.x 角色状态施加的增量（撤销时**反向回退**，而不是删库重来） */
+  stateDeltas: { characterId: string; affinityDelta: number; moodDelta: number }[];
+  /** 本轮涉及的角色（用于撤销时还原在场者） */
+  characterIds: string[];
+  /** 本轮开始前的"此刻"快照（撤销/重生成用） */
+  before?: WorldTurnSnapshot;
+  /** 结算是否已经后台完成（用户不必等它） */
+  settled: boolean;
+  /** 本轮实际发生的 AI 调用次数（成本可核对） */
+  llmCalls: number;
+  /** 失败信息（哪一步失败 + 原始错误码） */
+  failure?: { stage: WorldTurnStatus; message: string };
+  /** 重试次数（重试绝不新增用户输入） */
+  retries: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /** 角色生命轨迹中的一个可回看的变化节点。 */
@@ -590,6 +730,9 @@ export class VirtuGeneDB extends Dexie {
   sharedMemories!: Table<SharedMemory, string>;
   relationshipStates!: Table<RelationshipState, string>;
   relationshipEvents!: Table<RelationshipEvent, string>;
+  // 5.0.0 Living World（Dexie v18）：世界事实 + 世界轮次
+  worldFacts!: Table<WorldFact, string>;
+  worldTurns!: Table<WorldTurn, string>;
 
   constructor() {
     super('virtugene');
@@ -779,6 +922,17 @@ export class VirtuGeneDB extends Dexie {
       relationshipEvents: 'id,userId,worldId,pairKey,[worldId+pairKey],*subjects,sourceEventId,createdAt',
     }).upgrade(async (tx) => {
       await runWorldMigration(tx);
+    });
+    /**
+     * v18: 5.0.0 Living World 最终形态。
+     * 只新增两张表（worldFacts 世界设定 / worldTurns 世界轮次状态机），
+     * 既有 19 张表一律不改写、不删除、不清空——4.x 数据必须原样存活。
+     * `worldSceneEntries.kind` 增加 'action' | 'suggestion' 属于**类型层面**的扩展，
+     * 老行只可能是旧 kind，读回来仍然合法，因此不需要 upgrade 回填。
+     */
+    this.version(18).stores({
+      worldFacts: 'id,userId,worldId,category,active,[worldId+category],[worldId+sourceType+sourceId],updatedAt',
+      worldTurns: 'id,userId,worldId,sceneId,status,[worldId+createdAt],createdAt',
     });
   }
 }

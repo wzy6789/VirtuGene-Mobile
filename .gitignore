@@ -31,6 +31,10 @@ scripts/make-icon.py
 # 验收脚本的打包产物（由 scripts/verify/build.mjs 生成，仓库只保留 *.ts / *.html / serve.cjs / build.mjs）
 scripts/verify/*.bundle.js
 
+# 验收的中间产物：每套件的结果文件与从 dist 复制来的真实 CSS（都由脚本生成）
+scripts/verify/.last-result-*.txt
+scripts/verify/verify.css
+
 # 5.0 世界层的本地中间产物 / 研究草稿（不入库）
 .gradle-build/
 .gradle-user/

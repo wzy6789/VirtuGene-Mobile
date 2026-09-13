@@ -4,61 +4,30 @@ import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
 import { worldRepo } from '../../db/world-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
+import { worldSceneRepo } from '../../db/world-scene-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { continuityRepo, KIND_LABEL } from '../../db/continuity-repo';
-import type { Character, ContinuityThread, SharedMemory, WorldEvent, WorldEventType } from '../../db/index';
+import type { Character, ContinuityThread, SharedMemory, WorldEvent, WorldScene, WorldSceneEntry } from '../../db/index';
 import { SpaceHeading } from '../ui/SpaceHeading';
 import { ContinuityThreadsModal } from '../character/ContinuityThreadsModal';
 import { pickWaitingStory, relativeDay, THREAD_TEASER } from '../../lib/world/world-picks';
+import { eventLabel } from '../../lib/world/world-timeline';
 
 /**
- * 世界首页（5.0 Living World 一级入口）
+ * 世界主页（5.0.0 Living World §5 / §6 / §7 / §75 / §76 / §79 / §80）
  *
- * 职责（2a 建立外壳；2b-0 起真实数据已接通）：
- * - 「世界」一级入口 + **基于真实数据的状态**（空 / 有内容 / 读取失败三态）
- * - 不调用任何 LLM、不改任何 Prompt、不涉及世界剧场 AI
- * - 不堆功能按钮（§6：不能做成工具型 Dashboard）
+ * 这一页只有一个任务：**让用户知道现在可以直接进世界**。
  *
- * 数据来源（Phase 2b-0 起已接通）：约定/计划等未完成事项、关系等阶升级会由既有结算流程
- * 自动派生为世界事件（见 lib/world/world-writer.ts）；普通闲聊与「记住」刻意不写。
- * Phase 2b-2 起多了一条**用户显式**的来源：在聊天里长按「收藏为共同记忆」，
- * 写入 sharedMemories + shared_memory 世界事件 + 该角色认知。
- * 因此空状态文案只列**真的会写入**的来源，不承诺尚未实现的行为。
+ * 因此它刻意**不是** Dashboard：
+ * - 顶部只有一句"谁和你一起生活在这里"，统计是一行灰字（§5）
+ * - 视觉核心只有一个区域：**此刻**（§6）——正在发生什么 / 或者"此刻很安静"
+ * - 下面只有几个克制入口：关系 / 记忆 / 时间线 / 设定 / 我的生活（§7）
+ * - **没有任何"故事模式""世界剧场""创建场景"一级入口**（§7/§77）
+ *
+ * 空世界不出现教程，也不出现"未来会有…"这种施工感文案（§76/§80）。
  */
-
-/** 事件类型的"人话"说法（只讲发生了什么，不暴露任何内部数值/字段名） */
-const EVENT_TYPE_LABEL: Record<WorldEventType, string> = {
-  reality: '你的生活',
-  interaction: '一次共同经历',
-  shared_memory: '共同记忆',
-  stage: '世界剧场',
-  relationship: '你们之间的关系',
-  continuity: '未完成的事',
-  knowledge: '认知',
-  life_trace: '生命痕迹',
-};
-
-function greeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 5) return '夜深了';
-  if (hour < 11) return '早上好';
-  if (hour < 14) return '中午好';
-  if (hour < 18) return '下午好';
-  return '晚上好';
-}
-
-/** 进入聊天：与「消息」页同一套推入语义（返回回到会话列表） */
-function goTalkTo(characterId: string): void {
-  void useChatStore.getState().selectCharacter(characterId);
-  const ui = useUIStore.getState();
-  ui.setChatFromCharacters(false);
-  ui.setChatFromList(true);
-  ui.setMobileTab('chat');
-}
-
 export function MobileWorldPage() {
   const userId = useAuthStore((s) => s.userId);
-  const username = useAuthStore((s) => s.username);
   const characters = useChatStore((s) => s.characters);
 
   const [loading, setLoading] = useState(true);
@@ -66,10 +35,10 @@ export function MobileWorldPage() {
   const [reloadToken, setReloadToken] = useState(0);
   const [stats, setStats] = useState<Awaited<ReturnType<typeof worldRepo.stats>>>(null);
   const [recent, setRecent] = useState<WorldEvent[]>([]);
-  const [unresolved, setUnresolved] = useState<WorldEvent[]>([]);
   const [memories, setMemories] = useState<SharedMemory[]>([]);
   const [openThreads, setOpenThreads] = useState<ContinuityThread[]>([]);
-  /** 打开某个角色的「还没做完的事」面板（复用 4.x 现有弹窗，零新写 UI） */
+  const [scene, setScene] = useState<WorldScene | null>(null);
+  const [sceneTail, setSceneTail] = useState<WorldSceneEntry[]>([]);
   const [threadPanelCharacter, setThreadPanelCharacter] = useState<Character | null>(null);
 
   useEffect(() => {
@@ -82,42 +51,42 @@ export function MobileWorldPage() {
       setLoading(true);
       setLoadError(false);
       try {
-        // 默认世界（确定性 id，幂等）：世界页是所有世界层功能的入口
-        const world = await worldRepo.ensureDefaultWorld(userId, username ?? undefined);
-        const [nextStats, timeline, open, mems, threads] = await Promise.all([
+        const world = await worldRepo.ensureDefaultWorld(userId);
+        const [nextStats, timeline, mems, threads, scenes] = await Promise.all([
           worldRepo.stats(world.id),
-          // 多取一些：渲染前要过滤掉"还没结束的未完成事项"，只取 3 条会被它们占满
           worldEventRepo.listTimeline(world.id, { limit: 10 }),
-          worldEventRepo.listUnresolved(world.id, 5),
           sharedMemoryRepo.listByWorld(world.id, 3),
           continuityRepo.getOpenByUser(userId),
+          // §74：世界首页只加载"当前活跃片段 + 少量最近事件"，其余进对应页面再加载
+          worldSceneRepo.listScenes(world.id, { limit: 3 }),
         ]);
+        const current = scenes.find((s) => s.status === 'active') ?? scenes.find((s) => s.status === 'paused') ?? null;
+        const tail = current ? (await worldSceneRepo.listEntries(current.id, { limit: 400 })).slice(-4) : [];
         if (!alive) return;
         setStats(nextStats);
         setRecent(timeline);
-        setUnresolved(open);
         setMemories(mems);
         setOpenThreads(threads);
+        setScene(current);
+        setSceneTail(tail);
       } catch {
-        // 读取失败 ≠ 空世界：必须让用户看到"没读到"，而不是误以为数据不存在
         if (alive) {
           setStats(null);
           setRecent([]);
-          setUnresolved([]);
           setMemories([]);
           setOpenThreads([]);
+          setScene(null);
+          setSceneTail([]);
           setLoadError(true);
         }
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    // 角色数用于弱化统计；已有页面加载过就复用内存里的列表
     if (characters.length === 0) void useChatStore.getState().loadCharacters();
     return () => { alive = false; };
-  }, [userId, username, characters.length, reloadToken]);
+  }, [userId, characters.length, reloadToken]);
 
-  const myCharacters = useMemo(() => characters.filter((c) => c.createdBy === userId), [characters, userId]);
   const nameOf = useMemo(() => {
     const map = new Map(characters.map((c) => [c.id, c.name]));
     return (id: string) => map.get(id) ?? 'TA';
@@ -126,28 +95,22 @@ export function MobileWorldPage() {
     const map = new Map(characters.map((c) => [c.id, c]));
     return (id: string) => map.get(id) ?? null;
   }, [characters]);
-  /** 「正在等待你的故事」：一条最该被看见的（纯本地规则，见 lib/world/world-picks） */
-  const waiting = useMemo(() => pickWaitingStory(openThreads), [openThreads]);
-  /**
-   * 「未完成的故事」区块只列**其余**线索：
-   * - 大卡已经展示过的那条不再重复
-   * - 依据"剩余条数"决定是否渲染整块（只有 1 条线索时整块隐藏，
-   *   否则会出现"1 件 + 空列表"的自相矛盾）
-   */
-  const restThreads = useMemo(
-    () => (waiting ? openThreads.filter((t) => t.id !== waiting.id) : openThreads).slice(0, 4),
-    [openThreads, waiting],
-  );
 
-  const eventCount = stats?.eventCount ?? 0;
+  /** 世界里的角色（用户自建的 + 已经参与过这个世界的） */
+  const myCharacters = useMemo(() => {
+    const involved = new Set<string>([
+      ...(scene?.characterIds ?? []),
+      ...openThreads.map((t) => t.characterId),
+    ]);
+    const owned = characters.filter((c) => c.createdBy === userId);
+    const extra = characters.filter((c) => involved.has(c.id) && !owned.some((o) => o.id === c.id));
+    return [...owned, ...extra];
+  }, [characters, userId, scene, openThreads]);
+
+  const waiting = useMemo(() => pickWaitingStory(openThreads), [openThreads]);
+
   const memoryCount = stats?.sharedMemoryCount ?? 0;
-  /**
-   * 「最近发生」只讲**已经发生的事**：
-   * - 还没结束的未完成事项已经由大卡与「未完成的故事」区块承担，不再在这里重复一遍
-   *   （否则同一件事会在同一屏出现两次）；已完成的用"未完成的事"标签照常出现在时间线里。
-   * - 已经在「共同记忆」区块里展示过的记忆，同理不在时间线里重复；**没被展示到的**
-   *   （超出区块条数的更早记忆）仍然照常出现在时间线里，避免"看不见就消失"。
-   */
+
   const recentHappenings = useMemo(() => {
     const shownMemoryIds = new Set(memories.map((m) => m.id));
     return recent
@@ -155,42 +118,63 @@ export function MobileWorldPage() {
       .filter((e) => !(e.type === 'shared_memory' && e.memoryIds.some((id) => shownMemoryIds.has(id))))
       .slice(0, 3);
   }, [recent, memories]);
-  const hasEvents = recentHappenings.length > 0 || eventCount > 0;
-  const hasMemories = memories.length > 0 || memoryCount > 0;
-  const hasThreads = openThreads.length > 0;
-  const hasAnything = hasEvents || hasMemories || hasThreads;
 
-  const openDiary = () => useUIStore.getState().setActiveView('diary');
+  /** 世界的一句话自然描述（§5）：谁在和你一起生活 */
+  const livingLine = useMemo(() => {
+    const names = myCharacters.map((c) => c.name);
+    if (names.length === 0) return '这个世界还在等第一位灵魂住进来。';
+    if (names.length === 1) return `${names[0]}与你正在共同生活。`;
+    if (names.length <= 3) return `${names.join('、')}与你正在共同生活。`;
+    return `${names.length} 个灵魂正在这个世界留下自己的故事。`;
+  }, [myCharacters]);
+
+  /** "此刻"的预览：最后一条旁白/对白/动作（不重复用户自己的话） */
+  const nowPreview = useMemo(() => {
+    const last = [...sceneTail].reverse().find((e) => e.kind === 'narration' || e.kind === 'dialogue' || e.kind === 'action');
+    if (!last) return null;
+    const who = last.speakerId ? characterOf(last.speakerId) : null;
+    return { text: last.content, who: who?.name ?? null };
+  }, [sceneTail, characterOf]);
+
+  const enterWorld = (sceneId?: string | null) => {
+    useUIStore.getState().openCanvas(sceneId ?? null);
+  };
+  const openView = (view: 'diary' | 'relations' | 'memory' | 'timeline' | 'worldSettings') =>
+    useUIStore.getState().setActiveView(view);
+
+  /** §79：模板降级为"灵感"——点一下等于替用户说了一句话，不打开任何配置页 */
+  const inspirations = useMemo(() => {
+    if (myCharacters.length === 0) return [];
+    const first = myCharacters[0].name;
+    return [
+      '今晚我们去海边。',
+      `让${first}说说 TA 最近在想什么。`,
+      '直接到第二天早上。',
+    ];
+  }, [myCharacters]);
 
   return (
-    <div className="h-full overflow-y-auto px-4 pb-6">
-      {/* 顶部问候：世界首页的第一句话 */}
+    <div className="vg-world-page h-full overflow-y-auto px-4 pb-6">
       <div className="pt-5">
-        <SpaceHeading
-          eyebrow="living world"
-          title={`${greeting()}，${username || '你'}`}
-          detail="欢迎回到你的世界。"
-        />
+        <SpaceHeading eyebrow="living world" title="我的世界" detail={livingLine} />
       </div>
 
-      {/* 弱化统计（不是 KPI：小字、灰、无卡框） */}
+      {/* 弱化统计（§5：一行灰字，不是 KPI 卡片） */}
       {!loading && !loadError && (
-        <p className="mt-2 text-[11px] text-gray-500">
-          {myCharacters.length} 个角色
-          <span className="mx-1.5 text-gray-600">·</span>
+        <p className="vg-world-meta mt-2 text-[11px] text-gray-500">
           第 {stats?.daysSinceCreated ?? 1} 天
           <span className="mx-1.5 text-gray-600">·</span>
-          {memoryCount} 段共同记忆
+          {myCharacters.length} 位角色
+          <span className="mx-1.5 text-gray-600">·</span>
+          {memoryCount} 段共同经历
         </p>
       )}
 
       {loading ? (
         <div className="mt-10 text-center text-sm text-gray-500" role="status">正在读取你的世界…</div>
       ) : loadError ? (
-        /* ---------- 读取失败：与"空世界"严格区分 ---------- */
         <section className="mt-5 rounded-[26px] border border-rose-400/25 bg-rose-500/[0.06] px-5 py-7 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-rose-400/30 bg-rose-500/10 text-lg text-rose-300">!</div>
-          <h2 className="mt-4 text-base font-semibold text-ink">世界读取失败</h2>
+          <h2 className="mt-1 text-base font-semibold text-ink">世界读取失败</h2>
           <p className="mt-2 text-xs leading-6 text-gray-500">
             没能从本机读到你们的世界记录。这通常是暂时的，你的数据仍保存在这台设备上。
           </p>
@@ -202,85 +186,135 @@ export function MobileWorldPage() {
             重新读取
           </button>
         </section>
-      ) : !hasAnything ? (
-        /* ---------- 真实空状态：世界层确实还没有任何记录 ---------- */
-        <section className="mt-5 overflow-hidden rounded-[26px] border border-line bg-gradient-to-br from-gene-purple/[0.10] via-transparent to-life-cyan/[0.10] px-5 py-7">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-life-cyan/30 bg-life-cyan/10 text-lg text-life-cyan">◌</div>
-          <h2 className="mt-4 text-center text-base font-semibold text-ink">你的世界还没有开始</h2>
-          <p className="mt-2 text-center text-xs leading-6 text-gray-500">
-            这里存放的是你们真正共同经历过的事——<br />
-            答应过却还没做完的约定、关系发生的变化，<br />
-            以及你从聊天里收藏下来的那些话。
-          </p>
-          <p className="mt-3 text-center text-[11px] leading-5 text-gray-600">
-            现在还没有任何记录。在聊天里长按一条消息，<br />
-            可以把它收藏成你们的共同记忆。
-          </p>
-          <div className="mt-5 flex flex-col items-center gap-2.5">
-            <button
-              type="button"
-              onClick={() => useUIStore.getState().setMobileTab('chat')}
-              className="w-full rounded-xl bg-gene-purple px-4 py-2.5 text-sm font-medium text-white active:scale-[.99]"
-            >
-              去和一个角色说说话
-            </button>
-            <button
-              type="button"
-              onClick={openDiary}
-              className="w-full rounded-xl border border-line px-4 py-2.5 text-sm text-sub active:scale-[.99]"
-            >
-              写下今天
-            </button>
-          </div>
-        </section>
       ) : (
-        /* ---------- 有内容：每个区块各自按自己的数据渲染（不互相冒充） ---------- */
-        <section className="mt-5">
-          {/* 第一视觉核心：正在等待你的故事（没有等着继续的事时整块隐藏，不放假内容） */}
-          {waiting && (
-            <div className="overflow-hidden rounded-[26px] border border-gene-purple/25 bg-gradient-to-br from-gene-purple/[0.16] via-gene-purple/[0.06] to-life-cyan/[0.12] px-5 py-5">
-              <p className="text-[10px] tracking-[0.2em] uppercase text-life-cyan">正在等待你的故事</p>
-              <h2 className="mt-2 text-[19px] font-semibold leading-snug text-ink">{waiting.title}</h2>
-              <p className="mt-1.5 text-[11px] text-gray-400">
-                {nameOf(waiting.characterId)} · 你
-                <span className="mx-1.5 text-gray-600">·</span>
-                {KIND_LABEL[waiting.kind]}
-                {waiting.dueAt ? <><span className="mx-1.5 text-gray-600">·</span>{relativeDay(waiting.dueAt)}</> : null}
-              </p>
-              <p className="mt-3 text-[12px] leading-relaxed text-gray-400">
-                {waiting.detail || THREAD_TEASER[waiting.kind]}
-              </p>
+        <>
+          {/* ------------------------- 视觉核心：此刻（§6） ------------------------- */}
+          <section className="vg-now">
+            <p className="vg-now-label">此刻</p>
+            {scene && sceneTail.length > 0 ? (
+              <>
+                <h2 className="vg-now-title">{scene.place} · {scene.timeLabel}</h2>
+                {nowPreview && (
+                  <p className="vg-now-line">
+                    {nowPreview.who ? <b>{nowPreview.who}　</b> : null}
+                    {nowPreview.text.length > 90 ? `${nowPreview.text.slice(0, 90)}…` : nowPreview.text}
+                  </p>
+                )}
+                {waiting && (
+                  <p className="vg-now-line">
+                    上一次，你们谈到了一件还没有真正说完的事情：{waiting.title}
+                  </p>
+                )}
+                <button type="button" className="vg-now-enter" onClick={() => enterWorld(scene.id)}>
+                  继续
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="vg-now-quiet">
+                  此刻很安静。
+                  <br />
+                  {openThreads.length === 0 ? '没有必须完成的故事。' : '没有必须马上完成的事。'}
+                  <br />
+                  你想做什么都可以。
+                </p>
+                {myCharacters.length === 0 && (
+                  <p className="vg-now-line mt-3">先去「角色」里培养一位灵魂，再回到这里。</p>
+                )}
+                <button
+                  type="button"
+                  className="vg-now-enter"
+                  onClick={() => enterWorld(null)}
+                  disabled={myCharacters.length === 0}
+                  style={myCharacters.length === 0 ? { opacity: 0.5 } : undefined}
+                >
+                  进入世界
+                </button>
+              </>
+            )}
+          </section>
+
+          {/* ------------------------- 克制入口（§7） ------------------------- */}
+          <section className="vg-world-entries" aria-label="世界功能">
+            <button type="button" onClick={() => openView('relations')}>
+              <b>关系</b>
+              <span>你和他们现在是什么关系</span>
+            </button>
+            <button type="button" onClick={() => openView('memory')}>
+              <b>记忆</b>
+              <span>我们经历过的事</span>
+            </button>
+            <button type="button" onClick={() => openView('timeline')}>
+              <b>时间线</b>
+              <span>这个世界的一段时间</span>
+            </button>
+            <button type="button" onClick={() => openView('worldSettings')}>
+              <b>设定</b>
+              <span>这个世界是什么样的</span>
+            </button>
+            <button type="button" onClick={() => openView('diary')} style={{ gridColumn: 'span 2' }}>
+              <b>我的生活</b>
+              <span>日记、心情与照片 · 默认只有你自己知道</span>
+            </button>
+          </section>
+
+          {/* ------------------------- 还没做完的事（保留 4.x 能力） ------------------------- */}
+          {openThreads.length > 0 && (
+            <>
+              <div className="mt-5 mb-2 flex items-center justify-between">
+                <p className="text-[10px] tracking-[0.16em] uppercase text-gray-500">还没做完的事</p>
+                <span className="text-[10px] text-gray-500">{openThreads.length} 件</span>
+              </div>
+              <ul className="space-y-2">
+                {openThreads.slice(0, 3).map((thread) => (
+                  <li key={thread.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const character = characterOf(thread.characterId);
+                        if (character) setThreadPanelCharacter(character);
+                      }}
+                      className="w-full rounded-2xl border border-line bg-surface/60 px-3.5 py-3 text-left active:scale-[.99]"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="rounded-full bg-life-cyan/12 px-2 py-0.5 text-[10px] text-life-cyan">
+                          {KIND_LABEL[thread.kind]}
+                        </span>
+                        <time className="shrink-0 text-[10px] text-gray-500">
+                          {thread.dueAt ? relativeDay(thread.dueAt) : relativeDay(thread.createdAt)}
+                        </time>
+                      </div>
+                      <p className="mt-1.5 text-[13px] font-medium text-ink">{thread.title}</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                        {thread.detail || THREAD_TEASER[thread.kind]} · {nameOf(thread.characterId)}
+                      </p>
+                    </button>
+                  </li>
+                ))}
+              </ul>
               <button
                 type="button"
-                onClick={() => goTalkTo(waiting.characterId)}
-                className="mt-4 w-full rounded-xl bg-gene-purple px-4 py-2.5 text-sm font-medium text-white active:scale-[.99]"
+                onClick={() => {
+                  const first = characterOf(openThreads[0].characterId) ?? myCharacters[0];
+                  if (first) setThreadPanelCharacter(first);
+                }}
+                className="mt-2 w-full rounded-xl border border-line px-4 py-2 text-[11px] text-sub"
               >
-                继续这件事 →
+                管理这些事
               </button>
-            </div>
+            </>
           )}
 
-          {/* 世界已经开始（弱化的事实陈述） */}
-          <div className={`rounded-[22px] border border-line bg-surface/70 px-4 py-4 ${waiting ? 'mt-4' : ''}`}>
-            <p className="text-[10px] tracking-[0.18em] uppercase text-life-cyan">world is alive</p>
-            <h2 className="mt-1.5 text-sm font-semibold text-ink">你的世界已经开始</h2>
-            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
-              {hasEvents && hasMemories && `这里已经记下了 ${eventCount} 件事、${memoryCount} 段共同记忆。`}
-              {hasEvents && !hasMemories && `这里已经记下了 ${eventCount} 件事。`}
-              {!hasEvents && hasMemories && `这里已经留下了 ${memoryCount} 段共同记忆。`}
-              {!hasEvents && !hasMemories && hasThreads && '你们之间还有几件没有做完的事。'}
-            </p>
-          </div>
-
-          {hasEvents && recentHappenings.length > 0 && (
+          {/* ------------------------- 最近发生 ------------------------- */}
+          {recentHappenings.length > 0 && (
             <>
-              <p className="mt-4 mb-2 text-[10px] tracking-[0.16em] uppercase text-gray-500">最近发生</p>
+              <p className="mt-5 mb-2 text-[10px] tracking-[0.16em] uppercase text-gray-500">最近发生</p>
               <ul className="space-y-2">
                 {recentHappenings.map((event) => (
                   <li key={event.id} className="rounded-2xl border border-line bg-surface/60 px-3.5 py-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="rounded-full bg-gene-purple/12 px-2 py-0.5 text-[10px] text-gene-purple">
-                        {EVENT_TYPE_LABEL[event.type]}
+                        {eventLabel(event)}
                       </span>
                       <time className="shrink-0 text-[10px] text-gray-500">{relativeDay(event.timestamp)}</time>
                     </div>
@@ -292,117 +326,40 @@ export function MobileWorldPage() {
             </>
           )}
 
-          {/* 未完成的故事：只列其余线索（点进去可完成/收起/继续，复用 4.x 面板）。
-              没有"其余"时整块隐藏——避免"1 件 + 空列表"的自相矛盾。 */}
-          {restThreads.length > 0 && (
-            <>
-              <div className="mt-4 mb-2 flex items-center justify-between">
-                <p className="text-[10px] tracking-[0.16em] uppercase text-gray-500">未完成的故事</p>
-                <span className="text-[10px] text-gray-500">{restThreads.length} 件</span>
-              </div>
-              <ul className="space-y-2">
-                {restThreads.map((thread) => (
-                  <li key={thread.id}>
-                    <button
-                      type="button"
-                      onClick={() => setThreadPanelCharacter(characterOf(thread.characterId))}
-                      className="flex w-full items-center gap-3 rounded-2xl border border-life-cyan/20 bg-life-cyan/[0.05] px-3.5 py-3 text-left active:scale-[.99]"
-                    >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface text-sm text-life-cyan">
-                        {KIND_LABEL[thread.kind].slice(0, 1)}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium text-ink">{thread.title}</span>
-                        <span className="mt-0.5 block text-[10px] text-gray-500">
-                          {nameOf(thread.characterId)}
-                          {thread.dueAt ? ` · ${relativeDay(thread.dueAt)}` : ''}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-gray-500">›</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {restThreads.length > 0 && unresolved.length > 0 && (
-                <p className="mt-3 text-[11px] text-gray-500">
-                  还有 <span className="text-life-cyan">{unresolved.length}</span> 件没说清、没做完的事，等着你们继续。
-                </p>
-              )}
-            </>
+          {/* ------------------------- 灵感（§79；空世界时兼作 onboarding §80） ------------------------- */}
+          {inspirations.length > 0 ? (
+            <section className="vg-inspiration">
+              <p>不知道做什么？</p>
+              {inspirations.map((line) => (
+                <button
+                  key={line}
+                  type="button"
+                  onClick={() => {
+                    // 点灵感 = 替用户把这句话说出去（进入世界后再发送，保证片段已经就绪）
+                    enterWorld(null);
+                    window.setTimeout(() => window.dispatchEvent(new CustomEvent('vg:world-say', { detail: line })), 80);
+                  }}
+                >
+                  {line}
+                </button>
+              ))}
+            </section>
+          ) : (
+            <section className="vg-inspiration">
+              <p>这里还没有发生任何事情。</p>
+              <p className="mt-1">试着说一句：</p>
+              <button type="button" onClick={() => enterWorld(null)}>“今晚我们去海边。”</button>
+            </section>
           )}
-
-          {hasMemories && memories.length > 0 && (
-            <>
-              <p className="mt-4 mb-2 text-[10px] tracking-[0.16em] uppercase text-gray-500">共同记忆</p>
-              <ul className="space-y-2">
-                {memories.map((memory) => (
-                  <li key={memory.id} className="rounded-2xl border border-life-cyan/20 bg-life-cyan/[0.05] px-3.5 py-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[13px] font-medium text-ink">{memory.title}</p>
-                      <time className="shrink-0 text-[10px] text-gray-500">{relativeDay(memory.createdAt)}</time>
-                    </div>
-                    {memory.summary && <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{memory.summary}</p>}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
+        </>
       )}
 
-      {/* 我的生活：现实生活进入世界的唯一入口（隐私由每条内容的可见性控制） */}
-      <button
-        type="button"
-        onClick={openDiary}
-        className="mt-5 flex w-full items-center gap-3 rounded-[22px] border border-line bg-surface/70 px-4 py-4 text-left active:scale-[.99]"
-      >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-life-cyan/25 bg-life-cyan/10 text-base text-life-cyan">✎</span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium text-ink">我的生活</span>
-          <span className="mt-0.5 block text-[11px] text-gray-500">日记、心情与照片 · 默认只有你自己知道</span>
-        </span>
-        <span className="shrink-0 text-gray-500">›</span>
-      </button>
-
-      {/* 世界剧场：从「世界」进入的内容页（打开/离开不消耗模型调用） */}
-      <button
-        type="button"
-        onClick={() => useUIStore.getState().setActiveView('stage')}
-        className="mt-3 flex w-full items-center gap-3 rounded-[22px] border border-life-cyan/25 bg-gradient-to-br from-gene-purple/[0.12] via-transparent to-life-cyan/[0.10] px-4 py-4 text-left active:scale-[.99]"
-      >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-life-cyan/30 bg-life-cyan/10 text-base text-life-cyan">◈</span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium text-ink">世界剧场</span>
-          <span className="mt-0.5 block text-[11px] text-gray-500">和他们一起演一场戏 · 结束后会真的留在世界里</span>
-        </span>
-        <span className="shrink-0 text-gray-500">›</span>
-      </button>
-
-      {/* 关系网络：从「世界」进入的内容页（与「我的生活」同样保持底部导航可见） */}
-      <button
-        type="button"
-        onClick={() => useUIStore.getState().setActiveView('relations')}
-        className="mt-3 flex w-full items-center gap-3 rounded-[22px] border border-line bg-surface/70 px-4 py-4 text-left active:scale-[.99]"
-      >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-gene-purple/25 bg-gene-purple/10 text-base text-gene-purple">↔</span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium text-ink">关系网络</span>
-          <span className="mt-0.5 block text-[11px] text-gray-500">你和他们的关系，以及为什么会变成这样</span>
-        </span>
-        <span className="shrink-0 text-gray-500">›</span>
-      </button>
-
-      <p className="mt-4 text-center text-[10px] leading-relaxed text-gray-600">
-        世界剧场与世界年表正在陆续生长
-      </p>
-
-      {/* 未完成的事：复用 4.x 面板（完成/收起/编辑都在里面，完成后世界事件同步 resolved） */}
-      {threadPanelCharacter && (
+      {threadPanelCharacter && userId && (
         <ContinuityThreadsModal
           open
-          onClose={() => { setThreadPanelCharacter(null); setReloadToken((n) => n + 1); }}
           character={threadPanelCharacter}
-          userId={userId ?? ''}
+          userId={userId}
+          onClose={() => setThreadPanelCharacter(null)}
         />
       )}
     </div>

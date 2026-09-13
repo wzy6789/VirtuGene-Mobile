@@ -190,8 +190,8 @@ export function MobileStagePage() {
   if (openScene) {
     const finished = openScene.status === 'finished';
     return (
-      <div className="flex h-full flex-col">
-        <div className="shrink-0 px-4 pt-5">
+      <div className="vg-stage-active flex h-full flex-col">
+        <div className="vg-stage-active-header shrink-0 px-4 pt-5">
           <SpaceHeading eyebrow="world stage" title={openScene.title} detail={`${openScene.place} · ${openScene.timeLabel} · ${openScene.mood}`} />
           <div className="mt-2 flex items-center gap-2">
             <span className="rounded-full border border-line bg-surface px-2 py-0.5 text-[10px] text-gray-500">
@@ -214,7 +214,7 @@ export function MobileStagePage() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="vg-stage-transcript min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {entries.length === 0 && (
             <p className="py-10 text-center text-xs leading-6 text-gray-500">
               这场戏还没有开始。<br />让角色先开口，或者你先说点什么。
@@ -315,10 +315,7 @@ export function MobileStagePage() {
         </div>
 
         {!finished && (
-          <div className="shrink-0 border-t border-line px-4 py-3">
-            {!hasAi && (
-              <p className="mb-2 text-[11px] text-amber-500">还没有可用的模型 Key，暂不能推演剧情。</p>
-            )}
+          <div className="vg-stage-composer shrink-0 border-t border-line px-4 py-3">
             {entries.length === 0 && (
               <button
                 type="button"
@@ -326,7 +323,7 @@ export function MobileStagePage() {
                 onClick={() => void takeTurn()}
                 className="mb-2 w-full rounded-xl bg-gene-purple px-4 py-2.5 text-sm font-medium text-white disabled:opacity-40"
               >
-                {busy ? '正在开场…' : '让他们先开口'}
+                {busy ? '正在开场…' : '开始这场戏'}
               </button>
             )}
             <div className="flex items-end gap-2">
@@ -341,7 +338,7 @@ export function MobileStagePage() {
                   }
                 }}
                 rows={2}
-                placeholder="你在这一场里做什么、说什么…（Enter 继续，Shift+Enter 换行）"
+                placeholder={hasAi ? '写下你的行动…' : '请先配置模型'}
                 className="min-h-[44px] flex-1 resize-none rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-gene-purple/50"
               />
               <button
@@ -355,7 +352,7 @@ export function MobileStagePage() {
             </div>
             <div className="mt-2 flex items-center gap-3">
               <button type="button" disabled={busy} onClick={() => void leave()} className="text-[11px] text-gray-400 hover:text-ink">
-                先离开（不结算）
+                暂存
               </button>
               <div className="flex-1" />
               <button
@@ -364,7 +361,7 @@ export function MobileStagePage() {
                 onClick={() => void finish()}
                 className="text-[11px] text-life-cyan disabled:opacity-40"
               >
-                结束这场戏并记下来
+                结束并记下
               </button>
             </div>
           </div>
@@ -375,7 +372,7 @@ export function MobileStagePage() {
 
   /* ------------------------------ 剧场（场景列表） ------------------------------ */
   return (
-    <div className="h-full overflow-y-auto px-4 pb-6">
+    <div className="vg-stage-room h-full overflow-y-auto px-4 pb-6">
       <div className="pt-5">
         <SpaceHeading eyebrow="world stage" title="世界剧场" detail="和他们一起演一场戏，结束后它会真的留在你们的世界里。" />
       </div>
@@ -518,10 +515,6 @@ export function MobileStagePage() {
               ))}
             </ul>
           )}
-
-          <p className="mt-4 text-center text-[10px] leading-relaxed text-gray-600">
-            打开与离开不消耗任何模型调用；每个动作一次，结束这场戏再结算一次。
-          </p>
         </>
       )}
     </div>

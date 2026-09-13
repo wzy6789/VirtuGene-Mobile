@@ -220,6 +220,18 @@ export const relationshipRepo = {
     return db.relationshipStates.where('worldId').equals(worldId).count();
   },
 
+  /**
+   * 读取一条关系变化（撤销一轮时要按它记录的分面增量做**反向回退**）。
+   * 撤销永远不改写历史：回退完成后再把这一行删掉。
+   */
+  async getEvent(eventId: string): Promise<RelationshipEvent | undefined> {
+    return db.relationshipEvents.get(eventId);
+  },
+
+  async removeEvent(eventId: string): Promise<void> {
+    await db.relationshipEvents.delete(eventId);
+  },
+
   async countEvents(worldId: string): Promise<number> {
     return db.relationshipEvents.where('worldId').equals(worldId).count();
   },

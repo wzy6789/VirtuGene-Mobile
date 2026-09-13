@@ -6,6 +6,8 @@ import { worldSceneRepo } from './world-scene-repo';
 import { knowledgeRepo } from './knowledge-repo';
 import { sharedMemoryRepo } from './shared-memory-repo';
 import { relationshipRepo } from './relationship-repo';
+import { worldFactRepo } from './world-fact-repo';
+import { worldTurnRepo } from './world-turn-repo';
 
 /**
  * 世界仓库（Living World 的门面）。
@@ -29,6 +31,8 @@ export interface WorldStats {
   sceneCount: number;
   relationshipStateCount: number;
   knowledgeCount: number;
+  /** 5.0.0 Living World：世界设定条数（世界首页弱化统计用） */
+  worldFactCount: number;
 }
 
 /** 世界层清理结果（角色删除 / 注销账号时使用） */
@@ -119,6 +123,7 @@ export const worldRepo = {
       sceneCount,
       relationshipStateCount: await relationshipRepo.countStates(worldId),
       knowledgeCount,
+      worldFactCount: await worldFactRepo.countByWorld(worldId),
     };
   },
 
@@ -126,13 +131,15 @@ export const worldRepo = {
   async clearWorld(worldId: string): Promise<void> {
     await db.transaction(
       'rw',
-      [db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents],
+      [db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns],
       async () => {
         await worldEventRepo.clearForWorld(worldId);
         await worldSceneRepo.clearForWorld(worldId);
         await knowledgeRepo.clearForWorld(worldId);
         await sharedMemoryRepo.clearForWorld(worldId);
         await relationshipRepo.clearForWorld(worldId);
+        await worldFactRepo.clearForWorld(worldId);
+        await worldTurnRepo.clearForWorld(worldId);
       },
     );
   },
@@ -162,6 +169,7 @@ export const worldRepo = {
       result.relationshipStates += rel.states;
       result.relationshipEvents += rel.events;
       result.scenes += await worldSceneRepo.cleanupForCharacter(userId, characterId);
+      await worldFactRepo.cleanupForCharacter(userId, characterId);
     }
     // 日记的逐条授权里也要摘掉这个角色（否则会留下"只告诉了已删除角色"的孤儿授权）
     const authorized = (await db.diaries.where('userId').equals(userId).toArray())
@@ -182,13 +190,15 @@ export const worldRepo = {
   async clearForUser(userId: string): Promise<void> {
     await db.transaction(
       'rw',
-      [db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents],
+      [db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns],
       async () => {
         await worldEventRepo.clearForUser(userId);
         await worldSceneRepo.clearForUser(userId);
         await knowledgeRepo.clearForUser(userId);
         await sharedMemoryRepo.clearForUser(userId);
         await relationshipRepo.clearForUser(userId);
+        await worldFactRepo.clearForUser(userId);
+        await worldTurnRepo.clearForUser(userId);
         await db.worlds.where('userId').equals(userId).delete();
       },
     );

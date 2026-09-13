@@ -118,20 +118,26 @@ async function run() {
   check('此时世界事件为 0', (await worldEventRepo.countByWorld(world.id)) === 0);
 
   let text = await renderWorldPage();
-  check('显示问候语（真实用户名）', text.includes('智毅') && text.includes('欢迎回到你的世界。'), text.slice(0, 120));
-  check('显示弱化统计（角色数 / 天数 / 共同记忆）', text.includes('2 个角色') && text.includes('第 1 天') && text.includes('0 段共同记忆'));
-  check('显示真实空状态文案', text.includes('你的世界还没有开始'));
-  check('空状态给出两个真实动作', text.includes('去和一个角色说说话') && text.includes('写下今天'));
+  // 5.0 最终版首页（§5/§6）：标题是「我的世界」+ 一句"谁和你一起生活"的自然描述。
+  // 这里断言的是**同一件事**（真实用户名/角色出现在首屏、不是占位文案），只是文案形态变了。
+  check('显示真实角色名 + 一句自然描述', text.includes('我的世界') && text.includes('星遥') && text.includes('与你正在共同生活'), text.slice(0, 140));
+  check('显示弱化统计（天数 / 角色数 / 共同经历）', text.includes('第 1 天') && text.includes('2 位角色') && text.includes('0 段共同经历'), text.slice(0, 200));
+  check('显示真实空状态（此刻很安静 / 没有必须完成的故事）',
+    text.includes('此刻很安静') && text.includes('没有必须完成的故事') && text.includes('你想做什么都可以'));
+  check('空状态给出一句真实可执行的话 + 进入世界', text.includes('进入世界') && text.includes('今晚我们去海边'));
   check('空状态下不出现"最近发生"', !text.includes('最近发生'));
   check('始终提供「我的生活」入口', text.includes('我的生活') && text.includes('默认只有你自己知道'));
   // 2a 修正：空状态**不得**承诺"聊天/写日记就会在这里留下痕迹"（当前还没有生产写入路径）
   check('空状态不再承诺尚未实现的自动记录', !text.includes('都会在这里留下痕迹') && !text.includes('留下痕迹'), text);
-  // 2b-0 之后：文案只列**已经真的会写入**的两类来源，世界剧场明确是"往后"
-  check('空状态如实说明写入来源（约定 / 关系变化）', text.includes('约定') && text.includes('关系发生的变化'), text);
+  // 5.0 最终版：空世界出现的是"一句可以直接说的话"，而不是教学步骤或施工感文案（§80）
+  check('空世界不出现教程/施工感文案，只给真实可执行的一句',
+    !text.includes('教程') && !text.includes('未来') && !text.includes('即将') &&
+    (text.includes('试着说一句') || text.includes('不知道做什么')),
+    text);
 
   // ---------- C. 入口真的能用 ----------
   section('C. 交互：我的生活入口');
-  check('「写下今天」按钮存在并可点击', clickByText('写下今天'));
+  check('「我的生活」入口存在并可点击', clickByText('我的生活'));
   await sleep(50);
   check('点击后真的打开了我的生活（activeView = diary）', useUIStore.getState().activeView === 'diary', useUIStore.getState().activeView);
   // 回到世界（模拟点底部一级导航）
@@ -158,30 +164,37 @@ async function run() {
   });
 
   text = await renderWorldPage();
-  check('空状态消失', !text.includes('你的世界还没有开始'));
-  check('显示真实事件条数', /已经记下了 \d+ 件事/.test(text), text.slice(0, 200));
+  // 「此刻」讲的是**当前这一刻**（§6），与世界里有没有历史是两件事：
+  // 这里断言的是"世界里有真实内容时，页面不会声称什么都没发生"。
+  check('不再声称世界是空的', !text.includes('这里还没有发生任何事情'), text.slice(0, 160));
+  check('弱化统计按真实数据描述（天数 / 角色数 / 共同经历）',
+    /第 \d+ 天/.test(text) && text.includes('2 位角色') && text.includes('1 段共同经历'), text.slice(0, 200));
   check('显示「最近发生」与真实事件标题', text.includes('最近发生') && text.includes('关系进入「熟悉」阶段'));
-  check('事件类型标签正确（relationship → 你们之间的关系）', text.includes('你们之间的关系'));
-  // 断言限定在「最近发生」自己的列表里；未结束的线索由大卡 +「未完成的故事」承担
+  check('事件类型标签是人话（relationship → 关系变了）', text.includes('关系变了'));
+  // 断言限定在「最近发生」自己的列表里；未结束的线索由「还没做完的事」承担
   const recentBlock = blockText('最近发生');
-  const restBlock = blockText('未完成的故事');
+  const restBlock = blockText('还没做完的事');
   check('未结束的未完成事项不作为"最近发生"重复出现',
     recentBlock.length > 0 && !recentBlock.includes('周末一起去看电影'), recentBlock);
-  check('未结束的线索确实由「未完成的故事」区块承担（正面控制）',
+  check('未结束的线索确实由「还没做完的事」区块承担（正面控制）',
     restBlock.includes('周末一起去看电影'), restBlock);
-  check('共同记忆计入弱化统计', text.includes('1 段共同记忆'));
-  check('未完成的事会给出数量提示', text.includes('还有') && text.includes('件没说清'));
-  check('有事件 + 有记忆时同时展示两个区块', text.includes('最近发生') && text.includes('共同记忆') && text.includes('没有一起离开的那个晚上'));
+  check('共同记忆计入弱化统计', text.includes('1 段共同经历'));
+  check('未完成的事会给出数量提示', text.includes('还没做完的事') && /\d+ 件/.test(text));
+  // 5.0 最终版：首页不再堆"共同记忆"列表（那是「记忆」页的职责，§7）；
+  // 但记忆必须仍然可达、且可达入口就在首屏。
+  check('有事件时展示「最近发生」，共同记忆通过「记忆」入口可达',
+    text.includes('最近发生') && text.includes('记忆') && text.includes('我们经历过的事'));
 
   // ---------- D2. 只有共同记忆（审核发现的矛盾场景） ----------
   section('D2. 只有共同记忆、没有任何世界事件');
   await db.worldEvents.clear(); // 只清事件，留下共同记忆
   text = await renderWorldPage();
-  check('空状态不出现（因为确实有共同记忆）', !text.includes('你的世界还没有开始'));
+  check('不声称世界是空的（因为确实有共同记忆）', !text.includes('这里还没有发生任何事情'));
   check('不再出现自相矛盾的"已经记下了 0 件事"', !text.includes('已经记下了 0 件事'), text.slice(0, 220));
-  check('改为按真实数据描述（已经留下了 N 段共同记忆）', text.includes('已经留下了 1 段共同记忆'), text.slice(0, 220));
+  check('弱化统计按真实数据描述（1 段共同经历）', text.includes('1 段共同经历'), text.slice(0, 220));
   check('不渲染空的「最近发生」区块', !text.includes('最近发生'));
-  check('单独渲染「共同记忆」区块并列出真实标题', text.includes('共同记忆') && text.includes('没有一起离开的那个晚上'));
+  check('共同记忆仍然可达（「记忆」入口 + 真实标题在记忆页）',
+    text.includes('记忆') && text.includes('我们经历过的事'));
 
   // ---------- D3. 读取失败 ≠ 空世界 ----------
   section('D3. 数据库读取失败时给出错误态（不是"空世界"）');
@@ -190,11 +203,11 @@ async function run() {
     throw new Error('fault-injection: world read failed');
   };
   text = await renderWorldPage();
-  check('显示"世界读取失败"而不是空状态', text.includes('世界读取失败') && !text.includes('你的世界还没有开始'), text.slice(0, 200));
+  check('显示"世界读取失败"而不是空状态', text.includes('世界读取失败') && !text.includes('此刻很安静'), text.slice(0, 200));
   check('提供真实的重试按钮', text.includes('重新读取'));
   (worldEventRepo as unknown as { listTimeline: typeof originalList }).listTimeline = originalList;
   text = await renderWorldPage();
-  check('恢复后重新读取成功（回到真实数据）', text.includes('共同记忆') && !text.includes('世界读取失败'));
+  check('恢复后重新读取成功（回到真实数据）', text.includes('记忆') && !text.includes('世界读取失败'));
 
   // ---------- E. 日记默认私密 ----------
   section('E. 我的生活：新建日记默认 private');
@@ -222,7 +235,7 @@ async function run() {
 
   const sweep: { tab: 'chat' | 'world' | 'characters' | 'me'; marker: string }[] = [
     { tab: 'chat', marker: '对话，有了以后。' },
-    { tab: 'world', marker: '欢迎回到你的世界。' },
+    { tab: 'world', marker: '我的世界' },
     { tab: 'characters', marker: '我的角色宇宙' },
     { tab: 'me', marker: '我的生命空间' },
   ];
