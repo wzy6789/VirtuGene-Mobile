@@ -129,6 +129,16 @@
       };
       addEventListener('scroll', syncCamera, { passive: true });
       syncCamera();
+      const meetStage = document.querySelector('.meet-stage');
+      if (meetStage && !reducedMotion && 'IntersectionObserver' in window) {
+        const meetObserver = new IntersectionObserver(([entry]) => {
+          if (entry.isIntersecting) {
+            meetStage.classList.add('is-live');
+            meetObserver.disconnect();
+          }
+        }, { threshold: .28 });
+        meetObserver.observe(meetStage);
+      } else if (meetStage) meetStage.classList.add('is-live');
       if (!reducedMotion) addEventListener('pointermove', (event) => {
         root.style.setProperty('--pointer-x', `${event.clientX}px`);
         root.style.setProperty('--pointer-y', `${event.clientY}px`);
