@@ -28,7 +28,7 @@
         <p class="eyebrow">VIRTUGENE</p>
         <h1>让数字灵魂<br><em>拥有时间。</em></h1>
         <p class="hero-lead">不是一次性回答你的工具。<br>是一个会记得相遇、会在时间里改变的世界。</p>
-        <div class="hero-actions"><a class="button button-primary" href="#meet">进入世界 <span>↗</span></a><a class="button button-quiet" href="#download">下载应用</a></div>
+        <div class="hero-actions"><a class="button button-primary" href="#meet">进入 VirtuGene <span>↗</span></a><a class="button button-quiet" href="#download">下载应用</a></div>
       </div>
       <div class="awakening-chamber reveal" data-tilt aria-label="数字生命正在苏醒">
         <div class="chamber-vignette"></div>
@@ -94,7 +94,7 @@
       revealNodes.forEach((node) => observer.observe(node));
     }
     const progress = document.querySelector('.journey-progress span');
-    const updateProgress = () => { if (progress) progress.style.height = `${Math.min(100, (scrollY / Math.max(1, document.body.scrollHeight - innerHeight)) * 100)}%`; };
+    const updateProgress = () => { const pageProgress = Math.min(1, scrollY / Math.max(1, document.body.scrollHeight - innerHeight)); if (progress) progress.style.height = `${pageProgress * 100}%`; const hero = document.querySelector('.hero'); const heroProgress = hero ? Math.max(0, Math.min(1, scrollY / Math.max(1, hero.offsetHeight * .9))) : 0; document.documentElement.style.setProperty('--scroll-progress', pageProgress.toFixed(3)); document.documentElement.style.setProperty('--hero-progress', heroProgress.toFixed(3)); };
     addEventListener('scroll', updateProgress, { passive: true }); updateProgress();
     const pointer = document.querySelector('.cursor-glow');
     if (!reduced && pointer) { let tx = innerWidth / 2, ty = innerHeight / 2, x = tx, y = ty; addEventListener('pointermove', (event) => { tx = event.clientX; ty = event.clientY; }); const move = () => { x += (tx - x) * .12; y += (ty - y) * .12; pointer.style.setProperty('--x', `${x}px`); pointer.style.setProperty('--y', `${y}px`); requestAnimationFrame(move); }; move(); document.querySelectorAll('[data-tilt]').forEach((card) => { card.addEventListener('pointermove', (event) => { const box = card.getBoundingClientRect(); card.style.setProperty('--rx', `${((event.clientY - box.top) / box.height - .5) * -2}deg`); card.style.setProperty('--ry', `${((event.clientX - box.left) / box.width - .5) * 3}deg`); }); card.addEventListener('pointerleave', () => { card.style.setProperty('--rx', '0deg'); card.style.setProperty('--ry', '0deg'); }); }); }
