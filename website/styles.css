@@ -27,3 +27,51 @@ body{letter-spacing:.015em}
 @media(max-width:980px){.hero{min-height:115vh;height:115vh;padding:0}.hero-copy{left:0;top:17%}.awakening-chamber{inset:18% -18% -5% 2%;}.meet-section{min-height:115vh;padding:170px 0 190px}.meet-stage{margin-top:90px}.memory-section,.world-section{min-height:115vh;padding:180px 0 200px}.download-section{padding:180px 0 210px}}
 @media(max-width:680px){.hero h1{font-size:clamp(54px,14vw,78px);line-height:1.02;letter-spacing:.045em}.hero-lead,.section-heading>p:last-child,.world-copy>p,.download-copy>p{font-size:16px;line-height:1.85}.hero{min-height:100vh;height:100vh}.hero-copy{top:13%}.awakening-chamber{inset:35% -32% -2% -10%;height:auto}.awakening-chamber:before{inset:3% 0 2% 5%}.awakening-core{width:105px;height:105px;top:42%;left:43%}.chamber-silhouette{width:52%;height:70%;right:9%;bottom:2%}.chamber-caption{left:16%;bottom:9%;font-size:11px}.meet-section{min-height:auto;padding:150px 0 170px}.meet-stage{height:690px;margin-top:70px}.meet-chamber{left:50%;width:94%;height:400px;transform:translateX(-50%)}.meet-dialogue{left:20px;right:20px;top:45px}.dialogue-line{font-size:16px;line-height:1.72}.dialogue-line.is-last{font-size:18px}.memory-section,.world-section{min-height:auto;padding:155px 0 180px}.memory-visual{height:440px;width:100%;margin:90px 0 0}.memory-core{width:92px;height:92px}.memory-node span{font-size:11px}.memory-node small{display:none}.world-section{display:block}.living-world-visual{height:520px;margin-top:80px;grid-template-columns:1.2fr .8fr;grid-template-rows:1.1fr .9fr;gap:9px}.world-scene{padding:15px;border-radius:10px}.world-scene b{margin-top:58px;font-size:15px}.world-scene small{font-size:10px}.scene-rain b{margin-top:210px;font-size:18px}.download-section{min-height:auto;padding:170px 0 190px;gap:60px}.section-heading h2,.world-copy h2,.download-copy h2{font-size:42px;line-height:1.08;letter-spacing:.025em}.journey-progress{display:none}}
 
+
+/* Second pass: stronger visual anchors, foreground depth and uneven cinematic rhythm. */
+#starfield{opacity:.2}
+.site-header{transition:opacity .55s ease,transform .55s ease,background .55s ease}
+.site-header nav{transition:opacity .45s ease,transform .45s ease}
+body.is-scrolled .site-header nav{opacity:0;transform:translateY(-8px);pointer-events:none}
+body.is-scrolled .site-header{background:linear-gradient(180deg,rgba(3,5,11,.62),transparent);border-bottom-color:rgba(188,215,233,.08)}
+.hero-lead{max-width:430px}
+.awakening-chamber{inset:-11% -18% -11% 13%;z-index:1}
+.awakening-chamber:before{inset:0 0 0 5%;border-radius:48% 52% 24% 32%;background:radial-gradient(ellipse at 58% 40%,rgba(91,117,181,.24),transparent 42%),radial-gradient(ellipse at 65% 60%,rgba(142,232,233,.08),transparent 48%),linear-gradient(180deg,rgba(20,28,50,.12),rgba(3,6,13,.86));box-shadow:inset 0 0 120px rgba(109,139,226,.14),0 60px 150px rgba(0,0,0,.38)}
+.awakening-chamber:after{content:"";position:absolute;z-index:7;inset:-3% -5% -4% 0;pointer-events:none;background:radial-gradient(ellipse at 62% 45%,transparent 0 34%,rgba(3,5,11,.3) 63%,rgba(3,5,11,.82) 100%),linear-gradient(104deg,transparent 42%,rgba(188,239,250,.12) 53%,transparent 64%);filter:blur(5px)}
+.chamber-silhouette{width:58%;height:112%;right:-7%;bottom:-19%;opacity:.34;filter:blur(3px) saturate(.62);clip-path:ellipse(62% 55% at 50% 45%)}
+.chamber-silhouette img{transform:translateY(2%);object-position:center top}
+.chamber-caption{left:12%;bottom:18%;z-index:9}
+.awakening-core{width:185px;height:185px;top:40%;left:45%;z-index:6}
+.chamber-orbit.orbit-a{width:92%;height:31%;left:2%;top:45%;z-index:4}.chamber-orbit.orbit-b{width:68%;height:23%;left:13%;top:45%;z-index:4}
+.meet-section{position:relative}
+.meet-stage{background:radial-gradient(ellipse at calc(50% + var(--meet-progress,0) * 7%) 34%,rgba(82,132,190,.22),transparent 40%),linear-gradient(180deg,rgba(15,25,44,.24),rgba(3,6,13,.96));transform:translateY(calc((1 - var(--meet-progress,0)) * 18px))}
+.meet-stage:after{content:"";position:absolute;z-index:6;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent 55%,rgba(142,232,233,.04) 75%,transparent),radial-gradient(ellipse at 24% 78%,rgba(142,232,233,.14),transparent 23%);mix-blend-mode:screen}
+.meet-light{transform:translateX(calc(-50% + var(--meet-progress,0) * 46px)) scale(calc(.85 + var(--meet-progress,0) * .25))}
+.meet-chamber{transform:translateX(calc(var(--meet-progress,0) * 22px));transition:transform .2s ease-out}
+.meet-chamber img{filter:saturate(.62) blur(calc((1 - var(--meet-progress,0)) * 2px));opacity:calc(.38 + var(--meet-progress,0) * .2)}
+.meet-dialogue{transform:translate3d(calc((1 - var(--meet-progress,0)) * 22px),calc((1 - var(--meet-progress,0)) * 10px),0);opacity:calc(.55 + var(--meet-progress,0) * .45)}
+.memory-section{position:relative;background:radial-gradient(ellipse 78% 66% at 54% 50%,rgba(74,73,174,.22),transparent 68%),linear-gradient(180deg,rgba(4,6,13,.97),rgba(10,12,29,.76),rgba(4,6,13,.98))}
+.memory-section:before{content:"";position:absolute;z-index:0;inset:10% -20%;pointer-events:none;background:radial-gradient(ellipse at 45% 50%,rgba(142,232,233,.09),transparent 36%),radial-gradient(ellipse at 72% 32%,rgba(166,152,255,.08),transparent 28%);filter:blur(20px)}
+.memory-layout{position:relative;z-index:1}
+.memory-visual{height:800px;margin-top:132px;margin-left:-8%;width:116%;background:radial-gradient(circle at 52% 49%,rgba(142,232,233,.17),transparent 16%),radial-gradient(circle at 50% 50%,rgba(114,87,202,.2),transparent 53%);transform:scale(calc(.92 + var(--memory-progress,0) * .08));transition:transform .25s ease-out}
+.memory-visual:after{content:"";position:absolute;z-index:4;inset:-12%;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 36%,rgba(3,5,11,.45) 78%,rgba(3,5,11,.82));filter:blur(2px)}
+.memory-constellation{transform:scale(calc(.88 + var(--memory-progress,0) * .12));transition:transform .35s ease-out}
+.memory-path{opacity:calc(.2 + var(--memory-progress,0) * .72);filter:drop-shadow(0 0 5px rgba(142,232,233,.45))}
+.memory-node{transform:translateY(calc((1 - var(--memory-progress,0)) * 18px));opacity:calc(.3 + var(--memory-progress,0) * .7);transition:transform .3s,opacity .3s}
+.memory-core{width:148px;height:148px;box-shadow:0 0 55px rgba(142,232,233,.3),inset 0 0 34px rgba(166,152,255,.22)}
+.memory-note{font-size:11px;letter-spacing:.08em}
+.living-world-visual{height:700px;margin-top:125px;position:relative}
+.living-world-visual:before{content:"";position:absolute;z-index:5;inset:-8%;pointer-events:none;background:radial-gradient(ellipse at 50% 50%,transparent 45%,rgba(3,5,11,.32) 82%),linear-gradient(112deg,transparent 43%,rgba(188,239,250,.1) 53%,transparent 63%);filter:blur(8px);mix-blend-mode:screen}
+.living-world-visual:after{content:"";position:absolute;z-index:4;left:32%;top:48%;width:42%;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);box-shadow:0 0 24px rgba(142,232,233,.8);transform:rotate(-14deg);opacity:.65}
+.world-scene{border-color:rgba(188,215,233,.1);box-shadow:0 34px 90px rgba(0,0,0,.38),inset 0 0 60px rgba(142,232,233,.045)}
+.scene-rain{border-radius:34% 9% 12% 8%;clip-path:polygon(0 5%,92% 0,100% 93%,75% 100%,4% 94%)}
+.scene-cafe{border-radius:10% 38% 12% 9%;clip-path:polygon(6% 0,100% 9%,95% 100%,0 91%)}
+.scene-room{border-radius:20% 10% 34% 9%;clip-path:polygon(0 11%,90% 0,100% 88%,10% 100%)}
+.world-scene:hover{transform:translateY(-9px) scale(1.015)}
+.world-scene b{font-weight:450}
+@media(max-width:980px){.awakening-chamber{inset:8% -23% -9% 3%}.chamber-silhouette{width:59%;right:-7%}.awakening-core{left:43%;width:145px;height:145px}.memory-visual{width:112%;margin-left:-6%;height:680px}.living-world-visual{height:650px;margin-top:95px}}
+@media(max-width:680px){#starfield{opacity:.12}.hero-lead{max-width:300px}.awakening-chamber{inset:31% -34% -4% -12%}.awakening-chamber:before{inset:4% 0 2% 3%}.chamber-silhouette{width:64%;height:92%;right:-13%;bottom:-10%;opacity:.28}.awakening-core{width:108px;height:108px;left:43%;top:42%}.chamber-orbit.orbit-a{width:114%;height:28%;left:-5%}.chamber-orbit.orbit-b{width:84%;height:21%;left:10%}.memory-visual{height:520px;width:116%;margin-left:-8%;margin-top:90px}.memory-core{width:100px;height:100px}.memory-visual:after{inset:-4%}.living-world-visual{height:560px;margin-top:80px}.scene-rain{border-radius:28% 8% 10% 6%}.scene-cafe{border-radius:8% 30% 8% 7%}.scene-room{border-radius:14% 7% 28% 7%}.living-world-visual:after{display:none}}
+
+
+body.memory-active #starfield{opacity:.5}
+
