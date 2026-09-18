@@ -25,6 +25,9 @@
     <div class="journey-progress" aria-hidden="true"><span></span></div>
 
     <section class="hero scene scene-awakening section-shell">
+      <div class="awakening-status" aria-hidden="true"><span>SYSTEM // INITIALIZING</span><i></i></div>
+      <div class="awakening-scan" aria-hidden="true"></div>
+      <div class="foreground-particles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div class="hero-copy reveal">
         <p class="eyebrow">VIRTUGENE</p>
         <h1><span class="nowrap">让数字灵魂</span><br><em class="nowrap">拥有时间。</em></h1>
@@ -122,12 +125,19 @@
     (() => {
       const root = document.documentElement;
       const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      requestAnimationFrame(() => root.classList.add('hero-ready'));
+      setTimeout(() => root.classList.add('hero-ready'), reducedMotion ? 0 : 1900);
+      const motion = { targetX: 0, targetY: 0, x: 0, y: 0, targetScroll: window.scrollY, scroll: window.scrollY, last: performance.now() };
+      addEventListener('scroll', () => { motion.targetScroll = window.scrollY; }, { passive: true });
       const syncCamera = () => {
         const progress = Math.min(1, Math.max(0, window.scrollY / Math.max(1, document.body.scrollHeight - window.innerHeight)));
         const heroProgress = Math.min(1, Math.max(0, window.scrollY / Math.max(1, (document.querySelector('.hero')?.offsetHeight || window.innerHeight) * .9)));
+        const sceneProgress = (node) => node ? Math.max(0, Math.min(1, (window.innerHeight - node.getBoundingClientRect().top) / (window.innerHeight + node.offsetHeight))) : 0;
+        const productProgress = sceneProgress(document.querySelector('.product-reveal'));
+        const downloadProgress = sceneProgress(document.querySelector('.download-section'));
         root.style.setProperty('--camera-progress', progress.toFixed(3));
         root.style.setProperty('--hero-camera', heroProgress.toFixed(3));
+        root.style.setProperty('--product-progress', productProgress.toFixed(3));
+        root.style.setProperty('--download-progress', downloadProgress.toFixed(3));
       };
       addEventListener('scroll', syncCamera, { passive: true });
       syncCamera();
@@ -144,11 +154,25 @@
       if (!reducedMotion) addEventListener('pointermove', (event) => {
         root.style.setProperty('--pointer-x', `${event.clientX}px`);
         root.style.setProperty('--pointer-y', `${event.clientY}px`);
-        const px = (event.clientX / Math.max(1, innerWidth) - .5);
-        const py = (event.clientY / Math.max(1, innerHeight) - .5);
-        root.style.setProperty('--parallax-x', `${(px * 24).toFixed(2)}px`);
-        root.style.setProperty('--parallax-y', `${(py * 16).toFixed(2)}px`);
+        motion.targetX = event.clientX / Math.max(1, innerWidth) - .5;
+        motion.targetY = event.clientY / Math.max(1, innerHeight) - .5;
       }, { passive: true });
+      const renderMotion = (now) => {
+        const dt = Math.min(48, now - motion.last); motion.last = now;
+        motion.x += (motion.targetX - motion.x) * .06;
+        motion.y += (motion.targetY - motion.y) * .06;
+        motion.scroll += (motion.targetScroll - motion.scroll) * .08;
+        root.style.setProperty('--camera-x', `${(motion.x * 24).toFixed(2)}px`);
+        root.style.setProperty('--camera-y', `${(motion.y * 16).toFixed(2)}px`);
+        root.style.setProperty('--camera-z', `${(motion.scroll * .012).toFixed(2)}px`);
+        root.style.setProperty('--parallax-x', `${(motion.x * 24).toFixed(2)}px`);
+        root.style.setProperty('--parallax-y', `${(motion.y * 16).toFixed(2)}px`);
+        root.style.setProperty('--scroll-velocity', `${Math.min(1, Math.abs(motion.targetScroll - motion.scroll) / Math.max(1, innerHeight)).toFixed(3)}`);
+        if (!reducedMotion) requestAnimationFrame(renderMotion);
+      };
+      if (!reducedMotion) requestAnimationFrame(renderMotion);
+      const sectionObserver = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => entries.forEach((entry) => { if (entry.isIntersecting) document.body.dataset.scene = entry.target.id || 'awakening'; }), { threshold: .45 }) : null;
+      document.querySelectorAll('main section[id]').forEach((section) => sectionObserver?.observe(section));
     })();
   </script>
 </body>
