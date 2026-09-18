@@ -244,3 +244,54 @@ body{letter-spacing:.025em}
   .download-section{min-height:820px;padding:150px 0 180px}.download-copy h2{font-size:clamp(47px,12vw,68px)}
 }
 
+/* V5 direction: the same character becomes a different cinematic subject in each chapter. */
+:root{--warm-memory:#ffc8a8;--soul-silver:#dde7ee;--parallax-x:0px;--parallax-y:0px}
+html.js:not(.hero-ready) .hero .chamber-silhouette{opacity:0;filter:blur(14px) saturate(.25)}
+html.js:not(.hero-ready) .hero .hero-focus-beam,html.js:not(.hero-ready) .hero .awakening-core{opacity:0}
+html.hero-ready .hero .chamber-silhouette{animation:awakeningReveal 1.5s cubic-bezier(.16,.72,.2,1) both}
+html.hero-ready .hero h1 .nowrap:first-child{animation:maskWordIn 1.1s .16s cubic-bezier(.16,.72,.2,1) both}
+html.hero-ready .hero h1 .nowrap:last-child{animation:maskWordIn 1.1s .34s cubic-bezier(.16,.72,.2,1) both}
+@keyframes awakeningReveal{from{opacity:0;filter:blur(14px) saturate(.25);transform:translate3d(calc(var(--parallax-x) * .4),24px,0) scale(1.08)}to{opacity:calc(.28 + var(--hero-camera,0) * .24);filter:blur(calc(3.8px - var(--hero-camera,0) * 3px)) saturate(.66) drop-shadow(0 0 42px rgba(142,232,233,.2));transform:translate3d(var(--parallax-x),var(--parallax-y),0) scale(1)}}
+@keyframes maskWordIn{from{opacity:0;clip-path:inset(0 100% 0 0);transform:translateY(18px);filter:blur(8px)}to{opacity:1;clip-path:inset(0);transform:none;filter:none}}
+.chamber-silhouette{will-change:transform;transform:translate3d(var(--parallax-x),var(--parallax-y),0)}
+.hero-focus-beam,.chamber-orbit,.hero-depth-line{will-change:transform}.hero-focus-beam{transform:translate3d(calc(var(--parallax-x) * .35),calc(var(--parallax-y) * .35),0) scale(calc(.86 + var(--hero-camera,0) * .22))}.chamber-orbit{transform:translate3d(calc(var(--parallax-x) * .55),calc(var(--parallax-y) * .45),0) rotateX(68deg) rotateZ(-17deg)}.chamber-orbit.orbit-b{transform:translate3d(calc(var(--parallax-x) * .55),calc(var(--parallax-y) * .45),0) rotateX(67deg) rotateZ(38deg)}
+.hero .eyebrow{position:relative;z-index:12;letter-spacing:.28em}.hero h1{position:relative;z-index:12}.hero h1 .nowrap{display:inline-block;will-change:clip-path,transform}.hero-actions{position:relative;z-index:12}
+.hero .scroll-cue{z-index:13}
+
+/* Meet scene receives a separate visual identity: warm interior, cool window, no display frame. */
+.meet-section{background:radial-gradient(ellipse 35% 45% at 78% 47%,rgba(255,200,168,.08),transparent 68%),linear-gradient(180deg,#03050b 0%,#080b13 52%,#03050b 100%)}
+.meet-stage{background:radial-gradient(ellipse at 24% 35%,rgba(68,106,144,.16),transparent 34%),linear-gradient(104deg,rgba(3,5,11,.94) 0 28%,rgba(17,22,32,.55) 52%,rgba(3,5,11,.18) 100%)}
+.meet-stage:after{background:linear-gradient(104deg,transparent 0 43%,rgba(255,200,168,.1) 56%,transparent 68%),radial-gradient(ellipse at 18% 74%,rgba(142,232,233,.13),transparent 28%)}
+.meet-chamber:before{content:"";position:absolute;z-index:0;inset:19% 18% 25% 15%;border-radius:50%;background:radial-gradient(ellipse at 50% 40%,rgba(255,200,168,.1),transparent 52%);filter:blur(28px)}
+.meet-chamber img{position:relative;z-index:2}
+.dialogue-line{font-weight:430;text-shadow:0 2px 18px rgba(0,0,0,.45)}.dialogue-line.is-last{color:var(--warm-memory);text-shadow:0 0 28px rgba(255,200,168,.18)}
+
+/* Memory has one brief portrait fragment, then it dissolves into the graph. */
+.memory-portrait-fragment{position:absolute;z-index:7;left:37%;top:22%;width:190px;height:260px;pointer-events:none;opacity:calc((1 - var(--memory-progress,0)) * .48);transform:translate3d(calc(var(--parallax-x) * .25),calc(var(--parallax-y) * .25),0) rotate(-7deg);background-image:linear-gradient(180deg,rgba(3,5,11,.08),rgba(3,5,11,.65)),url('./assets/stage-guyue-quiet.png');background-size:520px 785px;background-position:56% 16%;mix-blend-mode:screen;filter:blur(1px) saturate(.72);transition:opacity .5s ease,transform .5s ease}
+.memory-visual:hover .memory-portrait-fragment{opacity:.24;filter:blur(0) saturate(.9)}
+.memory-visual{--memory-warm:rgba(255,200,168,.12)}.memory-visual:before{background-image:linear-gradient(rgba(130,153,187,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(130,153,187,.025) 1px,transparent 1px),radial-gradient(circle at 34% 27%,var(--memory-warm),transparent 18%);background-size:40px 40px,40px 40px,auto}
+.memory-node:hover span{color:var(--warm-memory)}.memory-node:hover i{border-color:var(--warm-memory);background:var(--warm-memory);box-shadow:0 0 22px rgba(255,200,168,.52)}
+
+/* The world is inhabited: figures are environmental traces, never another portrait panel. */
+.world-character{position:absolute;z-index:1;display:block;pointer-events:none;background-repeat:no-repeat;background-size:contain;mix-blend-mode:screen;filter:saturate(.54) contrast(1.05);opacity:.22;transition:opacity .6s,filter .6s,transform .8s}
+.world-character-cafe{right:8%;bottom:-7%;width:48%;height:77%;background-image:linear-gradient(180deg,transparent 30%,rgba(9,10,18,.64)),url('./assets/stage-guyue-open.png');background-position:center bottom;transform:rotate(3deg) scale(.88)}
+.world-character-rain{left:31%;bottom:-11%;width:39%;height:78%;background-image:linear-gradient(180deg,transparent 24%,rgba(6,12,22,.66)),url('./assets/stage-guyue-smile.png');background-position:center bottom;opacity:.12;transform:scale(.9)}
+.world-character-room{right:8%;bottom:-13%;width:44%;height:70%;background-image:linear-gradient(180deg,transparent 28%,rgba(8,8,20,.75)),url('./assets/stage-guyue-calm.png');background-position:center bottom;opacity:.11;filter:saturate(.28) blur(1px);transform:scale(.82)}
+.world-character-rooftop{right:5%;bottom:-17%;width:48%;height:74%;background-image:linear-gradient(180deg,transparent 22%,rgba(5,9,18,.8)),url('./assets/stage-guyue-open.png');background-position:center bottom;opacity:.13;transform:scale(.74)}
+.world-scene:hover .world-character{opacity:.36;filter:saturate(.72) contrast(1.08);transform:translateY(-7px) scale(.94)}
+.world-scene:hover .world-character-rain{opacity:.24}.world-scene:hover .world-character-room{opacity:.25}.world-scene:hover .world-character-rooftop{opacity:.25}
+
+/* Product and ending deliberately stop showing a standing character. */
+.product-reveal{background:radial-gradient(ellipse at 68% 49%,rgba(142,232,233,.06),transparent 36%)}
+.product-copy h2{letter-spacing:.045em}.product-triad span:nth-child(3){color:var(--warm-memory);border-color:rgba(255,200,168,.42)}
+.download-section{position:relative;background:radial-gradient(ellipse at 50% 20%,rgba(166,152,255,.08),transparent 48%)}
+.download-section:after{content:"";position:absolute;z-index:-1;left:50%;bottom:-14%;width:420px;height:72%;transform:translateX(-50%);background:linear-gradient(180deg,transparent,rgba(3,5,11,.15)),url('./assets/stage-guyue-quiet.png') center top/contain no-repeat;opacity:.08;filter:blur(4px) saturate(.35);mask-image:linear-gradient(180deg,black,transparent 85%)}
+
+@media(max-width:680px){
+  .chamber-silhouette{transform:translate3d(calc(var(--parallax-x) * .5),calc(var(--parallax-y) * .5),0)}
+  .memory-portrait-fragment{left:31%;top:29%;width:120px;height:170px;background-size:340px 514px}
+  .world-character-cafe{width:55%;height:68%;right:0}.world-character-rain{width:48%;height:66%;left:28%}.world-character-room{width:55%;height:62%;right:0}.world-character-rooftop{width:56%;height:62%;right:-4%}
+  .download-section:after{width:270px;height:54%;bottom:-5%}
+}
+@media(prefers-reduced-motion:reduce){html.hero-ready .hero .chamber-silhouette{animation:none}.memory-portrait-fragment{transform:none}.chamber-silhouette,.hero-focus-beam,.chamber-orbit{transform:none!important}}
+
