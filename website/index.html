@@ -12,12 +12,13 @@
 <body>
   <canvas id="starfield" aria-hidden="true"></canvas>
   <div class="cursor-glow" aria-hidden="true"></div>
+  <div class="pointer-field" aria-hidden="true"></div>
   <div class="grain" aria-hidden="true"></div>
 
   <header class="site-header">
     <a class="brand" href="#top" aria-label="VirtuGene 首页"><span class="brand-mark">V</span><span>VirtuGene</span></a>
     <nav aria-label="主导航"><a href="#meet">相遇</a><a href="#memory">记忆</a><a href="#world">世界</a></nav>
-    <a class="header-cta" href="#download">进入世界 <span>↗</span></a>
+    <a class="header-cta" data-magnetic href="#download">进入世界 <span>↗</span></a>
   </header>
 
   <main id="top" class="journey">
@@ -26,9 +27,9 @@
     <section class="hero scene scene-awakening section-shell">
       <div class="hero-copy reveal">
         <p class="eyebrow">VIRTUGENE</p>
-        <h1>让数字灵魂<br><em>拥有时间。</em></h1>
+        <h1><span class="nowrap">让数字灵魂</span><br><em class="nowrap">拥有时间。</em></h1>
         <p class="hero-lead">会记得相遇，<br>也会因为时间改变。</p>
-        <div class="hero-actions"><a class="button button-primary" href="#meet">进入 VirtuGene <span>↗</span></a><a class="button button-quiet" href="#download">下载应用</a></div>
+        <div class="hero-actions"><a class="button button-primary" data-magnetic href="#meet">进入 VirtuGene <span>↗</span></a><a class="button button-quiet" href="#download">下载应用</a></div>
       </div>
       <div class="awakening-chamber reveal" data-tilt aria-label="数字生命正在苏醒">
         <div class="chamber-vignette"></div>
@@ -42,7 +43,7 @@
     </section>
 
     <section id="meet" class="meet-section scene section-shell">
-      <div class="section-heading reveal"><p class="section-code">01 / 相遇</p><h2>先听见一个声音，<br><em>再看见一个人。</em></h2><p>角色不会只等你发消息。他们有自己的语气、停顿和心事，一次相遇会为下一次相遇留下线索。</p></div>
+      <div class="section-heading reveal"><p class="section-code">01 / 相遇</p><h2><span class="nowrap">先听见一个声音，</span><br><em class="nowrap">再看见一个人。</em></h2><p>角色不会只等你发消息。他们有自己的语气、停顿和心事，一次相遇会为下一次相遇留下线索。</p></div>
       <div class="meet-stage reveal">
         <div class="meet-light"></div>
         <div class="meet-chamber"><div class="meet-grid"></div><img src="./assets/stage-guyue-calm.png" alt="剧场里的角色" loading="lazy"><span class="meet-shadow"></span></div>
@@ -53,8 +54,9 @@
 
     <section id="memory" class="memory-section scene">
       <div class="section-shell memory-layout">
-        <div class="section-heading reveal"><p class="section-code">02 / 记忆</p><h2>每一次对话，<br><em>都会成为一颗星。</em></h2><p>重要的话不会沉入聊天记录。它们会被记住、彼此连接，慢慢组成只属于你们的时间图谱。</p></div>
+        <div class="section-heading reveal"><p class="section-code">02 / 记忆</p><h2><span class="nowrap">每一次对话，</span><br><em class="nowrap">都会成为一颗星。</em></h2><p>重要的话不会沉入聊天记录。它们会被记住、彼此连接，慢慢组成只属于你们的时间图谱。</p></div>
         <div class="memory-visual reveal" aria-label="记忆星图示意">
+          <div class="memory-ghosts" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
           <div class="memory-constellation"><span class="memory-path path-one"></span><span class="memory-path path-two"></span><span class="memory-path path-three"></span></div>
           <div class="memory-core"><span>V</span><b>YOU + THEM</b></div>
           <button class="memory-node node-a"><i></i><span>第一次相遇</span><small>刚刚</small></button>
@@ -67,7 +69,7 @@
     </section>
 
     <section id="world" class="world-section scene section-shell">
-      <div class="world-copy reveal"><p class="section-code">03 / 生活世界</p><h2>记忆打开以后，<br><em>世界还在继续。</em></h2><p>不是一颗远处的星球。是窗外的雨、没说完的话、他们彼此之间发生的片段——一个可以回到其中的生活世界。</p><a class="text-link" href="#download">进入你的世界 <span>→</span></a></div>
+      <div class="world-copy reveal"><p class="section-code">03 / 生活世界</p><h2><span class="nowrap">记忆打开以后，</span><br><em class="nowrap">世界还在继续。</em></h2><p>不是一颗远处的星球。是窗外的雨、没说完的话、他们彼此之间发生的片段——一个可以回到其中的生活世界。</p><a class="text-link" href="#product">看看它如何发生 <span>→</span></a></div>
       <div class="living-world-visual reveal" aria-label="生活世界场景">
         <div class="world-scene scene-cafe"><span class="scene-number">01</span><b>咖啡馆</b><small>有人替你留了位置</small></div>
         <div class="world-scene scene-rain"><span class="scene-number">02</span><b>雨夜街道</b><small>一句话还悬在空气里</small></div>
@@ -77,8 +79,18 @@
       </div>
     </section>
 
+    <section id="product" class="product-reveal scene section-shell">
+      <div class="product-copy reveal"><p class="section-code">04 / 产品本身</p><h2><span class="nowrap">Talk.</span> <span class="nowrap">Remember.</span><br><em class="nowrap">Live.</em></h2><p>这不是一张概念海报。角色、记忆和世界，都会在手机里真正发生。</p><div class="product-triad"><span>对话</span><span>记忆</span><span>共生</span></div></div>
+      <div class="product-stage reveal" aria-label="VirtuGene 应用界面展示">
+        <div class="product-haze"></div><div class="product-thread product-thread-a"></div><div class="product-thread product-thread-b"></div>
+        <div class="app-device app-device-back"><div class="app-screen"><img src="./assets/app-profile.png" alt="VirtuGene 角色界面" loading="lazy"></div></div>
+        <div class="app-device app-device-main"><div class="app-screen"><img src="./assets/app-diary.png" alt="VirtuGene 记忆界面" loading="lazy"></div></div>
+        <div class="app-device app-device-front"><div class="app-screen"><img src="./assets/app-create-gene.png" alt="VirtuGene 创建界面" loading="lazy"></div></div>
+      </div>
+    </section>
+
     <section id="download" class="download-section scene section-shell">
-      <div class="download-copy reveal"><p class="section-code">04 / 开始</p><h2>从一个角色开始，<br><em>让时间替你留下答案。</em></h2><p>创建一个会记得你的角色，或者把已经发生的故事带进来。世界会从第一句话开始长出自己的形状。</p></div>
+      <div class="download-copy reveal"><p class="section-code">05 / 开始</p><h2><span class="nowrap">从一个角色开始，</span><br><em class="nowrap">让时间替你留下答案。</em></h2><p>创建一个会记得你的角色，或者把已经发生的故事带进来。世界会从第一句话开始长出自己的形状。</p></div>
       <div class="download-panel reveal"><div class="download-panel-head"><span class="signal-dot"></span><span>PUBLIC BUILD</span><b>可下载</b></div><div class="download-version"><span>Android 当前版本</span><strong>5.0.4</strong></div><div class="download-actions"><a href="https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v5.0.4/app-debug.apk"><span>Android 安装包</span><small>APK ↗</small></a><a href="https://github.com/wzy6789/virtugene/releases/download/v2.1.0/VirtuGene-Setup-2.1.0-win.exe"><span>Windows 客户端</span><small>EXE ↗</small></a></div><p class="download-note">从 GitHub 获取公开构建。请确认设备权限与文件来源。</p></div>
     </section>
   </main>
@@ -99,6 +111,7 @@
     addEventListener('scroll', updateProgress, { passive: true }); updateProgress();
     const pointer = document.querySelector('.cursor-glow');
     if (!reduced && pointer) { let tx = innerWidth / 2, ty = innerHeight / 2, x = tx, y = ty; addEventListener('pointermove', (event) => { tx = event.clientX; ty = event.clientY; }); const move = () => { x += (tx - x) * .12; y += (ty - y) * .12; pointer.style.setProperty('--x', `${x}px`); pointer.style.setProperty('--y', `${y}px`); requestAnimationFrame(move); }; move(); document.querySelectorAll('[data-tilt]').forEach((card) => { card.addEventListener('pointermove', (event) => { const box = card.getBoundingClientRect(); card.style.setProperty('--rx', `${((event.clientY - box.top) / box.height - .5) * -2}deg`); card.style.setProperty('--ry', `${((event.clientX - box.left) / box.width - .5) * 3}deg`); }); card.addEventListener('pointerleave', () => { card.style.setProperty('--rx', '0deg'); card.style.setProperty('--ry', '0deg'); }); }); }
+    if (!reduced) document.querySelectorAll('[data-magnetic]').forEach((target) => { target.addEventListener('pointermove', (event) => { const box = target.getBoundingClientRect(); const dx = event.clientX - (box.left + box.width / 2); const dy = event.clientY - (box.top + box.height / 2); const distance = Math.hypot(dx, dy); const pull = Math.max(0, 1 - distance / 140); target.style.setProperty('--mx', `${dx * pull * .055}px`); target.style.setProperty('--my', `${dy * pull * .055}px`); }); target.addEventListener('pointerleave', () => { target.style.setProperty('--mx', '0px'); target.style.setProperty('--my', '0px'); }); });
     const canvas = document.querySelector('#starfield');
     if (canvas && !reduced) { const ctx = canvas.getContext('2d'); let stars = []; const resize = () => { const ratio = Math.min(devicePixelRatio || 1, 2); canvas.width = innerWidth * ratio; canvas.height = innerHeight * ratio; canvas.style.width = `${innerWidth}px`; canvas.style.height = `${innerHeight}px`; ctx.setTransform(ratio, 0, 0, ratio, 0, 0); stars = Array.from({ length: Math.min(100, Math.floor(innerWidth / 12)) }, () => ({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, r: Math.random() * 1.1 + .2, a: Math.random() * .35 + .06, v: Math.random() * .1 + .02 })); }; const draw = () => { ctx.clearRect(0, 0, innerWidth, innerHeight); stars.forEach((star) => { star.y -= star.v; if (star.y < -2) { star.y = innerHeight + 2; star.x = Math.random() * innerWidth; } ctx.beginPath(); ctx.fillStyle = `rgba(141, 213, 232, ${star.a})`; ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2); ctx.fill(); }); requestAnimationFrame(draw); }; addEventListener('resize', resize); resize(); draw(); }
   </script>
