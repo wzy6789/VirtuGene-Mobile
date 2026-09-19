@@ -348,3 +348,24 @@ html.hero-ready .awakening-scan{animation:scanCharacter 1.7s .35s cubic-bezier(.
 }
 @media(prefers-reduced-motion:reduce){html.js:not(.hero-ready) .hero-copy{opacity:1;filter:none;transform:none}.awakening-status,.awakening-scan,.foreground-particles,.meet-light,.meet-stage:before,.memory-path,.memory-core,.app-device{animation:none!important}.memory-node:hover:after{display:none}}
 
+
+
+/* Distributed character direction: every scene carries a different emotional state. */
+.chamber-silhouette img{content:url('./assets/character-hero-awake.png')}
+.meet-chamber img{content:url('./assets/character-meet-listen.png')}
+.meet-chamber:after{content:"";position:absolute;z-index:1;inset:9% 5% 0;background:linear-gradient(180deg,rgba(3,5,11,.05),rgba(3,5,11,.82)),url('./assets/character-dialogue-warm.png') center bottom/72% auto no-repeat;opacity:.2;mix-blend-mode:screen;pointer-events:none;filter:saturate(.7) blur(.2px)}
+.memory-portrait-fragment{background-image:linear-gradient(180deg,rgba(3,5,11,.08),rgba(3,5,11,.65)),url('./assets/character-memory-reflect.png')}
+.world-character-cafe{background-image:linear-gradient(180deg,transparent 30%,rgba(9,10,18,.68)),url('./assets/character-world-cafe.png')}
+.world-character-rain{background-image:linear-gradient(180deg,transparent 24%,rgba(6,12,22,.68)),url('./assets/character-world-rain.png')}
+.world-character-room{background-image:linear-gradient(180deg,transparent 28%,rgba(8,8,20,.78)),url('./assets/character-world-room.png')}
+.world-character-rooftop{background-image:linear-gradient(180deg,transparent 22%,rgba(5,9,18,.82)),url('./assets/character-world-rooftop.png')}
+.download-section:after{background-image:linear-gradient(180deg,transparent,rgba(3,5,11,.15)),url('./assets/character-download-wave.png')}
+/* Small, quiet state echoes keep the page alive without turning it into a gallery. */
+.meet-stage:after{content:"";position:absolute;z-index:1;right:7%;bottom:9%;width:170px;height:170px;background:linear-gradient(180deg,transparent 20%,rgba(3,5,11,.5)),url('./assets/character-dialogue-question.png') center bottom/contain no-repeat;opacity:.12;mix-blend-mode:screen;filter:saturate(.65);pointer-events:none}
+.site-footer:before{content:"";position:absolute;right:8%;bottom:-12px;width:105px;height:155px;background:url('./assets/character-states-soft.png') center bottom/contain no-repeat;opacity:.08;filter:saturate(.4);mix-blend-mode:screen;pointer-events:none}
+.site-footer{position:relative}
+@media(max-width:680px){.meet-chamber:after,.meet-stage:after{opacity:.08}.site-footer:before{display:none}}
+
+
+.product-stage:before{content:"";position:absolute;z-index:0;left:1%;right:22%;top:10%;bottom:8%;background:linear-gradient(180deg,transparent 20%,rgba(3,5,11,.8)),url('./assets/character-dialogue-open.png') center bottom/contain no-repeat;opacity:.07;mix-blend-mode:screen;filter:saturate(.5) blur(1px);pointer-events:none}
+.product-stage>*{position:relative}
