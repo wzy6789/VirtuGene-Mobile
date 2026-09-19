@@ -3,259 +3,264 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#03050b">
-  <meta name="description" content="VirtuGene：让数字灵魂拥有时间。一个会记得相遇、在时间里继续改变的世界。">
+  <meta name="theme-color" content="#08050f">
+  <meta name="description" content="VirtuGene：让数字灵魂拥有时间。与有性格的角色相遇，把对话、记忆和故事留在同一个世界。">
   <title>VirtuGene — 让数字灵魂拥有时间</title>
-  <script>document.documentElement.classList.add('js')</script>
+  <link rel="canonical" href="https://wzy6789.github.io/VirtuGene-Mobile/">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="VirtuGene">
+  <meta property="og:title" content="VirtuGene — 让数字灵魂拥有时间">
+  <meta property="og:description" content="与有性格的角色相遇，把对话、记忆和故事留在同一个世界。">
+  <meta property="og:url" content="https://wzy6789.github.io/VirtuGene-Mobile/">
+  <meta property="og:image" content="https://wzy6789.github.io/VirtuGene-Mobile/assets/product/world-map.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="VirtuGene — 让数字灵魂拥有时间">
+  <meta name="twitter:description" content="与有性格的角色相遇，把对话、记忆和故事留在同一个世界。">
+  <meta name="twitter:image" content="https://wzy6789.github.io/VirtuGene-Mobile/assets/product/world-map.jpg">
+
+  <!-- 内联 SVG 图标：不额外发请求，也不会在子路径部署下 404 -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2308050f'/%3E%3Cpath d='M17 18h9l6 22 6-22h9L37 47h-8z' fill='%238b7bf0'/%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="./assets/selected/app-icon-192.png">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <canvas id="starfield" aria-hidden="true"></canvas>
-  <div class="cursor-glow" aria-hidden="true"></div>
-  <div class="pointer-field" aria-hidden="true"></div>
-  <div class="grain" aria-hidden="true"></div>
+  <a class="skip-link" href="#meet">跳到主要内容</a>
 
-  <header class="site-header">
-    <a class="brand" href="#top" aria-label="VirtuGene 首页"><span class="brand-mark">V</span><span>VirtuGene</span></a>
-    <nav aria-label="主导航"><a href="#manifesto">理念</a><a href="#meet">相遇</a><a href="#memory">记忆</a><a href="#relationship">关系</a><a href="#world">世界</a><a href="#product">产品</a></nav>
-    <a class="header-cta" data-magnetic href="#download">进入世界 <span>↗</span></a>
+  <header class="nav" id="nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="#top" aria-label="VirtuGene 首页">
+        <span class="nav-mark" aria-hidden="true">V</span>
+        <span>VirtuGene</span>
+      </a>
+      <nav class="nav-links" aria-label="主导航">
+        <a href="#meet">体验</a>
+        <a href="#world">世界</a>
+        <a href="#download">下载</a>
+      </nav>
+      <a class="btn btn-primary btn-small nav-cta" href="#download">下载 Android</a>
+    </div>
   </header>
 
-  <main id="top" class="journey">
-    <div class="journey-progress" aria-hidden="true"><span></span></div>
+  <main id="top">
 
-    <section class="hero scene scene-awakening section-shell">
-      <div class="awakening-status" aria-hidden="true"><span>SYSTEM // INITIALIZING</span><i></i></div>
-      <div class="awakening-scan" aria-hidden="true"></div>
-      <div class="foreground-particles" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="hero-copy reveal">
-        <p class="eyebrow">VIRTUGENE</p>
-        <h1><span class="nowrap">让数字灵魂</span><br><em class="nowrap">拥有时间。</em></h1>
-        <p class="hero-lead">会记得相遇，<br>也会因为时间改变。</p>
-        <div class="hero-actions"><a class="button button-primary" data-magnetic href="#meet">进入 VirtuGene <span>↗</span></a><a class="button button-quiet" href="#download">下载应用</a></div>
-      </div>
-      <div class="awakening-chamber reveal" data-tilt aria-label="数字生命正在苏醒">
-        <div class="chamber-vignette"></div>
-        <div class="hero-focus-beam" aria-hidden="true"></div>
-        <div class="hero-depth-line depth-line-a" aria-hidden="true"></div><div class="hero-depth-line depth-line-b" aria-hidden="true"></div>
-        <div class="chamber-orbit orbit-a"></div><div class="chamber-orbit orbit-b"></div>
-        <div class="awakening-core"><span></span><i></i></div>
-        <div class="chamber-silhouette"><img src="./assets/character-reserve-04.png" alt="被光线部分遮蔽的角色剪影" width="254" height="384"></div>
-        <div class="chamber-caption"><span>CHAMBER 01</span><b>一个声音，正在醒来</b></div>
-        <div class="chamber-trace trace-a"></div><div class="chamber-trace trace-b"></div>
-      </div>
-      <a class="scroll-cue" href="#meet"><span></span>向下进入</a>
-    </section>
-
-
-    <section id="manifesto" class="manifesto-section scene section-shell">
-      <div class="manifesto-copy reveal"><p class="section-code">02 / WHY VIRTUGENE</p><h2><span class="nowrap">不是一个</span><br><span class="nowrap">等你提问的 AI。</span><br><em class="nowrap">是一段会继续的关系。</em></h2><p>VirtuGene 让角色拥有连续的时间：过去会留下痕迹，关系会发生变化，世界会在你离开之后继续存在。</p></div>
-      <div class="manifesto-principles" aria-label="VirtuGene 核心理念">
-        <article data-principle="time"><span>01</span><h3>TIME</h3><strong>时间真正存在。</strong><p>发生过的事情不会随着窗口关闭而消失。</p></article>
-        <article data-principle="memory"><span>02</span><h3>MEMORY</h3><strong>记忆塑造未来。</strong><p>重要经历会参与之后的理解、回应和选择。</p></article>
-        <article data-principle="relationship"><span>03</span><h3>RELATIONSHIP</h3><strong>关系会发生变化。</strong><p>你们不会每次打开应用都重新认识彼此。</p></article>
-        <article data-principle="world"><span>04</span><h3>WORLD</h3><strong>世界不会停止。</strong><p>角色、关系和故事共同留在一个持续发展的空间。</p></article>
-      </div>
-    </section>
-
-    <section id="meet" class="meet-section scene section-shell">
-      <div class="section-heading reveal"><p class="section-code">03 / MEET</p><h2><span class="nowrap">先听见一个声音，</span><br><em class="nowrap">再看见一个人。</em></h2><p>角色不会只等你发消息。他们有自己的语气、停顿和心事，一次相遇会为下一次相遇留下线索。</p></div>
-      <div class="meet-stage reveal">
-        <div class="meet-light"></div>
-        <div class="meet-chamber"><div class="meet-grid"></div><img src="./assets/character-meet-listen.png" alt="剧场里的角色" loading="lazy"></div>
-        <div class="meet-dialogue"><p class="dialogue-meta">傍晚 · 窗边</p><p class="dialogue-line">“你今天，好像比平时安静。”</p><p class="dialogue-line is-user">“只是突然想起了一件事。”</p><p class="dialogue-line is-last">“那就慢慢说。我在听。”</p></div>
-      </div>
-      <div class="meet-foot reveal"><span>他们不是在完成任务</span><strong>他们在和你一起经历时间。</strong></div>
-    </section>
-
-    <section id="memory" class="memory-section scene">
-      <div class="section-shell memory-layout">
-        <div class="section-heading reveal"><p class="section-code">04 / REMEMBER</p><h2><span class="nowrap">每一次对话，</span><br><em class="nowrap">都会成为一颗星。</em></h2><p>重要的话不会沉入聊天记录。它们会被记住、彼此连接，慢慢组成只属于你们的时间图谱。</p></div>
-        <div class="memory-visual reveal" aria-label="记忆星图示意">
-          <div class="memory-portrait-fragment" aria-hidden="true"></div>
-          <div class="memory-ghosts" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-          <div class="memory-constellation"><span class="memory-path path-one"></span><span class="memory-path path-two"></span><span class="memory-path path-three"></span></div>
-          <div class="memory-core"><span>V</span><b>YOU + THEM</b></div>
-          <button class="memory-node node-a"><i></i><span>第一次相遇</span><small>刚刚</small></button>
-          <button class="memory-node node-b"><i></i><span>那场雨</span><small>共同经历</small></button>
-          <button class="memory-node node-c"><i></i><span>一个约定</span><small>还在继续</small></button>
-          <button class="memory-node node-d"><i></i><span>她记得</span><small>关系变化</small></button>
-          <div class="memory-note">Every conversation<br><strong>shapes who they become.</strong></div>
+    <!-- 01 首屏 -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="shell hero-inner">
+        <div class="hero-copy">
+          <p class="hero-brand">VirtuGene</p>
+          <h1 id="hero-title" class="hero-title">让数字灵魂<br><em>拥有时间。</em></h1>
+          <p class="hero-lead">与有性格的角色相遇，<br>把对话、记忆和故事留在同一个世界。</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href="https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v5.0.5/app-release.apk" rel="noreferrer">下载 Android</a>
+            <a class="btn btn-ghost" href="#meet">看看实际体验</a>
+          </div>
+        </div>
+        <div class="hero-visual">
+          <div class="hero-glow" aria-hidden="true"></div>
+          <img class="hero-image" src="./assets/selected/hero-guyuena.webp" width="1120" height="1404" fetchpriority="high" decoding="async"
+               alt="VirtuGene 角色「古月娜」的立绘：银白色长发、紫色眼睛，身着白紫水晶礼服">
+          <div class="hero-texture" aria-hidden="true"></div>
         </div>
       </div>
     </section>
 
-
-    <section id="relationship" class="relationship-section scene section-shell">
-      <div class="relationship-copy reveal"><p class="section-code">05 / RELATIONSHIP</p><h2><span class="nowrap">记住之后，</span><br><em class="nowrap">关系开始发生变化。</em></h2><p>不是每一次打开 App，都重新认识一个相同的角色。你们过去发生的事情，会真正参与下一次相遇。</p></div>
-      <div class="relationship-track reveal"><div class="relationship-line"></div><div class="relationship-step is-active"><span>DAY 01</span><b>陌生</b></div><div class="relationship-step"><span>DAY 07</span><b>熟悉</b></div><div class="relationship-step"><span>DAY 31</span><b>信任</b></div><div class="relationship-step"><span>DAY 102</span><b>共同记忆</b></div><img src="./assets/product/latest/11-relationship.png" alt="VirtuGene 关系界面" loading="lazy"></div>
-    </section>
-
-    <section id="world" class="world-section scene section-shell">
-      <div class="world-copy reveal"><p class="section-code">06 / WORLD</p><h2><span class="nowrap">记忆打开以后，</span><br><em class="nowrap">世界还在继续。</em></h2><p>不是一颗远处的星球。是窗外的雨、没说完的话、他们彼此之间发生的片段——一个可以回到其中的生活世界。</p><a class="text-link" href="#product">看看它如何发生 <span>→</span></a></div>
-      <div class="living-world-visual reveal" aria-label="生活世界场景">
-        <div class="world-scene scene-cafe"><span class="world-character world-character-cafe" aria-hidden="true"></span><span class="scene-number">01</span><b>咖啡馆</b><small>有人替你留了位置</small></div>
-        <div class="world-scene scene-rain"><span class="world-character world-character-rain" aria-hidden="true"></span><span class="scene-number">02</span><b>雨夜街道</b><small>一句话还悬在空气里</small></div>
-        <div class="world-scene scene-room"><span class="world-character world-character-room" aria-hidden="true"></span><span class="scene-number">03</span><b>安静的房间</b><small>她想起那天的约定</small></div>
-        <div class="world-scene scene-rooftop"><span class="world-character world-character-rooftop" aria-hidden="true"></span><span class="scene-number">04</span><b>城市天台</b><small>他们聊起了彼此</small></div>
-        <div class="world-thread thread-a"></div><div class="world-thread thread-b"></div><div class="world-thread thread-c"></div>
+    <!-- 02 相遇 -->
+    <section class="section meet" id="meet" aria-labelledby="meet-title">
+      <div class="shell">
+        <div class="meet-body">
+          <div class="section-head">
+            <p class="eyebrow">体验 · 对话</p>
+            <h2 id="meet-title">有自己的语气，<br><em>也记得你的话。</em></h2>
+            <p class="section-lead">你可以聊今天的小事，也可以突然换个话题。<br>相处的感觉，来自角色自己的性格和回应。</p>
+          </div>
+          <figure class="shot">
+            <button class="shot-open" type="button" data-full="./assets/product/source/chat.png"
+                    data-caption="聊天界面 · VirtuGene Android 版（演示账号与演示内容）">
+              <span class="device">
+                <img src="./assets/product/chat.jpg" width="780" height="1688" loading="lazy" decoding="async"
+                     alt="VirtuGene 手机端聊天界面：与角色「古月娜」的几句日常对话">
+              </span>
+            </button>
+            <figcaption>
+              <span>真实界面对话 · Android v5.0.5</span>
+              <span class="shot-hint">点击可放大</span>
+            </figcaption>
+          </figure>
+        </div>
       </div>
     </section>
 
-
-    <section id="features" class="features-section scene section-shell">
-      <div class="features-heading reveal"><p class="section-code">07 / CAPABILITIES</p><h2><span class="nowrap">不是一个功能。</span><br><em class="nowrap">是一套完整的数字生命体验。</em></h2></div>
-      <div class="feature-list"><article><span>01</span><h3>Talk</h3><p>自然、持续、有性格的角色对话。</p></article><article><span>02</span><h3>Remember</h3><p>长期记忆与共同经历保持关联。</p></article><article><span>03</span><h3>Relationship</h3><p>关系随时间和事件真实演化。</p></article><article><span>04</span><h3>World</h3><p>角色不只存在于聊天框。</p></article><article><span>05</span><h3>Create</h3><p>创建自己的角色、故事与世界。</p></article><article><span>06</span><h3>Timeline</h3><p>让每次经历进入属于你们的时间线。</p></article></div>
-    </section>
-
-    <section id="product" class="product-reveal scene section-shell">
-      <div class="product-copy reveal"><p class="section-code">08 / PRODUCT</p><h2><span class="nowrap">Talk.</span> <span class="nowrap">Remember.</span><br><em class="nowrap">Live.</em></h2><p>这不是一张概念海报。角色、记忆和世界，都会在手机里真正发生。</p><div class="product-triad"><span>对话</span><span>记忆</span><span>共生</span></div></div>
-      <div class="product-stage reveal" aria-label="VirtuGene app showcase">
-        <div class="product-haze"></div>
-        <div class="product-thread product-thread-a"></div><div class="product-thread product-thread-b"></div>
-        <div class="app-device app-device-main"><div class="app-screen"><img src="./assets/app-talk.png" alt="VirtuGene conversation screen" loading="lazy"></div></div>
-        <div class="product-chapters" aria-label="Product chapters"><span class="is-active">01 <b>TALK</b></span><span>02 <b>MEMORY</b></span><span>03 <b>WORLD</b></span><span>04 <b>CREATE</b></span></div>
+    <!-- 03 记忆与关系 -->
+    <section class="section memory" id="memory" aria-labelledby="memory-title">
+      <div class="shell">
+        <div class="section-head">
+          <p class="eyebrow">记忆与关系</p>
+          <h2 id="memory-title">有些话，<br><em>会留到下一次见面。</em></h2>
+          <p class="section-lead">你说过的事会留下一条记忆，在之后的对话里被适时想起。<br>关系的变化来自具体经历，而不是一个进度条。</p>
+        </div>
+        <div class="memory-body">
+          <div class="memory-main">
+            <ol class="steps" data-steps>
+              <li class="step">
+                <span class="step-dot" aria-hidden="true"></span>
+                <p class="step-label">你提到一件重要的事</p>
+                <p class="step-quote">“周五我要去面试。”</p>
+              </li>
+              <li class="step">
+                <span class="step-dot" aria-hidden="true"></span>
+                <p class="step-label">留下一条记忆</p>
+                <p class="step-quote">“周五有一场面试。”</p>
+              </li>
+              <li class="step">
+                <span class="step-dot" aria-hidden="true"></span>
+                <p class="step-label">在之后的对话里被想起</p>
+                <p class="step-quote">“面试怎么样了？”</p>
+              </li>
+            </ol>
+            <p class="demo-note"><span class="demo-dot" aria-hidden="true"></span>体验示意：上面三句是功能演示，不是已发生的真实聊天记录。记忆会参与之后的对话，但不代表每条消息都会被永久保存。</p>
+          </div>
+          <div class="memory-aside">
+            <figure class="shot shot-compact">
+              <button class="shot-open" type="button" data-full="./assets/product/source/memory.png"
+                      data-caption="共同经历 · VirtuGene Android 版（演示账号与演示内容）">
+                <span class="device">
+                  <img src="./assets/product/memory.png" width="780" height="1688" loading="lazy" decoding="async"
+                       alt="VirtuGene 记忆界面：一起经历过的片段列表">
+                </span>
+              </button>
+              <figcaption>
+                <span>记忆界面 · 一起经历过的事</span>
+                <span class="shot-hint">点击可放大</span>
+              </figcaption>
+            </figure>
+          </div>
+        </div>
       </div>
     </section>
 
+    <!-- 04 世界 -->
+    <section class="section world" id="world" aria-labelledby="world-title">
+      <div class="shell">
+        <div class="section-head">
+          <p class="eyebrow">世界</p>
+          <h2 id="world-title">故事，<br><em>可以有不止一条轨道。</em></h2>
+          <p class="section-lead">选择一段剧情，带角色进入其中。<br>把共同经历留在世界里，再从那里继续。</p>
+        </div>
 
-    <section id="gallery" class="gallery-section scene section-shell">
-      <div class="gallery-heading reveal"><p class="section-code">09 / INTERFACE GALLERY</p><h2><span class="nowrap">真正的 VirtuGene，</span><br><em class="nowrap">就在这里。</em></h2><p>不只是一个概念。看看正在运行的产品。</p></div>
-      <div class="gallery-grid reveal" aria-label="VirtuGene 产品界面截图"><figure class="gallery-feature"><img src="./assets/product/latest/01-chat-home.png" alt="聊天主页" loading="lazy"><figcaption><b>CHAT HOME</b><span>从一句话开始</span></figcaption></figure><figure class="gallery-feature"><img src="./assets/product/latest/05-world.png" alt="世界星图" loading="lazy"><figcaption><b>WORLD</b><span>记忆长成的生活空间</span></figcaption></figure><figure class="gallery-feature"><img src="./assets/product/latest/03-memory.png" alt="记忆页面" loading="lazy"><figcaption><b>MEMORY</b><span>重要的事不会消失</span></figcaption></figure></div>
-      <div class="gallery-rail" aria-label="更多产品界面"><figure><img src="./assets/product/latest/02-chat-character.png" alt="角色聊天" loading="lazy"><figcaption>CHARACTER CHAT</figcaption></figure><figure><img src="./assets/product/latest/04-diary.png" alt="情绪页面" loading="lazy"><figcaption>DIARY</figcaption></figure><figure><img src="./assets/product/latest/06-world-map.png" alt="世界地图" loading="lazy"><figcaption>WORLD MAP</figcaption></figure><figure><img src="./assets/product/latest/07-profile.png" alt="角色列表" loading="lazy"><figcaption>CHARACTERS</figcaption></figure><figure><img src="./assets/product/latest/08-character-detail.png" alt="角色详情" loading="lazy"><figcaption>PROFILE</figcaption></figure><figure><img src="./assets/product/latest/09-create-character.png" alt="创建角色" loading="lazy"><figcaption>CREATE</figcaption></figure><figure><img src="./assets/product/latest/10-create-world.png" alt="创建世界" loading="lazy"><figcaption>WORLD BUILDER</figcaption></figure><figure><img src="./assets/product/latest/12-more.png" alt="更多设置" loading="lazy"><figcaption>MORE</figcaption></figure></div>
+        <div class="world-stage">
+          <div class="world-arc" aria-hidden="true"></div>
+
+          <div class="tabs" role="tablist" aria-label="世界展示切换">
+            <button class="tab" type="button" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true">世界星图</button>
+            <button class="tab" type="button" role="tab" id="tab-scene" aria-controls="panel-scene" aria-selected="false" tabindex="-1">剧情现场</button>
+            <button class="tab" type="button" role="tab" id="tab-timeline" aria-controls="panel-timeline" aria-selected="false" tabindex="-1">留下的经历</button>
+          </div>
+
+          <div class="panels">
+            <div class="panel is-active" id="panel-map" role="tabpanel" aria-labelledby="tab-map" tabindex="0">
+              <figure class="shot shot-wide">
+                <button class="shot-open" type="button" data-full="./assets/product/source/world-map.png"
+                        data-caption="世界首页 · 此刻的世界与仍在继续的剧情（演示账号与演示内容）">
+                  <span class="device">
+                    <img src="./assets/product/world-map.jpg" width="780" height="1688" loading="lazy" decoding="async"
+                         alt="VirtuGene 世界首页：此刻的世界、角色数量与剧情星域">
+                  </span>
+                </button>
+                <figcaption>
+                  <span>一段段剧情挂在世界上，点开任意一段就能继续。</span>
+                  <span class="shot-hint">点击可放大</span>
+                </figcaption>
+              </figure>
+            </div>
+            <div class="panel" id="panel-scene" role="tabpanel" aria-labelledby="tab-scene" tabindex="0" hidden>
+              <figure class="shot shot-wide">
+                <button class="shot-open" type="button" data-full="./assets/product/source/world-scene.png"
+                        data-caption="剧情现场 · 旁白、对白与你的选择（演示账号与演示内容）">
+                  <span class="device">
+                    <img src="./assets/product/world-scene.jpg" width="780" height="1688" loading="lazy" decoding="async" data-warm="./assets/product/world-scene.jpg"
+                         alt="VirtuGene 剧情界面：旁白、角色对白与给出的选择">
+                  </span>
+                </button>
+                <figcaption>
+                  <span>旁白、对白与你的选择，都在同一场戏里。</span>
+                  <span class="shot-hint">点击可放大</span>
+                </figcaption>
+              </figure>
+            </div>
+            <div class="panel" id="panel-timeline" role="tabpanel" aria-labelledby="tab-timeline" tabindex="0" hidden>
+              <figure class="shot shot-wide">
+                <button class="shot-open" type="button" data-full="./assets/product/source/timeline.png"
+                        data-caption="年表 · 这个世界从开始到现在发生过的事（演示账号与演示内容）">
+                  <span class="device">
+                    <img src="./assets/product/timeline.jpg" width="780" height="1688" loading="lazy" decoding="async" data-warm="./assets/product/timeline.jpg"
+                         alt="VirtuGene 年表界面：按时间排列的共同经历">
+                  </span>
+                </button>
+                <figcaption>
+                  <span>发生过的事按时间留在这里，随时可以回头看。</span>
+                  <span class="shot-hint">点击可放大</span>
+                </figcaption>
+              </figure>
+            </div>
+          </div>
+          <p class="stage-note">以上为产品界面展示；官网不提供在线试玩。</p>
+        </div>
+      </div>
     </section>
-    <section id="scenarios" class="scenarios-section scene section-shell"><div class="scenarios-copy reveal"><p class="section-code">10 / SCENARIOS</p><h2><span class="nowrap">你可以从一段对话开始。</span><br><em class="nowrap">剩下的，不必预先定义。</em></h2></div><div class="scenario-list"><article><span>01</span><h3>长期陪伴</h3><p>一个会真正记得过去的人。</p></article><article><span>02</span><h3>角色共创</h3><p>从一个名字，创造完整人格与关系。</p></article><article><span>03</span><h3>共同世界</h3><p>角色不只存在于聊天框。</p></article><article><span>04</span><h3>长期故事</h3><p>故事拥有昨天、今天和之后。</p></article></div></section>
 
-    <section id="download" class="download-section scene section-shell">
-      <div class="download-copy reveal"><p class="section-code">11 / BEGIN</p><h2><span class="nowrap">从一个角色开始，</span><br><em class="nowrap">让时间替你留下答案。</em></h2><p>创建一个会记得你的角色，或者把已经发生的故事带进来。世界会从第一句话开始长出自己的形状。</p></div>
-      <div class="download-panel reveal"><div class="download-actions"><a href="https://github.com/wzy6789/virtugene/releases/download/v2.1.0/VirtuGene-Setup-2.1.0-win.exe"><span>Download for Windows</span><small>v2.1.0</small></a><a href="https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v5.0.4/app-debug.apk"><span>Download for Android</span><small>v5.0.4</small></a></div><p class="download-note">GitHub Public Build - VirtuGene</p></div>
+    <!-- 05 下载 -->
+    <section class="section download" id="download" aria-labelledby="download-title">
+      <div class="shell">
+        <div class="section-head">
+          <p class="eyebrow">开始</p>
+          <h2 id="download-title">从一次相遇开始。</h2>
+          <p class="section-lead">选择你的平台下载。第一次打开时创建角色，之后它会记住你们之间发生的事。</p>
+        </div>
+
+        <div class="platforms">
+          <a class="platform" href="https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v5.0.5/app-release.apk" rel="noreferrer">
+            <span class="platform-head"><span class="platform-name">Android</span><span class="platform-version">v5.0.5</span></span>
+            <span class="platform-meta">APK · 约 3.8 MB · Android 7.0 及以上</span>
+            <span class="platform-cta">下载安装包<span aria-hidden="true">↓</span></span>
+          </a>
+          <a class="platform" href="https://github.com/wzy6789/virtugene/releases/download/v2.1.0/VirtuGene-Setup-2.1.0-win.exe" rel="noreferrer">
+            <span class="platform-head"><span class="platform-name">Windows</span><span class="platform-version">v2.1.0</span></span>
+            <span class="platform-meta">EXE 安装程序 · 约 81 MB · Windows 10 及以上</span>
+            <span class="platform-cta">下载安装程序<span aria-hidden="true">↓</span></span>
+          </a>
+        </div>
+
+        <div class="download-notes">
+          <p>第一次使用时需要填入一个 AI 模型服务的 API Key（DeepSeek）。它只会加密保存在你的设备本地，VirtuGene 不接收也不托管。</p>
+          <p>安装包发布在 GitHub Releases：<a href="https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v5.0.5" rel="noreferrer">Android v5.0.5 ↗</a> · <a href="https://github.com/wzy6789/virtugene/releases" rel="noreferrer">Windows 版本记录 ↗</a>。下载与安装需要相应的网络环境。</p>
+        </div>
+      </div>
     </section>
   </main>
 
-  <footer class="site-footer section-shell"><a class="brand" href="#top"><span class="brand-mark">V</span><span>VirtuGene</span></a><p>Where digital lives begin.</p><div><a href="./privacy.html">隐私说明</a><a href="./terms.html">使用条款</a></div><small>© 2026 VirtuGene</small></footer>
+  <footer class="footer">
+    <div class="shell footer-inner">
+      <span class="footer-brand">VirtuGene</span>
+      <p class="footer-line">让数字灵魂拥有时间。</p>
+      <nav class="footer-links" aria-label="页脚导航">
+        <a href="./privacy.html">隐私说明</a>
+        <a href="./terms.html">使用条款</a>
+        <a href="https://github.com/wzy6789/VirtuGene-Mobile" rel="noreferrer">GitHub ↗</a>
+      </nav>
+      <small class="footer-copy">© 2026 VirtuGene</small>
+    </div>
+  </footer>
 
-  <script>
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const revealNodes = document.querySelectorAll('.reveal');
-    if (reduced) revealNodes.forEach((node) => node.classList.add('is-visible'));
-    else {
-      const observer = new IntersectionObserver((entries, self) => entries.forEach((entry) => { if (entry.isIntersecting) { entry.target.classList.add('is-visible'); self.unobserve(entry.target); } }), { threshold: .12 });
-      revealNodes.forEach((node) => observer.observe(node));
-    }
-    const progress = document.querySelector('.journey-progress span');
-    const clamp = (value) => Math.max(0, Math.min(1, value));
-    const updateProgress = () => { const pageProgress = Math.min(1, scrollY / Math.max(1, document.body.scrollHeight - innerHeight)); if (progress) progress.style.height = `${pageProgress * 100}%`; const hero = document.querySelector('.hero'); const meet = document.querySelector('.meet-section'); const memory = document.querySelector('.memory-section'); const world = document.querySelector('.world-section'); const heroProgress = hero ? Math.max(0, Math.min(1, scrollY / Math.max(1, hero.offsetHeight * .9))) : 0; const sceneProgress = (node) => node ? clamp((innerHeight - node.getBoundingClientRect().top) / (innerHeight + node.offsetHeight)) : 0; document.documentElement.style.setProperty('--scroll-progress', pageProgress.toFixed(3)); document.documentElement.style.setProperty('--hero-progress', heroProgress.toFixed(3)); document.documentElement.style.setProperty('--meet-progress', sceneProgress(meet).toFixed(3)); document.documentElement.style.setProperty('--memory-progress', sceneProgress(memory).toFixed(3)); document.documentElement.style.setProperty('--world-progress', sceneProgress(world).toFixed(3)); document.body.classList.toggle('is-scrolled', scrollY > 42); document.body.classList.toggle('memory-active', Boolean(memory && memory.getBoundingClientRect().top < innerHeight * .72 && memory.getBoundingClientRect().bottom > innerHeight * .28)); };
-    addEventListener('scroll', updateProgress, { passive: true }); updateProgress();
-    const pointer = document.querySelector('.cursor-glow');
-    if (!reduced && pointer) { let tx = innerWidth / 2, ty = innerHeight / 2, x = tx, y = ty; addEventListener('pointermove', (event) => { tx = event.clientX; ty = event.clientY; }); const move = () => { x += (tx - x) * .12; y += (ty - y) * .12; pointer.style.setProperty('--x', `${x}px`); pointer.style.setProperty('--y', `${y}px`); requestAnimationFrame(move); }; move(); document.querySelectorAll('[data-tilt]').forEach((card) => { card.addEventListener('pointermove', (event) => { const box = card.getBoundingClientRect(); card.style.setProperty('--rx', `${((event.clientY - box.top) / box.height - .5) * -2}deg`); card.style.setProperty('--ry', `${((event.clientX - box.left) / box.width - .5) * 3}deg`); }); card.addEventListener('pointerleave', () => { card.style.setProperty('--rx', '0deg'); card.style.setProperty('--ry', '0deg'); }); }); }
-    if (!reduced) document.querySelectorAll('[data-magnetic]').forEach((target) => { target.addEventListener('pointermove', (event) => { const box = target.getBoundingClientRect(); const dx = event.clientX - (box.left + box.width / 2); const dy = event.clientY - (box.top + box.height / 2); const distance = Math.hypot(dx, dy); const pull = Math.max(0, 1 - distance / 140); target.style.setProperty('--mx', `${dx * pull * .055}px`); target.style.setProperty('--my', `${dy * pull * .055}px`); }); target.addEventListener('pointerleave', () => { target.style.setProperty('--mx', '0px'); target.style.setProperty('--my', '0px'); }); });
-    const canvas = document.querySelector('#starfield');
-    if (canvas && !reduced) { const ctx = canvas.getContext('2d'); let stars = []; const resize = () => { const ratio = Math.min(devicePixelRatio || 1, 2); canvas.width = innerWidth * ratio; canvas.height = innerHeight * ratio; canvas.style.width = `${innerWidth}px`; canvas.style.height = `${innerHeight}px`; ctx.setTransform(ratio, 0, 0, ratio, 0, 0); stars = Array.from({ length: Math.min(100, Math.floor(innerWidth / 12)) }, () => ({ x: Math.random() * innerWidth, y: Math.random() * innerHeight, r: Math.random() * 1.1 + .2, a: Math.random() * .35 + .06, v: Math.random() * .1 + .02 })); }; const draw = () => { ctx.clearRect(0, 0, innerWidth, innerHeight); stars.forEach((star) => { star.y -= star.v; if (star.y < -2) { star.y = innerHeight + 2; star.x = Math.random() * innerWidth; } ctx.beginPath(); ctx.fillStyle = `rgba(141, 213, 232, ${star.a})`; ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2); ctx.fill(); }); requestAnimationFrame(draw); }; addEventListener('resize', resize); resize(); draw(); }
-  </script>
-  <script>
-    (() => {
-      const root = document.documentElement;
-      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      setTimeout(() => root.classList.add('hero-ready'), reducedMotion ? 0 : 1900);
-      const motion = { targetX: 0, targetY: 0, x: 0, y: 0, targetScroll: window.scrollY, scroll: window.scrollY, last: performance.now() };
-      addEventListener('scroll', () => { motion.targetScroll = window.scrollY; }, { passive: true });
-      const syncCamera = () => {
-        const progress = Math.min(1, Math.max(0, window.scrollY / Math.max(1, document.body.scrollHeight - window.innerHeight)));
-        const heroProgress = Math.min(1, Math.max(0, window.scrollY / Math.max(1, (document.querySelector('.hero')?.offsetHeight || window.innerHeight) * .9)));
-        const sceneProgress = (node) => node ? Math.max(0, Math.min(1, (window.innerHeight - node.getBoundingClientRect().top) / (window.innerHeight + node.offsetHeight))) : 0;
-        const productProgress = sceneProgress(document.querySelector('.product-reveal'));
-        const downloadProgress = sceneProgress(document.querySelector('.download-section'));
-        root.style.setProperty('--camera-progress', progress.toFixed(3));
-        root.style.setProperty('--hero-camera', heroProgress.toFixed(3));
-        root.style.setProperty('--product-progress', productProgress.toFixed(3));
-        root.style.setProperty('--download-progress', downloadProgress.toFixed(3));
-      };
-      addEventListener('scroll', syncCamera, { passive: true });
-      syncCamera();
-      const meetStage = document.querySelector('.meet-stage');
-      if (meetStage && !reducedMotion && 'IntersectionObserver' in window) {
-        const meetObserver = new IntersectionObserver(([entry]) => {
-          if (entry.isIntersecting) {
-            meetStage.classList.add('is-live');
-            meetObserver.disconnect();
-          }
-        }, { threshold: .28 });
-        meetObserver.observe(meetStage);
-      } else if (meetStage) meetStage.classList.add('is-live');
-      if (!reducedMotion) addEventListener('pointermove', (event) => {
-        root.style.setProperty('--pointer-x', `${event.clientX}px`);
-        root.style.setProperty('--pointer-y', `${event.clientY}px`);
-        motion.targetX = event.clientX / Math.max(1, innerWidth) - .5;
-        motion.targetY = event.clientY / Math.max(1, innerHeight) - .5;
-      }, { passive: true });
-      const renderMotion = (now) => {
-        const dt = Math.min(48, now - motion.last); motion.last = now;
-        motion.x += (motion.targetX - motion.x) * .06;
-        motion.y += (motion.targetY - motion.y) * .06;
-        motion.scroll += (motion.targetScroll - motion.scroll) * .08;
-        root.style.setProperty('--camera-x', `${(motion.x * 24).toFixed(2)}px`);
-        root.style.setProperty('--camera-y', `${(motion.y * 16).toFixed(2)}px`);
-        root.style.setProperty('--camera-z', `${(motion.scroll * .012).toFixed(2)}px`);
-        root.style.setProperty('--parallax-x', `${(motion.x * 24).toFixed(2)}px`);
-        root.style.setProperty('--parallax-y', `${(motion.y * 16).toFixed(2)}px`);
-        root.style.setProperty('--scroll-velocity', `${Math.min(1, Math.abs(motion.targetScroll - motion.scroll) / Math.max(1, innerHeight)).toFixed(3)}`);
-        if (!reducedMotion) requestAnimationFrame(renderMotion);
-      };
-      if (!reducedMotion) requestAnimationFrame(renderMotion);
-      const sectionObserver = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => entries.forEach((entry) => { if (entry.isIntersecting) document.body.dataset.scene = entry.target.id || 'awakening'; }), { threshold: .45 }) : null;
-      document.querySelectorAll('main section[id]').forEach((section) => sectionObserver?.observe(section));
-    })();
-  </script>
-  <script>
-    (() => {
-      const root = document.documentElement;
-      const world = document.querySelector('.world-section');
-      const scenes = [...document.querySelectorAll('.world-scene')];
-      const product = document.querySelector('.product-reveal');
-      const device = document.querySelector('.app-device-main img');
-      const chapters = [...document.querySelectorAll('.product-chapters span')];
-      const slides = [
-        { src: './assets/app-talk.png', alt: 'VirtuGene conversation screen' },
-        { src: './assets/app-diary.png', alt: 'VirtuGene memory screen' },
-        { src: './assets/app-world.png', alt: 'VirtuGene world screen' },
-        { src: './assets/app-character.png', alt: 'VirtuGene character screen' }
-      ];
-      let lastWorld = -1;
-      let lastSlide = -1;
-      const clamp = (value) => Math.max(0, Math.min(1, value));
-      const updateWorldAndProduct = () => {
-        if (world && scenes.length) {
-          const rect = world.getBoundingClientRect();
-          const progress = clamp((innerHeight * .7 - rect.top) / Math.max(1, rect.height * .78));
-          const index = Math.min(scenes.length - 1, Math.floor(progress * scenes.length));
-          if (index !== lastWorld) {
-            scenes.forEach((scene, i) => scene.classList.toggle('is-current', i === index));
-            lastWorld = index;
-          }
-        }
-        if (product && device) {
-          const rect = product.getBoundingClientRect();
-          const progress = clamp((innerHeight - rect.top) / Math.max(1, innerHeight + rect.height));
-          const index = Math.min(slides.length - 1, Math.floor(progress * slides.length));
-          if (index !== lastSlide) {
-            const frame = device.closest('.app-device-main');
-            frame?.classList.add('is-swapping');
-            window.setTimeout(() => { device.src = slides[index].src; device.alt = slides[index].alt; frame?.classList.remove('is-swapping'); }, 180);
-            chapters.forEach((chapter, i) => chapter.classList.toggle('is-active', i === Math.min(chapters.length - 1, index)));
-            lastSlide = index;
-          }
-        }
-      };
-      addEventListener('scroll', updateWorldAndProduct, { passive: true });
-      addEventListener('resize', updateWorldAndProduct, { passive: true });
-      chapters.forEach((chapter, index) => chapter.addEventListener('click', () => {
-        if (!product) return;
-        const target = product.offsetTop + product.offsetHeight * (index / slides.length);
-        scrollTo({ top: target, behavior: 'smooth' });
-      }));
-      updateWorldAndProduct();
-    })();
-  </script>
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="查看界面截图" hidden>
+    <div class="lightbox-backdrop" data-lightbox-close></div>
+    <figure class="lightbox-figure">
+      <img id="lightbox-image" src="" alt="" decoding="async">
+      <figcaption id="lightbox-caption"></figcaption>
+    </figure>
+    <button class="lightbox-close" type="button" data-lightbox-close aria-label="关闭">×</button>
+  </div>
 
+  <script src="./main.js"></script>
 </body>
 </html>
