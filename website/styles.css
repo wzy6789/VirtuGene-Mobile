@@ -45,7 +45,6 @@ body.is-scrolled .site-header{background:linear-gradient(180deg,rgba(3,5,11,.62)
 .chamber-orbit.orbit-a{width:92%;height:31%;left:2%;top:45%;z-index:4}.chamber-orbit.orbit-b{width:68%;height:23%;left:13%;top:45%;z-index:4}
 .meet-section{position:relative}
 .meet-stage{background:radial-gradient(ellipse at calc(50% + var(--meet-progress,0) * 7%) 34%,rgba(82,132,190,.22),transparent 40%),linear-gradient(180deg,rgba(15,25,44,.24),rgba(3,6,13,.96));transform:translateY(calc((1 - var(--meet-progress,0)) * 18px))}
-.meet-stage:after{content:"";position:absolute;z-index:6;inset:0;pointer-events:none;background:linear-gradient(90deg,transparent 55%,rgba(142,232,233,.04) 75%,transparent),radial-gradient(ellipse at 24% 78%,rgba(142,232,233,.14),transparent 23%);mix-blend-mode:screen}
 .meet-light{transform:translateX(calc(-50% + var(--meet-progress,0) * 46px)) scale(calc(.85 + var(--meet-progress,0) * .25))}
 .meet-chamber{transform:translateX(calc(var(--meet-progress,0) * 22px));transition:transform .2s ease-out}
 .meet-chamber img{filter:saturate(.62) blur(calc((1 - var(--meet-progress,0)) * 2px));opacity:calc(.38 + var(--meet-progress,0) * .2)}
@@ -133,10 +132,8 @@ body{letter-spacing:.025em}
 .meet-section{min-height:130vh;padding:230px 0 250px}
 .meet-stage{height:720px;margin-top:112px;overflow:visible;border:0;background:radial-gradient(ellipse at 58% 32%,rgba(82,132,190,.2),transparent 38%),linear-gradient(180deg,rgba(15,25,44,.08),rgba(3,6,13,.9))}
 .meet-stage:before{inset:-12% -4%;background:linear-gradient(90deg,rgba(3,5,11,.66),transparent 38%,transparent 75%,rgba(3,5,11,.48)),repeating-linear-gradient(90deg,transparent 0 130px,rgba(142,232,233,.028) 131px,transparent 132px);filter:blur(1px)}
-.meet-stage:after{background:linear-gradient(90deg,transparent 45%,rgba(142,232,233,.07) 71%,transparent),radial-gradient(ellipse at 27% 80%,rgba(142,232,233,.15),transparent 23%)}
 .meet-light{top:-280px;left:54%;width:640px;height:640px;opacity:.8}
 .meet-chamber{left:20%;bottom:-2%;width:52%;height:650px;border:0;border-radius:48% 48% 0 0;background:radial-gradient(ellipse at 54% 28%,rgba(100,134,209,.12),transparent 38%),linear-gradient(180deg,rgba(76,104,170,.035),rgba(4,8,16,.52));box-shadow:0 60px 110px rgba(0,0,0,.42),inset 0 0 85px rgba(142,232,233,.05)}
-.meet-chamber:after{content:"";position:absolute;z-index:4;inset:0;background:linear-gradient(180deg,transparent 38%,rgba(3,5,11,.76) 100%);pointer-events:none}
 .meet-grid{opacity:.23;background-size:112px 112px;mask-image:linear-gradient(180deg,transparent,black 20% 76%,transparent)}
 .meet-chamber img{width:360px;height:580px;opacity:.62;filter:saturate(.7) drop-shadow(0 0 35px rgba(142,232,233,.14))}
 .meet-dialogue{left:61%;top:24%;max-width:390px;transform:translate3d(calc((1 - var(--meet-progress,0)) * 22px),calc((1 - var(--meet-progress,0)) * 10px),0);opacity:calc(.58 + var(--meet-progress,0) * .42)}
@@ -261,7 +258,6 @@ html.hero-ready .hero h1 .nowrap:last-child{animation:maskWordIn 1.1s .34s cubic
 /* Meet scene receives a separate visual identity: warm interior, cool window, no display frame. */
 .meet-section{background:radial-gradient(ellipse 35% 45% at 78% 47%,rgba(255,200,168,.08),transparent 68%),linear-gradient(180deg,#03050b 0%,#080b13 52%,#03050b 100%)}
 .meet-stage{background:radial-gradient(ellipse at 24% 35%,rgba(68,106,144,.16),transparent 34%),linear-gradient(104deg,rgba(3,5,11,.94) 0 28%,rgba(17,22,32,.55) 52%,rgba(3,5,11,.18) 100%)}
-.meet-stage:after{background:linear-gradient(104deg,transparent 0 43%,rgba(255,200,168,.1) 56%,transparent 68%),radial-gradient(ellipse at 18% 74%,rgba(142,232,233,.13),transparent 28%)}
 .meet-chamber:before{content:"";position:absolute;z-index:0;inset:19% 18% 25% 15%;border-radius:50%;background:radial-gradient(ellipse at 50% 40%,rgba(255,200,168,.1),transparent 52%);filter:blur(28px)}
 .meet-chamber img{position:relative;z-index:2}
 .dialogue-line{font-weight:430;text-shadow:0 2px 18px rgba(0,0,0,.45)}.dialogue-line.is-last{color:var(--warm-memory);text-shadow:0 0 28px rgba(255,200,168,.18)}
@@ -351,7 +347,6 @@ html.hero-ready .awakening-scan{animation:scanCharacter 1.7s .35s cubic-bezier(.
 
 
 /* Distributed character direction: every scene carries a different emotional state. */
-.meet-chamber:after{content:"";position:absolute;z-index:1;inset:9% 5% 0;background:linear-gradient(180deg,rgba(3,5,11,.05),rgba(3,5,11,.82)),url('./assets/character-dialogue-warm.png') center bottom/72% auto no-repeat;opacity:.2;mix-blend-mode:screen;pointer-events:none;filter:saturate(.7) blur(.2px)}
 .memory-portrait-fragment{background-image:linear-gradient(180deg,rgba(3,5,11,.08),rgba(3,5,11,.65)),url('./assets/character-memory-reflect.png')}
 .world-character-cafe{background-image:linear-gradient(180deg,transparent 30%,rgba(9,10,18,.68)),url('./assets/character-world-cafe.png')}
 .world-character-rain{background-image:linear-gradient(180deg,transparent 24%,rgba(6,12,22,.68)),url('./assets/character-world-rain.png')}
@@ -359,10 +354,8 @@ html.hero-ready .awakening-scan{animation:scanCharacter 1.7s .35s cubic-bezier(.
 .world-character-rooftop{background-image:linear-gradient(180deg,transparent 22%,rgba(5,9,18,.82)),url('./assets/character-world-rooftop.png')}
 .download-section:after{background-image:linear-gradient(180deg,transparent,rgba(3,5,11,.15)),url('./assets/character-download-wave.png')}
 /* Small, quiet state echoes keep the page alive without turning it into a gallery. */
-.meet-stage:after{content:"";position:absolute;z-index:1;right:7%;bottom:9%;width:170px;height:170px;background:linear-gradient(180deg,transparent 20%,rgba(3,5,11,.5)),url('./assets/character-dialogue-question.png') center bottom/contain no-repeat;opacity:.12;mix-blend-mode:screen;filter:saturate(.65);pointer-events:none}
 .site-footer:before{content:"";position:absolute;right:8%;bottom:-12px;width:105px;height:155px;background:url('./assets/character-states-soft.png') center bottom/contain no-repeat;opacity:.08;filter:saturate(.4);mix-blend-mode:screen;pointer-events:none}
 .site-footer{position:relative}
-@media(max-width:680px){.meet-chamber:after,.meet-stage:after{opacity:.08}.site-footer:before{display:none}}
 
 
 .product-stage:before{content:"";position:absolute;z-index:0;left:1%;right:22%;top:10%;bottom:8%;background:linear-gradient(180deg,transparent 20%,rgba(3,5,11,.8)),url('./assets/character-dialogue-open.png') center bottom/contain no-repeat;opacity:.07;mix-blend-mode:screen;filter:saturate(.5) blur(1px);pointer-events:none}
