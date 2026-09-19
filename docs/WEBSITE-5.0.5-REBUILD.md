@@ -148,8 +148,6 @@ API Key 用占位串且从不渲染到界面。截图里没有真实聊天、邮
 
 保留：`privacy.html`、`terms.html`（文案未改）、`README.md`（重写）。
 
----
-
 ## 三、检查结果
 
 自动化检查：`55 项 / 55 通过`（真实 Edge 浏览器 + CDP，逐视口实测，脚本 `.tmp-preview/site-verify.mjs`）。
@@ -197,3 +195,21 @@ API Key 用占位串且从不渲染到界面。截图里没有真实聊天、邮
   记忆能力的效果以产品实际表现为准，官网只做示意。
 - 世界段落只展示现有界面，不暗示官网可在线操作；（页面上已标注“官网不提供在线试玩”）。
 - 角色立绘的**公开展示授权**需要项目方自行确认（素材来自项目内部素材目录）。
+
+---
+
+## 四、交付与线上验证
+
+- 提交：`89e1b03 design: rebuild VirtuGene website as one clear 5-section page`（59 个文件，+1830 / −661）。
+- 线上地址：**https://wzy6789.github.io/VirtuGene-Mobile/**（GitHub Actions「Deploy VirtuGene website」run 35427155684 部署成功）。
+- **线上复验**：同一套 55 项检查直接跑在线上地址上，同样 `ALL PASS`
+  （本地结果 `.tmp-preview/site/`，线上结果 `.tmp-preview/site-live/`）。
+  这是实测，不是“已推送”，也不是拿本地结果代替线上结果。
+- 线上资源逐一实测 HTTP 200：首页、`styles.css`、`main.js`、`privacy.html`、`terms.html`、
+  首屏人物图、5 张截图、5 张原图、应用图标。
+- 验收包（桌面）：`C:\Users\34568\Desktop\VirtuGene-Website-Review\`
+  —— `screenshots/`（6 个视口的整页长图、首屏与世界区域的高分屏截图、图片查看、
+  关闭 JS、减少动态、200% 缩放、手机横屏、滚动序列）、`unused-captures/`（同批未采用的 4 张界面截图）、
+  `result.txt`、本文件。
+- 本地预览：`python -m http.server 4174 --directory website`，打开 `http://127.0.0.1:4174/`。
+
