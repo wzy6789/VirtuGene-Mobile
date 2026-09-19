@@ -87,17 +87,17 @@
 
     <section id="product" class="product-reveal scene section-shell">
       <div class="product-copy reveal"><p class="section-code">04 / 产品本身</p><h2><span class="nowrap">Talk.</span> <span class="nowrap">Remember.</span><br><em class="nowrap">Live.</em></h2><p>这不是一张概念海报。角色、记忆和世界，都会在手机里真正发生。</p><div class="product-triad"><span>对话</span><span>记忆</span><span>共生</span></div></div>
-      <div class="product-stage reveal" aria-label="VirtuGene 应用界面展示">
-        <div class="product-haze"></div><div class="product-thread product-thread-a"></div><div class="product-thread product-thread-b"></div>
-        <div class="app-device app-device-back"><div class="app-screen"><img src="./assets/app-profile.png" alt="VirtuGene 角色界面" loading="lazy"></div></div>
-        <div class="app-device app-device-main"><div class="app-screen"><img src="./assets/app-diary.png" alt="VirtuGene 记忆界面" loading="lazy"></div></div>
-        <div class="app-device app-device-front"><div class="app-screen"><img src="./assets/app-create-gene.png" alt="VirtuGene 创建界面" loading="lazy"></div></div>
+      <div class="product-stage reveal" aria-label="VirtuGene app showcase">
+        <div class="product-haze"></div>
+        <div class="product-thread product-thread-a"></div><div class="product-thread product-thread-b"></div>
+        <div class="app-device app-device-main"><div class="app-screen"><img src="./assets/app-talk.png" alt="VirtuGene conversation screen" loading="lazy"></div></div>
+        <div class="product-chapters" aria-label="Product chapters"><span class="is-active">01 <b>TALK</b></span><span>02 <b>MEMORY</b></span><span>03 <b>WORLD</b></span></div>
       </div>
     </section>
 
     <section id="download" class="download-section scene section-shell">
       <div class="download-copy reveal"><p class="section-code">05 / 开始</p><h2><span class="nowrap">从一个角色开始，</span><br><em class="nowrap">让时间替你留下答案。</em></h2><p>创建一个会记得你的角色，或者把已经发生的故事带进来。世界会从第一句话开始长出自己的形状。</p></div>
-      <div class="download-panel reveal"><div class="download-panel-head"><span class="signal-dot"></span><span>PUBLIC BUILD</span><b>可下载</b></div><div class="download-version"><span>Android 当前版本</span><strong>5.0.4</strong></div><div class="download-actions"><a href="https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v5.0.4/app-debug.apk"><span>Android 安装包</span><small>APK ↗</small></a><a href="https://github.com/wzy6789/virtugene/releases/download/v2.1.0/VirtuGene-Setup-2.1.0-win.exe"><span>Windows 客户端</span><small>EXE ↗</small></a></div><p class="download-note">从 GitHub 获取公开构建。请确认设备权限与文件来源。</p></div>
+      <div class="download-panel reveal"><div class="download-actions"><a href="https://github.com/wzy6789/virtugene/releases/download/v2.1.0/VirtuGene-Setup-2.1.0-win.exe"><span>Download for Windows</span><small>v2.1.0</small></a><a href="https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v5.0.4/app-debug.apk"><span>Download for Android</span><small>v5.0.4</small></a></div><p class="download-note">GitHub Public Build - VirtuGene</p></div>
     </section>
   </main>
 
@@ -175,5 +175,55 @@
       document.querySelectorAll('main section[id]').forEach((section) => sectionObserver?.observe(section));
     })();
   </script>
+  <script>
+    (() => {
+      const root = document.documentElement;
+      const world = document.querySelector('.world-section');
+      const scenes = [...document.querySelectorAll('.world-scene')];
+      const product = document.querySelector('.product-reveal');
+      const device = document.querySelector('.app-device-main img');
+      const chapters = [...document.querySelectorAll('.product-chapters span')];
+      const slides = [
+        { src: './assets/app-talk.png', alt: 'VirtuGene conversation screen' },
+        { src: './assets/app-diary.png', alt: 'VirtuGene memory screen' },
+        { src: './assets/app-world.png', alt: 'VirtuGene world screen' },
+        { src: './assets/app-character.png', alt: 'VirtuGene character screen' }
+      ];
+      let lastWorld = -1;
+      let lastSlide = -1;
+      const clamp = (value) => Math.max(0, Math.min(1, value));
+      const updateWorldAndProduct = () => {
+        if (world && scenes.length) {
+          const rect = world.getBoundingClientRect();
+          const progress = clamp((innerHeight * .7 - rect.top) / Math.max(1, rect.height * .78));
+          const index = Math.min(scenes.length - 1, Math.floor(progress * scenes.length));
+          if (index !== lastWorld) {
+            scenes.forEach((scene, i) => scene.classList.toggle('is-current', i === index));
+            lastWorld = index;
+          }
+        }
+        if (product && device) {
+          const rect = product.getBoundingClientRect();
+          const progress = clamp((innerHeight - rect.top) / Math.max(1, innerHeight + rect.height));
+          const index = Math.min(slides.length - 1, Math.floor(progress * slides.length));
+          if (index !== lastSlide) {
+            device.style.opacity = '0';
+            window.setTimeout(() => { device.src = slides[index].src; device.alt = slides[index].alt; device.style.opacity = '1'; }, 110);
+            chapters.forEach((chapter, i) => chapter.classList.toggle('is-active', i === Math.min(2, index)));
+            lastSlide = index;
+          }
+        }
+      };
+      addEventListener('scroll', updateWorldAndProduct, { passive: true });
+      addEventListener('resize', updateWorldAndProduct, { passive: true });
+      chapters.forEach((chapter, index) => chapter.addEventListener('click', () => {
+        if (!product) return;
+        const target = product.offsetTop + product.offsetHeight * (index / slides.length);
+        scrollTo({ top: target, behavior: 'smooth' });
+      }));
+      updateWorldAndProduct();
+    })();
+  </script>
+
 </body>
 </html>
