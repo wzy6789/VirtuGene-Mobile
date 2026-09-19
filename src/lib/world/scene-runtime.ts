@@ -16,6 +16,7 @@
 import { db, type WorldScene, type WorldSceneEntry } from '../../db/index';
 import { worldSceneRepo } from '../../db/world-scene-repo';
 import { worldLocationRepo } from '../../db/world-location-repo';
+import { worldObjectRepo } from '../../db/world-object-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
@@ -134,6 +135,7 @@ export async function startScene(params: {
   const scene = await worldSceneRepo.getScene(sceneId);
   if (scene) {
     const location = await worldLocationRepo.ensureFromScene(scene);
+    await worldObjectRepo.ensureForScene({ ...scene, locationId: location.id });
     const world = await db.worlds.get(params.worldId);
     const worldTime = world?.clock?.worldAt ?? Date.now();
     await Promise.all(params.characterIds.map((characterId) => worldAgentRepo.moveCharacter({

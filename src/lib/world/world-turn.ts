@@ -42,6 +42,7 @@ import type { WorldAction } from './world-actions';
 import type { WorldTurn, WorldTurnStatus } from '../../db/index';
 import { worldLocationRepo } from '../../db/world-location-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
+import { worldObjectRepo } from '../../db/world-object-repo';
 
 /* ------------------------------------------------------------------ *
  * 串行队列（§58）：同一个世界同一时刻只跑一轮，避免读到半完成状态
@@ -178,6 +179,7 @@ export async function applyLocalWorldAction(params: {
     const location = movedScene ? await worldLocationRepo.ensureFromScene(movedScene) : undefined;
     const world = await db.worlds.get(worldId);
     if (location && movedScene) {
+      await worldObjectRepo.ensureForScene({ ...movedScene, locationId: location.id });
       await Promise.all(movedScene.characterIds.map((characterId) => worldAgentRepo.moveCharacter({
         userId,
         worldId,

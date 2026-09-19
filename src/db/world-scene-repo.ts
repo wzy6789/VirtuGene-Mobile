@@ -1,4 +1,5 @@
 import { db, type SceneParticipantState, type WorldScene, type WorldSceneEntry, type WorldSceneState } from './index';
+import { worldObjectRepo } from './world-object-repo';
 
 /**
  * 场景仓库（World Stage）：
@@ -280,6 +281,7 @@ export const worldSceneRepo = {
       await db.worldSceneEntries.where('sceneId').equals(id).delete();
       await db.worldScenes.delete(id);
     });
+    await worldObjectRepo.clearForScene(id);
   },
 
   async countByWorld(worldId: string): Promise<number> {

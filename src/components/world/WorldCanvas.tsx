@@ -18,12 +18,15 @@
  *   看到回复后即可继续输入（结算在后台继续）
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { WorldScene, WorldSceneEntry } from '../../db/index';
+import type { WorldAgentState, WorldLocation, WorldObject, WorldPresence, WorldScene, WorldSceneEntry } from '../../db/index';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
 import { worldRepo } from '../../db/world-repo';
 import { worldSceneRepo } from '../../db/world-scene-repo';
+import { worldLocationRepo } from '../../db/world-location-repo';
+import { worldAgentRepo } from '../../db/world-agent-repo';
+import { worldObjectRepo } from '../../db/world-object-repo';
 import {
   canvasPresence,
   ensureCanvasScene,
@@ -31,6 +34,7 @@ import {
   latestSuggestions,
   loadCanvas,
   loadEarlier,
+  moveSceneToLocation,
   pauseCanvas,
   saveAsStory,
   worldTimeLabel,
@@ -40,6 +44,7 @@ import { worldAiAvailability, type WorldAiAvailability } from '../../lib/world/w
 import { ensureWorldKernel } from '../../lib/world/world-kernel';
 import { WorldStream } from './WorldStream';
 import { WorldComposer, WorldControlSheet, WorldSuggestions, type WorldControlAction } from './WorldControls';
+import { WorldExplorePanel } from './WorldExplorePanel';
 
 const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 function canvasRevealDelay(entry: WorldSceneEntry, previousSpeaker: string | null): number {
@@ -72,6 +77,11 @@ export function WorldCanvas() {
   const [savedStory, setSavedStory] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [entryMemoryMode, setEntryMemoryMode] = useState<'memory' | 'present'>('memory');
+  const [exploreOpen, setExploreOpen] = useState(false);
+  const [locations, setLocations] = useState<WorldLocation[]>([]);
+  const [objects, setObjects] = useState<WorldObject[]>([]);
+  const [worldPresence, setWorldPresence] = useState<WorldPresence[]>([]);
+  const [agents, setAgents] = useState<WorldAgentState[]>([]);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   /** 用户是否停在底部（决定新内容要不要自动跟随，§70） */
@@ -113,6 +123,49 @@ export function WorldCanvas() {
     })();
     return () => { alive = false; };
   }, [userId, canvasSceneId]);
+
+  // The exploration layer is a read-only view over the same world records.
+  // It is refreshed when a scene changes, so leaving and returning shows the
+  // latest objects and who is actually present at the location.
+  useEffect(() => {
+    if (!scene || !userId) {
+      setLocations([]);
+      setObjects([]);
+      setWorldPresence([]);
+      setAgents([]);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const location = await worldLocationRepo.ensureFromScene(scene);
+        await worldObjectRepo.ensureForScene({ ...scene, locationId: location.id });
+        if (alive && scene.locationId !== location.id) {
+          setScene((current) => current?.id === scene.id ? { ...current, locationId: location.id } : current);
+        }
+        const [nextLocations, nextObjects, nextPresence, nextAgents] = await Promise.all([
+          worldLocationRepo.listForWorld(scene.worldId, userId),
+          worldObjectRepo.listForLocation(scene.worldId, location.id, userId),
+          worldAgentRepo.listAtLocation(scene.worldId, location.id, userId),
+          worldAgentRepo.listStates(scene.worldId, userId),
+        ]);
+        if (alive) {
+          setLocations(nextLocations);
+          setObjects(nextObjects);
+          setWorldPresence(nextPresence);
+          setAgents(nextAgents);
+        }
+      } catch {
+        if (alive) {
+          setLocations([]);
+          setObjects([]);
+          setWorldPresence([]);
+          setAgents([]);
+        }
+      }
+    })();
+    return () => { alive = false; };
+  }, [scene, userId]);
 
   /* ------------------------------ AI 可用性（§55） ------------------------------ */
   useEffect(() => {
@@ -193,6 +246,7 @@ export function WorldCanvas() {
     setFailedTurnId(null);
     setSuggestions([]);
     setText('');
+    setExploreOpen(false);
     stickRef.current = true;
     try {
       const world = await worldRepo.ensureDefaultWorld(userId);
@@ -353,9 +407,41 @@ export function WorldCanvas() {
 
   const presence = useMemo(() => {
     if (!scene) return { present: [] };
-    const present = characters.filter((c) => scene.characterIds.includes(c.id));
+    const ids = worldPresence.length ? worldPresence.map((item) => item.characterId) : scene.characterIds;
+    const present = characters.filter((c) => ids.includes(c.id));
     return { present };
-  }, [scene, characters]);
+  }, [scene, characters, worldPresence]);
+
+  const inspectObject = useCallback(async (object: WorldObject) => {
+    if (!userId) return;
+    await worldObjectRepo.applyAction(object.id, userId, 'inspect');
+    setObjects((current) => current.map((item) => item.id === object.id ? { ...item, lastAction: '你查看过这里', updatedAt: Date.now() } : item));
+    setExploreOpen(false);
+    await send(`我仔细查看了“${object.name}”，想知道这里还留下了什么`, 'control');
+  }, [send, userId]);
+
+  const actObject = useCallback(async (object: WorldObject, action: 'take' | 'leave' | 'open') => {
+    if (!userId) return;
+    const updated = await worldObjectRepo.applyAction(object.id, userId, action);
+    if (!updated) return;
+    setObjects((current) => current.map((item) => item.id === updated.id ? updated : item));
+    setExploreOpen(false);
+    const actionText = action === 'take' ? '把它带走' : action === 'leave' ? '把它放回这里' : '打开它';
+    await send(`我${actionText}：“${object.name}”`, 'control');
+  }, [send, userId]);
+
+  const moveToLocation = useCallback(async (location: WorldLocation) => {
+    if (!scene || !userId) return;
+    const moved = await moveSceneToLocation({
+      userId,
+      worldId: scene.worldId,
+      sceneId: scene.id,
+      locationId: location.id,
+    });
+    if (moved) setScene(moved);
+    setExploreOpen(false);
+    await send(`我想前往“${location.name}”，看看那里现在发生了什么`, 'control');
+  }, [moveSceneToLocation, scene, send, userId]);
 
   useEffect(() => {
     if (!scene) return;
@@ -365,7 +451,7 @@ export function WorldCanvas() {
   if (!userId) return null;
 
   return (
-    <div className="vg-canvas">
+    <div className="vg-canvas relative">
       {/* 顶部：只显示最必要的信息，点击才展开（§10） */}
       <div className="vg-canvas-top">
         <span className="vg-canvas-place">{scene ? `${scene.place} · ${worldTimeLabel(scene)}` : '正在进入世界…'}</span>
@@ -375,10 +461,27 @@ export function WorldCanvas() {
         <button type="button" className="vg-canvas-more" onClick={() => setHeaderOpen((v) => !v)} aria-expanded={headerOpen}>
           {headerOpen ? '收起' : '状态'}
         </button>
+        <button type="button" className="vg-canvas-more" onClick={() => setExploreOpen((value) => !value)} aria-expanded={exploreOpen}>
+          探索
+        </button>
         <button type="button" className="vg-canvas-exit" onClick={() => void exitCanvas()}>
           退出
         </button>
       </div>
+      {scene && exploreOpen && (
+        <WorldExplorePanel
+          scene={scene}
+          locations={locations}
+          objects={objects}
+          presence={worldPresence}
+          agents={agents}
+          characters={characters}
+          onClose={() => setExploreOpen(false)}
+          onInspect={(object) => void inspectObject(object)}
+          onAct={(object, action) => void actObject(object, action)}
+          onMove={(location) => void moveToLocation(location)}
+        />
+      )}
       {headerOpen && scene && (
         <div className="vg-canvas-panel">
           <p>地点：{scene.place}</p>

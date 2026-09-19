@@ -211,6 +211,26 @@ export interface WorldPulse {
   completedAt?: number;
 }
 
+/** A tangible detail in a Living World location. Objects are deliberately
+ * small, user-scoped records: they make a place discoverable without turning
+ * the world into a second inventory system. */
+export interface WorldObject {
+  id: string;
+  userId: string;
+  worldId: string;
+  locationId: string;
+  sceneId?: string;
+  name: string;
+  description: string;
+  kind: 'prop' | 'note' | 'door' | 'device';
+  state: 'present' | 'held' | 'moved' | 'gone';
+  lastAction?: string;
+  sourceType: 'scene' | 'user' | 'settlement';
+  sourceId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /**
  * 世界事件类型（语义必须严格区分，禁止为了少写 enum 而混用）：
  * - reality        现实生活（来自"我的生活"/日记的主动授权）
@@ -845,6 +865,7 @@ export class VirtuGeneDB extends Dexie {
   worldPresences!: Table<WorldPresence, string>;
   worldAgentStates!: Table<WorldAgentState, string>;
   worldPulses!: Table<WorldPulse, string>;
+  worldObjects!: Table<WorldObject, string>;
 
   constructor() {
     super('virtugene');
@@ -1090,6 +1111,12 @@ export class VirtuGeneDB extends Dexie {
           updatedAt: world.updatedAt ?? now,
         });
       }
+    });
+    // v20: Living World locations can expose a few tactile, inspectable
+    // objects. Keeping them separate from scene text lets the scene remain a
+    // readable stream while objects survive leaving and returning.
+    this.version(20).stores({
+      worldObjects: 'id,userId,worldId,locationId,sceneId,state,[worldId+locationId],updatedAt',
     });
   }
 }

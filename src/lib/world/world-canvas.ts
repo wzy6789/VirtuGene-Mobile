@@ -13,6 +13,9 @@ import type { Character, WorldScene, WorldSceneEntry } from '../../db/index';
 import { db } from '../../db/index';
 import { worldSceneRepo } from '../../db/world-scene-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
+import { worldLocationRepo } from '../../db/world-location-repo';
+import { worldObjectRepo } from '../../db/world-object-repo';
+import { worldAgentRepo } from '../../db/world-agent-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { knowledgeRepo } from '../../db/knowledge-repo';
 import { characterRef, userRef } from './subjects';
@@ -40,6 +43,49 @@ export function worldTimeLabel(scene: WorldScene): string {
   return scene.timeLabel || timeLabelFor(scene.state.timeOffsetMs ?? 0);
 }
 
+/** Move the active scene through the same persistent location state used by
+ * the world canvas. This deliberately updates the scene before the next turn
+ * is sent, so the director and every participant see the new place. */
+export async function moveSceneToLocation(params: {
+  userId: string;
+  worldId: string;
+  sceneId: string;
+  locationId: string;
+}): Promise<WorldScene | null> {
+  const scene = await worldSceneRepo.getScene(params.sceneId);
+  if (!scene || scene.userId !== params.userId || scene.worldId !== params.worldId) return null;
+
+  const location = await db.worldLocations.get(params.locationId);
+  if (
+    !location
+    || location.userId !== params.userId
+    || location.worldId !== params.worldId
+    || !location.active
+    || location.type === 'reality'
+  ) return null;
+
+  await worldSceneRepo.updateScene(scene.id, { place: location.name });
+  await db.worldScenes.update(scene.id, { locationId: location.id, updatedAt: Date.now() });
+  const world = await db.worlds.get(params.worldId);
+  const worldTime = world?.clock?.worldAt ?? Date.now();
+  await Promise.all(scene.characterIds.map((characterId) => worldAgentRepo.moveCharacter({
+    userId: params.userId,
+    worldId: params.worldId,
+    characterId,
+    locationId: location.id,
+    worldTime,
+  })));
+
+  const moved = (await worldSceneRepo.getScene(scene.id)) ?? {
+    ...scene,
+    place: location.name,
+    locationId: location.id,
+    updatedAt: Date.now(),
+  };
+  await worldObjectRepo.ensureForScene(moved);
+  return moved;
+}
+
 /**
  * 取回（必要时创建）"此刻"这一段。**0 次 AI 调用**。
  *
@@ -53,11 +99,18 @@ export async function ensureCanvasScene(params: {
 }): Promise<WorldScene> {
   const { userId, worldId } = params;
   const open = await worldSceneRepo.listScenes(worldId, { status: 'active', limit: 1, userId });
-  if (open[0]) return open[0];
+  if (open[0]) {
+    const location = await worldLocationRepo.ensureFromScene(open[0]);
+    await worldObjectRepo.ensureForScene({ ...open[0], locationId: location.id });
+    return (await worldSceneRepo.getScene(open[0].id)) ?? { ...open[0], locationId: location.id };
+  }
   const paused = await worldSceneRepo.listScenes(worldId, { status: 'paused', limit: 1, userId });
   if (paused[0]) {
     await worldSceneRepo.setSceneStatus(paused[0].id, 'active');
-    return (await worldSceneRepo.getScene(paused[0].id)) ?? paused[0];
+    const resumed = (await worldSceneRepo.getScene(paused[0].id)) ?? paused[0];
+    const location = await worldLocationRepo.ensureFromScene(resumed);
+    await worldObjectRepo.ensureForScene({ ...resumed, locationId: location.id });
+    return (await worldSceneRepo.getScene(resumed.id)) ?? { ...resumed, locationId: location.id };
   }
 
   // 新建：延续上一段的地点到"此刻"，让世界感觉是连续的
@@ -77,7 +130,10 @@ export async function ensureCanvasScene(params: {
     characterIds: participants,
   });
   await worldSceneRepo.setSceneStatus(id, 'active');
-  return (await worldSceneRepo.getScene(id))!;
+  const created = (await worldSceneRepo.getScene(id))!;
+  const location = await worldLocationRepo.ensureFromScene(created);
+  await worldObjectRepo.ensureForScene({ ...created, locationId: location.id });
+  return (await worldSceneRepo.getScene(id)) ?? { ...created, locationId: location.id };
 }
 
 /** 只读加载（分页）：默认最近 CANVAS_PAGE_SIZE 条 */

@@ -11,6 +11,7 @@ import { worldTurnRepo } from './world-turn-repo';
 import { worldLocationRepo } from './world-location-repo';
 import { worldAgentRepo } from './world-agent-repo';
 import { worldPulseRepo } from './world-pulse-repo';
+import { worldObjectRepo } from './world-object-repo';
 
 /**
  * 世界仓库（Living World 的门面）。
@@ -141,7 +142,7 @@ export const worldRepo = {
   async clearWorld(worldId: string): Promise<void> {
     await db.transaction(
       'rw',
-      [db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns, db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses],
+      [db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns, db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects],
       async () => {
         await worldEventRepo.clearForWorld(worldId);
         await worldSceneRepo.clearForWorld(worldId);
@@ -153,6 +154,7 @@ export const worldRepo = {
         await worldLocationRepo.clearForWorld(worldId);
         await worldAgentRepo.clearForWorld(worldId);
         await worldPulseRepo.clearForWorld(worldId);
+        await worldObjectRepo.clearForWorld(worldId);
       },
     );
   },
@@ -204,7 +206,7 @@ export const worldRepo = {
   async clearForUser(userId: string): Promise<void> {
     await db.transaction(
       'rw',
-      [db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns, db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses],
+      [db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns, db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects],
       async () => {
         await worldEventRepo.clearForUser(userId);
         await worldSceneRepo.clearForUser(userId);
@@ -216,6 +218,7 @@ export const worldRepo = {
         await worldLocationRepo.clearForUser(userId);
         await worldAgentRepo.clearForUser(userId);
         await worldPulseRepo.clearForUser(userId);
+        await worldObjectRepo.clearForUser(userId);
         await db.worlds.where('userId').equals(userId).delete();
       },
     );

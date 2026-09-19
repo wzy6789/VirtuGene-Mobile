@@ -21,7 +21,7 @@
  *   L5 关系状态 / L6 CharacterKnowledge / L7 Shared Memories
  *   L8 Continuity Threads / L9 World Events / L10 会话摘要（Actor 侧由既有 chat 上下文补）
  */
-import { db, type Character, type SharedMemory, type WorldEvent, type WorldFact, type WorldScene, type WorldSceneEntry, type ContinuityThread, type RelationshipState } from '../../db/index';
+import { db, type Character, type SharedMemory, type WorldEvent, type WorldFact, type WorldObject, type WorldScene, type WorldSceneEntry, type ContinuityThread, type RelationshipState } from '../../db/index';
 import { worldFactRepo } from '../../db/world-fact-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { worldSceneRepo } from '../../db/world-scene-repo';
@@ -35,6 +35,7 @@ import { selectRecallableScenes } from './scene-recall';
 import { listMentionableDiaryIds } from './diary-visibility';
 import { describeFacets, FACET_LABEL } from './relationships';
 import { buildHiddenUserProfile } from './user-profile';
+import { worldObjectRepo } from '../../db/world-object-repo';
 
 /** Context Builder 的输入（全部是已经取好的实体，避免在内部再查一遍角色） */
 export interface WorldContextParams {
@@ -85,6 +86,8 @@ export interface WorldContext {
   recentEntries: WorldSceneEntry[];
   /** L9 最近世界事件 */
   recentEvents: WorldEvent[];
+  /** 当前地点留下的可观察物件；它们是世界状态，不是聊天记忆。 */
+  objects: WorldObject[];
   /** L8 与在场角色相关的未完成的事 */
   openThreads: ContinuityThread[];
   /** 每个在场角色的私有上下文 */
@@ -111,11 +114,12 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
   const presence = presenceOf(scene, params.presence);
   const nameOf = (id: string) => params.characters.find((c) => c.id === id)?.name ?? '某人';
 
-  const [worldFacts, entries, recentEvents, allThreads] = await Promise.all([
+  const [worldFacts, entries, recentEvents, allThreads, objects] = await Promise.all([
     worldFactRepo.listWorldLevel(worldId, 16, userId),
     worldSceneRepo.listEntries(scene.id, { limit: Math.max(20, params.recentLimit ?? 60) }),
     worldEventRepo.getRecent(worldId, 12, userId),
     continuityRepo.getOpenByUser(userId),
+    scene.locationId ? worldObjectRepo.listForLocation(worldId, scene.locationId, userId) : Promise.resolve([]),
   ]);
 
   const recentEntries = [...entries].reverse();
@@ -188,6 +192,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     worldFacts,
     recentEntries,
     recentEvents,
+    objects,
     openThreads,
     perCharacter,
     secrets,
@@ -270,6 +275,12 @@ export function renderEventLayer(ctx: WorldContext): string {
     .join('\n')}`;
 }
 
+/** L1.5：让角色知道地点里确实存在什么，以及哪些东西已经被改变。 */
+export function renderObjectLayer(ctx: WorldContext): string {
+  if (ctx.objects.length === 0) return '';
+  return `【眼前可以观察到的物件】\n${ctx.objects.slice(0, 8).map((object) => `- ${object.name}：${object.description}${object.lastAction ? `（${object.lastAction}）` : ''}`).join('\n')}`;
+}
+
 /** L3：当前片段最近内容（给 Director 判断"现在到哪了"） */
 export function renderRecentLayer(ctx: WorldContext, limit = 16): string {
   const rows = ctx.recentEntries.slice(0, limit).reverse();
@@ -284,6 +295,7 @@ export function renderWorldBrief(ctx: WorldContext, recentLimit = 16): string {
     renderRelationLayer(ctx),
     renderThreadLayer(ctx),
     renderEventLayer(ctx),
+    renderObjectLayer(ctx),
     renderRecentLayer(ctx, recentLimit),
   ].filter(Boolean).join('\n\n');
 }
@@ -303,6 +315,9 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string): 
   const lines: string[] = [];
   lines.push(`【你此刻在哪里】${ctx.place} · ${ctx.timeLabel} · 气氛：${ctx.mood}`);
   lines.push(`【在场的人】${ctx.presence.map((id) => ctx.nameOf(id)).join('、')}，以及用户`);
+  if (ctx.objects.length) {
+    lines.push(`【你此刻能观察到的现场】\n${ctx.objects.slice(0, 8).map((object) => `- ${object.name}：${object.description}${object.lastAction ? `（${object.lastAction}）` : ''}`).join('\n')}`);
+  }
 
   const rules = memory.facts.filter((f) => f.category === 'rule');
   const others = memory.facts.filter((f) => f.category !== 'rule');

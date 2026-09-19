@@ -2,7 +2,7 @@
  * 局域网同步数据：全量收集（导出）与合并写入（导入）。
  * 桌面端与手机端共用同一份格式，通过 HTTP 互传。
  */
-import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent, type WorldLocation, type WorldPresence, type WorldAgentState, type WorldPulse } from '../db/index';
+import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent, type WorldLocation, type WorldPresence, type WorldAgentState, type WorldPulse, type WorldObject } from '../db/index';
 
 export interface SyncExportData {
   __meta__: {
@@ -37,6 +37,7 @@ export interface SyncExportData {
   worldPresences?: WorldPresence[];
   worldAgentStates?: WorldAgentState[];
   worldPulses?: WorldPulse[];
+  worldObjects?: WorldObject[];
 }
 
 /** 收集当前设备全部业务数据（不含账号密码与 API Key，隐私不外传） */
@@ -46,7 +47,7 @@ export async function collectSyncData(
 ): Promise<SyncExportData> {
   const [characters, sessions, messages, memories, emotionSnapshots, characterStates, diaries, continuityThreads, sharedStoryEvents,
     worlds, worldEvents, worldScenes, worldSceneEntries, characterKnowledge, sharedMemories, relationshipStates, relationshipEvents,
-    worldLocations, worldPresences, worldAgentStates, worldPulses] =
+    worldLocations, worldPresences, worldAgentStates, worldPulses, worldObjects] =
     await Promise.all([
       db.characters.toArray(),
       db.sessions.toArray(),
@@ -69,6 +70,7 @@ export async function collectSyncData(
       db.worldPresences.toArray(),
       db.worldAgentStates.toArray(),
       db.worldPulses.toArray(),
+      db.worldObjects.toArray(),
     ]);
   return {
     __meta__: {
@@ -100,6 +102,7 @@ export async function collectSyncData(
     worldPresences,
     worldAgentStates,
     worldPulses,
+    worldObjects,
   };
 }
 
@@ -130,7 +133,7 @@ export async function importSyncData(
       'rw',
       [db.characters, db.sessions, db.messages, db.memories, db.emotionSnapshots, db.characterStates, db.diaries, db.continuityThreads, db.sharedStoryEvents,
         db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents,
-        db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses],
+        db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects],
       async () => {
         let n = 0;
         for (const c of data.characters ?? []) {
@@ -284,6 +287,13 @@ export async function importSyncData(
           n += 1;
         }
         counts.worldPulses = n;
+
+        n = 0;
+        for (const object of data.worldObjects ?? []) {
+          await db.worldObjects.put(object);
+          n += 1;
+        }
+        counts.worldObjects = n;
       },
     );
     return { ok: true, counts };

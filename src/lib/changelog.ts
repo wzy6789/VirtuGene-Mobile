@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '5.1.1',
+    date: '2026-09-19',
+    notes: [
+      'World exploration now has persistent locations, present agents, and inspectable objects.',
+      'Moving updates the world location before the scene responds, so the next beat knows where you are.',
+      'Object state is scoped to its location and survives leaving and returning to the same place.',
+    ],
+  },
+  {
     version: '5.1.0',
     date: '2026-09-19',
     notes: [

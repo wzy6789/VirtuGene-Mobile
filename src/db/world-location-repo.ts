@@ -49,7 +49,19 @@ export const worldLocationRepo = {
   },
 
   async ensureFromScene(scene: WorldScene): Promise<WorldLocation> {
-    const id = scene.locationId ?? sceneLocationId(scene.worldId, scene.place);
+    // `place` is the user-facing source of truth for a move. Preserve a
+    // selected custom location when its name still matches, but discard an
+    // old locationId after a natural-language place change.
+    const normalizedPlace = scene.place.trim().replace(/\s+/g, ' ').slice(0, 80);
+    const current = scene.locationId ? await db.worldLocations.get(scene.locationId) : undefined;
+    const canReuseCurrent = Boolean(
+      current
+      && current.userId === scene.userId
+      && current.worldId === scene.worldId
+      && current.type !== 'reality'
+      && current.name.trim() === normalizedPlace,
+    );
+    const id = canReuseCurrent ? current!.id : sceneLocationId(scene.worldId, scene.place);
     const existing = await db.worldLocations.get(id);
     if (existing) {
       if (scene.locationId !== id) await db.worldScenes.update(scene.id, { locationId: id });
