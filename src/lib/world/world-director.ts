@@ -67,6 +67,10 @@ export const DIRECTOR_INSTRUCTION = `你是一段"共同生活"的导演。用�
 9. 旁白只写环境、动作、节奏、场面变化，**不要替角色表达心理**。
 10. 不要输出 JSON 以外的任何文字。`;
 
+const IMMERSION_DIRECTIVE = `
+演出节奏：这是有自己生活的世界，用户不是每句话的中心。合适时让在场角色彼此交谈、回应彼此，话题可以停留在他们之间；只有被点名或确实相关时才回应用户。两位及以上角色必须按顺序演出（sequential=true），不要让他们同时开口。动作要具体并符合角色的性格、目标和现场；对白保持短而自然，每个角色通常只说 1~3 句、总回应不超过 90 字。用户换话题时立刻跟随当前意图，不要揪着旧问题或同一件事反复追问；每轮只推进一个小节拍，给用户留下接话空间。
+`;
+
 export interface DirectorParams {
   ctx: WorldContext;
   action: WorldAction;
@@ -125,7 +129,8 @@ export function parseDirectorOutput(
   return {
     ...(str(obj.narration, 400) ? { narration: str(obj.narration, 400)! } : {}),
     speakers,
-    sequential: obj.sequential === true,
+    // 两位及以上角色必须依次回应，后一位会真实读到前一位刚说的话。
+    sequential: speakers.length > 1 ? true : obj.sequential === true,
     worldChanges: strList(obj.worldChanges, 160, 5),
     shouldSettle: obj.shouldSettle === true,
     suggestions: strList(obj.suggestions, 40, 3),
@@ -161,7 +166,7 @@ export function fallbackPlan(action: WorldAction, ctx: WorldContext, maxSpeakers
       llmCalls: 0,
     };
   }
-  return { speakers, sequential: false, worldChanges: [], shouldSettle: false, suggestions: [], via: 'none', llmCalls: 0 };
+  return { speakers, sequential: speakers.length > 1, worldChanges: [], shouldSettle: false, suggestions: [], via: 'none', llmCalls: 0 };
 }
 
 /** 一轮 Director 调用（§22 Stage C） */
@@ -194,7 +199,7 @@ export async function directWorldTurn(params: DirectorParams): Promise<TurnPlan>
   try {
     const res = await worldChat({
       messages: [
-        { role: 'system', content: `${DIRECTOR_INSTRUCTION}\n\n${renderWorldBrief(ctx)}\n\n在场的人：${presentNames(ctx)}` },
+        { role: 'system', content: `${DIRECTOR_INSTRUCTION}\n${IMMERSION_DIRECTIVE}\n\n${renderWorldBrief(ctx)}\n\n在场的人：${presentNames(ctx)}` },
         { role: 'user', content: actionLine },
       ],
       temperature: 0.7,
@@ -218,7 +223,7 @@ export async function directWorldTurn(params: DirectorParams): Promise<TurnPlan>
       }
     }
     if (action.requiresCharacterResponse === false) speakers.length = 0;
-    return { ...plan, speakers, llmCalls: 1, raw: res.content ?? '' };
+    return { ...plan, speakers, sequential: speakers.length > 1 ? true : plan.sequential, llmCalls: 1, raw: res.content ?? '' };
   } catch (err) {
     const fb = fallbackPlan(action, ctx, maxSpeakers);
     return { ...fb, llmCalls: 1, error: (err as Error)?.message ?? 'server:error' };

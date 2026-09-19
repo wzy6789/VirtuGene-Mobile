@@ -7,8 +7,8 @@ android {
         applicationId "com.virtugene.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 19
-        versionName "5.0.4"
+        versionCode 21
+        versionName "5.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +16,26 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // 继续沿用现有调试证书，保证 5.0.4/5.0.5 用户可以覆盖升级。
+    // 后续上架应用商店前，应切换到独立的正式签名密钥并配套迁移方案。
+    def vgReleaseKeystore = file("${System.properties['user.home']}/.android/debug.keystore")
+    signingConfigs {
+        release {
+            if (vgReleaseKeystore.exists()) {
+                storeFile vgReleaseKeystore
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (vgReleaseKeystore.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

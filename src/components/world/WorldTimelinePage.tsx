@@ -76,7 +76,7 @@ export function WorldTimelinePage() {
             {group.items.map((item) => (
               <div key={item.id} className="vg-timeline-item">
                 <p className="vg-timeline-kind">{item.label}</p>
-                <p className="vg-timeline-title">{item.title}</p>
+                <p className={item.kind === 'segment' ? 'vg-story-title-text' : 'vg-timeline-title'}>{item.title}</p>
                 {item.detail && <p className="vg-timeline-detail">{item.detail}</p>}
                 {item.names.length > 0 && <p className="vg-timeline-names">{item.names.join(' · ')}</p>}
               </div>

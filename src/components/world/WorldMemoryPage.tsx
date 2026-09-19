@@ -31,7 +31,7 @@ export function WorldMemoryPage() {
     void (async () => {
       if (!userId) { setLoading(false); return; }
       const world = await worldRepo.ensureDefaultWorld(userId);
-      const list = await sharedMemoryRepo.listByWorld(world.id, 200);
+      const list = await sharedMemoryRepo.listByWorld(world.id, 200, userId);
       if (!alive) return;
       setItems(list);
       setLoading(false);

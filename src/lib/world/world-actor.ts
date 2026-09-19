@@ -14,6 +14,7 @@ import { safeParseObject, salvagePlainText } from '../ai/safe-json';
 import { worldChat, type WorldLlmCaller } from './world-ai-client';
 import { entryLine, renderCharacterContext, type WorldContext } from './world-context';
 import type { TurnSpeaker } from './world-director';
+import { buildConversationFocus } from './user-profile';
 
 export interface ActorParams {
   ctx: WorldContext;
@@ -41,6 +42,13 @@ export interface ActorBeat {
   raw?: string;
 }
 
+function trimNatural(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = text.slice(0, max);
+  const boundary = Math.max(head.lastIndexOf('。'), head.lastIndexOf('！'), head.lastIndexOf('？'), head.lastIndexOf('…'));
+  return boundary >= Math.floor(max * 0.55) ? head.slice(0, boundary + 1) : `${head.slice(0, max - 1)}…`;
+}
+
 export const ACTOR_INSTRUCTION = `你现在**只扮演一个角色**，在一次共同生活里做出这一拍的反应。
 
 只输出 JSON：
@@ -52,9 +60,17 @@ export const ACTOR_INSTRUCTION = `你现在**只扮演一个角色**，在一次
 3. 你**只能使用** system 里告诉你的信息。没告诉你的秘密、别人的私事，你不知道，绝对不可以提到、暗示或猜测。
 4. 用户刚刚做了什么、说了什么已经在上面；**不要复述用户的原话**。
 5. 不要替用户说话、不要替用户做决定、不要描写用户的心理。
-6. 台词要短、像真人说话（1~3 句）。动作要具体、克制。
+6. 台词要短、像真人说话（1~2 句，通常 15~80 字）；动作要具体、克制（通常不超过 45 字）。
 7. 你可以保持沉默（dialogue 留空，只做一个动作），也可以拒绝、可以离开——但要符合这个角色。
-8. 不要输出 JSON 以外的任何文字。`;
+8. 用户换话题时要跟随当前话题，不要揪着旧问题反复追问；未完成事项只有在用户主动继续或现场自然相关时才提。
+9. 每次必须让人认出是**这个角色**在回应：从 TA 的偏好、措辞、关注点、小脾气或关系距离里自然露出至少一项，但不要背诵人设。
+10. 允许不赞同、误解后改口、短暂停顿、岔开一句或说到一半停住；不要永远正确、永远温柔、永远追问。
+11. 禁止“我理解你的感受”“听起来你……”这类通用安慰开场；不要连续用同一个句式开头，不要把每轮结尾都写成问题。
+12. 不要输出 JSON 以外的任何文字。`;
+
+const ACTOR_IMMERSION_NOTE = `
+这不是客服问答。角色可以把注意力放在另一位在场者身上，回应对方的动作或话题；只有自然时才看向用户。每次只给一小段真实反应，先接住眼前的人、动作或情绪，再决定要不要展开。日常对话可以有玩笑、偏见、生活细节和不完整的句子；严肃时也不自动进入心理咨询口吻。动作必须能被别人看见，不能用动作偷写内心。不要替其他角色说话，也不要把长篇总结塞进一次回应。
+`;
 
 /** 把角色私有上下文 + 当前这一拍拼成 Actor 的 system */
 export function buildActorSystem(params: ActorParams): string {
@@ -62,6 +78,7 @@ export function buildActorSystem(params: ActorParams): string {
   const blocks: string[] = [];
   blocks.push(renderCharacterContext(ctx, speaker.characterId));
   blocks.push(`【这一拍导演希望你】${speaker.intent}`);
+  blocks.push(buildConversationFocus(params.userText, ctx.recentEntries));
   if (speaker.mode === 'action') blocks.push('【这一拍只用动作回应，不要说话】');
   if (speaker.mode === 'dialogue') blocks.push('【这一拍用说话回应】');
 
@@ -76,7 +93,7 @@ export function buildActorSystem(params: ActorParams): string {
   if (params.worldChanges?.length) blocks.push(`【这一刻世界的变化】${params.worldChanges.join('；')}`);
   const recent = ctx.recentEntries.slice(0, 8).reverse().map((e) => entryLine(e, ctx.nameOf));
   if (recent.length) blocks.push(`【刚才这一刻】\n${recent.join('\n')}`);
-  return `${ACTOR_INSTRUCTION}\n\n${blocks.join('\n\n')}`;
+  return `${ACTOR_INSTRUCTION}\n${ACTOR_IMMERSION_NOTE}\n\n${blocks.join('\n\n')}`;
 }
 
 /** 解析 Actor 输出：结构失败但正文可用 ⇒ **保留正文**（§64） */
@@ -85,8 +102,8 @@ export function parseActorOutput(raw: string, characterId: string): ActorBeat {
   const parsed = safeParseObject(text);
   if (parsed.via !== 'none') {
     const obj = parsed.value as Record<string, unknown>;
-    const dialogue = typeof obj.dialogue === 'string' ? obj.dialogue.trim().slice(0, 1200) : '';
-    const action = typeof obj.action === 'string' ? obj.action.trim().slice(0, 600) : '';
+    const dialogue = typeof obj.dialogue === 'string' ? trimNatural(obj.dialogue.trim(), 180) : '';
+    const action = typeof obj.action === 'string' ? trimNatural(obj.action.trim(), 140) : '';
     if (dialogue || action) {
       return {
         characterId,
@@ -98,8 +115,8 @@ export function parseActorOutput(raw: string, characterId: string): ActorBeat {
     }
     return { characterId, via: 'none', error: '空回应', raw: text };
   }
-  const salvaged = salvagePlainText(text, 1200);
-  if (salvaged) return { characterId, dialogue: salvaged, via: 'salvaged', raw: text };
+  const salvaged = salvagePlainText(text, 220);
+  if (salvaged) return { characterId, dialogue: trimNatural(salvaged, 180), via: 'salvaged', raw: text };
   return { characterId, via: 'none', error: '这一拍没有生成内容', raw: text };
 }
 

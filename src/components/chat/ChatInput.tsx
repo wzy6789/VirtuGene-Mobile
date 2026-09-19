@@ -313,7 +313,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onPointerDown={ripple.onPointerDown}
             disabled={disabled || recState !== 'idle'}
             title="发送图片"
-            className="ripple-host shrink-0 w-10 h-10 rounded-xl bg-surface border border-line text-gray-500 flex items-center justify-center hover:text-ink transition-colors disabled:opacity-40"
+            className="chat-composer-tool ripple-host shrink-0 w-10 h-10 rounded-xl bg-surface border border-line text-gray-500 flex items-center justify-center hover:text-ink transition-colors disabled:opacity-40"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -328,7 +328,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onClick={() => void handleMicClick()}
             disabled={disabled || recState === 'converting'}
             title={recording ? '点击停止并发送' : '按住说话'}
-            className={`shrink-0 w-10 h-10 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-40 ${
+            className={`chat-composer-tool shrink-0 w-10 h-10 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-40 ${
               recording
                 ? 'bg-red-500/15 border-red-500/40 text-red-500 animate-pulse'
                 : 'bg-surface border-line text-gray-500 hover:text-ink'
@@ -412,7 +412,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onClick={handleSend}
             onPointerDown={ripple.onPointerDown}
             disabled={disabled || !text.trim()}
-            className="ripple-host shrink-0 w-10 h-10 rounded-xl bg-gene-purple text-white flex items-center justify-center hover:bg-[#5B4BD4] shadow-[0_2px_12px_rgba(108,92,231,0.35)] transition-all disabled:opacity-30 disabled:shadow-none"
+            className="chat-composer-send ripple-host shrink-0 w-10 h-10 rounded-xl bg-gene-purple text-white flex items-center justify-center hover:bg-[#5B4BD4] shadow-[0_2px_12px_rgba(108,92,231,0.35)] transition-all disabled:opacity-30 disabled:shadow-none"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="22" y1="2" x2="11" y2="13" />

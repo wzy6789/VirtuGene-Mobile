@@ -178,7 +178,11 @@ async function maybeSummarizeGroup(sessionId: string, apiKey: string): Promise<v
     const uncovered = oldMsgs.filter((m) => m.createdAt > lastCovered);
     if (uncovered.length < SUMMARY_REGENERATE_THRESHOLD) return;
     const history = oldMsgs.slice(-80).map((m) => ({ role: m.role, content: m.content.slice(0, 1200) }));
-    const result = await ipc.context.summarize({ apiKey, history });
+    const result = await ipc.context.summarize({
+      apiKey,
+      history,
+      previousSummary: sessionData?.summary?.slice(0, 2_500),
+    });
     if (result.summary) {
       await sessionRepo.updateSummary(sessionId, result.summary);
     }

@@ -1,5 +1,32 @@
 import { getRelationLevel } from './affinity';
-import type { Character, CharacterState, ContinuityThread, Diary, SharedMemory, SharedStoryEvent } from '../db/index';
+import type { Character, CharacterState, ContinuityThread, Diary, SharedMemory, SharedStoryEvent, WorldEvent } from '../db/index';
+
+export type SceneTimeOfDay = 'morning' | 'afternoon' | 'dusk' | 'night' | 'late-night';
+export type SceneAtmosphere = 'daily' | 'quiet' | 'light' | 'serious' | 'close' | 'low';
+
+/**
+ * 用户在聊天顶部选择的叙事时段。它是隐藏的氛围提示，不会改写消息时间戳或时间分隔线。
+ */
+export function buildSceneTimeContext(slot?: SceneTimeOfDay, place?: string, atmosphere?: SceneAtmosphere): string {
+  if (!slot && !place && !atmosphere) return '';
+  const label: Record<SceneTimeOfDay, string> = {
+    morning: '清晨',
+    afternoon: '午后',
+    dusk: '傍晚',
+    night: '夜晚',
+    'late-night': '深夜',
+  };
+  const atmosphereLabel: Record<SceneAtmosphere, string> = {
+    daily: '日常',
+    quiet: '安静',
+    light: '轻松',
+    serious: '认真',
+    close: '亲近',
+    low: '有些低落',
+  };
+  const parts = [slot ? `时段：${label[slot]}` : '', place ? `地点：${place}` : '', atmosphere ? `气氛：${atmosphereLabel[atmosphere]}` : ''].filter(Boolean);
+  return `\n\n[当前聊天场域]\n${parts.join('；')}。请让环境、节奏和角色语气自然贴合这个场域；它只是叙事氛围，不改变现实日期、消息发送时间或时间分隔线。不要每轮复述场域，不要让它盖过角色本来的性格；用户明显换话题时顺着用户。`;
+}
 
 /**
  * 时间感知：让角色知道"现在是几点、距上次聊天多久"。
@@ -265,6 +292,24 @@ export function buildSceneContext(scenes: { title: string; place: string; timeLa
 }
 
 /**
+ * 世界脉冲注入：角色在用户不在场时亲身参与过的自主行动。
+ * 传入的数据已经经过 user/world、可见性、参与者和认知闸门；本函数只负责
+ * 把它写成一小段可自然使用的背景，避免角色把用户没经历的事说成用户亲眼见过。
+ */
+export function buildPulseEventContext(events: WorldEvent[]): string {
+  const list = events.slice(0, 3);
+  if (list.length === 0) return '';
+  const lines = list
+    .map((event) => `- ${event.title}${event.summary ? `：${event.summary.slice(0, 160)}` : ''}`)
+    .join('\n');
+  return (
+    `\n\n[你不在时，世界里发生过的事]\n${lines}\n` +
+    '这些是你亲身参与过、在用户离开世界时发生的真实行动。用户不一定知道细节；只有在话题自然相关时才提一句，' +
+    '不要每次都提，不要把它说成用户亲历，也不要补写记录里没有的细节。'
+  );
+}
+
+/**
  * 人物共同事件注入（私聊）：角色知道自己和其他角色之间的故事。
  * 允许"两个人对同一件事的看法不一样"，所以按视角分别描述。
  */
@@ -286,4 +331,3 @@ export function buildSharedEventContext(
     '这些是你自己的人生经历，与用户无关。除非话题自然相关，不要主动汇报；也绝不要把它说成是"用户和你"的经历。'
   );
 }
-

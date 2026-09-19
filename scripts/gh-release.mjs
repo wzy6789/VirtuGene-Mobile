@@ -17,7 +17,7 @@ import { createReadStream, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
-const APK_PATH = resolve(ROOT, 'android/app/build/outputs/apk/debug/app-debug.apk');
+const APK_PATH = resolve(ROOT, 'android/app/build/outputs/apk/release/app-release.apk');
 
 const repo = getRepo();
 const version = process.argv[2];
@@ -52,13 +52,17 @@ if (!token) {
 
 console.log(`📦 发布 VirtuGene v${version} → GitHub ${repo}`);
 
-// 1. 构建 APK
-console.log('🔨 构建 APK…');
-try {
-  execSync('npm run mobile:build', { cwd: ROOT, stdio: 'inherit' });
-} catch {
-  console.error('❌ 构建失败');
-  process.exit(1);
+// 1. 构建 APK（允许复用刚刚完成并已验收的 release 包）
+if (statSync(APK_PATH, { throwIfNoEntry: false })) {
+  console.log(`📦 使用已构建的 release APK: ${APK_PATH}`);
+} else {
+  console.log('🔨 构建 APK…');
+  try {
+    execSync('npm run mobile:release', { cwd: ROOT, stdio: 'inherit' });
+  } catch {
+    console.error('❌ 构建失败');
+    process.exit(1);
+  }
 }
 if (!statSync(APK_PATH, { throwIfNoEntry: false })) {
   console.error(`❌ 未找到 APK: ${APK_PATH}`);
@@ -110,7 +114,7 @@ console.log(`   手机端「我的 → 版本」检查更新即可下载。`);
 /** 上传 APK 到 release 资产 */
 async function uploadApk(releaseId, token, repo) {
   const size = statSync(APK_PATH).size;
-  const url = `https://uploads.github.com/repos/${repo}/releases/${releaseId}/assets?name=app-debug.apk`;
+  const url = `https://uploads.github.com/repos/${repo}/releases/${releaseId}/assets?name=app-release.apk`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {

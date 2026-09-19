@@ -368,15 +368,19 @@ async function run() {
   }
 
   /* ---------------- H. 世界页 ---------------- */
-  section('H. 世界页：加入共同世界后出现在「最近发生」');
+  section('H. 世界页：加入共同世界后出现在「此刻」详情');
   {
     unmount();
     useUIStore.getState().setMobileTab('world');
     const worldHost = mount(createElement(MobileWorldPage));
     await sleep(800);
+    const summaryText = worldHost.innerText;
+    const expand = Array.from(worldHost.querySelectorAll('button')).find((button) => (button.textContent ?? '').includes('看看发生了什么'));
+    expand?.click();
+    await sleep(80);
     const text = worldHost.innerText;
     check('① 世界统计行如实反映真实数据（天数 / 角色数 / 共同经历）', /第 \d+ 天/.test(text) && text.includes('共同经历'), text.slice(0, 200));
-    check('②「最近发生」列出这条现实生活', text.includes('最近发生') && text.includes(WORLD_TEXT.slice(0, 12)), text.slice(0, 400));
+    check('② 首屏克制，展开「此刻」后列出真实生活记录', !summaryText.includes(WORLD_TEXT.slice(0, 12)) && text.includes(WORLD_TEXT.slice(0, 12)), text.slice(0, 500));
     check('③ 类别用人话「你写下的生活」', text.includes('你写下的生活'), text.slice(0, 400));
     unmount();
   }

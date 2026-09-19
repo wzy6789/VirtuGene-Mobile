@@ -15,6 +15,10 @@ const ALLOW_ANONYMOUS = process.env.GATEWAY_ALLOW_ANONYMOUS === 'true';
 const MAX_BODY_BYTES = 1_500_000;
 const RATE_WINDOW_MS = 60_000;
 const RATE_LIMIT = Number(process.env.GATEWAY_RATE_LIMIT || 20);
+// Auxiliary work (emotion, settling and summaries) has its own minute bucket
+// so background bookkeeping cannot starve an interactive chat request. The
+// daily counter remains shared to keep the account-wide cost guard intact.
+const AUX_RATE_LIMIT = Number(process.env.GATEWAY_AUX_RATE_LIMIT || Math.max(RATE_LIMIT, 40));
 const DAILY_LIMIT = Number(process.env.GATEWAY_DAILY_LIMIT || 300);
 const buckets = new Map();
 const ACCESS_TOKEN_TTL_SECONDS = 12 * 60 * 60;
@@ -154,19 +158,24 @@ function deleteAccount(req) {
   saveUsers(users.filter((user) => user.id !== access.sub));
 }
 
-function allowed(key) {
+function allowed(key, kind = 'chat') {
   const now = Date.now();
-  const current = buckets.get(key) || { minuteAt: now, minute: 0, dayAt: now, day: 0 };
+  const current = buckets.get(key) || { minuteAt: now, minute: 0, auxMinute: 0, dayAt: now, day: 0 };
+  if (!Number.isFinite(current.auxMinute)) current.auxMinute = 0;
   if (now - current.minuteAt >= RATE_WINDOW_MS) {
     current.minuteAt = now;
     current.minute = 0;
+    current.auxMinute = 0;
   }
   if (now - current.dayAt >= 86_400_000) {
     current.dayAt = now;
     current.day = 0;
   }
-  if (current.minute >= RATE_LIMIT || current.day >= DAILY_LIMIT) return false;
-  current.minute += 1;
+  const minuteLimit = kind === 'aux' ? AUX_RATE_LIMIT : RATE_LIMIT;
+  const minuteCount = kind === 'aux' ? current.auxMinute : current.minute;
+  if (minuteCount >= minuteLimit || current.day >= DAILY_LIMIT) return false;
+  if (kind === 'aux') current.auxMinute += 1;
+  else current.minute += 1;
   current.day += 1;
   buckets.set(key, current);
   return true;
@@ -229,18 +238,21 @@ function auxMessages(operation, payload) {
   const history = Array.isArray(payload?.history) ? payload.history.slice(-24) : [];
   const text = typeof payload?.text === 'string' ? payload.text.slice(0, 12_000) : '';
   const context = typeof payload?.context === 'string' ? payload.context.slice(0, 8_000) : '';
+  const previousSummary = typeof payload?.previousSummary === 'string' ? payload.previousSummary.slice(0, 2_500) : '';
   const transcript = history.map((item) => `${item?.role === 'assistant' ? 'assistant' : 'user'}: ${String(item?.content || '').slice(0, 1_000)}`).join('\n');
   const prompts = {
     memory: '从对话中提取值得长期记住的用户事实，只输出 JSON 数组，例如 ["用户喜欢咖啡"]；没有就输出 []。',
     emotion: '分析 assistant 消息里的角色状态，只输出 JSON 对象：{"dimensions":{"valence":5,"arousal":5,"intimacy":5,"engagement":5,"expressiveness":5,"stability":5},"dominantEmotion":"","summary":""}。每个分数 1 到 10。',
     'context-settle': '同时提取用户长期事实并分析对话状态，只输出 JSON 对象：{"memories":[],"dimensions":{"valence":5,"arousal":5,"intimacy":5,"engagement":5,"expressiveness":5,"stability":5},"dominantEmotion":"","userEmotion":"","summary":""}。',
-    'context-summary': '把对话压缩成 2 到 3 句中文摘要，只输出 JSON 对象：{"summary":""}。',
+    'context-summary': '把新增对话与之前的压缩摘要合并成 3 到 6 句中文摘要。优先保留用户明确要求记住的事情、确认过的事实、重要约定和未完成事项；不要凭空补充，不要机械重复。只输出 JSON 对象：{"summary":""}。',
     diary: '完成日记辅助任务。根据 mode 输出 JSON：普通模式为 {"text":""}；auto、compile、combine、recall 为 {"title":"","content":"","tags":[]}；persona 为 {"persona":{"keywords":[],"topics":[],"emotion":"","summary":""}}。不要输出 Markdown。',
   };
   const operationPrompt = prompts[operation] || prompts.diary;
   const user = operation === 'diary'
     ? `mode=${String(payload?.mode || '')}\n内容：${text}\n上下文：${context}`
-    : transcript || text;
+    : operation === 'context-summary' && previousSummary
+      ? `之前的压缩摘要（保留其中仍然有效的事实）：\n${previousSummary}\n\n本次新增对话：\n${transcript || text}`
+      : transcript || text;
   return [{ role: 'system', content: operationPrompt }, { role: 'user', content: user.slice(0, 20_000) }];
 }
 
@@ -249,7 +261,7 @@ async function aux(operation, payload) {
   const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: DEFAULT_MODEL, messages: auxMessages(operation, payload), temperature: 0.3, max_tokens: operation === 'diary' ? 900 : 600, response_format: { type: 'json_object' } }),
+    body: JSON.stringify({ model: DEFAULT_MODEL, messages: auxMessages(operation, payload), temperature: 0.3, max_tokens: operation === 'diary' ? 900 : operation === 'context-summary' ? 900 : 600, response_format: { type: 'json_object' } }),
     signal: AbortSignal.timeout(45_000),
   });
   if (!response.ok) {
@@ -341,7 +353,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method !== 'POST' || !['/v1/chat', '/v1/aux'].includes(req.url)) return json(res, 404, { error: 'not_found' });
   if (!authorized(req)) return json(res, 401, { error: 'auth:invalid_key' });
-  if (!allowed(identity(req))) return json(res, 429, { error: 'rate:limited' });
+  const endpointKind = req.url === '/v1/aux' ? 'aux' : 'chat';
+  if (!allowed(identity(req), endpointKind)) return json(res, 429, { error: 'rate:limited' });
   try {
     const body = await readJson(req);
     if (req.url === '/v1/aux') {

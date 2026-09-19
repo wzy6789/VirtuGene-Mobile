@@ -139,7 +139,7 @@ export async function clearDiarySharing(userId: string, diaryId: string): Promis
  * 认知等级要求 full：只知道一点点的（partial）不注入，避免角色说错。
  */
 export async function listMentionableDiaryIds(userId: string, worldId: string, characterId: string): Promise<Set<string>> {
-  const rows = await knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'full', limit: 300 });
+  const rows = await knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'full', limit: 300, userId });
   const out = new Set<string>();
   for (const row of rows) {
     if (!row.canMention || row.knowledgeLevel !== 'full') continue;

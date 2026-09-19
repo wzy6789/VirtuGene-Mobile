@@ -139,7 +139,25 @@ export function MobileCharacterPage({ onSelect }: Props) {
   return (
     <div className="vg-characters h-full flex flex-col">
       {/* 头部 */}
-      <SpaceHeading eyebrow="VIRTUGENE / LIVING WORLD" title="我的角色宇宙" detail="人格由你创造，故事从此生长。" action={<GatewayStatusBadge compact />} />
+      <SpaceHeading
+        eyebrow="VIRTUGENE / LIVING WORLD"
+        title="我的角色宇宙"
+        detail="人格由你创造，故事从此生长。"
+        action={(
+          <div className="flex items-center gap-2">
+            <GatewayStatusBadge compact />
+            <button
+              type="button"
+              onClick={() => setShowNetwork(true)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-life-cyan/30 bg-life-cyan/10 px-2.5 py-1.5 text-[11px] font-medium text-life-cyan transition-colors hover:bg-life-cyan/15 active:scale-[.98]"
+              aria-label="打开关系星图"
+            >
+              <span className="text-sm leading-none">✦</span>
+              星图
+            </button>
+          </div>
+        )}
+      />
 
       {/* 滚动容器（relative：字母索引条相对可视区域定位，滚动时固定在右侧中间） */}
       <div className="relative flex-1 overflow-y-auto py-1">

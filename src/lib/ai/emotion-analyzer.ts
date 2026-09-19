@@ -1,3 +1,6 @@
+import { gatewayAux, hasAiGatewayAccess } from './gateway';
+import { boundAuxiliaryHistory } from './history-window';
+
 const EMOTION_ANALYSIS_PROMPT =
   '你是一个心理学情感分析专家。请分析以下对话中**AI角色**（role=assistant）的情绪状态。\n\n' +
   '评估维度（每项 1-10 分，允许小数）：\n' +
@@ -38,7 +41,8 @@ export interface AnalyzeEmotionResult {
 }
 
 export async function analyzeEmotion(params: AnalyzeEmotionParams): Promise<AnalyzeEmotionResult> {
-  const { apiKey, history, characterName } = params;
+  const { apiKey, characterName } = params;
+  const history = boundAuxiliaryHistory(params.history);
 
   const contextNote = characterName
     ? `用户正在与名为"${characterName}"的AI角色对话。`
@@ -48,6 +52,13 @@ export async function analyzeEmotion(params: AnalyzeEmotionParams): Promise<Anal
     { role: 'system', content: EMOTION_ANALYSIS_PROMPT },
     { role: 'user', content: `${contextNote}请分析以下对话中AI角色的情绪状态：\n\n${history.map((m) => `${m.role}: ${m.content}`).join('\n')}` },
   ];
+
+  // 情绪分析和普通聊天必须共享同一条访问路径。移动端登录网关后通常
+  // 没有本地 DeepSeek Key，此时直接请求 DeepSeek 会被误报成“链接中断”。
+  if (!apiKey.trim()) {
+    if (!hasAiGatewayAccess()) return { error: 'auth:invalid_key' };
+    return analyzeViaGateway(history);
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
@@ -75,6 +86,7 @@ export async function analyzeEmotion(params: AnalyzeEmotionParams): Promise<Anal
       if (response.status === 401) return { error: 'auth:invalid_key' };
       if (response.status === 402) return { error: 'billing:insufficient' };
       if (response.status === 429) return { error: 'rate:limited' };
+      if (hasAiGatewayAccess()) return analyzeViaGateway(history);
       return { error: 'server:error' };
     }
 
@@ -82,13 +94,34 @@ export async function analyzeEmotion(params: AnalyzeEmotionParams): Promise<Anal
     const choice = data.choices?.[0];
     const text: string = choice?.message?.content ?? '';
 
-    return parseEmotionJSON(text);
+    const parsed = parseEmotionJSON(text);
+    if (parsed.error === 'server:error' && hasAiGatewayAccess()) return analyzeViaGateway(history);
+    return parsed;
   } catch (err: any) {
     clearTimeout(timer);
     console.error('[emotion-analyzer] fetch error:', err?.message ?? err);
+    if (err?.name === 'AbortError' && hasAiGatewayAccess()) return analyzeViaGateway(history);
     if (err?.name === 'AbortError') return { error: 'server:error' };
+    if (hasAiGatewayAccess()) return analyzeViaGateway(history);
     return { error: 'server:error' };
   }
+}
+
+async function analyzeViaGateway(history: { role: string; content: string }[]): Promise<AnalyzeEmotionResult> {
+  try {
+    const result = await gatewayAux<AnalyzeEmotionResult>('emotion', { history });
+    if (result?.dimensions) return validateResult(result as unknown as Record<string, unknown>);
+    return { error: 'server:error' };
+  } catch (error) {
+    return { error: normalizeAiError(error) };
+  }
+}
+
+function normalizeAiError(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  return ['auth:invalid_key', 'billing:insufficient', 'rate:limited', 'server:error', 'timeout'].includes(message)
+    ? message
+    : 'server:error';
 }
 
 function parseEmotionJSON(text: string): AnalyzeEmotionResult {

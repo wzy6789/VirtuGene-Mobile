@@ -462,6 +462,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const session = await getOrCreateSession(targetChar.id, userId);
       const msgs = await messageRepo.getBySession(session.id);
 
+      // 用户正在和这个角色聊天时，不要再并发发起主动请求，避免抢占连接并拖慢当前回复。
+      const latestUserMessage = [...msgs].reverse().find((message) => message.role === 'user');
+      if (latestUserMessage && Date.now() - latestUserMessage.createdAt < 10 * 60_000) return;
+
       // 连续未被回应的主动消息条数
       let unansweredProactive = 0;
       for (let i = msgs.length - 1; i >= 0; i--) {
@@ -497,6 +501,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         mood: state.mood,
         lastMessageAt,
         followUp: await pickFollowUp(targetChar.id, userId),
+        lifeHints: [
+          state.lifeFocus,
+          ...(state.lifeEvents ?? []).slice(0, 3).map((event) => `${event.title}${event.detail ? `：${event.detail}` : ''}`),
+        ].filter((value): value is string => Boolean(value?.trim())).slice(0, 4),
       });
 
       if (result.content) {

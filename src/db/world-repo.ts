@@ -8,6 +8,9 @@ import { sharedMemoryRepo } from './shared-memory-repo';
 import { relationshipRepo } from './relationship-repo';
 import { worldFactRepo } from './world-fact-repo';
 import { worldTurnRepo } from './world-turn-repo';
+import { worldLocationRepo } from './world-location-repo';
+import { worldAgentRepo } from './world-agent-repo';
+import { worldPulseRepo } from './world-pulse-repo';
 
 /**
  * 世界仓库（Living World 的门面）。
@@ -71,6 +74,9 @@ export const worldRepo = {
       createdAt: now,
       updatedAt: now,
       isDefault: true,
+      clock: { worldAt: now, lastReconciledAt: now, pace: 'realtime' },
+      realityLocationId: `reality:${id}`,
+      lastPulseAt: now,
     };
     await db.worlds.put(world);
     return world;
@@ -79,13 +85,17 @@ export const worldRepo = {
   /** 显式新建世界（5.0.0 没有 UI 入口；预留给多世界/世界模板） */
   async create(input: { userId: string; name: string; description?: string; theme?: string; isDefault?: boolean }): Promise<World> {
     const now = Date.now();
+    const id = crypto.randomUUID();
     const world: World = {
-      id: crypto.randomUUID(),
+      id,
       userId: input.userId,
       name: input.name.trim().slice(0, 60) || '未命名世界',
       createdAt: now,
       updatedAt: now,
       isDefault: input.isDefault ?? false,
+      clock: { worldAt: now, lastReconciledAt: now, pace: 'realtime' },
+      realityLocationId: `reality:${id}`,
+      lastPulseAt: now,
       ...(input.description ? { description: input.description.slice(0, 200) } : {}),
       ...(input.theme ? { theme: input.theme.slice(0, 60) } : {}),
     };
@@ -131,7 +141,7 @@ export const worldRepo = {
   async clearWorld(worldId: string): Promise<void> {
     await db.transaction(
       'rw',
-      [db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns],
+      [db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns, db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses],
       async () => {
         await worldEventRepo.clearForWorld(worldId);
         await worldSceneRepo.clearForWorld(worldId);
@@ -140,6 +150,9 @@ export const worldRepo = {
         await relationshipRepo.clearForWorld(worldId);
         await worldFactRepo.clearForWorld(worldId);
         await worldTurnRepo.clearForWorld(worldId);
+        await worldLocationRepo.clearForWorld(worldId);
+        await worldAgentRepo.clearForWorld(worldId);
+        await worldPulseRepo.clearForWorld(worldId);
       },
     );
   },
@@ -170,6 +183,7 @@ export const worldRepo = {
       result.relationshipEvents += rel.events;
       result.scenes += await worldSceneRepo.cleanupForCharacter(userId, characterId);
       await worldFactRepo.cleanupForCharacter(userId, characterId);
+      await worldAgentRepo.removeCharacter(userId, world.id, characterId);
     }
     // 日记的逐条授权里也要摘掉这个角色（否则会留下"只告诉了已删除角色"的孤儿授权）
     const authorized = (await db.diaries.where('userId').equals(userId).toArray())
@@ -190,7 +204,7 @@ export const worldRepo = {
   async clearForUser(userId: string): Promise<void> {
     await db.transaction(
       'rw',
-      [db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns],
+      [db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns, db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses],
       async () => {
         await worldEventRepo.clearForUser(userId);
         await worldSceneRepo.clearForUser(userId);
@@ -199,6 +213,9 @@ export const worldRepo = {
         await relationshipRepo.clearForUser(userId);
         await worldFactRepo.clearForUser(userId);
         await worldTurnRepo.clearForUser(userId);
+        await worldLocationRepo.clearForUser(userId);
+        await worldAgentRepo.clearForUser(userId);
+        await worldPulseRepo.clearForUser(userId);
         await db.worlds.where('userId').equals(userId).delete();
       },
     );

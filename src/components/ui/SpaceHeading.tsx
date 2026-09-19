@@ -5,7 +5,7 @@ export function SpaceHeading({ eyebrow, title, detail, action }: {
 }) {
   return <header className="vg-space-heading">
     <div className="min-w-0">
-      <p className="vg-eyebrow">{eyebrow}</p>
+      {eyebrow && <p className="vg-eyebrow">{eyebrow}</p>}
       <h1>{title}</h1>
       <p className="vg-heading-detail">{detail}</p>
     </div>

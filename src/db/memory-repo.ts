@@ -2,6 +2,50 @@ import { db, type MemoryItem } from './index';
 
 const MAX_MEMORIES_PER_CHAR = 30;
 
+function isProtectedMemory(memory: MemoryItem): boolean {
+  // pinned is the explicit marker. The confidence/source fallback keeps older
+  // manually remembered records safe after upgrading from pre-pinned versions.
+  return memory.pinned === true || (
+    memory.type === 'auto' &&
+    (memory.confidence ?? 0) >= 1 &&
+    (memory.sourceMessageIds?.length ?? 0) > 0
+  );
+}
+
+/** 用于记忆去重的稳定键：忽略大小写、空白和常见标点，但不做模糊匹配。 */
+export function normalizeMemoryKey(content: string): string {
+  return content
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[\s\u3000，。！？、,.!?;；:："“”‘’（）()【】[\]{}]/g, '')
+    .trim()
+    .slice(0, 240);
+}
+
+async function upsertMemory(memory: MemoryItem): Promise<string> {
+  const key = normalizeMemoryKey(memory.content);
+  if (!key) return memory.id;
+  const existing = (await db.memories.where('characterId').equals(memory.characterId).toArray())
+    .find((item) => item.userId === memory.userId && normalizeMemoryKey(item.content) === key);
+  if (!existing) {
+    await db.memories.add(memory);
+    return memory.id;
+  }
+
+  const sourceMessageIds = Array.from(new Set([
+    ...(existing.sourceMessageIds ?? []),
+    ...(memory.sourceMessageIds ?? []),
+  ]));
+  await db.memories.update(existing.id, {
+    sourceSessionId: memory.sourceSessionId ?? existing.sourceSessionId,
+    sourceMessageIds: sourceMessageIds.length > 0 ? sourceMessageIds : undefined,
+    confidence: Math.max(existing.confidence ?? 0, memory.confidence ?? 0),
+    pinned: existing.pinned === true || memory.pinned === true ? true : undefined,
+    updatedAt: Math.max(Date.now(), existing.updatedAt ?? 0),
+  });
+  return existing.id;
+}
+
 /**
  * 把某个角色 + 用户的记忆修剪到上限，保留最新的 N 条（按 createdAt，同刻按 id 稳定排序）。
  * 只读「当前实际存在的条数」再算要删多少，因此无论一次写入多少条、
@@ -12,7 +56,12 @@ async function pruneToLimit(characterId: string, userId: string): Promise<void> 
     .filter((m) => m.userId === userId)
     .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
   if (all.length <= MAX_MEMORIES_PER_CHAR) return;
-  const excess = all.slice(0, all.length - MAX_MEMORIES_PER_CHAR);
+  const protectedItems = all.filter(isProtectedMemory);
+  const candidates = all.filter((memory) => !isProtectedMemory(memory));
+  const keepNonProtected = Math.max(0, MAX_MEMORIES_PER_CHAR - protectedItems.length);
+  const keep = [...protectedItems, ...candidates.slice(-keepNonProtected)];
+  const keepIds = new Set(keep.map((memory) => memory.id));
+  const excess = all.filter((memory) => !keepIds.has(memory.id));
   await db.memories.bulkDelete(excess.map((m) => m.id));
 }
 
@@ -36,7 +85,7 @@ export const memoryRepo = {
     const selected = candidates
       .filter((memory) => memory.content.trim().length > 0)
       .filter((memory) => {
-        const key = memory.content.trim();
+        const key = normalizeMemoryKey(memory.content);
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -51,6 +100,7 @@ export const memoryRepo = {
       content: memory.content,
       // 表示它不是新角色从一段对话中自动提取出的结论。
       type: 'summary' as const,
+      pinned: memory.pinned,
       createdAt: now,
       confidence: memory.confidence,
       updatedAt: now,
@@ -73,9 +123,56 @@ export const memoryRepo = {
   },
 
   async create(memory: MemoryItem): Promise<string> {
-    const id = await db.memories.add(memory);
+    const id = await upsertMemory(memory);
     // 单条写入同样受上限约束，避免「记住」「教记忆」「发图分享」把条数顶超
     await pruneToLimit(memory.characterId, memory.userId);
+    return id;
+  },
+
+  /** 将同一会话的压缩结果更新为一条摘要记忆，避免每次压缩都制造重复记忆。 */
+  async upsertSessionSummary(input: {
+    characterId: string;
+    userId: string;
+    sessionId: string;
+    content: string;
+    sourceMessageIds?: string[];
+  }): Promise<string> {
+    const content = input.content.trim().slice(0, 900);
+    if (!content) return '';
+    const all = await db.memories.where('characterId').equals(input.characterId).toArray();
+    const existing = all.find((memory) =>
+      memory.userId === input.userId &&
+      memory.type === 'summary' &&
+      memory.sourceSessionId === input.sessionId,
+    );
+    const now = Date.now();
+    if (existing) {
+      const sourceMessageIds = Array.from(new Set([
+        ...(existing.sourceMessageIds ?? []),
+        ...(input.sourceMessageIds ?? []),
+      ])).slice(-240);
+      await db.memories.update(existing.id, {
+        content,
+        sourceMessageIds: sourceMessageIds.length > 0 ? sourceMessageIds : undefined,
+        confidence: Math.max(existing.confidence ?? 0, 0.75),
+        updatedAt: now,
+      });
+      return existing.id;
+    }
+    const id = crypto.randomUUID();
+    await db.memories.add({
+      id,
+      characterId: input.characterId,
+      userId: input.userId,
+      content,
+      type: 'summary',
+      createdAt: now,
+      sourceSessionId: input.sessionId,
+      sourceMessageIds: input.sourceMessageIds,
+      confidence: 0.75,
+      updatedAt: now,
+    });
+    await pruneToLimit(input.characterId, input.userId);
     return id;
   },
 
@@ -92,7 +189,7 @@ export const memoryRepo = {
     // 旧实现是「每插一条前删一条」，一批写 20 条时最多只能删掉 1 条，条数会涨到上限 + 批量 - 1。
     const ids: string[] = [];
     for (const m of memories) {
-      ids.push(await db.memories.add(m));
+      ids.push(await upsertMemory(m));
     }
     const touched = new Map<string, { characterId: string; userId: string }>();
     for (const m of memories) {

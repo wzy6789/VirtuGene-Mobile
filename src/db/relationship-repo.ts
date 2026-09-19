@@ -78,15 +78,21 @@ export const relationshipRepo = {
   },
 
   /** 这个世界里的全部关系状态（关系网络页一次读回，按最近变化排序） */
-  async listStatesByWorld(worldId: string, limit = 200): Promise<RelationshipState[]> {
+  async listStatesByWorld(worldId: string, limit = 200, userId?: string): Promise<RelationshipState[]> {
     const rows = await db.relationshipStates.where('worldId').equals(worldId).toArray();
-    return rows.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, Math.max(1, limit));
+    return rows
+      .filter((r) => userId === undefined || r.userId === userId)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, Math.max(1, limit));
   },
 
   /** 这个世界里的全部关系变化（关系网络页一次读回，再按 pairKey 分组；不逐对查询） */
-  async listEventsByWorld(worldId: string, limit = 300): Promise<RelationshipEvent[]> {
+  async listEventsByWorld(worldId: string, limit = 300, userId?: string): Promise<RelationshipEvent[]> {
     const rows = await db.relationshipEvents.where('worldId').equals(worldId).toArray();
-    return rows.sort((a, b) => b.createdAt - a.createdAt).slice(0, Math.max(1, limit));
+    return rows
+      .filter((r) => userId === undefined || r.userId === userId)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, Math.max(1, limit));
   },
 
   /**

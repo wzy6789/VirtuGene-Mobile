@@ -8,7 +8,7 @@
  *  - **结构化状态**进 WorldScene.state（不是塞进 Prompt）
  *  - **LLM 负责演，VirtuGene 负责记**：结算建议必须过校验层；非法内容一律丢弃并如实记录
  *  - 后果真正落库：stage 世界事件 / 共同记忆 / 关系变化（带原因）/ 未完成事件（带 sourceSceneId）/ 参与者认知
- *  - 失败**不编造**：模型没给出可用内容时，只保留用户真实动作
+ *  - 模型输出不可用时自动换备用模型；所有模型都失败才只保留用户真实动作
  */
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement, type ReactElement } from 'react';
@@ -355,25 +355,26 @@ async function run() {
     check('④ 删除场景连同正文一起消失', (await worldSceneRepo.getScene(id2)) === undefined);
   }
 
-  /* ---------------- E. 失败不编造 ---------------- */
-  section('E. 模型没给出可用内容时：只保留用户真实动作');
+  /* ---------------- E. 模型兜底 ---------------- */
+  section('E. 首选模型输出不可用时：备用大模型接住，仍不编造');
   {
     const id3 = await startScene({
       userId: U, worldId: world.id, title: '失败的尝试', place: '走廊', timeLabel: '深夜', mood: '冷',
       characterIds: [C1],
     });
-    llmQueue.push('今晚月色真美'); // 非 JSON → 两次尝试都拿不到结构化内容
+    llmQueue.push('今晚月色真美'); // 首选模型两次都不是结构化输出
     llmQueue.push('今晚月色真美');
+    llmQueue.push(turnJson([{ kind: 'narration', content: '备用模型把走廊的灯光接了回来。' }]));
     const before = llmCalls;
     const result = await runSceneTurn({ userId: U, sceneId: id3, apiKey: 'sk-fake', userAction: '我敲了敲门', callLlm: stubLlm });
-    check('① 失败时如实报错', !!result.error, result.error);
-    check('② 只保留了用户的真实动作，没有编造旁白/对白',
-      result.entries.every((e) => e.kind === 'user_input'),
+    check('① 首选模型失败后由备用大模型接住', !result.error && result.fallback === true, result);
+    check('② 只写入用户动作与备用模型正文，没有本地编造',
+      result.entries.some((e) => e.kind === 'user_input') && result.entries.some((e) => e.content.includes('备用模型')),
       result.entries.map((e) => e.kind));
-    check('③ 结构化状态没有被伪造（张力仍为 0）',
-      (await worldSceneRepo.getScene(id3))?.state.currentTension === 0);
-    check('④ 两次尝试 = 2 次调用（jsonMode 失败后去掉 response_format 再试一次，不是每角色一次）',
-      llmCalls - before === 2, llmCalls - before);
+    check('③ 备用模型的结构化状态正常写入',
+      (await worldSceneRepo.getScene(id3))?.state.currentTension === 0.4);
+    check('④ 首选两次 + 备用一次 = 3 次调用',
+      llmCalls - before === 3, llmCalls - before);
     await worldSceneRepo.deleteScene(id3);
   }
 
@@ -393,13 +394,13 @@ async function run() {
       !stageHost.innerText.includes('不消耗任何模型调用'), stageHost.innerText.slice(0, 300));
     unmount();
 
-    // 世界页：舞台事件出现在「最近发生」并标为「世界剧场」
+    // 世界页：舞台事件出现在星图信号中，并标记为已写入世界
     useUIStore.getState().setActiveView('chat');
     useUIStore.getState().setMobileTab('world');
     const worldHost = mount(createElement(MobileWorldPage));
     await sleep(800);
     const worldText = worldHost.innerText;
-    check('④ 世界页「最近发生」出现这场戏', worldText.includes('雨夜的便利店') && worldText.includes('你们一起经历的'), worldText.slice(0, 500));
+    check('④ 世界页星图信号出现这场戏', worldText.includes('雨夜的便利店') && worldText.includes('已写入世界'), worldText.slice(0, 500));
     // 5.0 最终版 §77：World Stage 作为**一级入口**退出主 UI（世界空间才是核心交互面），
     // 但"一起演过的戏"仍然可以从「记忆」页回看（能力没有删除）。
     check('⑤ 世界页不再有「世界剧场」一级入口，改由「记忆」进入（§7/§77）',
@@ -430,7 +431,7 @@ async function run() {
   section('H. 纪律');
   {
     check('① 全程零网络请求（LLM 边界全部被打桩）', netCalls === 0, netCalls);
-    check('② 调用总数 = 4 次推演 + 1 次结算 + 1 次 jsonMode 降级重试 = 6（没有任何后台/额外调用）', llmCalls === 6, llmCalls);
+    check('② 调用总数 = 4 次推演 + 1 次结算 + 备用模型接住失败轮次 = 7', llmCalls === 7, llmCalls);
   }
 
   section('清理');

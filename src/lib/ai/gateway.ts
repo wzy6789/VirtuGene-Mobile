@@ -33,6 +33,11 @@ export function isAiGatewayConfigured(): boolean {
   return Boolean(GATEWAY_URL);
 }
 
+/** A configured address is not enough: the current user also needs a session. */
+export function hasAiGatewayAccess(): boolean {
+  return Boolean(GATEWAY_URL && (accessToken || GATEWAY_TOKEN));
+}
+
 /** Access token 只留在运行时内存；刷新令牌由登录态恢复流程使用。 */
 export function setGatewayAccessToken(token: string | null | undefined): void {
   accessToken = token?.trim() ?? '';
@@ -111,7 +116,7 @@ export async function deleteGatewayAccount(): Promise<void> {
 export async function gatewayChat(params: ChatParams): Promise<ChatResult> {
   if (!GATEWAY_URL) throw new Error('server:error');
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 65_000);
+  const timeout = window.setTimeout(() => controller.abort(), params.timeoutMs ?? 65_000);
   try {
     const response = await fetch(`${GATEWAY_URL}/v1/chat`, {
       method: 'POST',

@@ -15,6 +15,8 @@
  */
 import { db, type WorldScene, type WorldSceneEntry } from '../../db/index';
 import { worldSceneRepo } from '../../db/world-scene-repo';
+import { worldLocationRepo } from '../../db/world-location-repo';
+import { worldAgentRepo } from '../../db/world-agent-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { relationshipRepo } from '../../db/relationship-repo';
@@ -31,6 +33,7 @@ import {
 } from '../ai/scene-director';
 import { validateSettlement } from './scene-consequences';
 import { actMarkerContent, shouldAdvanceAct } from './scene-acts';
+import { buildHiddenUserProfile } from './user-profile';
 
 /** 一次场景推演的结果（供 UI 与验收断言） */
 export interface SceneTurnResult {
@@ -39,22 +42,31 @@ export interface SceneTurnResult {
   /** 本轮翻到了第几幕（没翻幕则没有这个字段） */
   actAdvanced?: number;
   error?: string;
+  /** 主模型无输出时是否由备用模型接续（仅诊断，不展示内部模型细节）。 */
+  fallback?: boolean;
+  modelId?: string;
   llmCalls: number;
 }
 
-async function buildMembers(scene: WorldScene): Promise<SceneDirectorMember[]> {
+async function buildMembers(scene: WorldScene, userId: string, query = ''): Promise<SceneDirectorMember[]> {
   const members: SceneDirectorMember[] = [];
   for (const characterId of scene.characterIds) {
     const character = await characterRepo.getById(characterId);
     if (!character) continue;
     const participant = scene.state.participants.find((p) => p.characterId === characterId);
     // 角色**只能知道**自己参与过的事件：用认知边界过滤（§62）
-    const known = await knowledgeRepo.listKnownBy(characterId, scene.worldId, { minLevel: 'hint', limit: 6 });
+    const known = await knowledgeRepo.listKnownBy(characterId, scene.worldId, { minLevel: 'hint', limit: 6, userId });
     const knownTitles: string[] = [];
     for (const row of known) {
       const event = await worldEventRepo.getById(row.eventId);
-      if (event) knownTitles.push(event.title);
+      if (event && event.userId === userId && event.worldId === scene.worldId) knownTitles.push(event.title);
     }
+    const userMemories = await db.memories.where('characterId').equals(characterId).toArray()
+      .then((rows) => rows
+        .filter((row) => row.userId === userId)
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 18));
+    const userProfile = buildHiddenUserProfile(userMemories, query);
     members.push({
       characterId,
       name: character.name,
@@ -62,6 +74,7 @@ async function buildMembers(scene: WorldScene): Promise<SceneDirectorMember[]> {
       ...(participant?.goals?.length ? { goal: participant.goals.join('；') } : {}),
       ...(knownTitles.length ? { knows: knownTitles.join('；') } : {}),
       ...(participant?.secrets?.length ? { secret: participant.secrets.join('；') } : {}),
+      ...(userProfile ? { userProfile } : {}),
     });
   }
   return members;
@@ -90,9 +103,21 @@ export async function startScene(params: {
   theme?: string;
   characterIds: string[];
   sceneGoal?: string;
-  participants?: { characterId: string; goals: string[]; knowsEventIds: string[]; secrets: string[] }[];
+  participants?: { characterId: string; goals: string[]; knowsEventIds: string[]; secrets: string[]; entryMemoryMode?: 'memory' | 'present' }[];
 }): Promise<string> {
   if (params.characterIds.length === 0) throw new Error('scene:participants_required');
+  // 同一个角色同一时间只属于一段正在进行的剧情。离开旧剧情会先暂停它；
+  // 若要把完整经历写入世界记忆，再结束并保存旧剧情即可。
+  const activeScenes = await worldSceneRepo.listScenes(params.worldId, { limit: 500, userId: params.userId });
+  // 活跃或暂停中的剧情都仍然占用角色；只有明确结束并保存后才释放。
+  // 这样角色离开旧剧情后，必须先保留完整经历，才能进入下一段剧情。
+  const occupied = new Set(
+    activeScenes
+      .filter((scene) => scene.status === 'active' || scene.status === 'paused')
+      .flatMap((scene) => scene.characterIds),
+  );
+  const conflict = [...new Set(params.characterIds)].find((characterId) => occupied.has(characterId));
+  if (conflict) throw new Error('scene:character_occupied');
   const sceneId = await worldSceneRepo.createScene({
     userId: params.userId,
     worldId: params.worldId,
@@ -106,6 +131,19 @@ export async function startScene(params: {
     ...(params.participants ? { participants: params.participants } : {}),
   });
   await worldSceneRepo.setSceneStatus(sceneId, 'active');
+  const scene = await worldSceneRepo.getScene(sceneId);
+  if (scene) {
+    const location = await worldLocationRepo.ensureFromScene(scene);
+    const world = await db.worlds.get(params.worldId);
+    const worldTime = world?.clock?.worldAt ?? Date.now();
+    await Promise.all(params.characterIds.map((characterId) => worldAgentRepo.moveCharacter({
+      userId: params.userId,
+      worldId: params.worldId,
+      characterId,
+      locationId: location.id,
+      worldTime,
+    })));
+  }
   await worldSceneRepo.appendEntry(sceneId, {
     kind: 'system',
     content: `${params.place} · ${params.timeLabel}`,
@@ -155,7 +193,7 @@ export async function runSceneTurn(params: {
 
   // 2) 一次调用出多条
   const history = await worldSceneRepo.listEntries(params.sceneId, { limit: 200 });
-  const members = await buildMembers(scene);
+  const members = await buildMembers(scene, params.userId, params.userAction);
   const directorParams: SceneDirectorParams = {
     apiKey: params.apiKey,
     scene: { title: scene.title, place: scene.place, timeLabel: scene.timeLabel, mood: scene.mood, ...(scene.theme ? { theme: scene.theme } : {}) },
@@ -173,7 +211,13 @@ export async function runSceneTurn(params: {
   const result = await directSceneTurn(directorParams, params.callLlm);
 
   if (result.entries.length === 0) {
-    return { entries: appended, error: result.error ?? '这一轮没有生成内容', llmCalls: 1 };
+    return {
+      entries: appended,
+      error: result.error ?? '这一轮没有生成内容',
+      ...(result.fallback ? { fallback: true } : {}),
+      ...(result.modelId ? { modelId: result.modelId } : {}),
+      llmCalls: result.llmCalls ?? 1,
+    };
   }
 
   // 3) 正文落库（旁白/对白/选择提示）
@@ -227,14 +271,16 @@ export async function runSceneTurn(params: {
     entries: appended,
     ...(result.tension != null ? { tension: result.tension } : {}),
     ...(actAdvanced != null ? { actAdvanced } : {}),
-    llmCalls: 1,
+    ...(result.fallback ? { fallback: true } : {}),
+    ...(result.modelId ? { modelId: result.modelId } : {}),
+    llmCalls: result.llmCalls ?? 1,
   };
 }
 
 /** 离开舞台（暂停）：**0 次调用**，不产生任何后果 */
-export async function pauseScene(sceneId: string): Promise<void> {
+export async function pauseScene(sceneId: string, userId?: string): Promise<void> {
   const scene = await worldSceneRepo.getScene(sceneId);
-  if (!scene || scene.status === 'finished') return;
+  if (!scene || scene.status === 'finished' || (userId !== undefined && scene.userId !== userId)) return;
   await worldSceneRepo.setSceneStatus(sceneId, 'paused');
 }
 
@@ -245,11 +291,13 @@ export interface SceneSettlementResult {
   unresolvedThreads: number;
   dropped: string[];
   llmCalls: number;
+  fallback?: boolean;
+  modelId?: string;
   error?: string;
 }
 
 /**
- * 结束一场戏并结算：**恰好 1 次调用**。
+ * 结束一场戏并结算：正常 1 次调用，模型无效时按兜底链路重试。
  * 顺序：结算建议 → 校验 → 写世界层（事件/记忆/关系史/未完成事件/认知）→ 标记 finished。
  */
 export async function finishSceneAndSettle(params: {
@@ -282,7 +330,16 @@ export async function finishSceneAndSettle(params: {
     },
     params.callLlm,
   );
-  const llmCalls = 1;
+  const llmCalls = proposed.llmCalls ?? 1;
+  if (proposed.error || !proposed.raw.trim()) {
+    return {
+      ...empty,
+      llmCalls,
+      ...(proposed.modelId ? { modelId: proposed.modelId } : {}),
+      ...(proposed.fallback ? { fallback: true } : {}),
+      error: '这场戏暂时没能完成结算，请再试一次',
+    };
+  }
 
   const { proposal, dropped } = validateSettlement(proposed.raw, {
     userId: params.userId,
@@ -393,22 +450,33 @@ export async function finishSceneAndSettle(params: {
   });
   await worldSceneRepo.finishScene(scene.id, eventId);
 
-  return { worldEventId: eventId, ...(memoryId ? { memoryId } : {}), relationshipEvents, unresolvedThreads, dropped, llmCalls };
+  return {
+    worldEventId: eventId,
+    ...(memoryId ? { memoryId } : {}),
+    relationshipEvents,
+    unresolvedThreads,
+    dropped,
+    llmCalls,
+    ...(proposed.modelId ? { modelId: proposed.modelId } : {}),
+    ...(proposed.fallback ? { fallback: true } : {}),
+  };
 }
 
 /** 场景列表（世界页/舞台页共用） */
-export async function listScenes(worldId: string, status?: WorldScene['status']): Promise<WorldScene[]> {
-  return worldSceneRepo.listScenes(worldId, { ...(status ? { status } : {}), limit: 50 });
+export async function listScenes(worldId: string, status?: WorldScene['status'], userId?: string): Promise<WorldScene[]> {
+  return worldSceneRepo.listScenes(worldId, { ...(status ? { status } : {}), limit: 50, ...(userId ? { userId } : {}) });
 }
 
 /** 删除一场戏（连同正文） */
-export async function deleteScene(sceneId: string): Promise<void> {
+export async function deleteScene(sceneId: string, userId?: string): Promise<void> {
+  const scene = await worldSceneRepo.getScene(sceneId);
+  if (!scene || (userId !== undefined && scene.userId !== userId)) return;
   await worldSceneRepo.deleteScene(sceneId);
 }
 
 /** 只读：拿一场戏 + 正文（UI 渲染用） */
-export async function loadScene(sceneId: string): Promise<{ scene?: WorldScene; entries: WorldSceneEntry[] }> {
+export async function loadScene(sceneId: string, userId?: string): Promise<{ scene?: WorldScene; entries: WorldSceneEntry[] }> {
   const scene = await worldSceneRepo.getScene(sceneId);
-  if (!scene) return { entries: [] };
+  if (!scene || (userId !== undefined && scene.userId !== userId)) return { entries: [] };
   return { scene, entries: await worldSceneRepo.listEntries(sceneId, { limit: 400 }) };
 }

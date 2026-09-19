@@ -83,12 +83,13 @@ export const knowledgeRepo = {
   async listKnownBy(
     characterId: string,
     worldId: string,
-    opts: { minLevel?: CharacterKnowledge['knowledgeLevel']; limit?: number } = {},
+    opts: { minLevel?: CharacterKnowledge['knowledgeLevel']; limit?: number; userId?: string } = {},
   ): Promise<CharacterKnowledge[]> {
     const minLevel = opts.minLevel ?? 'hint';
     const rows = await db.characterKnowledge.where('characterId').equals(characterId).toArray();
     return rows
       .filter((r) => r.worldId === worldId)
+      .filter((r) => opts.userId === undefined || r.userId === opts.userId)
       .filter((r) => LEVEL_ORDER.indexOf(r.knowledgeLevel) >= LEVEL_ORDER.indexOf(minLevel))
       .sort((a, b) => b.learnedAt - a.learnedAt)
       .slice(0, Math.max(1, opts.limit ?? 200));

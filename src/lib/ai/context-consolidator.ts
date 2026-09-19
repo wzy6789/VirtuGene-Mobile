@@ -1,4 +1,6 @@
 import { fetchWithTimeout } from './http';
+import { gatewayChat, hasAiGatewayAccess } from './gateway';
+import { boundAuxiliaryHistory } from './history-window';
 
 /**
  * 「对话后结算」合并调用：一次请求同时完成
@@ -77,7 +79,8 @@ export interface ContextSettleResult {
 const THREAD_KINDS: ContinuityActionKind[] = ['promise', 'plan', 'topic', 'conflict', 'reminder'];
 
 export async function consolidateContext(params: ContextSettleParams): Promise<ContextSettleResult> {
-  const { apiKey, history, characterName } = params;
+  const { apiKey, characterName } = params;
+  const history = boundAuxiliaryHistory(params.history);
 
   const contextNote = characterName
     ? `用户正在与名为"${characterName}"的AI角色对话。`
@@ -92,6 +95,13 @@ export async function consolidateContext(params: ContextSettleParams): Promise<C
         history.map((m, i) => `[${i}] ${m.role}: ${m.content}`).join('\n'),
     },
   ];
+
+  // 与聊天及情绪分析保持一致：登录了 VirtuGene 网关但没有本地 Key 时，
+  // 结算也走网关，避免“聊天能用、结算却显示链接中断”。
+  if (!apiKey.trim()) {
+    if (!hasAiGatewayAccess()) return { error: 'auth:invalid_key' };
+    return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
+  }
 
   try {
     const response = await fetchWithTimeout(
@@ -116,15 +126,45 @@ export async function consolidateContext(params: ContextSettleParams): Promise<C
       if (response.status === 401) return { error: 'auth:invalid_key' };
       if (response.status === 402) return { error: 'billing:insufficient' };
       if (response.status === 429) return { error: 'rate:limited' };
+      if (hasAiGatewayAccess()) return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
       return { error: 'server:error' };
     }
 
     const data = await response.json();
     const text: string = data.choices?.[0]?.message?.content ?? '';
-    return parseSettleJSON(text, history.length);
+    const parsed = parseSettleJSON(text, history.length);
+    if (parsed.error === 'server:error' && hasAiGatewayAccess()) return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
+    return parsed;
   } catch {
+    if (hasAiGatewayAccess()) return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
     return { error: 'server:error' };
   }
+}
+
+async function settleViaGateway(message: string, history: { role: string; content: string }[]): Promise<ContextSettleResult> {
+  try {
+    const result = await gatewayChat({
+      apiKey: '',
+      systemPrompt: CONTEXT_SETTLE_PROMPT,
+      message,
+      history: history.map((item, index) => ({
+        role: item.role === 'assistant' ? 'assistant' : 'user',
+        content: `[${index}] ${item.role}: ${item.content}`,
+      })),
+      temperature: 0.3,
+      timeoutMs: 30_000,
+    });
+    return parseSettleJSON(result.content, history.length);
+  } catch (error) {
+    return { error: normalizeAiError(error) };
+  }
+}
+
+function normalizeAiError(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  return ['auth:invalid_key', 'billing:insufficient', 'rate:limited', 'server:error', 'timeout'].includes(message)
+    ? message
+    : 'server:error';
 }
 
 function parseSettleJSON(text: string, historyLength: number): ContextSettleResult {

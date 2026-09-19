@@ -22,6 +22,9 @@ export interface NewWorldEventInput {
   importance?: number;
   sourceType: string;
   sourceId: string;
+  locationId?: string;
+  worldTime?: number;
+  causeEventIds?: string[];
   visibility?: WorldVisibility;
   visibleTo?: string[];
   resolved?: boolean;
@@ -53,6 +56,9 @@ export const worldEventRepo = {
       importance: clampImportance(input.importance),
       sourceType: input.sourceType,
       sourceId: input.sourceId,
+      ...(input.locationId ? { locationId: input.locationId } : {}),
+      ...(input.worldTime !== undefined ? { worldTime: input.worldTime } : {}),
+      ...(input.causeEventIds?.length ? { causeEventIds: [...new Set(input.causeEventIds)] } : {}),
       visibility: input.visibility ?? 'private',
       ...(input.visibleTo?.length ? { visibleTo: [...new Set(input.visibleTo)] } : {}),
       resolved: input.resolved ?? true,
@@ -98,19 +104,30 @@ export const worldEventRepo = {
   /** 年表：新 → 旧，可按时间游标翻页、按类型过滤 */
   async listTimeline(
     worldId: string,
-    opts: { limit?: number; before?: number; types?: WorldEventType[] } = {},
+    opts: { limit?: number; before?: number; types?: WorldEventType[]; userId?: string } = {},
   ): Promise<WorldEvent[]> {
     const limit = Math.max(1, opts.limit ?? 50);
     const all = await db.worldEvents.where('worldId').equals(worldId).toArray();
     return all
+      .filter((e) => (opts.userId === undefined || e.userId === opts.userId))
       .filter((e) => (opts.types?.length ? opts.types.includes(e.type) : true))
       .filter((e) => (opts.before != null ? e.timestamp < opts.before : true))
       .sort((a, b) => b.timestamp - a.timestamp)
       .slice(0, limit);
   },
 
-  async getRecent(worldId: string, limit = 5): Promise<WorldEvent[]> {
-    return this.listTimeline(worldId, { limit });
+  async getRecent(worldId: string, limit = 5, userId?: string): Promise<WorldEvent[]> {
+    return this.listTimeline(worldId, { limit, userId });
+  },
+
+  /** 按来源类型读取世界事件（例如只看用户离开时发生的自主行动）。 */
+  async listBySourceType(worldId: string, sourceType: string, limit = 50, userId?: string): Promise<WorldEvent[]> {
+    const rows = await db.worldEvents.where('worldId').equals(worldId).toArray();
+    return rows
+      .filter((event) => event.sourceType === sourceType)
+      .filter((event) => userId === undefined || event.userId === userId)
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, Math.max(1, limit));
   },
 
   /** 还没解决的事（世界首页「未完成的故事」） */
@@ -137,10 +154,11 @@ export const worldEventRepo = {
   },
 
   /** 某个角色被允许知道的世界事件（visibility 三态；供认知边界与记忆召回使用） */
-  async listVisibleToCharacter(worldId: string, characterId: string, limit = 50): Promise<WorldEvent[]> {
+  async listVisibleToCharacter(worldId: string, characterId: string, limit = 50, userId?: string): Promise<WorldEvent[]> {
     const all = await db.worldEvents.where('worldId').equals(worldId).toArray();
     return all
       // 可见性闸门只有一份实现（lib/world/visibility.ts）：private 一律不返回
+      .filter((e) => userId === undefined || e.userId === userId)
       .filter((e) => isVisibleToCharacter(e, characterId))
       .sort((a, b) => b.timestamp - a.timestamp)
       .slice(0, limit);

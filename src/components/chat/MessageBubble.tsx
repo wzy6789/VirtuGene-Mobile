@@ -1,11 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Message } from '../../db/index';
 import { Avatar } from '../ui/Avatar';
 import { ipc } from '../../lib/ipc-client';
+import { normalizeBubbleText } from '../../lib/chat-pacing';
 
 /* ---- 语音播放（模块级单例：同一时刻只播一条，微信式） ---- */
 let activeVoice: { id: string; audio: HTMLAudioElement; onEnd: () => void } | null = null;
+
+// Context menus are rendered in a portal, so each bubble needs to explicitly
+// close the menu owned by the previous bubble.  Keeping one closer at module
+// scope also works with virtualized message lists where rows mount/unmount.
+let closeActiveMessageMenu: (() => void) | null = null;
 
 function stopActiveVoice() {
   if (activeVoice) {
@@ -81,9 +87,9 @@ interface Props {
   speakingKey?: string | null;
   busyKey?: string | null;
   /** 角色当前心情小表情（仅 AI 消息；显示在气泡角上） */
-  moodEmoji?: string;
   /** 角色名作为每段对话的发言锚点，让阅读时更接近故事分镜。 */
-  characterName?: string;
+  /** 保留兼容字段；手机端每条独立消息都显示头像，避免连发时失去发言归属。 */
+  showIdentity?: boolean;
   /** 长按菜单"记住"：把消息存进角色记忆 */
   onRemember?: (message: Message) => void;
   /** 长按菜单"收藏为共同记忆"：把这条消息变成你们共同经历过的事（5.0 世界层） */
@@ -94,8 +100,11 @@ interface Props {
   onShowBasis?: (message: Message) => void;
 }
 
-export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, moodEmoji, characterName, onRemember, onCollectMemory, collected, onShowBasis }: Props) {
+export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, showIdentity = true, onRemember, onCollectMemory, collected, onShowBasis }: Props) {
   const isUser = message.role === 'user';
+  // 历史消息也走同一层清洗，避免旧数据里的换行继续破坏手机端气泡。
+  const displayContent = normalizeBubbleText(message.content);
+  const displayReply = message.replyToContent ? normalizeBubbleText(message.replyToContent) : '';
   const [copied, setCopied] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -104,15 +113,22 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
   /** AI 语音消息：转文字是否展开 */
   const [showTranscript, setShowTranscript] = useState(false);
 
+  const closeMenu = useCallback(() => {
+    setMenu(null);
+    setConfirmDelete(false);
+  }, []);
+
   useEffect(() => {
     if (!menu) return;
-    const handler = () => {
-      setMenu(null);
-      setConfirmDelete(false);
-    };
+    closeActiveMessageMenu?.();
+    closeActiveMessageMenu = closeMenu;
+    const handler = () => closeMenu();
     document.addEventListener('click', handler);
-    return () => document.removeEventListener('click', handler);
-  }, [menu]);
+    return () => {
+      document.removeEventListener('click', handler);
+      if (closeActiveMessageMenu === closeMenu) closeActiveMessageMenu = null;
+    };
+  }, [menu, closeMenu]);
 
   const handleCopy = async () => {
     if (copied) return;
@@ -124,14 +140,28 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    setMenu({ x: e.clientX, y: e.clientY });
+    closeActiveMessageMenu?.();
+    closeActiveMessageMenu = null;
+    // Keep the action sheet inside the viewport on narrow Android screens.
+    // Long-press coordinates are often close to an edge, where the old menu
+    // could be clipped and force a second tap to dismiss it.
+    const menuWidth = 198;
+    const menuHeight = 360;
+    const maxX = Math.max(8, window.innerWidth - menuWidth - 8);
+    const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
+    setMenu({
+      x: Math.min(Math.max(8, e.clientX + 4), maxX),
+      y: Math.min(Math.max(8, e.clientY + 4), maxY),
+    });
   };
 
   return (
-    <div className={`group flex items-start gap-2 mb-4 ${isUser ? 'flex-row-reverse' : 'flex-row'} ${
+    <div className={`vg-chat-message-row group flex items-start gap-2 mb-2.5 ${showIdentity ? 'is-first-in-streak' : 'is-continuation'} ${isUser ? 'is-user flex-row-reverse' : 'is-character flex-row'} ${
       animate ? 'animate-message-in' : ''
     }`}>
-      <Avatar avatar={avatar} size="sm" className={isUser ? 'ring-1 ring-white/20' : 'ring-1 ring-life-cyan/35 shadow-[0_0_14px_rgba(0,206,201,.16)]'} />
+      <div className="vg-chat-identity relative w-8 shrink-0 flex flex-col items-center">
+        <Avatar avatar={avatar} size="sm" className={isUser ? 'ring-1 ring-white/20' : 'ring-1 ring-life-cyan/35 shadow-[0_0_14px_rgba(0,206,201,.16)]'} />
+      </div>
       {isUser && message.failed && (
         <button
           onClick={() => onRetry?.(message)}
@@ -145,25 +175,17 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
           </svg>
         </button>
       )}
-      <div className="relative max-w-[75%]">
-        {!isUser && characterName && (
-          <div className="mb-1 flex items-center gap-1.5 text-[10px] tracking-[0.08em] text-gray-500">
-            <span className="w-1 h-1 rounded-full bg-life-cyan shadow-[0_0_6px_rgba(0,206,201,.9)]" />
-            {characterName}
-          </div>
-        )}
+      <div className="vg-chat-message-content relative max-w-[82%]">
+
         {/* 角色当前心情小表情（AI 消息，气泡角上） */}
-        {!isUser && moodEmoji && (
-          <span className="absolute -top-2 -right-1.5 text-[11px] leading-none select-none">{moodEmoji}</span>
-        )}
         <div
           onContextMenu={handleContextMenu}
-          className={`vg-message-bubble px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words transition-shadow ${
+          className={`vg-message-bubble ${isUser ? 'is-user-bubble' : 'is-character-bubble'} px-3.5 py-2.5 rounded-[18px] text-[14px] leading-relaxed whitespace-normal break-words transition-shadow ${
             isLatest && !isUser ? 'animate-message-sweep' : ''
           } ${
             isUser
-              ? 'bg-gradient-to-br from-gene-purple to-[#5B4BD4] text-white rounded-br-md shadow-[0_4px_16px_rgba(108,92,231,0.30)]'
-              : 'bg-msgai text-msgaitxt rounded-bl-md border-l-2 border-life-cyan shadow-[0_2px_10px_rgba(0,206,201,0.08)]'
+              ? 'bg-gradient-to-br from-[#695bd8] to-[#5147b8] text-white rounded-br-[6px] shadow-[0_4px_14px_rgba(63,51,147,0.18)]'
+              : 'bg-msgai/95 text-msgaitxt rounded-bl-[6px] border border-line/70 shadow-[0_3px_14px_rgba(10,11,32,0.07)]'
           }`}
         >
           {message.replyToContent && (
@@ -172,7 +194,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                 isUser ? 'border-white/40 text-white/70' : 'border-gray-300 text-gray-500'
               }`}
             >
-              {message.replyToContent}
+              {displayReply}
             </div>
           )}
           {message.image && (
@@ -184,7 +206,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                 setPreviewImage(message.image!);
               }}
               className={`max-w-[220px] max-h-[260px] rounded-xl object-cover cursor-zoom-in ${
-                message.content ? 'mb-2' : ''
+            displayContent ? 'mb-2' : ''
               }`}
             />
           )}
@@ -239,7 +261,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                         e.stopPropagation();
                         setShowTranscript((v) => !v);
                       }}
-                      className="text-[10px] text-gray-400 hover:text-ink transition-colors"
+                      className="text-xs text-gray-400 hover:text-ink transition-colors"
                     >
                       {showTranscript ? '收起文字' : '转文字'}
                     </button>
@@ -250,7 +272,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                 ))}
             </div>
           ) : (
-            message.content
+            displayContent
           )}
         </div>
         {/* 朗读按钮（仅 AI 消息；常显，触屏可点；播放中变青色/显示停止）。
@@ -262,7 +284,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
               onSpeak(message);
             }}
             title={speakingKey === speakKey ? '停止朗读' : busyKey === speakKey ? '合成中…' : '朗读'}
-            className={`absolute top-0 left-full ml-1.5 flex items-center justify-center w-7 h-7 rounded-lg bg-surface/90 border transition-all active:scale-90 ${
+            className={`absolute top-0 left-full ml-1.5 hidden sm:flex items-center justify-center w-7 h-7 rounded-lg bg-surface/90 border transition-all active:scale-90 ${
               speakingKey === speakKey || busyKey === speakKey
                 ? '!text-life-cyan border-life-cyan/40 shadow-[0_0_10px_rgba(0,206,201,0.25)]'
                 : 'border-line text-gray-400 hover:text-ink hover:border-gray-300'
@@ -291,7 +313,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
             handleCopy();
           }}
           title={copied ? '已复制' : '复制'}
-          className={`absolute ${isUser ? 'top-1.5 right-full mr-1.5' : 'top-8 left-full ml-1.5'} flex items-center justify-center w-6 h-6 rounded-md bg-panel border border-line text-gray-400 hover:text-ink transition-all opacity-0 group-hover:opacity-100 ${
+          className={`absolute ${isUser ? 'top-1.5 right-full mr-1.5' : 'top-8 left-full ml-1.5'} hidden sm:flex items-center justify-center w-6 h-6 rounded-md bg-panel border border-line text-gray-400 hover:text-ink transition-all opacity-0 group-hover:opacity-100 ${
             copied ? 'opacity-100 !text-life-cyan' : ''
           }`}
         >
@@ -313,8 +335,8 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
       {menu &&
         createPortal(
           <div
-            className="fixed z-[60] min-w-[140px] py-1.5 glass-card rounded-xl shadow-2xl"
-            style={{ left: menu.x + 4, top: menu.y + 4 }}
+            className="vg-message-context-menu fixed z-[60] min-w-[180px] max-h-[min(78vh,380px)] overflow-y-auto py-1.5 glass-card rounded-2xl shadow-2xl"
+            style={{ left: menu.x, top: menu.y }}
             onClick={(e) => e.stopPropagation()}
           >
             {confirmDelete ? (
@@ -349,7 +371,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                   onClick={handleCopy}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  📋 复制
+                    复制
                 </button>
                 <button
                   onClick={() => {
@@ -358,8 +380,19 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                   }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  💬 引用
+                    引用
                 </button>
+                {!isUser && onSpeak && (
+                  <button
+                    onClick={() => {
+                      onSpeak(message);
+                      setMenu(null);
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
+                  >
+                    {speakingKey === speakKey ? '停止朗读' : busyKey === speakKey ? '正在合成' : '朗读'}
+                  </button>
+                )}
                 {onRemember && (
                   <button
                     onClick={() => {
@@ -368,7 +401,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                     }}
                     className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                   >
-                    💾 记住
+                    记住
                   </button>
                 )}
                 {/* 收藏为共同记忆：4.x 的「记住」存的是"关于用户的事实"，
@@ -376,7 +409,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                 {onCollectMemory && (
                   collected ? (
                     <div className="w-full flex items-center gap-2 px-4 py-2 text-sm text-life-cyan/70">
-                      ✓ 已是共同记忆
+                      已是共同记忆
                     </div>
                   ) : (
                     <button
@@ -386,7 +419,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                       }}
                       className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                     >
-                      🧠 收藏为共同记忆
+                      收藏为共同记忆
                     </button>
                   )
                 )}
@@ -396,7 +429,8 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                   (message.contextTrace?.sharedEventIds?.length ?? 0) > 0 ||
                   (message.contextTrace?.sharedMemoryIds?.length ?? 0) > 0 ||
                   (message.contextTrace?.diaryIds?.length ?? 0) > 0 ||
-                  (message.contextTrace?.sceneIds?.length ?? 0) > 0
+                  (message.contextTrace?.sceneIds?.length ?? 0) > 0 ||
+                  (message.contextTrace?.pulseEventIds?.length ?? 0) > 0
                 ) && (
                   <button
                     onClick={() => {
@@ -405,14 +439,14 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                     }}
                     className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                   >
-                    🔍 查看记忆依据
+                    查看记忆依据
                   </button>
                 )}
                 <button
                   onClick={() => setConfirmDelete(true)}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
                 >
-                  🗑️ 删除
+                  删除
                 </button>
               </>
             )}

@@ -63,6 +63,7 @@ function formatDate(ts: number): string {
  * `characterId` 传了就只返回该角色被允许知道的内容（可见性闸门）。
  */
 export async function findRelevantHistory(params: {
+  userId?: string;
   worldId: string;
   query: string;
   limit?: number;
@@ -73,8 +74,8 @@ export async function findRelevantHistory(params: {
   const limit = Math.max(1, params.limit ?? 5);
 
   const [events, memories] = await Promise.all([
-    worldEventRepo.getRecent(params.worldId, 200),
-    sharedMemoryRepo.listByWorld(params.worldId, 200),
+    worldEventRepo.getRecent(params.worldId, 200, params.userId),
+    sharedMemoryRepo.listByWorld(params.worldId, 200, params.userId),
   ]);
 
   const hits: HistoryHit[] = [];

@@ -16,6 +16,11 @@ npm run mobile:build
 # 手机预览（局域网）
 npm run dev:renderer   # 手机浏览器访问 http://<电脑IP>:5173
 
+# 设计同步预览（推荐）
+node scripts/design-preview.mjs
+# 或：npm run design:sync
+# 会启用真正的移动端布局并打开 390x844 窗口；保存 React/CSS 后自动刷新。
+
 # 改了代码后增量构建
 npm run mobile:sync && cd android && gradlew.bat assembleDebug
 ```

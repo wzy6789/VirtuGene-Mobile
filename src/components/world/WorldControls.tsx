@@ -68,16 +68,30 @@ export function WorldSuggestions({ options, onPick, onDismiss }: {
   onPick: (text: string) => void;
   onDismiss: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   if (options.length === 0) return null;
+  if (!open) {
+    return (
+      <div className="vg-suggestions is-collapsed">
+        <button type="button" className="vg-suggestion-peek" onClick={() => setOpen(true)}>
+          <span>灵感</span>
+          <b>{options[0]}</b>
+          <i aria-hidden="true">⌃</i>
+        </button>
+      </div>
+    );
+  }
   return (
-    <div className="vg-suggestions">
-      <span className="vg-suggestions-label">也可以</span>
+    <div className="vg-suggestions is-open">
+      <div className="vg-suggestions-head">
+        <span className="vg-suggestions-label">如果你想换个方向</span>
+        <button type="button" className="vg-suggestion-close" onClick={() => { setOpen(false); onDismiss(); }} aria-label="收起灵感">×</button>
+      </div>
       {options.map((option) => (
         <button key={option} type="button" className="vg-suggestion" onClick={() => onPick(option)}>
           {option}
         </button>
       ))}
-      <button type="button" className="vg-suggestion-close" onClick={onDismiss} aria-label="不用建议">×</button>
     </div>
   );
 }
@@ -87,6 +101,7 @@ export function WorldSuggestions({ options, onPick, onDismiss }: {
  * ------------------------------------------------------------------ */
 export type WorldControlAction =
   | { kind: 'characters_talk' }
+  | { kind: 'entry_mode'; mode: 'memory' | 'present' }
   | { kind: 'time_skip'; label: string }
   | { kind: 'save_moment' }
   | { kind: 'pause' }
@@ -102,6 +117,7 @@ export function WorldControlSheet(params: {
   onClose: () => void;
   onAction: (action: WorldControlAction) => void;
   busy: boolean;
+  entryMemoryMode: 'memory' | 'present';
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -117,7 +133,14 @@ export function WorldControlSheet(params: {
       <div ref={ref} className="vg-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="vg-sheet-grab" aria-hidden />
         <p className="vg-sheet-title">世界控制</p>
-        <p className="vg-sheet-hint">这些也可以用一句话做到，比如「直接到第二天早上」。</p>
+
+        <div className="vg-sheet-mode">
+          <span>角色加入时</span>
+          <div className="vg-sheet-mode-options">
+            <button type="button" className={params.entryMemoryMode === 'memory' ? 'is-selected' : ''} onClick={() => params.onAction({ kind: 'entry_mode', mode: 'memory' })}>带上你们的记忆</button>
+            <button type="button" className={params.entryMemoryMode === 'present' ? 'is-selected' : ''} onClick={() => params.onAction({ kind: 'entry_mode', mode: 'present' })}>只带当前状态</button>
+          </div>
+        </div>
 
         <div className="vg-sheet-group">
           <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'characters_talk' })}>
@@ -187,7 +210,13 @@ export function WorldComposer(params: {
     <div className="vg-composer">
       {params.aiDetail && <p className="vg-composer-warn">{params.aiDetail}</p>}
       <div className="vg-composer-row">
-        <button type="button" className="vg-composer-control" onClick={params.onOpenControls} aria-label="世界控制">◍</button>
+        <button type="button" className="vg-composer-control" onClick={params.onOpenControls} aria-label="世界控制">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            <path d="M4 7h10M4 17h16M18 7h2M10 17h2" />
+            <circle cx="17" cy="7" r="2" />
+            <circle cx="7" cy="17" r="2" />
+          </svg>
+        </button>
         <textarea
           ref={ref}
           rows={1}
@@ -200,7 +229,7 @@ export function WorldComposer(params: {
               send();
             }
           }}
-          placeholder="说句话，做件事，或者改变这个世界……"
+          placeholder="让世界继续发生……"
           className="vg-composer-input"
         />
         <button
@@ -208,8 +237,15 @@ export function WorldComposer(params: {
           onClick={send}
           disabled={params.busy || !params.value.trim()}
           className="vg-composer-send"
+          aria-label={params.busy ? '世界正在回应' : '发送'}
         >
-          {params.busy ? '…' : '送出'}
+          {params.busy ? (
+            <span className="vg-composer-thinking" aria-hidden="true"><i /><i /><i /></span>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M5 12h13M13 6l6 6-6 6" />
+            </svg>
+          )}
         </button>
       </div>
     </div>

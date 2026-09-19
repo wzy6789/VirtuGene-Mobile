@@ -494,8 +494,16 @@ export function EmotionPanel() {
 
           {/* Error banner */}
           {analysisError && (
-            <div className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
-              {analysisError}
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+              <span className="min-w-0 flex-1">{analysisError}</span>
+              <button
+                type="button"
+                onClick={handleAnalyze}
+                disabled={isAnalyzing || messages.length === 0}
+                className="shrink-0 rounded-md border border-red-400/30 px-2 py-1 text-[11px] text-red-300 hover:bg-red-400/10 disabled:opacity-40"
+              >
+                重试
+              </button>
             </div>
           )}
 

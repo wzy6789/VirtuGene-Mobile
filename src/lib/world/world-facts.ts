@@ -88,7 +88,7 @@ export async function upsertWorldFactWithReconcile(params: {
   // 1) 模型明确说了替换谁：按**原文精确匹配**（绝不模糊匹配）
   if (params.replaces?.trim()) {
     const target = params.replaces.trim();
-    const candidates = await worldFactRepo.listByWorld(params.worldId, { activeOnly: true });
+    const candidates = await worldFactRepo.listByWorld(params.worldId, { activeOnly: true, userId: params.userId });
     const hit = candidates.find((f) => f.content === target || f.content.includes(target) || target.includes(f.content));
     if (hit && hit.content !== content) {
       await worldFactRepo.setActive(hit.id, false);
@@ -97,7 +97,7 @@ export async function upsertWorldFactWithReconcile(params: {
   }
 
   // 2) 确定性兜底：同类别里与新设定共享实词且否定状态相反的旧规则 ⇒ 停用
-  const sameCategory = await worldFactRepo.listByWorld(params.worldId, { category: params.category, activeOnly: true });
+  const sameCategory = await worldFactRepo.listByWorld(params.worldId, { category: params.category, activeOnly: true, userId: params.userId });
   for (const existing of sameCategory) {
     if (existing.content === content) continue;
     if (deactivated.includes(existing.id)) continue;
@@ -137,23 +137,29 @@ export function guessFactCategory(text: string): WorldFactCategory {
 }
 
 /** 世界设定页读取（全部，含已暂停的） */
-export async function listWorldSettings(worldId: string): Promise<WorldFact[]> {
-  return worldFactRepo.listByWorld(worldId);
+export async function listWorldSettings(worldId: string, userId?: string): Promise<WorldFact[]> {
+  return worldFactRepo.listByWorld(worldId, userId ? { userId } : {});
 }
 
 /** 用户在设定页里编辑一条（改文案就是改这一行，不会产生第二条） */
-export async function editWorldSetting(id: string, content: string): Promise<WorldFact | undefined> {
+export async function editWorldSetting(id: string, content: string, userId?: string): Promise<WorldFact | undefined> {
   const trimmed = content.trim();
   if (!trimmed) return undefined;
+  const existing = await worldFactRepo.getById(id);
+  if (!existing || (userId !== undefined && existing.userId !== userId)) return undefined;
   return worldFactRepo.update(id, { content: trimmed.slice(0, 400) });
 }
 
-export async function removeWorldSetting(id: string): Promise<void> {
+export async function removeWorldSetting(id: string, userId?: string): Promise<void> {
+  const existing = await worldFactRepo.getById(id);
+  if (!existing || (userId !== undefined && existing.userId !== userId)) return;
   await worldFactRepo.remove(id);
 }
 
 /** 暂停 / 恢复一条设定（用户可"先不用它"，而不是删掉） */
-export async function toggleWorldSetting(id: string, active: boolean): Promise<void> {
+export async function toggleWorldSetting(id: string, active: boolean, userId?: string): Promise<void> {
+  const existing = await worldFactRepo.getById(id);
+  if (!existing || (userId !== undefined && existing.userId !== userId)) return;
   await worldFactRepo.setActive(id, active);
 }
 

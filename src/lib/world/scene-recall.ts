@@ -13,7 +13,7 @@
  * 只召回**已经结束**的戏：正在演/搁着的戏属于"舞台上还没发生完的事"，
  * 不应该在私聊里被当成"我们经历过"来讲。
  */
-import type { WorldEvent, WorldScene } from '../../db/index';
+import { db, type WorldEvent, type WorldScene } from '../../db/index';
 import { worldSceneRepo } from '../../db/world-scene-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { knowledgeRepo } from '../../db/knowledge-repo';
@@ -27,19 +27,29 @@ export interface RecallableScene {
 /** 一次最多召回几场戏（戏是长篇，给 2 场就够；再多会把上下文挤满） */
 export const DEFAULT_SCENE_RECALL_LIMIT = 2;
 
+async function ownerFor(worldId: string, requestedUserId?: string): Promise<string | undefined> {
+  const ownerId = (await db.worlds.get(worldId))?.userId;
+  if (!ownerId) return undefined;
+  if (requestedUserId && requestedUserId !== ownerId) return undefined;
+  return ownerId;
+}
+
 export async function selectRecallableScenes(params: {
+  userId?: string;
   worldId: string;
   characterId: string;
   limit?: number;
 }): Promise<RecallableScene[]> {
-  const { worldId, characterId } = params;
+  const { userId, worldId, characterId } = params;
+  const ownerId = await ownerFor(worldId, userId);
+  if (!ownerId) return [];
   const limit = Math.max(1, params.limit ?? DEFAULT_SCENE_RECALL_LIMIT);
 
-  const finished = await worldSceneRepo.listScenesByCharacter(worldId, characterId, { status: 'finished', limit: 20 });
+  const finished = await worldSceneRepo.listScenesByCharacter(worldId, characterId, { status: 'finished', limit: 20, userId: ownerId });
   if (finished.length === 0) return [];
 
   // 认知闸门：这个角色确实知道、且可以主动提起的世界事件
-  const known = await knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'full', limit: 300 });
+  const known = await knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'full', limit: 300, userId: ownerId });
   const mentionable = new Set(known.filter((row) => row.canMention && row.knowledgeLevel === 'full').map((row) => row.eventId));
   if (mentionable.size === 0) return [];
 
@@ -49,7 +59,7 @@ export async function selectRecallableScenes(params: {
     if (!scene.worldEventId) continue;
     if (!mentionable.has(scene.worldEventId)) continue;
     const event = await worldEventRepo.getById(scene.worldEventId);
-    if (!event || event.type !== 'stage') continue;
+    if (!event || event.type !== 'stage' || event.userId !== ownerId) continue;
     // 防御性二次校验：事件本身也要对这个角色可见
     if (!isVisibleToCharacter(event, characterId)) continue;
     out.push({ scene, event });

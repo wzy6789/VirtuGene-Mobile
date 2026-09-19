@@ -33,6 +33,8 @@ export interface ContextTraceSources {
   diaries?: TraceMember[];
   /** 5.0 世界舞台：这个角色亲身参与过、且这一轮真的注入了的那几场戏 */
   scenes?: TraceMember[];
+  /** 5.0 世界脉冲：角色在用户离开时亲身参与、且这一轮真的注入的行动 */
+  pulseEvents?: TraceMember[];
   now?: number;
 }
 
@@ -56,6 +58,7 @@ export function buildContextTrace(sources: ContextTraceSources): BuiltContextTra
     : [];
   const diaryIds = included.has('diary') ? (sources.diaries ?? []).map((d) => d.id) : [];
   const sceneIds = included.has('scene') ? (sources.scenes ?? []).map((s) => s.id) : [];
+  const pulseEventIds = included.has('world-pulse') ? (sources.pulseEvents ?? []).map((e) => e.id) : [];
 
   return {
     ...(memoryIds.size > 0 ? { memoryIds: [...memoryIds] } : {}),
@@ -64,6 +67,7 @@ export function buildContextTrace(sources: ContextTraceSources): BuiltContextTra
     ...(sharedMemoryIds.length > 0 ? { sharedMemoryIds } : {}),
     ...(diaryIds.length > 0 ? { diaryIds } : {}),
     ...(sceneIds.length > 0 ? { sceneIds } : {}),
+    ...(pulseEventIds.length > 0 ? { pulseEventIds } : {}),
     at: sources.now ?? Date.now(),
   };
 }
@@ -76,6 +80,7 @@ export function hasTraceContent(trace: BuiltContextTrace): boolean {
     (trace.sharedEventIds?.length ?? 0) > 0 ||
     (trace.sharedMemoryIds?.length ?? 0) > 0 ||
     (trace.diaryIds?.length ?? 0) > 0 ||
-    (trace.sceneIds?.length ?? 0) > 0
+    (trace.sceneIds?.length ?? 0) > 0 ||
+    (trace.pulseEventIds?.length ?? 0) > 0
   );
 }

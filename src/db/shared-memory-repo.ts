@@ -106,9 +106,12 @@ export const sharedMemoryRepo = {
     return items.filter((item): item is SharedMemory => !!item);
   },
 
-  async listByWorld(worldId: string, limit = 100): Promise<SharedMemory[]> {
+  async listByWorld(worldId: string, limit = 100, userId?: string): Promise<SharedMemory[]> {
     const all = await db.sharedMemories.where('worldId').equals(worldId).toArray();
-    return all.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+    return all
+      .filter((m) => userId === undefined || m.userId === userId)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
   },
 
   /**
@@ -130,10 +133,11 @@ export const sharedMemoryRepo = {
    * 需要给角色注入上下文时请用 `listRelevant` / `listVisibleFor`（它们过可见性闸门），
    * 不要把本函数的结果直接送进 Prompt。
    */
-  async listExperiencedWith(characterId: string, worldId: string, limit = 50): Promise<SharedMemory[]> {
+  async listExperiencedWith(characterId: string, worldId: string, limit = 50, userId?: string): Promise<SharedMemory[]> {
     const all = await db.sharedMemories.where('worldId').equals(worldId).toArray();
     const ref = characterRef(characterId);
     return all
+      .filter((m) => userId === undefined || m.userId === userId)
       .filter((m) => m.participants.includes(ref))
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit);
@@ -147,13 +151,14 @@ export const sharedMemoryRepo = {
    * "对这个角色不可见"的记忆照样被召回（一旦上下文编译器使用就会泄漏给角色）。
    * 另外 `characterIds` 为空时返回空数组（`every` 对空数组恒真，不能当闸门）。
    */
-  async listRelevant(worldId: string, characterIds: string[], limit = 6): Promise<SharedMemory[]> {
+  async listRelevant(worldId: string, characterIds: string[], limit = 6, userId?: string): Promise<SharedMemory[]> {
     const empty: SharedMemory[] = [];
     if (characterIds.length === 0) return empty;
     const all = await db.sharedMemories.where('worldId').equals(worldId).toArray();
     const now = Date.now();
     return all
       // ① 先过隐私闸门：不在场/不被允许知道的，直接不参与排序
+      .filter((m) => userId === undefined || m.userId === userId)
       .filter((m) => isVisibleToEveryCharacter(m, characterIds))
       // ② 再按"和在场角色的相关度 + 重要度 + 新鲜度"排序
       .map((m) => {

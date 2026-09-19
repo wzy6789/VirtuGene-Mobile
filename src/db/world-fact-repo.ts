@@ -82,9 +82,10 @@ export const worldFactRepo = {
   },
 
   /** 世界设定页：按分类分组展示（返回全部，含已暂停的） */
-  async listByWorld(worldId: string, opts: { category?: WorldFactCategory; activeOnly?: boolean } = {}): Promise<WorldFact[]> {
+  async listByWorld(worldId: string, opts: { category?: WorldFactCategory; activeOnly?: boolean; userId?: string } = {}): Promise<WorldFact[]> {
     const all = await db.worldFacts.where('worldId').equals(worldId).toArray();
     return all
+      .filter((f) => opts.userId === undefined || f.userId === opts.userId)
       .filter((f) => (opts.category ? f.category === opts.category : true))
       .filter((f) => (opts.activeOnly ? f.active : true))
       .sort((a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt);
@@ -94,9 +95,10 @@ export const worldFactRepo = {
    * 进入**某个角色**上下文的设定：可见性硬过滤（§20 知识隔离），
    * 然后把"全局规则"排在前面（规则永远比氛围重要）。
    */
-  async listForCharacter(worldId: string, characterId: string, limit = 12): Promise<WorldFact[]> {
+  async listForCharacter(worldId: string, characterId: string, limit = 12, userId?: string): Promise<WorldFact[]> {
     const all = await db.worldFacts.where('worldId').equals(worldId).toArray();
     return all
+      .filter((f) => userId === undefined || f.userId === userId)
       .filter((f) => f.active)
       .filter((f) => isVisibleToCharacter(f, characterId))
       .sort((a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt)
@@ -104,9 +106,10 @@ export const worldFactRepo = {
   },
 
   /** 与角色无关的世界级设定（旁白 / Director 用：它们知道世界全貌，但仍不看 private） */
-  async listWorldLevel(worldId: string, limit = 16): Promise<WorldFact[]> {
+  async listWorldLevel(worldId: string, limit = 16, userId?: string): Promise<WorldFact[]> {
     const all = await db.worldFacts.where('worldId').equals(worldId).toArray();
     return all
+      .filter((f) => userId === undefined || f.userId === userId)
       .filter((f) => f.active && f.visibility === 'world')
       .sort((a, b) => b.priority - a.priority || b.updatedAt - a.updatedAt)
       .slice(0, Math.max(1, limit));

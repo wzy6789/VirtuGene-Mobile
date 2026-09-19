@@ -13,6 +13,7 @@ import { relativeDay } from '../../lib/world/world-picks';
 import { getRelationLevel } from '../../lib/affinity';
 import { SpaceHeading } from '../ui/SpaceHeading';
 import { Avatar } from '../ui/Avatar';
+import { RelationshipConstellation } from './RelationshipConstellation';
 
 /**
  * 关系网络（5.0 Phase 2b-5 / 2B：可解释化）
@@ -47,8 +48,8 @@ export function MobileRelationsPage() {
       try {
         const world = await worldRepo.ensureDefaultWorld(userId, useAuthStore.getState().username ?? undefined);
         const [nextStates, nextEvents, nextCharStates] = await Promise.all([
-          relationshipRepo.listStatesByWorld(world.id),
-          relationshipRepo.listEventsByWorld(world.id),
+          relationshipRepo.listStatesByWorld(world.id, 200, userId),
+          relationshipRepo.listEventsByWorld(world.id, 300, userId),
           db.characterStates.where('userId').equals(userId).toArray(),
         ]);
         if (!alive) return;
@@ -58,9 +59,9 @@ export function MobileRelationsPage() {
         // 真实计数（"你们一起经历过多少事"），失败不影响页面其它部分
         const mem: Record<string, number> = {};
         const thr: Record<string, number> = {};
-        await Promise.all(charStates.map(async (cs) => {
+        await Promise.all(nextCharStates.map(async (cs) => {
           try {
-            mem[cs.characterId] = (await sharedMemoryRepo.listExperiencedWith(cs.characterId, world.id, 100)).length;
+            mem[cs.characterId] = (await sharedMemoryRepo.listExperiencedWith(cs.characterId, world.id, 100, userId)).length;
             thr[cs.characterId] = (await continuityRepo.getOpenByCharacter(cs.characterId, userId)).length;
           } catch { /* ignore */ }
         }));
@@ -137,6 +138,13 @@ export function MobileRelationsPage() {
         </section>
       ) : (
         <section className="mt-5 space-y-5">
+          <RelationshipConstellation
+            userId={userId}
+            characters={myCharacters}
+            states={states}
+            events={events}
+          />
+
           {/* ---------- 你和他们 ---------- */}
           <div>
             <p className="mb-2 text-[10px] tracking-[0.16em] uppercase text-gray-500">你和他们</p>

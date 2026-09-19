@@ -9,7 +9,11 @@ import { stateRepo } from '../db/state-repo';
 import { continuityRepo } from '../db/continuity-repo';
 import { ipc } from '../lib/ipc-client';
 import { computeAffinityDelta } from '../lib/affinity';
+import { hasAiGatewayAccess } from '../lib/ai/gateway';
+import { boundAuxiliaryHistory } from '../lib/ai/history-window';
 import type { EmotionSnapshot } from '../db/index';
+
+const auxiliaryInFlight = new Set<string>();
 
 interface EmotionState {
   isPanelOpen: boolean;
@@ -47,7 +51,7 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
 
   analyzeCurrentSession: async (characterId, sessionId, characterName) => {
     const apiKey = useAuthStore.getState().apiKey;
-    if (!apiKey) {
+    if (!apiKey && !hasAiGatewayAccess()) {
       set({ analysisError: '基因序列验证失败，请检查 API Key' });
       return;
     }
@@ -60,18 +64,35 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
 
     set({ isAnalyzing: true, analysisError: null });
 
-    const history = msgs.slice(-30).map((m) => ({
+    const history = boundAuxiliaryHistory(msgs.map((m) => ({
       role: m.role,
       content: m.content,
-    }));
+    })));
 
-    const result = await ipc.emotion.analyze({ apiKey, history, characterName });
+    const operationKey = `aux:${useAuthStore.getState().userId ?? ''}:${sessionId}`;
+    if (auxiliaryInFlight.has(operationKey)) {
+      set({ isAnalyzing: false });
+      return;
+    }
+    auxiliaryInFlight.add(operationKey);
+
+    let result;
+    try {
+      result = await ipc.emotion.analyze({ apiKey: apiKey ?? '', history, characterName });
+    } catch (error) {
+      console.warn('[emotion] analysis request failed', error);
+      set({ isAnalyzing: false, analysisError: '基因链接中断，请重试' });
+      return;
+    } finally {
+      auxiliaryInFlight.delete(operationKey);
+    }
 
     if (result.error) {
       const errorMap: Record<string, string> = {
         'auth:invalid_key': '基因序列验证失败，请检查 API Key',
         'billing:insufficient': 'DeepSeek 账户余额不足，请前往平台充值',
         'rate:limited': '请求过于频繁，请稍后重试',
+        'timeout': '基因链接超时，请重试',
         'server:error': '基因链接中断，请重试',
       };
       set({ isAnalyzing: false, analysisError: errorMap[result.error] ?? '基因链接中断，请重试' });
@@ -128,13 +149,25 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
   /** 每 5 条用户消息触发一次：合并「情绪分析 + 记忆提取 + 好感度结算」为一次 API 调用 */
   settle: async (characterId, sessionId, characterName) => {
     const apiKey = useAuthStore.getState().apiKey;
-    if (!apiKey) return;
+    if (!apiKey && !hasAiGatewayAccess()) return;
 
     const msgs = await messageRepo.getBySession(sessionId);
     if (msgs.filter((m) => m.role === 'user').length < 3) return;
 
-    const history = msgs.slice(-100).map((m) => ({ role: m.role, content: m.content }));
-    const result = await ipc.context.settle({ apiKey, history, characterName });
+    const analysisMessages = boundAuxiliaryHistory(msgs);
+    const history = analysisMessages.map((m) => ({ role: m.role, content: m.content }));
+    const operationKey = `aux:${useAuthStore.getState().userId ?? ''}:${sessionId}`;
+    if (auxiliaryInFlight.has(operationKey)) return;
+    auxiliaryInFlight.add(operationKey);
+    let result;
+    try {
+      result = await ipc.context.settle({ apiKey: apiKey ?? '', history, characterName });
+    } catch (error) {
+      console.warn('[settle] context request failed', error);
+      return;
+    } finally {
+      auxiliaryInFlight.delete(operationKey);
+    }
     if (result.error || !result.dimensions) {
       console.warn('[settle] 情绪分析失败，本次结算跳过:', result.error ?? 'invalid result');
       return;
@@ -142,7 +175,7 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
 
     // 溯源：分析时给模型的 history 下标 → 真实消息 id。
     // 记忆/未完成事件只接受模型回传的编号，绝不按文本相似度猜消息。
-    const indexedMessages = msgs.slice(-100);
+    const indexedMessages = analysisMessages;
     const idsForEvidence = (evidence: number[] | undefined): string[] =>
       Array.from(new Set((evidence ?? []).map((i) => indexedMessages[i]?.id).filter((id): id is string => !!id)));
 

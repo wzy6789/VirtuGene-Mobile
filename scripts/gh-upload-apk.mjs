@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 
 const ROOT = resolve(import.meta.dirname, '..');
-const APK_PATH = resolve(ROOT, 'android/app/build/outputs/apk/debug/app-debug.apk');
+const APK_PATH = resolve(ROOT, 'android/app/build/outputs/apk/release/app-release.apk');
 const releaseId = process.argv[2];
 const repo = 'wzy6789/VirtuGene-Mobile';
 
@@ -29,7 +29,7 @@ if (!statSync(APK_PATH, { throwIfNoEntry: false })) { console.error('❌ 无 APK
 const size = statSync(APK_PATH).size;
 console.log(`⬆️ 上传 APK(${(size / 1048576).toFixed(1)}MB) → release ${releaseId} …`);
 
-const url = `https://uploads.github.com/repos/${repo}/releases/${releaseId}/assets?name=app-debug.apk`;
+const url = `https://uploads.github.com/repos/${repo}/releases/${releaseId}/assets?name=app-release.apk`;
 const res = await fetch(url, {
   method: 'POST',
   headers: {

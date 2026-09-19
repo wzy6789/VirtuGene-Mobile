@@ -135,6 +135,80 @@ export interface World {
   isDefault: boolean;
   description?: string;
   theme?: string;
+  /** 世界逻辑时钟。没有这个字段的旧世界会在 v19 升级时补齐。 */
+  clock?: WorldClock;
+  /** 现实锚点的位置 id（默认是「我的生活」）。 */
+  realityLocationId?: string;
+  /** 最近一次把离线时间折算为世界变化的时间。 */
+  lastPulseAt?: number;
+}
+
+/** 世界时间与真实时间分离：应用关闭时不假装在后台运行，重新打开时再结算间隔。 */
+export interface WorldClock {
+  /** 逻辑世界时间的起点（毫秒时间戳）。 */
+  worldAt: number;
+  /** 上一次读取/结算时的真实时间。 */
+  lastReconciledAt: number;
+  /** 当前版本只支持与现实同步，后续可扩展为世界时间倍率。 */
+  pace: 'realtime';
+}
+
+/** 世界中的稳定地点。剧情是地点上的一次发生，地点本身不会随剧情结束消失。 */
+export interface WorldLocation {
+  id: string;
+  userId: string;
+  worldId: string;
+  name: string;
+  type: 'reality' | 'place' | 'transit';
+  description?: string;
+  active: boolean;
+  sourceType: 'system' | 'scene' | 'user';
+  sourceId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 角色在世界中的物理位置；同一世界同一角色始终只有一条当前位置。 */
+export interface WorldPresence {
+  id: string;
+  userId: string;
+  worldId: string;
+  characterId: string;
+  locationId: string;
+  status: 'present' | 'traveling' | 'away';
+  sinceWorldTime: number;
+  note?: string;
+  updatedAt: number;
+}
+
+/** 角色的世界级自主状态，与私聊中的情绪/记忆分开。 */
+export interface WorldAgentState {
+  id: string;
+  userId: string;
+  worldId: string;
+  characterId: string;
+  autonomy: 'quiet' | 'normal' | 'active';
+  currentGoal?: string;
+  nextIntent?: string;
+  lastPulseAt?: number;
+  lastActionAt?: number;
+  updatedAt: number;
+}
+
+/** 一次把世界时间向前结算的记录。 */
+export interface WorldPulse {
+  id: string;
+  userId: string;
+  worldId: string;
+  reason: 'resume' | 'manual' | 'scheduled';
+  fromWorldTime: number;
+  toWorldTime: number;
+  status: 'pending' | 'completed' | 'failed';
+  eventIds: string[];
+  summary?: string;
+  error?: string;
+  createdAt: number;
+  completedAt?: number;
 }
 
 /**
@@ -174,6 +248,12 @@ export interface WorldEvent {
   /** 来源类型：'chat' | 'group' | 'stage' | 'diary' | 'manual' | 'migration:lifeEvent' … */
   sourceType: string;
   sourceId: string;
+  /** 事件发生的稳定地点（可选，旧事件没有时仍可正常显示）。 */
+  locationId?: string;
+  /** 世界逻辑时间；timestamp 仍保留为本机写入时间。 */
+  worldTime?: number;
+  /** 造成这件事的世界事件，供因果链读取。 */
+  causeEventIds?: string[];
   visibility: WorldVisibility;
   /** visibility='selected' 时允许知道的角色 id */
   visibleTo?: string[];
@@ -192,6 +272,8 @@ export interface WorldEvent {
 /** 场景内某个角色的状态与目标（隐藏张力的载体：各角色目标不同才有真正的多角色互动） */
 export interface SceneParticipantState {
   characterId: string;
+  /** 进入场景时携带的上下文范围。 */
+  entryMemoryMode?: 'memory' | 'present';
   /** 该角色本场想要什么 */
   goals: string[];
   /** 入场时已知道的事情（WorldEvent.id 列表） */
@@ -226,6 +308,8 @@ export interface WorldSceneState {
   timeOffsetMs?: number;
   /** 最近一次世界状态变化的人话说明（仅内部/调试，UI 默认不展示数字） */
   lastWorldChange?: string;
+  /** 新加入角色默认携带的上下文范围；单个参与者可覆盖。 */
+  entryMemoryMode?: 'memory' | 'present';
 }
 
 /** 一场 World Stage（互动章节） */
@@ -247,6 +331,12 @@ export interface WorldScene {
   finishedAt?: number;
   /** 场景结束后生成的 WorldEvent.id（年表条目） */
   worldEventId?: string;
+  /** 场景发生的稳定地点；旧场景通过 place 文本懒同步。 */
+  locationId?: string;
+  /** 由某次世界脉冲产生的场景（预留给自主行动）。 */
+  pulseId?: string;
+  startedWorldTime?: number;
+  endedWorldTime?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -578,6 +668,13 @@ export interface Session {
   summary?: string;
   /** 摘要覆盖到的时间点（早于该时间戳的消息均已纳入摘要） */
   summaryUpdatedAt?: number;
+  /** 本会话选择的叙事时段；只影响模型营造的氛围，不改变消息 createdAt。 */
+  sceneTimeOfDay?: 'morning' | 'afternoon' | 'dusk' | 'night' | 'late-night';
+  /** 本会话的叙事场域；只影响模型营造的氛围，不改变消息时间。 */
+  scenePlace?: string;
+  sceneAtmosphere?: 'daily' | 'quiet' | 'light' | 'serious' | 'close' | 'low';
+  /** follow-now 随现实变化，fixed 固定在用户选择的时段。 */
+  sceneMode?: 'follow-now' | 'fixed';
 }
 
 /** 角色群（微信式群聊）：用户 + 多个角色 */
@@ -614,6 +711,12 @@ export interface Message {
   replyToContent?: string;
   /** 发送失败标记（微信式：失败消息显示红色感叹号，点击重发） */
   failed?: boolean;
+  /** 同一轮 AI 连发消息的批次标识；只用于保持气泡顺序和视觉节奏。 */
+  replyBatchId?: string;
+  /** 该消息在连发批次中的序号（从 0 开始）。 */
+  replyBatchIndex?: number;
+  /** 该连发批次的消息总数。 */
+  replyBatchSize?: number;
   /**
    * 本机上下文溯源：生成这条消息时，真正被注入的本地数据 id。
    * 只记录实际注入的条目（不是整段 prompt），记忆被删除后这里不再指向任何内容。
@@ -628,6 +731,8 @@ export interface Message {
     diaryIds?: string[];
     /** 5.0 世界舞台（worldScenes.id）：这个角色亲身参与过、且这一轮真的注入了的那几场戏 */
     sceneIds?: string[];
+    /** 5.0 世界脉冲（worldEvents.id）：角色在用户离开时亲身参与、且这一轮真的注入的行动 */
+    pulseEventIds?: string[];
     /** 记录时间 */
     at: number;
   };
@@ -639,6 +744,8 @@ export interface MemoryItem {
   userId: string;
   content: string;
   type: 'auto' | 'summary';
+  /** 用户明确要求记住的内容；压缩与数量清理时永远优先保留。 */
+  pinned?: boolean;
   createdAt: number;
   /** 这条记忆来自哪个会话（可空：早期数据或用户手动添加） */
   sourceSessionId?: string;
@@ -733,6 +840,11 @@ export class VirtuGeneDB extends Dexie {
   // 5.0.0 Living World（Dexie v18）：世界事实 + 世界轮次
   worldFacts!: Table<WorldFact, string>;
   worldTurns!: Table<WorldTurn, string>;
+  // 5.1.0 Living World 2.0：地点、位置、角色自主状态与世界脉冲
+  worldLocations!: Table<WorldLocation, string>;
+  worldPresences!: Table<WorldPresence, string>;
+  worldAgentStates!: Table<WorldAgentState, string>;
+  worldPulses!: Table<WorldPulse, string>;
 
   constructor() {
     super('virtugene');
@@ -933,6 +1045,51 @@ export class VirtuGeneDB extends Dexie {
     this.version(18).stores({
       worldFacts: 'id,userId,worldId,category,active,[worldId+category],[worldId+sourceType+sourceId],updatedAt',
       worldTurns: 'id,userId,worldId,sceneId,status,[worldId+createdAt],createdAt',
+    });
+    /**
+     * v19：Living World 2.0 的世界内核基础。
+     * 新表只保存真实状态，不会重写旧聊天、群聊、日记或世界事件；
+     * 旧世界在升级时获得一个现实锚点与逻辑时钟，其他地点按需从剧情同步。
+     */
+    this.version(19).stores({
+      worlds: 'id,userId,isDefault',
+      worldEvents: 'id,userId,worldId,type,[worldId+timestamp],[worldId+type],[worldId+sourceType+sourceId],sourceType,sourceId,timestamp,locationId,[worldId+worldTime]',
+      worldScenes: 'id,userId,worldId,status,[worldId+status],updatedAt,locationId,pulseId',
+      worldLocations: 'id,userId,worldId,type,active,[worldId+name],[worldId+type],updatedAt',
+      worldPresences: 'id,userId,worldId,characterId,locationId,[worldId+characterId],[worldId+locationId],updatedAt',
+      worldAgentStates: 'id,userId,worldId,characterId,[worldId+characterId],updatedAt',
+      worldPulses: 'id,userId,worldId,status,[worldId+createdAt],createdAt',
+    }).upgrade(async (tx) => {
+      const worlds = tx.table('worlds');
+      const locations = tx.table('worldLocations');
+      const now = Date.now();
+      const rows = await worlds.toArray();
+      for (const world of rows) {
+        const realityId = `reality:${world.id}`;
+        const existing = await locations.get(realityId);
+        if (!existing) {
+          await locations.put({
+            id: realityId,
+            userId: world.userId,
+            worldId: world.id,
+            name: '我的生活',
+            type: 'reality',
+            description: '现实生活的锚点，所有共同世界从这里获得方向。',
+            active: true,
+            sourceType: 'system',
+            sourceId: world.id,
+            createdAt: world.createdAt ?? now,
+            updatedAt: now,
+          });
+        }
+        await worlds.put({
+          ...world,
+          clock: world.clock ?? { worldAt: world.createdAt ?? now, lastReconciledAt: now, pace: 'realtime' },
+          realityLocationId: world.realityLocationId ?? realityId,
+          lastPulseAt: world.lastPulseAt ?? now,
+          updatedAt: world.updatedAt ?? now,
+        });
+      }
     });
   }
 }

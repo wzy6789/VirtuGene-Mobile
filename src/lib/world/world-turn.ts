@@ -40,6 +40,8 @@ import { undoLastTurn, type UndoResult } from './world-undo';
 import type { WorldLlmCaller } from './world-ai-client';
 import type { WorldAction } from './world-actions';
 import type { WorldTurn, WorldTurnStatus } from '../../db/index';
+import { worldLocationRepo } from '../../db/world-location-repo';
+import { worldAgentRepo } from '../../db/world-agent-repo';
 
 /* ------------------------------------------------------------------ *
  * 串行队列（§58）：同一个世界同一时刻只跑一轮，避免读到半完成状态
@@ -135,8 +137,9 @@ export async function applyLocalWorldAction(params: {
   characters: Character[];
   userId: string;
   worldId: string;
+  entryMemoryMode?: 'memory' | 'present';
 }): Promise<LocalActionOutcome> {
-  const { action, scene, characters, userId, worldId } = params;
+  const { action, scene, characters, userId, worldId, entryMemoryMode } = params;
   const entries: LocalActionOutcome['entries'] = [];
   const changes: string[] = [];
   const deactivatedFactIds: string[] = [];
@@ -171,7 +174,19 @@ export async function applyLocalWorldAction(params: {
   if (action.intent === 'change_location' && action.locationChange) {
     const place = action.locationChange.trim().slice(0, 80);
     await worldSceneRepo.updateScene(scene.id, { place });
-    const known = await worldFactRepo.listByWorld(worldId, { category: 'location' });
+    const movedScene = await worldSceneRepo.getScene(scene.id);
+    const location = movedScene ? await worldLocationRepo.ensureFromScene(movedScene) : undefined;
+    const world = await db.worlds.get(worldId);
+    if (location && movedScene) {
+      await Promise.all(movedScene.characterIds.map((characterId) => worldAgentRepo.moveCharacter({
+        userId,
+        worldId,
+        characterId,
+        locationId: location.id,
+        worldTime: world?.clock?.worldAt ?? Date.now(),
+      })));
+    }
+      const known = await worldFactRepo.listByWorld(worldId, { category: 'location', userId });
     if (!known.some((f) => f.content.includes(place) || place.includes(f.content))) {
       await worldFactRepo.upsert({
         userId,
@@ -216,13 +231,36 @@ export async function applyLocalWorldAction(params: {
       const character = characters.find((c) => c.id === id);
       if (!character) continue;
       if (action.intent === 'summon' && !scene.characterIds.includes(id)) {
-        await worldSceneRepo.addParticipant(scene.id, id);
+        await worldSceneRepo.addParticipant(scene.id, id, {
+          entryMemoryMode: entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory',
+        });
+        const currentScene = await worldSceneRepo.getScene(scene.id);
+        const location = currentScene ? await worldLocationRepo.ensureFromScene(currentScene) : undefined;
+        const world = await db.worlds.get(worldId);
+        if (location) {
+          await worldAgentRepo.moveCharacter({
+            userId,
+            worldId,
+            characterId: id,
+            locationId: location.id,
+            worldTime: world?.clock?.worldAt ?? Date.now(),
+          });
+        }
         entries.push({ kind: 'system', content: `${character.name} 来到了这里` });
         changes.push(`${character.name}加入了`);
         handled = true;
       }
       if (action.intent === 'dismiss' && scene.characterIds.includes(id)) {
         await worldSceneRepo.removeParticipant(scene.id, id);
+        const world = await db.worlds.get(worldId);
+        await worldAgentRepo.setPresenceStatus({
+          userId,
+          worldId,
+          characterId: id,
+          status: 'away',
+          worldTime: world?.clock?.worldAt ?? Date.now(),
+          note: '暂时离开当前地点',
+        });
         entries.push({ kind: 'system', content: `${character.name} 先离开了` });
         changes.push(`${character.name}离开了`);
         handled = true;
@@ -278,6 +316,8 @@ export interface RunWorldTurnParams {
   text: string;
   origin?: WorldTurn['origin'];
   characters: Character[];
+  /** 通过自然语言召入角色时，决定他能否带入与用户的旧记忆。 */
+  entryMemoryMode?: 'memory' | 'present';
   /** 可注入的 LLM 边界（验收用） */
   call?: WorldLlmCaller;
   /** 渐进式回调（UI 用它即时渲染） */
@@ -346,7 +386,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
   const emit = (event: WorldTurnEvent) => params.onEvent?.(event);
 
   const scene = await worldSceneRepo.getScene(sceneId);
-  if (!scene || scene.userId !== userId) {
+  if (!scene || scene.userId !== userId || scene.worldId !== worldId) {
     return { turnId: '', status: 'failed', beats: [], suggestions: [], entries: [], llmCalls: 0, error: '这一片段不存在' };
   }
 
@@ -395,7 +435,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       place: scene.place,
       timeLabel: scene.timeLabel,
       // 让解析器知道已有的世界设定，这样"改设定"能带上 replacesFact（§101）
-      worldRules: (await worldFactRepo.listByWorld(worldId, { category: 'rule', activeOnly: true })).map((f) => f.content).slice(0, 12),
+      worldRules: (await worldFactRepo.listByWorld(worldId, { category: 'rule', activeOnly: true, userId })).map((f) => f.content).slice(0, 12),
       recent: await worldSceneRepo.listEntries(sceneId, { limit: 12 }),
       ...(params.call ? { call: params.call } : {}),
     });
@@ -417,7 +457,14 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     }
 
     // ---- 3) 本地确定性动作（0 次调用）
-    const local = await applyLocalWorldAction({ action, scene, characters, userId, worldId });
+    const local = await applyLocalWorldAction({
+      action,
+      scene,
+      characters,
+      userId,
+      worldId,
+      entryMemoryMode: params.entryMemoryMode,
+    });
     const localEntries: WorldSceneEntry[] = [];
     for (const item of local.entries) {
       const entry = await worldSceneRepo.appendEntry(sceneId, {
@@ -436,12 +483,12 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     const beatScene = (await worldSceneRepo.getScene(sceneId)) ?? scene;
 
     // ---- 4) 构建上下文（Stage B，0 次调用）
-    let ctx = await buildWorldContext({ userId, worldId, scene: beatScene, characters });
+    let ctx = await buildWorldContext({ userId, worldId, scene: beatScene, characters, userText: text });
 
     // 回忆类意图：把"相关但很久以前"的事也捞回来（§60 相关性优先于时间）
     let recallBlock = '';
     if (action.intent === 'recall' || /记得|还记得|以前|那次|上次|第一次/.test(text)) {
-      const found = await findRelevantHistory({ worldId, query: action.recallTarget ?? text, limit: 5 });
+      const found = await findRelevantHistory({ userId, worldId, query: action.recallTarget ?? text, limit: 5 });
       if (found.length) recallBlock = `【用户正在回忆的事（可能在很久以前）】\n${found.map((f) => `- ${f.date} ${f.text}`).join('\n')}`;
     }
 
@@ -485,7 +532,8 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       speakers: plan.speakers,
       userText: text,
       ...(action.userAction ? { userAction: action.userAction } : {}),
-      sequential: plan.sequential,
+      // 两位及以上角色必须按顺序演出，后一位要先听到前一位的回应。
+      sequential: plan.speakers.length > 1 ? true : plan.sequential,
       ...(plan.worldChanges.length ? { worldChanges: plan.worldChanges } : {}),
       ...(params.call ? { call: params.call } : {}),
     });
@@ -606,7 +654,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       await worldTurnRepo.setStatus(turn.id, 'settling');
       emit({ type: 'status', status: 'settling' });
       ctx = (await worldSceneRepo.getScene(sceneId))
-        ? await buildWorldContext({ userId, worldId, scene: (await worldSceneRepo.getScene(sceneId))!, characters })
+        ? await buildWorldContext({ userId, worldId, scene: (await worldSceneRepo.getScene(sceneId))!, characters, userText: text })
         : ctx;
       settlement = await settleWorldTurn({
         ctx,
@@ -765,7 +813,10 @@ async function rerunAfterUserEntry(params: {
     emit({ type: 'entry', entry });
   }
   const beats = await actWorldBeat({
-    ctx, speakers: plan.speakers, userText: turn.input, sequential: plan.sequential,
+    ctx,
+    speakers: plan.speakers,
+    userText: turn.input,
+    sequential: plan.speakers.length > 1 ? true : plan.sequential,
     ...(params.call ? { call: params.call } : {}),
   });
   llmCalls += plan.speakers.length;

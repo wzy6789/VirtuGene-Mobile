@@ -21,7 +21,7 @@
  *   L5 关系状态 / L6 CharacterKnowledge / L7 Shared Memories
  *   L8 Continuity Threads / L9 World Events / L10 会话摘要（Actor 侧由既有 chat 上下文补）
  */
-import type { Character, SharedMemory, WorldEvent, WorldFact, WorldScene, WorldSceneEntry, ContinuityThread, RelationshipState } from '../../db/index';
+import { db, type Character, type SharedMemory, type WorldEvent, type WorldFact, type WorldScene, type WorldSceneEntry, type ContinuityThread, type RelationshipState } from '../../db/index';
 import { worldFactRepo } from '../../db/world-fact-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { worldSceneRepo } from '../../db/world-scene-repo';
@@ -34,6 +34,7 @@ import { selectRecallableSharedMemories } from './recall';
 import { selectRecallableScenes } from './scene-recall';
 import { listMentionableDiaryIds } from './diary-visibility';
 import { describeFacets, FACET_LABEL } from './relationships';
+import { buildHiddenUserProfile } from './user-profile';
 
 /** Context Builder 的输入（全部是已经取好的实体，避免在内部再查一遍角色） */
 export interface WorldContextParams {
@@ -46,6 +47,8 @@ export interface WorldContextParams {
   presence?: string[];
   /** L3 取最近多少条世界流 */
   recentLimit?: number;
+  /** 当前用户输入，只用于从该角色已有的用户记忆中挑选相关参考 */
+  userText?: string;
 }
 
 export interface CharacterMemory {
@@ -63,6 +66,8 @@ export interface CharacterMemory {
   userRelation?: RelationshipState;
   /** TA 未完成的、与用户之间的事 */
   threads: ContinuityThread[];
+  /** 只由该角色自己的 4.x 用户记忆整理出的隐藏画像，不跨角色共享 */
+  userProfile?: string;
 }
 
 export interface WorldContext {
@@ -99,13 +104,17 @@ function presenceOf(scene: WorldScene, override?: string[]): string[] {
  */
 export async function buildWorldContext(params: WorldContextParams): Promise<WorldContext> {
   const { userId, worldId, scene } = params;
+  const world = await db.worlds.get(worldId);
+  if (!world || world.userId !== userId || scene.userId !== userId || scene.worldId !== worldId) {
+    throw new Error('world-context:scene-owner-mismatch');
+  }
   const presence = presenceOf(scene, params.presence);
   const nameOf = (id: string) => params.characters.find((c) => c.id === id)?.name ?? '某人';
 
   const [worldFacts, entries, recentEvents, allThreads] = await Promise.all([
-    worldFactRepo.listWorldLevel(worldId, 16),
+    worldFactRepo.listWorldLevel(worldId, 16, userId),
     worldSceneRepo.listEntries(scene.id, { limit: Math.max(20, params.recentLimit ?? 60) }),
-    worldEventRepo.getRecent(worldId, 12),
+    worldEventRepo.getRecent(worldId, 12, userId),
     continuityRepo.getOpenByUser(userId),
   ]);
 
@@ -116,17 +125,28 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
   const secrets: { ownerCharacterId: string; title: string }[] = [];
 
   for (const characterId of presence) {
-    const [facts, memories, scenes, diaryVisible, threads, relation] = await Promise.all([
-      worldFactRepo.listForCharacter(worldId, characterId, 10),
-      selectRecallableSharedMemories({ worldId, characterId, limit: 3 }),
-      selectRecallableScenes({ worldId, characterId, limit: 2 }),
-      diaryRepo.listVisibleFor(characterId, userId, 20),
-      Promise.resolve(openThreads.filter((t) => t.characterId === characterId)),
+    const participant = scene.state.participants?.find((p) => p.characterId === characterId);
+    const entryMemoryMode = participant?.entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory';
+    const carryMemory = entryMemoryMode !== 'present';
+    const [facts, memories, scenes, diaryVisible, threads, relation, userMemories] = await Promise.all([
+      worldFactRepo.listForCharacter(worldId, characterId, 10, userId),
+      carryMemory ? selectRecallableSharedMemories({ userId, worldId, characterId, limit: 3 }) : Promise.resolve([]),
+      carryMemory ? selectRecallableScenes({ userId, worldId, characterId, limit: 2 }) : Promise.resolve([]),
+      carryMemory ? diaryRepo.listVisibleFor(characterId, userId, 20) : Promise.resolve([]),
+      carryMemory ? Promise.resolve(openThreads.filter((t) => t.characterId === characterId)) : Promise.resolve([]),
       relationshipRepo.getStateFor(userRef(userId), characterRef(characterId), worldId),
+      carryMemory
+        ? db.memories.where('characterId').equals(characterId).toArray().then((rows) => rows
+          .filter((row) => row.userId === userId)
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .slice(0, 18))
+        : Promise.resolve([]),
     ]);
 
     // 日记：可见 ∩ 可提起（与私聊完全同一口径，避免"世界页能说、私聊不能说"）
-    const mentionable = await listMentionableDiaryIds(userId, worldId, characterId);
+    const mentionable = carryMemory
+      ? await listMentionableDiaryIds(userId, worldId, characterId)
+      : new Set<string>();
     const diaries = diaryVisible
       .filter((d) => mentionable.has(d.id))
       .slice(0, 3)
@@ -144,15 +164,16 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
         summary: s.event.summary || s.scene.title,
       })),
       facts,
-      ...(relation ? { userRelation: relation } : {}),
+      ...(relation && relation.userId === userId ? { userRelation: relation } : {}),
       threads,
+      ...(carryMemory ? { userProfile: buildHiddenUserProfile(userMemories, params.userText) } : {}),
     };
 
     // 秘密：TA 守着不说的事（只有一致性守护看得到）
-    const owned = await knowledgeRepo.listSecretsOwnedBy(characterId, worldId);
+    const owned = (await knowledgeRepo.listSecretsOwnedBy(characterId, worldId)).filter((row) => row.userId === userId);
     for (const row of owned) {
       const event = await worldEventRepo.getById(row.eventId);
-      if (event) secrets.push({ ownerCharacterId: characterId, title: event.title });
+      if (event && event.userId === userId && event.worldId === worldId) secrets.push({ ownerCharacterId: characterId, title: event.title });
     }
   }
 
@@ -303,6 +324,7 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string): 
   if (memory.threads.length) {
     lines.push(`【你心里还记着的事】\n${memory.threads.map((t) => `- ${t.title}${t.detail ? `（${t.detail}）` : ''}`).join('\n')}`);
   }
+  if (memory.userProfile) lines.push(memory.userProfile);
   return lines.join('\n');
 }
 

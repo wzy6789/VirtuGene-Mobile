@@ -33,6 +33,7 @@ export interface TimelineItem {
 /** 数据库类型 → 用户能读懂的一句话（§46：不显示数据库类型） */
 export function eventLabel(event: Pick<WorldEvent, 'type' | 'sourceType' | 'tags'>): string {
   if (event.sourceType === 'story' || event.tags.includes('你们的故事')) return '你们的故事';
+  if (event.sourceType === 'pulse') return '世界自主行动';
   if (event.sourceType === 'scene') return '你们一起经历的';
   if (event.sourceType === 'turn' || event.sourceType === 'sharedMemory') return '你们一起经历的';
   if (event.sourceType === 'diary') return '你写下的生活';
@@ -64,10 +65,10 @@ export async function buildTimeline(params: {
   const limit = Math.max(1, params.limit ?? 120);
 
   const [events, facts, scenes, relEvents, diaries] = await Promise.all([
-    worldEventRepo.getRecent(worldId, 200),
-    worldFactRepo.listByWorld(worldId),
-    worldSceneRepo.listScenes(worldId, { limit: 50 }),
-    relationshipRepo.listEventsByWorld(worldId, 200),
+    worldEventRepo.getRecent(worldId, 200, userId),
+    worldFactRepo.listByWorld(worldId, { userId }),
+    worldSceneRepo.listScenes(worldId, { limit: 50, userId }),
+    relationshipRepo.listEventsByWorld(worldId, 200, userId),
     db.diaries.where('userId').equals(userId).toArray(),
   ]);
 

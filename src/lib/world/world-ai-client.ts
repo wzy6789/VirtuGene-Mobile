@@ -13,8 +13,8 @@
  * - `TEMPORARY_ERROR`   上一次调用因超时/限流/服务端错误失败 ⇒ 可以重试
  * - `UNAVAILABLE`       没有任何可用的 AI 服务，或凭据明确无效 ⇒ 不该重试
  */
-import { llmChat, resolveModel, getProviderKey, type LLMChatParams, type LLMChatResult } from '../ai/llm';
-import { gatewayChat, isAiGatewayConfigured } from '../ai/gateway';
+import { llmChat, resolveModel, getProviderKey, type LLMChatParams, type LLMChatResult, type ProviderId } from '../ai/llm';
+import { gatewayChat, hasAiGatewayAccess } from '../ai/gateway';
 
 /** 可注入的 LLM 边界（验收用；生产走 llmChat / gatewayChat） */
 export type WorldLlmCaller = typeof llmChat;
@@ -67,7 +67,9 @@ export async function worldAiAvailability(): Promise<WorldAiAvailability> {
   if (key) {
     return { status: 'AVAILABLE', provider: model.provider, modelId: model.id, route: 'byok', detail: '' };
   }
-  if (isAiGatewayConfigured()) {
+  // 当前自建网关只代理 DeepSeek；其他提供商必须由设备上的对应 Key 直连。
+  // 否则把 qwen/mimo 的模型名发给 DeepSeek 端点，只会得到无意义的 4xx。
+  if (hasAiGatewayAccess() && model.provider === 'deepseek') {
     return { status: 'AVAILABLE', provider: model.provider, modelId: model.id, route: 'gateway', detail: '' };
   }
   return {
@@ -89,6 +91,8 @@ export interface WorldChatParams {
   disableThinking?: boolean;
   maxTokens?: number;
   timeoutMs?: number;
+  /** 可选的模型覆盖，用于场景在主模型无输出时切换到兜底模型。 */
+  model?: { provider: ProviderId; id: string };
 }
 
 export interface WorldChatResult extends LLMChatResult {
@@ -102,7 +106,7 @@ export interface WorldChatResult extends LLMChatResult {
  * 调用方可以注入 `call` 用于验收（生产不传）。
  */
 export async function worldChat(params: WorldChatParams, call?: WorldLlmCaller): Promise<WorldChatResult> {
-  const model = resolveModel();
+  const model = params.model ?? resolveModel();
   callCount += 1;
 
   if (call) {
@@ -137,7 +141,7 @@ export async function worldChat(params: WorldChatParams, call?: WorldLlmCaller):
     return { ...res, route: 'byok' };
   }
 
-  if (isAiGatewayConfigured()) {
+  if (hasAiGatewayAccess() && model.provider === 'deepseek') {
     // 网关是 4.x 就有的单一聊天入口（server/ 不可改动）：把消息列表折回它的入参形态。
     const systems = params.messages.filter((m) => m.role === 'system').map((m) => String(m.content ?? ''));
     const rest = params.messages.filter((m) => m.role !== 'system');
@@ -153,6 +157,8 @@ export async function worldChat(params: WorldChatParams, call?: WorldLlmCaller):
       message: String(last?.content ?? ''),
       history,
       ...(params.temperature != null ? { temperature: params.temperature } : {}),
+      ...(params.timeoutMs != null ? { timeoutMs: params.timeoutMs } : {}),
+      sessionModel: { provider: model.provider, model: model.id },
     });
     return { content: res.content ?? '', route: 'gateway' };
   }

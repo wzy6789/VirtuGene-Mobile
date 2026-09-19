@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { ContinuityThread, Message, SharedMemory, SharedStoryEvent, MemoryItem, WorldScene } from '../../db/index';
+import type { ContinuityThread, Message, SharedMemory, SharedStoryEvent, MemoryItem, WorldScene, WorldEvent } from '../../db/index';
 import { memoryRepo } from '../../db/memory-repo';
 import { continuityRepo, KIND_LABEL, STATUS_LABEL } from '../../db/continuity-repo';
 import { sharedEventRepo } from '../../db/shared-event-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { worldSceneRepo } from '../../db/world-scene-repo';
+import { worldEventRepo } from '../../db/world-event-repo';
 import { Modal } from '../ui/Modal';
 
 type Trace = Message['contextTrace'];
@@ -30,6 +31,7 @@ export function MemoryBasisModal({
   const [events, setEvents] = useState<SharedStoryEvent[]>([]);
   const [sharedMemories, setSharedMemories] = useState<SharedMemory[]>([]);
   const [scenes, setScenes] = useState<WorldScene[]>([]);
+  const [pulseEvents, setPulseEvents] = useState<WorldEvent[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -39,6 +41,7 @@ export function MemoryBasisModal({
       setEvents([]);
       setSharedMemories([]);
       setScenes([]);
+      setPulseEvents([]);
       return;
     }
     let active = true;
@@ -49,14 +52,16 @@ export function MemoryBasisModal({
       sharedEventRepo.getByIds(trace.sharedEventIds ?? []),
       sharedMemoryRepo.getByIds(trace.sharedMemoryIds ?? []),
       worldSceneRepo.getByIds(trace.sceneIds ?? []),
+      worldEventRepo.getByIds(trace.pulseEventIds ?? []),
     ])
-      .then(([m, t, e, s, sc]) => {
+      .then(([m, t, e, s, sc, pe]) => {
         if (!active) return;
         setMemories(m);
         setThreads(t);
         setEvents(e);
         setSharedMemories(s);
         setScenes(sc);
+        setPulseEvents(pe);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -69,8 +74,9 @@ export function MemoryBasisModal({
   const missingEvent = (trace?.sharedEventIds?.length ?? 0) - events.length;
   const missingSharedMemory = (trace?.sharedMemoryIds?.length ?? 0) - sharedMemories.length;
   const missingScene = (trace?.sceneIds?.length ?? 0) - scenes.length;
+  const missingPulseEvent = (trace?.pulseEventIds?.length ?? 0) - pulseEvents.length;
   const empty =
-    memories.length === 0 && threads.length === 0 && events.length === 0 && sharedMemories.length === 0 && scenes.length === 0;
+    memories.length === 0 && threads.length === 0 && events.length === 0 && sharedMemories.length === 0 && scenes.length === 0 && pulseEvents.length === 0;
 
   return (
     <Modal open={open} onClose={onClose} title="这条回复的记忆依据" width="max-w-md">
@@ -188,9 +194,28 @@ export function MemoryBasisModal({
           </section>
         )}
 
-        {!loading && (missingMemory > 0 || missingThread > 0 || missingEvent > 0 || missingSharedMemory > 0 || missingScene > 0) && (
+        {!loading && pulseEvents.length > 0 && (
+          <section>
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-gene-purple" />
+              <h3 className="text-xs font-semibold text-ink">世界自主行动</h3>
+              <span className="text-[10px] text-gray-500">{pulseEvents.length} 条</span>
+            </div>
+            <ul className="space-y-1.5">
+              {pulseEvents.map((event) => (
+                <li key={event.id} className="rounded-xl border border-gene-purple/20 bg-gene-purple/[0.06] px-3 py-2">
+                  <p className="text-[12px] leading-relaxed text-ink">{event.title}</p>
+                  {event.summary && <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{event.summary}</p>}
+                  <p className="mt-1 text-[10px] text-gray-500">你不在时，角色亲身参与的世界事件</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {!loading && (missingMemory > 0 || missingThread > 0 || missingEvent > 0 || missingSharedMemory > 0 || missingScene > 0 || missingPulseEvent > 0) && (
           <p className="rounded-xl border border-line bg-surface/60 px-3 py-2 text-[10px] leading-relaxed text-gray-500">
-            有 {missingMemory + missingThread + missingEvent + missingSharedMemory + missingScene} 条当时的依据如今已不存在（可能已被你删除或自动清理），所以这里不再显示。
+            有 {missingMemory + missingThread + missingEvent + missingSharedMemory + missingScene + missingPulseEvent} 条当时的依据如今已不存在（可能已被你删除或自动清理），所以这里不再显示。
           </p>
         )}
       </div>

@@ -23,6 +23,7 @@ import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
 import { worldRepo } from '../../db/world-repo';
+import { worldSceneRepo } from '../../db/world-scene-repo';
 import {
   canvasPresence,
   ensureCanvasScene,
@@ -36,10 +37,19 @@ import {
 } from '../../lib/world/world-canvas';
 import { retryWorldTurn, runWorldTurn } from '../../lib/world/world-turn';
 import { worldAiAvailability, type WorldAiAvailability } from '../../lib/world/world-ai-client';
+import { ensureWorldKernel } from '../../lib/world/world-kernel';
 import { WorldStream } from './WorldStream';
-import { WorldComposer, WorldControlSheet, WorldPresenceChips, WorldSuggestions, type WorldControlAction } from './WorldControls';
+import { WorldComposer, WorldControlSheet, WorldSuggestions, type WorldControlAction } from './WorldControls';
 
-const HINT_KEY = 'virtugene:world-canvas-hint';
+const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+function canvasRevealDelay(entry: WorldSceneEntry, previousSpeaker: string | null): number {
+  const length = entry.content.trim().length;
+  if (entry.kind === 'narration') return Math.min(620, 160 + length * 5);
+  if (entry.kind !== 'dialogue' && entry.kind !== 'action') return 0;
+  const speakerChanged = Boolean(entry.speakerId && previousSpeaker && entry.speakerId !== previousSpeaker);
+  const breathingRoom = speakerChanged ? 680 : entry.kind === 'action' ? 260 : 180;
+  return Math.min(1_450, breathingRoom + length * (entry.kind === 'dialogue' ? 7 : 5));
+}
 
 export function WorldCanvas() {
   const userId = useAuthStore((s) => s.userId);
@@ -59,16 +69,16 @@ export function WorldCanvas() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [headerOpen, setHeaderOpen] = useState(false);
   const [unseen, setUnseen] = useState(0);
-  const [hintVisible, setHintVisible] = useState(() => {
-    try { return localStorage.getItem(HINT_KEY) !== '1'; } catch { return true; }
-  });
   const [savedStory, setSavedStory] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [entryMemoryMode, setEntryMemoryMode] = useState<'memory' | 'present'>('memory');
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   /** 用户是否停在底部（决定新内容要不要自动跟随，§70） */
   const stickRef = useRef(true);
-  const turnCountRef = useRef(0);
+  const awaitingVisibleReplyRef = useRef(0);
+  const visibleQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const visibleSpeakerRef = useRef<string | null>(null);
 
   /* ------------------------------ 载入片段 ------------------------------ */
   useEffect(() => {
@@ -82,10 +92,14 @@ export function WorldCanvas() {
         const world = await worldRepo.ensureDefaultWorld(userId);
         // 指定了片段就打开它（从记忆页点进来）；否则取/建"此刻"
         const target = canvasSceneId ?? (await ensureCanvasScene({ userId, worldId: world.id, characters: list })).id;
-        const view = await loadCanvas(target);
+        await ensureWorldKernel({ userId, worldId: world.id, characterIds: list.map((character) => character.id) });
+        const view = await loadCanvas(target, { userId });
         if (!alive) return;
         if (view) {
           setScene(view.scene);
+          setEntryMemoryMode(view.scene.state.entryMemoryMode ?? 'memory');
+          visibleSpeakerRef.current = null;
+          visibleQueueRef.current = Promise.resolve();
           setEntries(view.entries);
           setHasMore(view.hasMore);
           setSuggestions(latestSuggestions(view.entries)?.options ?? []);
@@ -143,8 +157,14 @@ export function WorldCanvas() {
   }, [entries]);
 
   const appendEntry = useCallback((entry: WorldSceneEntry) => {
-    setEntries((prev) => (prev.some((e) => e.id === entry.id) ? prev : [...prev, entry]));
-    if (!stickRef.current) setUnseen((n) => n + 1);
+    visibleQueueRef.current = visibleQueueRef.current.then(async () => {
+      const reveal = canvasRevealDelay(entry, visibleSpeakerRef.current);
+      if (reveal > 0) await wait(reveal);
+      setEntries((prev) => (prev.some((e) => e.id === entry.id) ? prev : [...prev, entry]));
+      if (!stickRef.current) setUnseen((n) => n + 1);
+      if (entry.kind === 'dialogue' || entry.kind === 'action') visibleSpeakerRef.current = entry.speakerId ?? null;
+    });
+    return visibleQueueRef.current;
   }, []);
 
   const onScroll = () => {
@@ -160,6 +180,14 @@ export function WorldCanvas() {
   const send = useCallback(async (value: string, origin: 'text' | 'suggestion' | 'control' = 'text') => {
     const payload = value.trim();
     if (!payload || !scene || !userId || busy) return;
+    let awaitingVisibleReply = true;
+    const releaseVisibleReply = () => {
+      if (!awaitingVisibleReply) return;
+      awaitingVisibleReply = false;
+      awaitingVisibleReplyRef.current = Math.max(0, awaitingVisibleReplyRef.current - 1);
+      setBusy(awaitingVisibleReplyRef.current > 0);
+    };
+    awaitingVisibleReplyRef.current += 1;
     setBusy(true);
     setError(null);
     setFailedTurnId(null);
@@ -176,25 +204,22 @@ export function WorldCanvas() {
         text: payload,
         origin,
         characters: list,
+        entryMemoryMode,
         onEvent: (event) => {
           if (event.type === 'entry' || event.type === 'user_entry') appendEntry(event.entry);
-          if (event.type === 'ready') setBusy(false);
-          if (event.type === 'status' && event.status === 'failed') setBusy(false);
+          if (event.type === 'ready') void visibleQueueRef.current.then(releaseVisibleReply);
+          if (event.type === 'status' && event.status === 'failed') void visibleQueueRef.current.then(releaseVisibleReply);
         },
       });
-      turnCountRef.current += 1;
+      await visibleQueueRef.current;
       if (result.status === 'failed') {
         setFailedTurnId(result.turnId);
         setError('这一次世界没有继续回应。');
       } else {
         setSuggestions(result.suggestions);
-        if (hintVisible && turnCountRef.current === 1) {
-          setHintVisible(false);
-          try { localStorage.setItem(HINT_KEY, '1'); } catch { /* 忽略 */ }
-        }
       }
       // 本地动作可能改了地点/时间/在场的人 → 刷新这一段
-      const refreshed = await loadCanvas(scene.id);
+      const refreshed = await loadCanvas(scene.id, { userId });
       if (refreshed) {
         setScene(refreshed.scene);
         setEntries(refreshed.entries);
@@ -203,9 +228,9 @@ export function WorldCanvas() {
     } catch {
       setError('这一次世界没有继续回应。');
     } finally {
-      setBusy(false);
+      releaseVisibleReply();
     }
-  }, [scene, userId, busy, appendEntry, hintVisible]);
+  }, [scene, userId, busy, appendEntry, entryMemoryMode]);
 
   /** 世界主页的「灵感」按钮：进入世界后由它把那句话说出来（§79） */
   useEffect(() => {
@@ -219,6 +244,14 @@ export function WorldCanvas() {
 
   const retry = useCallback(async () => {
     if (!failedTurnId) return;
+    let awaitingVisibleReply = true;
+    const releaseVisibleReply = () => {
+      if (!awaitingVisibleReply) return;
+      awaitingVisibleReply = false;
+      awaitingVisibleReplyRef.current = Math.max(0, awaitingVisibleReplyRef.current - 1);
+      setBusy(awaitingVisibleReplyRef.current > 0);
+    };
+    awaitingVisibleReplyRef.current += 1;
     setBusy(true);
     setError(null);
     try {
@@ -227,9 +260,10 @@ export function WorldCanvas() {
         characters: useChatStore.getState().characters,
         onEvent: (event) => {
           if (event.type === 'entry') appendEntry(event.entry);
-          if (event.type === 'ready') setBusy(false);
+          if (event.type === 'ready') void visibleQueueRef.current.then(releaseVisibleReply);
         },
       });
+      await visibleQueueRef.current;
       if (result?.status === 'completed') {
         setFailedTurnId(null);
         setSuggestions(result.suggestions);
@@ -237,7 +271,7 @@ export function WorldCanvas() {
         setError('这一次世界仍然没有回应。');
       }
     } finally {
-      setBusy(false);
+      releaseVisibleReply();
     }
   }, [failedTurnId, appendEntry]);
 
@@ -249,6 +283,17 @@ export function WorldCanvas() {
       case 'characters_talk':
         setSheetOpen(false);
         await send('你们自己聊一会儿吧，我听着。', 'control');
+        return;
+      case 'entry_mode':
+        setEntryMemoryMode(action.mode);
+        await worldSceneRepo.patchSceneState(scene.id, {
+          entryMemoryMode: action.mode,
+          participants: scene.state.participants.map((participant) => ({
+            ...participant,
+            entryMemoryMode: action.mode,
+          })),
+        });
+        setToast(action.mode === 'memory' ? '角色会带着共同记忆进入' : '角色只带着此刻状态进入');
         return;
       case 'time_skip':
         setSheetOpen(false);
@@ -264,12 +309,12 @@ export function WorldCanvas() {
         return;
       }
       case 'pause':
-        await pauseCanvas(scene.id);
+        await pauseCanvas(scene.id, userId ?? undefined);
         setSheetOpen(false);
         setToast('这一段留着，随时回来。');
         return;
       case 'finish':
-        await pauseCanvas(scene.id);
+        await pauseCanvas(scene.id, userId ?? undefined);
         setSheetOpen(false);
         setToast('这一段收在这里了，下次可以从新的时刻开始。');
         return;
@@ -288,23 +333,17 @@ export function WorldCanvas() {
     }
   }, [scene, userId, send]);
 
-  const summon = useCallback(async (characterId: string) => {
-    if (!scene) return;
-    const character = characters.find((c) => c.id === characterId);
-    if (character) await send(`让${character.name}过来。`, 'control');
-  }, [scene, characters, send]);
-
-  const dismiss = useCallback(async (characterId: string) => {
-    if (!scene) return;
-    const character = characters.find((c) => c.id === characterId);
-    if (character) await send(`让${character.name}先离开。`, 'control');
-  }, [scene, characters, send]);
+  const exitCanvas = useCallback(async () => {
+    if (scene?.status === 'active') await pauseCanvas(scene.id, userId ?? undefined);
+    useUIStore.getState().setActiveView('chat');
+    useUIStore.getState().setMobileTab('world');
+  }, [scene]);
 
   const loadMore = useCallback(async () => {
     const el = scrollerRef.current;
     if (!scene || !hasMore || entries.length === 0) return;
     const previousHeight = el?.scrollHeight ?? 0;
-    const older = await loadEarlier(scene.id, entries[0].index);
+    const older = await loadEarlier(scene.id, entries[0].index, 60, userId ?? undefined);
     setEntries((prev) => [...older, ...prev]);
     setHasMore(older.length >= 60);
     requestAnimationFrame(() => {
@@ -313,10 +352,9 @@ export function WorldCanvas() {
   }, [scene, hasMore, entries]);
 
   const presence = useMemo(() => {
-    if (!scene) return { present: [], absent: [] };
+    if (!scene) return { present: [] };
     const present = characters.filter((c) => scene.characterIds.includes(c.id));
-    const absent = characters.filter((c) => !scene.characterIds.includes(c.id));
-    return { present, absent };
+    return { present };
   }, [scene, characters]);
 
   useEffect(() => {
@@ -329,20 +367,24 @@ export function WorldCanvas() {
   return (
     <div className="vg-canvas">
       {/* 顶部：只显示最必要的信息，点击才展开（§10） */}
-      <button type="button" className="vg-canvas-top" onClick={() => setHeaderOpen((v) => !v)}>
+      <div className="vg-canvas-top">
         <span className="vg-canvas-place">{scene ? `${scene.place} · ${worldTimeLabel(scene)}` : '正在进入世界…'}</span>
         <span className="vg-canvas-people">
           {presence.present.length > 0 ? `${presence.present.map((c) => c.name).join(' · ')} · 你` : '只有你'}
         </span>
-        <span className="vg-canvas-more" aria-hidden>{headerOpen ? '收起' : '状态'}</span>
-      </button>
+        <button type="button" className="vg-canvas-more" onClick={() => setHeaderOpen((v) => !v)} aria-expanded={headerOpen}>
+          {headerOpen ? '收起' : '状态'}
+        </button>
+        <button type="button" className="vg-canvas-exit" onClick={() => void exitCanvas()}>
+          退出
+        </button>
+      </div>
       {headerOpen && scene && (
         <div className="vg-canvas-panel">
           <p>地点：{scene.place}</p>
           <p>时间：{worldTimeLabel(scene)}</p>
           <p>氛围：{scene.mood}</p>
           <p>在场：{presence.present.map((c) => c.name).join('、') || '只有你'}</p>
-          <p className="vg-canvas-panel-note">所有变化都可以直接用一句话说出来。</p>
         </div>
       )}
 
@@ -357,23 +399,12 @@ export function WorldCanvas() {
           <p className="vg-canvas-loading" role="status">正在打开你的世界…</p>
         ) : entries.length === 0 ? (
           <div className="vg-canvas-empty">
-            <p>这里还没有发生任何事情。</p>
-            <p className="vg-canvas-empty-hint">试着说一句：</p>
-            <button type="button" onClick={() => void send('今晚我们去海边。', 'control')}>“今晚我们去海边。”</button>
+            <span aria-hidden="true" />
+            <p>这一刻很安静。</p>
+            <p className="vg-canvas-empty-hint">你可以开口，也可以先看看。</p>
           </div>
         ) : (
           <WorldStream entries={entries} characters={characters} />
-        )}
-
-        {/* 第一次进入后的自由度提示（§82：只出现一次，不长期占屏） */}
-        {hintVisible && entries.length > 0 && !busy && (
-          <div className="vg-canvas-hint">
-            <p>你也可以直接说：</p>
-            <p>“我们去海边。”　“让星遥过来。”　“直接到第二天早上。”</p>
-            <button type="button" onClick={() => { setHintVisible(false); try { localStorage.setItem(HINT_KEY, '1'); } catch { /* 忽略 */ } }}>
-              知道了
-            </button>
-          </div>
         )}
 
         {error && (
@@ -392,14 +423,8 @@ export function WorldCanvas() {
         </button>
       )}
 
-      {/* 人物 chips + 灵感建议 + 输入区 */}
+      {/* 灵感与输入：角色召入直接用自然语言完成，不再占用一整行快捷栏。 */}
       <div className="vg-canvas-bottom">
-        <WorldPresenceChips
-          present={presence.present}
-          absent={presence.absent}
-          onSummon={(id) => void summon(id)}
-          onDismiss={(id) => void dismiss(id)}
-        />
         <WorldSuggestions
           options={suggestions}
           onPick={(option) => void send(option, 'suggestion')}
@@ -420,6 +445,7 @@ export function WorldCanvas() {
         open={sheetOpen}
         scene={scene}
         busy={busy}
+        entryMemoryMode={entryMemoryMode}
         onClose={() => setSheetOpen(false)}
         onAction={(action) => void runControl(action)}
       />

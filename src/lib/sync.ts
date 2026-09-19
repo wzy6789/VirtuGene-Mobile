@@ -2,7 +2,7 @@
  * 局域网同步数据：全量收集（导出）与合并写入（导入）。
  * 桌面端与手机端共用同一份格式，通过 HTTP 互传。
  */
-import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent } from '../db/index';
+import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent, type WorldLocation, type WorldPresence, type WorldAgentState, type WorldPulse } from '../db/index';
 
 export interface SyncExportData {
   __meta__: {
@@ -33,6 +33,10 @@ export interface SyncExportData {
   sharedMemories?: SharedMemory[];
   relationshipStates?: RelationshipState[];
   relationshipEvents?: RelationshipEvent[];
+  worldLocations?: WorldLocation[];
+  worldPresences?: WorldPresence[];
+  worldAgentStates?: WorldAgentState[];
+  worldPulses?: WorldPulse[];
 }
 
 /** 收集当前设备全部业务数据（不含账号密码与 API Key，隐私不外传） */
@@ -41,7 +45,8 @@ export async function collectSyncData(
   username: string | null,
 ): Promise<SyncExportData> {
   const [characters, sessions, messages, memories, emotionSnapshots, characterStates, diaries, continuityThreads, sharedStoryEvents,
-    worlds, worldEvents, worldScenes, worldSceneEntries, characterKnowledge, sharedMemories, relationshipStates, relationshipEvents] =
+    worlds, worldEvents, worldScenes, worldSceneEntries, characterKnowledge, sharedMemories, relationshipStates, relationshipEvents,
+    worldLocations, worldPresences, worldAgentStates, worldPulses] =
     await Promise.all([
       db.characters.toArray(),
       db.sessions.toArray(),
@@ -60,6 +65,10 @@ export async function collectSyncData(
       db.sharedMemories.toArray(),
       db.relationshipStates.toArray(),
       db.relationshipEvents.toArray(),
+      db.worldLocations.toArray(),
+      db.worldPresences.toArray(),
+      db.worldAgentStates.toArray(),
+      db.worldPulses.toArray(),
     ]);
   return {
     __meta__: {
@@ -87,6 +96,10 @@ export async function collectSyncData(
     sharedMemories,
     relationshipStates,
     relationshipEvents,
+    worldLocations,
+    worldPresences,
+    worldAgentStates,
+    worldPulses,
   };
 }
 
@@ -116,7 +129,8 @@ export async function importSyncData(
     await db.transaction(
       'rw',
       [db.characters, db.sessions, db.messages, db.memories, db.emotionSnapshots, db.characterStates, db.diaries, db.continuityThreads, db.sharedStoryEvents,
-        db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents],
+        db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents,
+        db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses],
       async () => {
         let n = 0;
         for (const c of data.characters ?? []) {
@@ -242,6 +256,34 @@ export async function importSyncData(
           n += 1;
         }
         counts.relationshipEvents = n;
+
+        n = 0;
+        for (const location of data.worldLocations ?? []) {
+          await db.worldLocations.put(location);
+          n += 1;
+        }
+        counts.worldLocations = n;
+
+        n = 0;
+        for (const presence of data.worldPresences ?? []) {
+          await db.worldPresences.put(presence);
+          n += 1;
+        }
+        counts.worldPresences = n;
+
+        n = 0;
+        for (const agent of data.worldAgentStates ?? []) {
+          await db.worldAgentStates.put(agent);
+          n += 1;
+        }
+        counts.worldAgentStates = n;
+
+        n = 0;
+        for (const pulse of data.worldPulses ?? []) {
+          await db.worldPulses.put(pulse);
+          n += 1;
+        }
+        counts.worldPulses = n;
       },
     );
     return { ok: true, counts };

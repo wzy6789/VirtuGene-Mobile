@@ -26,6 +26,8 @@ export interface ProactiveMessageParams {
   kind?: 'morning' | 'night';
   /** 待跟进事项：从记忆里捞到的"TA 最近说过的事/目标"——可以自然地关心进展 */
   followUp?: string;
+  /** 角色自己的近期生活线；只允许引用已有记录，不要求模型凭空编造。 */
+  lifeHints?: string[];
 }
 
 function buildTimeContext(lastMessageAt?: number): string {
@@ -74,6 +76,12 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
     systemContent +=
       `\n\n[你可以关心的事]\n你记得 TA 说过：${params.followUp.slice(0, 120)}。` +
       '若这次合适，可以自然地关心一下进展（一句即可）；如果上次你已经问过同样的事，就别重复追问。';
+  }
+  const lifeHints = [...new Set((params.lifeHints ?? []).map((hint) => hint.trim()).filter((hint) => hint.length >= 3))].slice(0, 3);
+  if (lifeHints.length > 0) {
+    systemContent +=
+      `\n\n[你自己的近期生活线]\n${lifeHints.map((hint) => `- ${hint.slice(0, 120)}`).join('\n')}\n` +
+      '你可以偶尔从这里自然说起一件自己的近况，让对方感觉你也在过自己的生活；只选一件，不能补写记录里没有的新经历。';
   }
   // 时间感知：让角色知道现在几点、多久没联系了
   systemContent += '\n\n' + buildTimeContext(lastMessageAt);

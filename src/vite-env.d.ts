@@ -93,6 +93,7 @@ interface VirtuGeneAPI {
       lastMessageAt?: number;
       kind?: 'morning' | 'night';
       followUp?: string;
+      lifeHints?: string[];
     }) => Promise<{ content?: string; error?: string }>;
   };
   memory: {
@@ -139,6 +140,7 @@ interface VirtuGeneAPI {
     summarize: (params: {
       apiKey: string;
       history: { role: string; content: string }[];
+      previousSummary?: string;
     }) => Promise<{ summary?: string; error?: string }>;
   };
   diary: {

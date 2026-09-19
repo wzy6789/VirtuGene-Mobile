@@ -97,20 +97,19 @@ async function run() {
     const host = mount(createElement(MobileLayout), 800);
     await sleep(500);
     const text = host.innerText;
-    check('① 标题是「我的世界」+ 一句自然描述', text.includes('我的世界') && text.includes('共同生活'), text.slice(0, 160));
+    check('① 标题是「世界」+ 持续生活的一句自然描述', text.includes('世界') && text.includes('时间会走') && text.includes('自己的去处'), text.slice(0, 180));
     check('② 视觉核心是「此刻」', text.includes('此刻'));
     check('③ 主导航仍然是 消息｜世界｜角色｜我的',
       ['消息', '世界', '角色', '我的'].every((t) => text.includes(t)), text.slice(-120));
     check('④ 主 UI 里没有「世界剧场」这种一级入口（§7/§77）', !text.includes('世界剧场'), text.slice(0, 400));
     check('⑤ 主 UI 里没有「故事模式」这种要求用户先选模式的词（§4）', !text.includes('故事模式'));
-    check('⑥ 入口是关系 / 记忆 / 时间线 / 设定 / 我的生活',
-      ['关系', '记忆', '时间线', '设定', '我的生活'].every((t) => text.includes(t)));
+    check('⑥ 档案入口收进关系 / 记忆 / 年表 / 设定，我的生活留在星图核心',
+      ['关系', '记忆', '年表', '设定', '我的生活'].every((t) => text.includes(t)) && !!host.querySelector('.vg-world-dock'));
     check('⑦ 底部一级导航在世界主页可见',
       !(host.querySelector('.mobile-bottom-nav')?.className ?? '').includes('hidden'));
 
-    // 灵感区
-    check('⑧ 有"不知道做什么"的灵感入口（§79：模板降级为一句自然语言）',
-      text.includes('不知道做什么') && text.includes('今晚我们去海边'), text.slice(-300));
+    check('⑧ 世界主页不再堆放教学式灵感，进入世界后仍可自由表达',
+      !text.includes('不知道做什么') && !text.includes('今晚我们去海边'), text.slice(-300));
     unmount();
   }
 
@@ -126,8 +125,8 @@ async function run() {
       host.querySelector('.mobile-bottom-nav')?.className);
     check('② 顶部只显示地点 · 时间与在场的人（点击才展开）',
       text.includes('古月娜') && text.includes('星遥') && text.includes('状态'), text.slice(0, 160));
-    check('③ 输入框 placeholder 明确"不只是聊天"（§81）',
-      (host.querySelector('textarea')?.getAttribute('placeholder') ?? '').includes('改变这个世界'),
+    check('③ 输入框用沉浸式短提示，不在对话区解释功能',
+      (host.querySelector('textarea')?.getAttribute('placeholder') ?? '') === '让世界继续发生……',
       host.querySelector('textarea')?.getAttribute('placeholder'));
     check('④ 世界里不显示数据库类型（Scene / Act / WorldEvent / Settlement / WorldAction）',
       !['Scene', 'Act', 'WorldEvent', 'Settlement', 'WorldAction', '幕次', '张力'].some((w) => text.includes(w)), text.slice(0, 300));
@@ -171,12 +170,15 @@ async function run() {
     await sleep(40);
     pressEnter(textarea2);
     await sleep(1200);
-    const withSuggestions = host.innerText;
-    check('⑪ 灵感建议渲染成输入框上方的 chips，而不是"请选择 A/B/C"（§37）',
-      withSuggestions.includes('告诉她真相') && withSuggestions.includes('先不说') && !withSuggestions.includes('请选择'),
-      withSuggestions.slice(-300));
+    const collapsedSuggestions = host.innerText;
+    check('⑪ 灵感建议默认折叠成一行，不把多个选项铺满输入区',
+      collapsedSuggestions.includes('灵感') && collapsedSuggestions.includes('告诉她真相') && !collapsedSuggestions.includes('先不说'),
+      collapsedSuggestions.slice(-300));
+    const suggestionPeek = host.querySelector('.vg-suggestion-peek') as HTMLElement | null;
+    suggestionPeek?.click();
+    await sleep(80);
     const suggestionChip = Array.from(host.querySelectorAll('button')).find((b) => (b.textContent ?? '').trim() === '告诉她真相');
-    check('⑫ 建议可以点击', !!suggestionChip);
+    check('⑫ 展开后建议可以点击且没有“请选择”式命令口吻', !!suggestionChip && host.innerText.includes('先不说') && !host.innerText.includes('请选择'));
 
     llm.httpQueue.push(
       JSON.stringify({ intent: 'talk' }),
@@ -198,7 +200,7 @@ async function run() {
     check('⑮ 世界控制面板里每一项都有对应的一句自然语言（§39）',
       sheet.includes('让他们自己聊一会儿') && sheet.includes('跳过时间') && sheet.includes('撤销上一轮') && sheet.includes('保存为故事'),
       sheet.slice(-400));
-    check('⑯ 面板明说"这些也可以用一句话做到"', sheet.includes('一句话'));
+    check('⑯ 控制面板只保留动作，不重复解释输入框用法', !sheet.includes('这些也可以用一句话做到') && !host.querySelector('.vg-sheet-hint'));
     unmount();
   }
 

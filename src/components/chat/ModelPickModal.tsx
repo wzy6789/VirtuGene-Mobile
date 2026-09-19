@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { LLM_MODELS, LLM_PROVIDERS, findModel, type ProviderId } from '../../lib/ai/llm';
 import { loadSecret } from '../../lib/api-key-storage';
 import { useAuthStore } from '../../store/auth-store';
-import { isAiGatewayConfigured } from '../../lib/ai/gateway';
+import { hasAiGatewayAccess } from '../../lib/ai/gateway';
 
 /**
  * 首次进入聊天时的对话模型选择弹窗：
@@ -11,7 +11,7 @@ import { isAiGatewayConfigured } from '../../lib/ai/gateway';
  */
 export function ModelPickModal({ onPick, onClose }: { onPick: (model: { provider: string; model: string } | null) => void; onClose: () => void }) {
   const deepseekKey = useAuthStore((s) => s.apiKey);
-  const [ready, setReady] = useState<Record<ProviderId, boolean>>({ deepseek: !!deepseekKey || isAiGatewayConfigured(), qwen: false, mimo: false });
+  const [ready, setReady] = useState<Record<ProviderId, boolean>>({ deepseek: !!deepseekKey || hasAiGatewayAccess(), qwen: false, mimo: false });
 
   useEffect(() => {
     void loadSecret('qwen-key').then((k) => setReady((r) => ({ ...r, qwen: !!k })));

@@ -42,7 +42,7 @@ export function WorldSettingsPage() {
   const reload = useCallback(async () => {
     if (!userId) return;
     const world = await worldRepo.ensureDefaultWorld(userId);
-    setFacts(await listWorldSettings(world.id));
+    setFacts(await listWorldSettings(world.id, userId));
   }, [userId]);
 
   useEffect(() => {
@@ -160,7 +160,7 @@ export function WorldSettingsPage() {
                         type="button"
                         onClick={() => {
                           void (async () => {
-                            await editWorldSetting(fact.id, editingText);
+                            await editWorldSetting(fact.id, editingText, userId ?? undefined);
                             setEditingId(null);
                             await reload();
                           })();
@@ -183,13 +183,13 @@ export function WorldSettingsPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => { void (async () => { await toggleWorldSetting(fact.id, !fact.active); await reload(); })(); }}
+                        onClick={() => { void (async () => { await toggleWorldSetting(fact.id, !fact.active, userId ?? undefined); await reload(); })(); }}
                       >
                         {fact.active ? '暂停' : '恢复'}
                       </button>
                       <button
                         type="button"
-                        onClick={() => { void (async () => { await removeWorldSetting(fact.id); await reload(); })(); }}
+                        onClick={() => { void (async () => { await removeWorldSetting(fact.id, userId ?? undefined); await reload(); })(); }}
                       >
                         删除
                       </button>

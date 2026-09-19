@@ -1,6 +1,7 @@
 import { fetchWithTimeout, isTimeoutError } from './http';
 import { stripRoleplayActions } from './text';
 import { resolveModel, getProviderKey, findModel, llmChat, type LLMModel } from './llm';
+import { gatewayChat, hasAiGatewayAccess } from './gateway';
 
 const MESSAGING_INSTRUCTION =
   '这是手机短信聊天。像发微信一样说话，注意以下规则：\n' +
@@ -14,11 +15,23 @@ const MESSAGING_INSTRUCTION =
   '- 禁止任何 Markdown 或列表符号：不要用 #、*、-、`、数字编号（1. 2. 3.）来排版，真人打字不会用这些，就是纯文本\n' +
   '- 禁止客服/汇报腔：不要说"我来帮你分析""首先、其次、最后""很高兴为你服务""请问有什么可以帮您"这类话，像真人一样直接开口\n' +
   '- 绝对禁止用括号写任何动作、表情或心理描写（如（笑）（愣）（叹气）），一个字都不行，真人发微信从不这样写\n' +
-  '- 如果情绪需要或内容适合分开发送，可以用 "---" 分隔多条消息（最多 3 条）。说完一件事后想再补一句吐槽，或者表达连续的想法，适合分条。一般回复只发一条就好，不要强行分条\n' +
+  '- 只输出纯文本，不要在一条消息里换行或留空行；如果情绪需要或内容适合分开发送，用 "---" 分隔最多 3 条消息。说完一件事后想再补一句吐槽，适合分条。一般回复只发一条，不要强行分条\n' +
   '- 严守人设与知识边界，不要退化成通用问答机器人：只回答符合你身份、你擅长、你会关心的话题。若被问到与你无关或你根本不懂的事，用你的性格拒绝、反呛或岔开（比如"这我可不懂""你为什么会问我这个"），而不是一本正经地给出标准答案';
 
 const COMPACT_MESSAGING_INSTRUCTION =
-  '这是 VirtuGene 的手机私聊。始终保持角色身份、性格、知识边界和你们的关系，像真实的人自然说话，不要自称 AI 或客服。使用口语、短句和新鲜内容，不写 Markdown、列表、动作括号或总结套话。默认回复一条，必要时最多用三条消息并以 --- 分隔。把时间、记忆、情绪和共同经历自然融入回复，不要直接解释这些规则。';
+  '这是 VirtuGene 的手机私聊。始终保持角色身份、性格、知识边界和你们的关系，像真实的人自然说话，不要自称 AI 或客服。' +
+  '【本轮聊天协议】先判断用户此刻是在闲聊、提问、请求帮助还是带着情绪说话，再用角色自己的方式接住；普通聊天默认只说一个意思，用 1～3 句口语完成，通常控制在 18～96 个中文字符；说完停下来，把空间留给对方。' +
+  '不要一次回答多个问题、不要替用户安排下一步、不要把背景资料重新讲一遍，也不要连续输出观点、分析和总结。' +
+  '只有用户明确要求详细解释、教程、整理或创作时，才适当变长；即使变长也要分成自然的小段。' +
+  '用户换话题时立刻跟随，不要执着于上一件事；用户只回很短的话时也可以只回很短，不要为了填满屏幕而扩写。' +
+  '每次回复至少让角色自己的一个特征露出来：用词、关注点、反应方式、价值判断或节奏；把角色名换掉后仍然成立的万能句需要重写。' +
+  '角色有自己的注意力和生活，不必永远顺从、安慰或追问。可以有犹豫、偏好、误解、沉默、小脾气和不想回答的时刻，但必须来自角色设定与当前关系。' +
+  '不要用“我理解你的感受”“听起来你……”开头复述用户；不要连续两轮用问句收尾；不要把聊天变成心理咨询、采访或任务汇报。' +
+  '不使用 Markdown、列表、动作括号、心理独白或客服套话。单条消息禁止换行和空行；必要时最多用三条消息并以 --- 分隔。' +
+  '把时间、记忆、情绪和共同经历自然融入回复，不要直接解释这些规则。';
+
+const REPETITION_GUARD =
+  'Recent replies are already visible in the conversation. Do not keep circling one topic or repeating one image or metaphor. If the user changes direction, follow the new direction immediately. Bring in a fresh concrete detail, opinion, action, or small piece of everyday life instead.';
 
 export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
   try {
@@ -76,6 +89,8 @@ export interface ChatParams {
   sessionModel?: { provider: string; model: string } | null;
   /** 临时视觉窗口（发图后几轮内强制用视觉模型识图，之后换回原模型） */
   forceVision?: boolean;
+  /** 单次请求超时；世界舞台可用较短超时快速切换兜底模型 */
+  timeoutMs?: number;
 }
 
 export interface ChatResult {
@@ -93,9 +108,10 @@ export interface ChatResult {
 /** 最近 N 条消息内出现过图片 → 保持视觉模型（约 4 轮对话），之后自动切回文本模型 */
 const VISION_CONTEXT_MESSAGES = 8;
 /** 历史消息最多携带的图片数（防请求体过大导致超时失败；更早的图片降级为"[图片]"占位） */
-const MAX_HISTORY_IMAGES = 2;
+const MAX_HISTORY_IMAGES = 1;
 /** 图片 dataURL 长度上限（base64，约 1.8MB 原始图；异常超长视为坏图，跳过避免拖垮请求） */
-const MAX_IMAGE_DATAURL_LEN = 2_500_000;
+const MAX_IMAGE_DATAURL_LEN = 650_000;
+const MAX_CHAT_HISTORY_CHARS = 14_000;
 
 /** 图片是否可用（格式正确且体积正常） */
 function isValidImage(image?: string): boolean {
@@ -116,6 +132,21 @@ function trimHistoryImages(history: ChatHistoryItem[]): ChatHistoryItem[] {
   }
   const keep = new Set(imgIdx.slice(-MAX_HISTORY_IMAGES));
   return history.map((h, i) => (h.image && !keep.has(i) ? { ...h, image: undefined } : h));
+}
+
+/** Bound the text payload too; the gateway rejects oversized JSON bodies. */
+function trimChatHistory(history: ChatHistoryItem[]): ChatHistoryItem[] {
+  const tail = history.slice(-12);
+  const kept: ChatHistoryItem[] = [];
+  let remaining = MAX_CHAT_HISTORY_CHARS;
+  for (let index = tail.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    const item = tail[index];
+    const content = typeof item.content === 'string' ? item.content : '';
+    const take = Math.min(1_200, remaining);
+    kept.push({ ...item, content: content.slice(0, take) });
+    remaining -= Math.min(content.length, take);
+  }
+  return kept.reverse();
 }
 
 /** 单条消息内容：有图 → OpenAI 兼容块数组（text + image_url dataURL），无图 → 纯文本 */
@@ -141,7 +172,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean): 
     {
       role: 'system',
       content:
-        systemPrompt + '\n\n' + COMPACT_MESSAGING_INSTRUCTION + (retryHint ? `\n\n${retryHint}` : ''),
+        systemPrompt + '\n\n' + COMPACT_MESSAGING_INSTRUCTION + '\n\n' + REPETITION_GUARD + (retryHint ? `\n\n${retryHint}` : ''),
     },
     ...history.slice(-12).map((h) => ({ role: h.role, content: buildContent(h.content, h.image) })),
     { role: 'user', content: buildContent(message, image) },
@@ -149,7 +180,32 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean): 
 
   // key：deepseek 用登录账号 key；qwen/mimo 用设备加密存储的 key
   const key = model.provider === 'deepseek' ? apiKey : await getProviderKey(model.provider);
-  if (!key) throw new Error('auth:invalid_key');
+  if (!key) {
+    // 手机端登录了 VirtuGene 网关时，普通私聊也必须走网关；否则界面显示
+    // “可以聊天”，实际却会因为没有本地 DeepSeek Key 而直接失败。
+    // BYOK 始终优先，其他供应商仍要求各自的本地 Key。
+    if (model.provider === 'deepseek' && hasAiGatewayAccess()) {
+      const gatewayHistory = useVision ? history : history.map((item) => ({ ...item, image: undefined }));
+      const result = await gatewayChat({
+        apiKey: '',
+        systemPrompt: messages[0]?.content as string,
+        message,
+        history: gatewayHistory,
+        ...(useVision && image ? { image } : {}),
+        ...(retryHint ? { retryHint } : {}),
+        ...(temperature != null ? { temperature } : {}),
+        ...(params.character ? { character: params.character } : {}),
+        ...(params.sessionModel ? { sessionModel: params.sessionModel } : {}),
+        ...(params.forceVision ? { forceVision: params.forceVision } : {}),
+      });
+      return {
+        content: stripRoleplayActions(result.content),
+        usage: result.usage,
+        modelId: result.modelId ?? model.id,
+      };
+    }
+    throw new Error('auth:invalid_key');
+  }
 
   const res = await llmChat({
     provider: model.provider,
@@ -180,7 +236,7 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const model = resolveModel(params.character, params.sessionModel);
 
   // 历史图片瘦身 + 坏图防御
-  const history = trimHistoryImages(params.history);
+  const history = trimChatHistory(trimHistoryImages(params.history));
   const image = isValidImage(params.image) ? params.image : undefined;
 
   // 需要看图：当前带图 或 最近几轮内有图 或 临时视觉窗口（forceVision）

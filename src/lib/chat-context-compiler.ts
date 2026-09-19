@@ -75,27 +75,42 @@ export function compileChatContext(
 
 /** Selects relevant memories without a vector database. Exact words are enough for
  * the first release and can later be replaced by embeddings behind this interface. */
-export function selectRelevantMemories<T extends { content: string; createdAt: number }>(
+export function selectRelevantMemories<T extends { content: string; createdAt: number; confidence?: number; updatedAt?: number; pinned?: boolean }>(
   memories: T[],
   query: string,
   limit: number,
 ): T[] {
-  const terms = query
+  const baseTerms = query
     .toLowerCase()
     .split(/[^\p{L}\p{N}\u4e00-\u9fff]+/u)
     .map((term) => term.trim())
     .filter((term) => term.length >= 2)
     .slice(0, 12);
+  const cjkTerms = Array.from(query.toLowerCase().matchAll(/[\u4e00-\u9fff]{2,}/g))
+    .flatMap(([chunk]) => Array.from({ length: Math.max(0, chunk.length - 1) }, (_, index) => chunk.slice(index, index + 2)))
+    .slice(0, 16);
+  const terms = Array.from(new Set([...baseTerms, ...cjkTerms])).slice(0, 20);
   const now = Date.now();
-  return [...memories]
+  const ranked = [...memories]
     .map((memory, index) => {
       const content = memory.content.toLowerCase();
       const matches = terms.reduce((count, term) => count + (content.includes(term) ? 1 : 0), 0);
-      const ageDays = Math.max(0, (now - memory.createdAt) / 86_400_000);
+      const ageDays = Math.max(0, (now - (memory.updatedAt ?? memory.createdAt)) / 86_400_000);
       const recency = Math.max(0, 1 - ageDays / 365);
-      return { memory, score: matches * 4 + recency + (memories.length - index) / memories.length / 10 };
+      const confidence = Math.max(0, Math.min(1, memory.confidence ?? 0.6));
+      // Explicitly remembered items are a hard preference. They stay eligible even
+      // when the current turn has no matching keyword; relevance must never make a
+      // user-requested fact disappear from the small prompt budget.
+      const pinnedBoost = memory.pinned === true ? 1000 : 0;
+      return { memory, score: pinnedBoost + matches * 4 + recency * 0.8 + confidence * 0.6 + (memories.length - index) / Math.max(1, memories.length) / 10 };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, Math.max(0, limit))
     .map((item) => item.memory);
+  const seen = new Set<string>();
+  return ranked.filter((memory) => {
+    const key = memory.content.normalize('NFKC').toLowerCase().replace(/[\s\u3000，。！？、,.!?;；:："“”‘’（）()【】[\]{}]/g, '');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, Math.max(0, limit));
 }

@@ -22,6 +22,10 @@ export interface NewSceneInput {
   /** 每个角色本场的目标 / 已知 / 隐瞒（隐藏张力的载体） */
   participants?: SceneParticipantState[];
   sceneGoal?: string;
+  /** 世界内核为场景分配的稳定地点 / 世界脉冲来源。 */
+  locationId?: string;
+  pulseId?: string;
+  startedWorldTime?: number;
 }
 
 export function emptySceneState(sceneGoal?: string): WorldSceneState {
@@ -46,7 +50,8 @@ export const worldSceneRepo = {
       id,
       userId: input.userId,
       worldId: input.worldId,
-      title: input.title.trim().slice(0, 120),
+      // 剧情主题是星图上的短标签，统一限制为五个字，避免移动端布局被长标题挤坏。
+      title: input.title.trim().slice(0, 5),
       place: input.place.trim().slice(0, 80),
       timeLabel: input.timeLabel.trim().slice(0, 40),
       mood: input.mood.trim().slice(0, 40),
@@ -55,6 +60,9 @@ export const worldSceneRepo = {
       status: 'draft',
       state: { ...emptySceneState(input.sceneGoal), participants: input.participants ?? [] },
       ...(input.templateId ? { templateId: input.templateId } : {}),
+      ...(input.locationId ? { locationId: input.locationId } : {}),
+      ...(input.pulseId ? { pulseId: input.pulseId } : {}),
+      ...(input.startedWorldTime !== undefined ? { startedWorldTime: input.startedWorldTime } : {}),
       startedAt: now,
       createdAt: now,
       updatedAt: now,
@@ -74,9 +82,10 @@ export const worldSceneRepo = {
     return rows.filter((row): row is WorldScene => !!row);
   },
 
-  async listScenes(worldId: string, opts: { status?: WorldScene['status']; limit?: number } = {}): Promise<WorldScene[]> {
+  async listScenes(worldId: string, opts: { status?: WorldScene['status']; limit?: number; userId?: string } = {}): Promise<WorldScene[]> {
     const all = await db.worldScenes.where('worldId').equals(worldId).toArray();
     return all
+      .filter((s) => opts.userId === undefined || s.userId === opts.userId)
       .filter((s) => (opts.status ? s.status === opts.status : true))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, Math.max(1, opts.limit ?? 50));
@@ -86,10 +95,11 @@ export const worldSceneRepo = {
   async listScenesByCharacter(
     worldId: string,
     characterId: string,
-    opts: { status?: WorldScene['status']; limit?: number } = {},
+    opts: { status?: WorldScene['status']; limit?: number; userId?: string } = {},
   ): Promise<WorldScene[]> {
     const all = await db.worldScenes.where('worldId').equals(worldId).toArray();
     return all
+      .filter((s) => opts.userId === undefined || s.userId === opts.userId)
       .filter((s) => s.characterIds.includes(characterId))
       .filter((s) => (opts.status ? s.status === opts.status : true))
       .sort((a, b) => (b.finishedAt ?? b.updatedAt) - (a.finishedAt ?? a.updatedAt))
@@ -99,7 +109,10 @@ export const worldSceneRepo = {
   async updateScene(id: string, patch: Partial<Pick<WorldScene, 'title' | 'place' | 'timeLabel' | 'mood' | 'theme' | 'templateId'>>): Promise<void> {
     const existing = await db.worldScenes.get(id);
     if (!existing) return;
-    await db.worldScenes.put({ ...existing, ...patch, updatedAt: Date.now() });
+    const safePatch = patch.title === undefined
+      ? patch
+      : { ...patch, title: patch.title.trim().slice(0, 5) };
+    await db.worldScenes.put({ ...existing, ...safePatch, updatedAt: Date.now() });
   },
 
   /** 状态补丁（浅合并；participants 传入时整体替换） */
@@ -127,14 +140,26 @@ export const worldSceneRepo = {
    * 让一个角色进入当前片段（§19「让星遥过来」。
    * 自然语言与人物 chips 走的是同一个函数，因此两者效果必然一致）。
    */
-  async addParticipant(sceneId: string, characterId: string): Promise<WorldScene | undefined> {
+  async addParticipant(
+    sceneId: string,
+    characterId: string,
+    options: { entryMemoryMode?: 'memory' | 'present' } = {},
+  ): Promise<WorldScene | undefined> {
     return db.transaction('rw', db.worldScenes, async () => {
       const existing = await db.worldScenes.get(sceneId);
       if (!existing) return undefined;
       if (existing.characterIds.includes(characterId)) return existing;
+      const participant: SceneParticipantState = {
+        characterId,
+        goals: [],
+        knowsEventIds: [],
+        secrets: [],
+        ...(options.entryMemoryMode ? { entryMemoryMode: options.entryMemoryMode } : {}),
+      };
       const next: WorldScene = {
         ...existing,
         characterIds: [...existing.characterIds, characterId],
+        state: { ...existing.state, participants: [...existing.state.participants, participant] },
         updatedAt: Date.now(),
       };
       await db.worldScenes.put(next);
@@ -150,6 +175,10 @@ export const worldSceneRepo = {
       const next: WorldScene = {
         ...existing,
         characterIds: existing.characterIds.filter((id) => id !== characterId),
+        state: {
+          ...existing.state,
+          participants: existing.state.participants.filter((p) => p.characterId !== characterId),
+        },
         updatedAt: Date.now(),
       };
       await db.worldScenes.put(next);

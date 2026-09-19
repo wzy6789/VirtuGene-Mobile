@@ -52,16 +52,16 @@ export async function ensureCanvasScene(params: {
   characters: Character[];
 }): Promise<WorldScene> {
   const { userId, worldId } = params;
-  const open = await worldSceneRepo.listScenes(worldId, { status: 'active', limit: 1 });
+  const open = await worldSceneRepo.listScenes(worldId, { status: 'active', limit: 1, userId });
   if (open[0]) return open[0];
-  const paused = await worldSceneRepo.listScenes(worldId, { status: 'paused', limit: 1 });
+  const paused = await worldSceneRepo.listScenes(worldId, { status: 'paused', limit: 1, userId });
   if (paused[0]) {
     await worldSceneRepo.setSceneStatus(paused[0].id, 'active');
     return (await worldSceneRepo.getScene(paused[0].id)) ?? paused[0];
   }
 
   // 新建：延续上一段的地点到"此刻"，让世界感觉是连续的
-  const recent = await worldSceneRepo.listScenes(worldId, { limit: 1 });
+  const recent = await worldSceneRepo.listScenes(worldId, { limit: 1, userId });
   const previous = recent[0];
   const owned = params.characters.filter((c) => c.createdBy === userId);
   const participants = (previous?.characterIds.length ? previous.characterIds : owned.slice(0, 2).map((c) => c.id))
@@ -81,9 +81,9 @@ export async function ensureCanvasScene(params: {
 }
 
 /** 只读加载（分页）：默认最近 CANVAS_PAGE_SIZE 条 */
-export async function loadCanvas(sceneId: string, opts: { pageSize?: number } = {}): Promise<CanvasView | null> {
+export async function loadCanvas(sceneId: string, opts: { pageSize?: number; userId?: string } = {}): Promise<CanvasView | null> {
   const scene = await worldSceneRepo.getScene(sceneId);
-  if (!scene) return null;
+  if (!scene || (opts.userId !== undefined && scene.userId !== opts.userId)) return null;
   const pageSize = Math.max(10, opts.pageSize ?? CANVAS_PAGE_SIZE);
   const all = await worldSceneRepo.listEntries(sceneId, { limit: 4000 });
   const entries = all.slice(Math.max(0, all.length - pageSize));
@@ -91,7 +91,9 @@ export async function loadCanvas(sceneId: string, opts: { pageSize?: number } = 
 }
 
 /** 继续加载更早的内容（§68 顶部的"查看更早内容"） */
-export async function loadEarlier(sceneId: string, beforeIndex: number, limit = CANVAS_PAGE_SIZE): Promise<WorldSceneEntry[]> {
+export async function loadEarlier(sceneId: string, beforeIndex: number, limit = CANVAS_PAGE_SIZE, userId?: string): Promise<WorldSceneEntry[]> {
+  const scene = await worldSceneRepo.getScene(sceneId);
+  if (!scene || (userId !== undefined && scene.userId !== userId)) return [];
   const all = await worldSceneRepo.listEntries(sceneId, { limit: 4000 });
   const older = all.filter((e) => e.index < beforeIndex);
   return older.slice(Math.max(0, older.length - limit));
@@ -222,7 +224,9 @@ export async function isSavedAsStory(userId: string, worldId: string, sceneId: s
 }
 
 /** 把这一段收束起来（用户点"结束这一刻"）：只暂停，0 次 AI 调用（结算由用户显式触发） */
-export async function pauseCanvas(sceneId: string): Promise<void> {
+export async function pauseCanvas(sceneId: string, userId?: string): Promise<void> {
+  const scene = await worldSceneRepo.getScene(sceneId);
+  if (!scene || (userId !== undefined && scene.userId !== userId)) return;
   await worldSceneRepo.setSceneStatus(sceneId, 'paused');
 }
 
