@@ -1,12 +1,13 @@
 /* ==========================================================================
-   VirtuGene 官网 · 动态视觉系统
-   --------------------------------------------------------------------------
+   VirtuGene 官网 · 动态视觉与交互系统（5.1.0）
+
    设计原则：
-   - 只有一个 requestAnimationFrame 主循环（Ticker），所有逐帧效果挂在它上面。
-   - 只有一处 pointermove 监听（PointerEngine），其他模块只读它的状态。
+   - 只有一个 requestAnimationFrame 主循环（Ticker）。
+   - 只有一处 pointermove 监听（PointerEngine），其它模块只读它的状态。
    - 每个模块独立初始化并各自 try/catch：任何一个出错都不影响其它模块与静态内容。
    - 内容默认可见；进入动画是"JS 先武装再播放"，脚本失效时页面照常可读。
-   - 性能分三级（high / medium / low）+ prefers-reduced-motion，低配只保留基本光影。
+   - 性能分三级（high / medium / low）+ prefers-reduced-motion。
+   - 区域氛围：首屏最强、对话与记忆更安静、世界偏蓝紫、截图与下载克制。
    ========================================================================== */
 (function () {
   'use strict';
@@ -16,7 +17,7 @@
   var finePointerQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
 
   /* ======================================================================
-     0. PerformanceManager —— 先决定能力等级，后面所有模块都据此降级
+     0. PerformanceManager
      ====================================================================== */
   var Performance = (function () {
     var reduced = motionQuery.matches;
@@ -26,10 +27,7 @@
     var memory = navigator.deviceMemory || 4;
 
     var tier = 'high';
-    // 触屏 / 手机：弱化粒子与 disable tilt，但保留基础沉浸感
     if (isMobileUA || !fine) tier = 'medium';
-    if (isMobileUA && cores <= 4) tier = 'medium';
-    // 真正的低配（老设备 / 双核 / 内存很小）才降到 low
     if (cores <= 2 || memory <= 2) tier = 'low';
     if (reduced) tier = 'low';
 
@@ -38,7 +36,7 @@
 
     var settings = {
       high: { particles: 85, linkDist: 118, maxLinks: 52, hubRatio: 0.34, dprCap: 1.5, tilt: fine ? 5 : 0, trails: true, field: fine },
-      medium: { particles: 52, linkDist: 100, maxLinks: 26, hubRatio: 0.3, dprCap: 1.25, tilt: fine ? 3.4 : 0, trails: true, field: fine },
+      medium: { particles: 44, linkDist: 100, maxLinks: 22, hubRatio: 0.3, dprCap: 1.25, tilt: 0, trails: true, field: fine },
       low: { particles: 0, linkDist: 0, maxLinks: 0, hubRatio: 0, dprCap: 1, tilt: 0, trails: false, field: false },
     }[tier];
 
@@ -47,34 +45,26 @@
       reduced: reduced,
       fine: fine,
       settings: settings,
-      dpr: function () {
-        return Math.min(window.devicePixelRatio || 1, settings.dprCap);
-      },
+      dpr: function () { return Math.min(window.devicePixelRatio || 1, settings.dprCap); },
     };
   })();
 
   /* ======================================================================
-     1. Ticker —— 唯一的主循环
+     1. Ticker
      ====================================================================== */
   var Ticker = (function () {
     var callbacks = [];
     var running = false;
     var last = 0;
-
     function frame(now) {
       if (!running) return;
       var dt = Math.min(48, now - last || 16);
       last = now;
       for (var i = 0; i < callbacks.length; i += 1) {
-        try {
-          callbacks[i](dt, now);
-        } catch (error) {
-          /* 单个订阅者出错不影响整条循环 */
-        }
+        try { callbacks[i](dt, now); } catch (error) { /* 单个订阅者出错不影响整条循环 */ }
       }
       window.requestAnimationFrame(frame);
     }
-
     return {
       add: function (fn) { callbacks.push(fn); },
       start: function () {
@@ -88,34 +78,18 @@
   })();
 
   /* ======================================================================
-     2. PointerEngine —— 全站唯一的指针状态源
-     输出：x / y（原始）、fx / fy（大范围光场，慢跟随）、hx / hy（核心，快跟随）、
-           speed（px/帧）、nx / ny（归一化 -1..1）、active
+     2. PointerEngine
      ====================================================================== */
   var PointerEngine = (function () {
     var state = {
-      x: window.innerWidth * 0.5,
-      y: window.innerHeight * 0.35,
-      fx: window.innerWidth * 0.5,
-      fy: window.innerHeight * 0.35,
-      hx: window.innerWidth * 0.5,
-      hy: window.innerHeight * 0.35,
-      vx: 0,
-      vy: 0,
-      speed: 0,
-      nx: 0,
-      ny: 0,
-      active: false,
+      x: window.innerWidth * 0.5, y: window.innerHeight * 0.35,
+      fx: window.innerWidth * 0.5, fy: window.innerHeight * 0.35,
+      hx: window.innerWidth * 0.5, hy: window.innerHeight * 0.35,
+      vx: 0, vy: 0, speed: 0, nx: 0, ny: 0, active: false,
     };
-
     var lastX = state.x;
     var lastY = state.y;
-
-    function onMove(event) {
-      state.x = event.clientX;
-      state.y = event.clientY;
-      state.active = true;
-    }
+    function onMove(event) { state.x = event.clientX; state.y = event.clientY; state.active = true; }
     function onLeave() { state.active = false; }
 
     window.addEventListener('pointermove', onMove, { passive: true });
@@ -123,62 +97,84 @@
     document.addEventListener('pointerleave', onLeave, { passive: true });
     window.addEventListener('blur', onLeave);
 
-    // 大范围光场慢跟随（有惯性），核心光晕快跟随
     Ticker.add(function () {
       state.fx += (state.x - state.fx) * 0.055;
       state.fy += (state.y - state.fy) * 0.055;
       state.hx += (state.x - state.hx) * 0.22;
       state.hy += (state.y - state.hy) * 0.22;
-
       state.vx = state.hx - lastX;
       state.vy = state.hy - lastY;
       lastX = state.hx;
       lastY = state.hy;
       state.speed = Math.sqrt(state.vx * state.vx + state.vy * state.vy);
-
       state.nx = (state.hx / window.innerWidth) * 2 - 1;
       state.ny = (state.hy / window.innerHeight) * 2 - 1;
     });
 
     return {
       state: state,
-      /** 是否允许跟随类效果（降级 / 触屏时为 false） */
       enabled: function () { return Performance.settings.field && !Performance.reduced; },
     };
   })();
 
   var pointerState = PointerEngine.state;
 
-  /* 把指针位置写进 CSS 变量，供光场 / 光晕使用 */
+  /* ======================================================================
+     3. AtmosphereController —— 三种区域氛围
+     ====================================================================== */
+  var Atmosphere = (function () {
+    var TARGETS = { hero: 1, quiet: 0.45, cosmos: 0.8, plain: 0.25 };
+    var state = { name: 'hero', intensity: 1, target: 1 };
+    return { TARGETS: TARGETS, state: state };
+  })();
+
+  function initAtmosphere() {
+    var sections = Array.prototype.slice.call(document.querySelectorAll('[data-atmos]'));
+    if (!sections.length) return;
+    root.setAttribute('data-atmos', 'hero');
+    if (!('IntersectionObserver' in window)) return;
+
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        var name = entry.target.getAttribute('data-atmos') || 'hero';
+        var target = Atmosphere.TARGETS[name];
+        Atmosphere.state.name = name;
+        Atmosphere.state.target = typeof target === 'number' ? target : 1;
+        root.setAttribute('data-atmos', name);
+      });
+    }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
+    sections.forEach(function (section) { observer.observe(section); });
+
+    Ticker.add(function (dt) {
+      Atmosphere.state.intensity += (Atmosphere.state.target - Atmosphere.state.intensity) * Math.min(1, dt / 420);
+    });
+  }
+
+  /* ======================================================================
+     4. 指针光场 / 光晕
+     ====================================================================== */
   function initPointerVars() {
     var field = document.getElementById('vg-field');
     var halo = document.getElementById('vg-halo');
-    if (!field || !halo) return;
-    if (!PointerEngine.enabled()) return;
+    if (!field || !halo || !PointerEngine.enabled()) return;
 
-    var lastFx = -1;
-    var lastFy = -1;
-    var lastHx = -1;
-    var lastHy = -1;
+    var lastFx = -1, lastFy = -1, lastHx = -1, lastHy = -1;
 
     Ticker.add(function () {
       if (Math.abs(pointerState.fx - lastFx) > 0.1 || Math.abs(pointerState.fy - lastFy) > 0.1) {
-        lastFx = pointerState.fx;
-        lastFy = pointerState.fy;
+        lastFx = pointerState.fx; lastFy = pointerState.fy;
         root.style.setProperty('--fx', lastFx.toFixed(1) + 'px');
         root.style.setProperty('--fy', lastFy.toFixed(1) + 'px');
       }
       if (Math.abs(pointerState.hx - lastHx) > 0.1 || Math.abs(pointerState.hy - lastHy) > 0.1) {
-        lastHx = pointerState.hx;
-        lastHy = pointerState.hy;
+        lastHx = pointerState.hx; lastHy = pointerState.hy;
         root.style.setProperty('--hx', lastHx.toFixed(1) + 'px');
         root.style.setProperty('--hy', lastHy.toFixed(1) + 'px');
       }
-      var power = Math.min(1, pointerState.speed / 26);
-      root.style.setProperty('--pointer-power', power.toFixed(3));
+      root.style.setProperty('--pointer-power', Math.min(1, pointerState.speed / 26).toFixed(3));
     });
 
-    // 指针离开窗口或设备不支持悬停时，光场淡出
     var sync = function () {
       var on = pointerState.active && PointerEngine.enabled() && !document.hidden;
       field.classList.toggle('is-on', on);
@@ -189,9 +185,7 @@
   }
 
   /* ======================================================================
-     3. ParticleEngine —— 星尘粒子（VS Code 背景粒子的思路，但更安静克制）
-     规则：低密度慢速漂浮；只有"枢纽粒子"之间、且距离足够近时才连线；
-           指针靠近才被唤醒（微弱排斥 + 亮度提升 + 少量短线 + 快速移动时短拖尾）
+     5. ParticleEngine —— 星尘（密度随区域氛围变化）
      ====================================================================== */
   function initParticles() {
     var canvas = document.getElementById('vg-dust');
@@ -199,10 +193,7 @@
     if (!canvas || !ctx) return;
 
     var cfg = Performance.settings;
-    if (cfg.particles <= 0 || Performance.reduced) {
-      canvas.style.display = 'none';
-      return;
-    }
+    if (cfg.particles <= 0 || Performance.reduced) { canvas.style.display = 'none'; return; }
 
     var TINTS = ['190,178,255', '226,232,255', '150,178,255', '236,232,255'];
     var sprites = TINTS.map(function (tint) {
@@ -222,26 +213,23 @@
 
     var particles = [];
     var trails = [];
-    var width = 0;
-    var height = 0;
-    var dpr = 1;
-    var trailCooldown = 0;
+    var width = 0, height = 0, dpr = 1, trailCooldown = 0;
 
     function seed() {
       particles.length = 0;
       var count = Math.round(cfg.particles * Math.min(1, (width * height) / (1440 * 900)));
-      count = Math.max(28, Math.min(cfg.particles, count));
+      count = Math.max(24, Math.min(cfg.particles, count));
       for (var i = 0; i < count; i += 1) {
         particles.push({
           x: Math.random() * width,
           y: Math.random() * height,
-          // 数字尘埃：每秒几像素，几乎察觉不到在动
           vx: (Math.random() - 0.5) * 5,
           vy: (Math.random() - 0.5) * 5,
           r: 0.7 + Math.random() * 1.5,
           alpha: 0.16 + Math.random() * 0.34,
           sprite: (Math.random() * sprites.length) | 0,
           hub: Math.random() < cfg.hubRatio,
+          rank: Math.random(),
           phase: Math.random() * Math.PI * 2,
           boost: 0,
         });
@@ -259,7 +247,6 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       seed();
     }
-
     window.addEventListener('resize', function () {
       window.clearTimeout(resize._t);
       resize._t = window.setTimeout(resize, 180);
@@ -273,12 +260,15 @@
       var px = pointerState.hx;
       var py = pointerState.hy;
       var pointerOn = pointerState.active && PointerEngine.enabled();
+      var intensity = Performance.reduced ? 0 : Atmosphere.state.intensity;
+      // 氛围越安静，参与绘制的粒子越少（不只是变暗）
+      var visibleRatio = 0.34 + intensity * 0.66;
 
       ctx.clearRect(0, 0, width, height);
 
-      // --- 更新 -------------------------------------------------------
       for (var i = 0; i < particles.length; i += 1) {
         var p = particles[i];
+        if (p.rank > visibleRatio) continue;
         p.phase += 0.0006 * dt;
         p.x += p.vx * step;
         p.y += p.vy * step;
@@ -288,7 +278,6 @@
           var dy = p.y - py;
           var dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < WAKE_RADIUS && dist > 0.001) {
-            // 微弱排斥：越近越明显，但绝不把粒子推开视野
             var force = (1 - dist / WAKE_RADIUS) * 0.9;
             p.x += (dx / dist) * force;
             p.y += (dy / dist) * force;
@@ -300,36 +289,34 @@
           p.boost += (0 - p.boost) * 0.06;
         }
 
-        // 环绕，避免边缘堆积
         if (p.x < -20) p.x = width + 20;
         if (p.x > width + 20) p.x = -20;
         if (p.y < -20) p.y = height + 20;
         if (p.y > height + 20) p.y = -20;
       }
 
-      // --- 连线：只有枢纽粒子、且足够近 -------------------------------
+      // 连线：只有枢纽粒子、且足够近
       var links = 0;
       var linkDist = cfg.linkDist;
       var linkDistSq = linkDist * linkDist;
       ctx.lineWidth = 1;
       for (var a = 0; a < particles.length && links < cfg.maxLinks; a += 1) {
         var pa = particles[a];
-        if (!pa.hub) continue;
+        if (!pa.hub || pa.rank > visibleRatio) continue;
         for (var b = a + 1; b < particles.length && links < cfg.maxLinks; b += 1) {
           var pb = particles[b];
-          if (!pb.hub) continue;
+          if (!pb.hub || pb.rank > visibleRatio) continue;
           var lx = pa.x - pb.x;
           var ly = pa.y - pb.y;
           var lsq = lx * lx + ly * ly;
           if (lsq > linkDistSq) continue;
           var t = 1 - Math.sqrt(lsq) / linkDist;
-          if (t < 0.42) continue; // 只保留足够近的那一小部分，线条天然稀疏
+          if (t < 0.42) continue;
           var nearPointer = 0;
           if (pointerOn) {
             var mdx = (pa.x + pb.x) / 2 - px;
             var mdy = (pa.y + pb.y) / 2 - py;
-            var mdist = Math.sqrt(mdx * mdx + mdy * mdy);
-            nearPointer = Math.max(0, 1 - mdist / 260);
+            nearPointer = Math.max(0, 1 - Math.sqrt(mdx * mdx + mdy * mdy) / 260);
           }
           ctx.strokeStyle = 'rgba(168,150,255,' + ((t - 0.42) * 0.5 + nearPointer * 0.26).toFixed(3) + ')';
           ctx.beginPath();
@@ -340,27 +327,21 @@
         }
       }
 
-      // --- 绘制粒子 ---------------------------------------------------
       for (var k = 0; k < particles.length; k += 1) {
         var q = particles[k];
+        if (q.rank > visibleRatio) continue;
         var twinkle = 0.82 + Math.sin(q.phase) * 0.18;
-        var alpha = Math.min(1, q.alpha * twinkle + q.boost * 0.55);
+        var alpha = Math.min(1, q.alpha * twinkle + q.boost * 0.55) * (0.55 + intensity * 0.45);
         var size = q.r * 5 * (1 + q.boost * 0.5);
         ctx.globalAlpha = alpha;
         ctx.drawImage(sprites[q.sprite], q.x - size / 2, q.y - size / 2, size, size);
       }
       ctx.globalAlpha = 1;
 
-      // --- 拖尾：只在快速移动时产生少量短线 ---------------------------
       if (cfg.trails && pointerOn) {
         trailCooldown -= dt;
         if (pointerState.speed > 16 && trailCooldown <= 0 && trails.length < 34) {
-          trails.push({
-            x: px + (Math.random() - 0.5) * 14,
-            y: py + (Math.random() - 0.5) * 14,
-            life: 1,
-            r: 0.8 + Math.random() * 1.4,
-          });
+          trails.push({ x: px + (Math.random() - 0.5) * 14, y: py + (Math.random() - 0.5) * 14, life: 1, r: 0.8 + Math.random() * 1.4 });
           trailCooldown = 46;
         }
       }
@@ -379,34 +360,28 @@
   }
 
   /* ======================================================================
-     4. DepthSystem —— 首屏景深：人物最大、光晕次之、文字最小
+     6. DepthSystem —— 首屏景深
      ====================================================================== */
   function initDepth() {
     if (Performance.reduced || !Performance.fine) return;
     var layers = Array.prototype.slice.call(document.querySelectorAll('[data-depth]'));
     if (!layers.length) return;
-
     var stage = document.querySelector('.hero-stage');
     var rim = document.querySelector('.hero-rim');
 
     Ticker.add(function () {
       var nx = pointerState.nx;
       var ny = pointerState.ny;
-
       for (var i = 0; i < layers.length; i += 1) {
         var el = layers[i];
         var depth = parseFloat(el.getAttribute('data-depth')) || 0;
-        // 用独立的 translate 属性，避免和入场动画的 transform 抢同一个属性
         el.style.translate = (nx * depth * 34).toFixed(2) + 'px ' + (ny * depth * 24).toFixed(2) + 'px';
       }
-
       if (stage) {
         var tilt = Performance.settings.tilt * 1.5;
-        stage.style.transform =
-          'rotateY(' + (nx * tilt).toFixed(2) + 'deg) rotateX(' + (-ny * tilt * 0.72).toFixed(2) + 'deg)';
+        stage.style.transform = 'rotateY(' + (nx * tilt).toFixed(2) + 'deg) rotateX(' + (-ny * tilt * 0.72).toFixed(2) + 'deg)';
       }
       if (rim) {
-        // 边缘高光随指针方向轻微移动
         rim.style.setProperty('--rim-x', (nx * -18).toFixed(1) + 'px');
         rim.style.setProperty('--rim-y', (ny * -10).toFixed(1) + 'px');
         rim.style.opacity = (0.34 + Math.min(0.28, pointerState.speed / 90)).toFixed(3);
@@ -415,13 +390,11 @@
   }
 
   /* ======================================================================
-     5. TiltSystem —— 产品截图的 3D 倾斜 + 反光
-     一次性缓存 rect，避免逐帧 layout 抖动
+     7. TiltSystem —— 玻璃卡轻微 3D
      ====================================================================== */
   function initTilt() {
     var cards = Array.prototype.slice.call(document.querySelectorAll('[data-tilt]'));
     if (!cards.length) return;
-
     var maxTilt = Performance.settings.tilt;
     if (Performance.reduced || maxTilt <= 0) return;
 
@@ -430,29 +403,15 @@
         button: button,
         device: button.querySelector('.device'),
         sheen: button.querySelector('.device-sheen'),
-        rect: null,
-        rx: 0,
-        ry: 0,
-        lift: 0,
-        targetLift: 0,
-        active: false,
+        rect: null, rx: 0, ry: 0, lift: 0, targetLift: 0,
       };
     });
 
-    function measure() {
-      items.forEach(function (item) {
-        item.rect = item.button.getBoundingClientRect();
-      });
-    }
-
+    function measure() { items.forEach(function (item) { item.rect = item.button.getBoundingClientRect(); }); }
     function scheduleMeasure() {
       if (scheduleMeasure._t) return;
-      scheduleMeasure._t = window.requestAnimationFrame(function () {
-        scheduleMeasure._t = 0;
-        measure();
-      });
+      scheduleMeasure._t = window.requestAnimationFrame(function () { scheduleMeasure._t = 0; measure(); });
     }
-
     window.addEventListener('scroll', scheduleMeasure, { passive: true });
     window.addEventListener('resize', scheduleMeasure);
     measure();
@@ -462,19 +421,15 @@
       var pointerOn = pointerState.active && PointerEngine.enabled();
       var px = pointerState.hx;
       var py = pointerState.hy;
-
       for (var i = 0; i < items.length; i += 1) {
         var item = items[i];
         if (!item.rect || !item.device) continue;
         var rect = item.rect;
         var pad = 46;
-        var inside = pointerOn &&
-          px > rect.left - pad && px < rect.right + pad &&
-          py > rect.top - pad && py < rect.bottom + pad;
-
+        var inside = pointerOn && px > rect.left - pad && px < rect.right + pad && py > rect.top - pad && py < rect.bottom + pad;
         if (inside) {
-          var rx = (px - rect.left) / rect.width;   // 0..1
-          var ry = (py - rect.top) / rect.height;   // 0..1
+          var rx = (px - rect.left) / rect.width;
+          var ry = (py - rect.top) / rect.height;
           item.rx += ((rx - 0.5) * 2 * maxTilt - item.rx) * 0.12;
           item.ry += ((ry - 0.5) * 2 * maxTilt - item.ry) * 0.12;
           item.targetLift = -7;
@@ -488,8 +443,6 @@
           item.targetLift = 0;
         }
         item.lift += (item.targetLift - item.lift) * 0.12;
-
-        // 幅度很小：只做"被唤醒"的感觉，不做夸张翻转
         item.device.style.transform =
           'rotateY(' + item.rx.toFixed(2) + 'deg) rotateX(' + (-item.ry).toFixed(2) + 'deg) translate3d(0,' +
           item.lift.toFixed(2) + 'px,0)';
@@ -498,21 +451,20 @@
   }
 
   /* ======================================================================
-     6. MagneticSystem —— 按钮磁吸 + 局部光斑
+     8. MagneticSystem
      ====================================================================== */
   function initMagnetic() {
     if (Performance.reduced || !Performance.fine) return;
-
     var targets = Array.prototype.slice.call(document.querySelectorAll('[data-magnetic], [data-spotlight]'));
     if (!targets.length) return;
-
     var items = targets.map(function (el) {
-      return { el: el, rect: null, x: 0, y: 0, tx: 0, ty: 0, magnetic: el.hasAttribute('data-magnetic'), spotlight: el.hasAttribute('data-spotlight') };
+      return {
+        el: el, rect: null, x: 0, y: 0, tx: 0, ty: 0,
+        magnetic: el.hasAttribute('data-magnetic'),
+        spotlight: el.hasAttribute('data-spotlight'),
+      };
     });
-
-    function measure() {
-      items.forEach(function (item) { item.rect = item.el.getBoundingClientRect(); });
-    }
+    function measure() { items.forEach(function (item) { item.rect = item.el.getBoundingClientRect(); }); }
     var scheduleMeasure = function () {
       if (scheduleMeasure._t) return;
       scheduleMeasure._t = window.requestAnimationFrame(function () { scheduleMeasure._t = 0; measure(); });
@@ -525,7 +477,6 @@
       var pointerOn = pointerState.active;
       var px = pointerState.hx;
       var py = pointerState.hy;
-
       for (var i = 0; i < items.length; i += 1) {
         var item = items[i];
         if (!item.rect) continue;
@@ -536,24 +487,16 @@
         var dy = py - cy;
         var dist = Math.sqrt(dx * dx + dy * dy);
         var reach = Math.max(rect.width, rect.height) * 0.9 + 60;
-
         if (pointerOn && dist < reach) {
           var pull = 1 - dist / reach;
-          if (item.magnetic) {
-            item.tx = dx * pull * 0.09;
-            item.ty = dy * pull * 0.09;
-          }
+          if (item.magnetic) { item.tx = dx * pull * 0.09; item.ty = dy * pull * 0.09; }
           if (item.spotlight) {
-            var sx = ((px - rect.left) / rect.width) * 100;
-            var sy = ((py - rect.top) / rect.height) * 100;
-            item.el.style.setProperty('--sx', sx.toFixed(1) + '%');
-            item.el.style.setProperty('--sy', sy.toFixed(1) + '%');
+            item.el.style.setProperty('--sx', (((px - rect.left) / rect.width) * 100).toFixed(1) + '%');
+            item.el.style.setProperty('--sy', (((py - rect.top) / rect.height) * 100).toFixed(1) + '%');
           }
         } else if (item.magnetic) {
-          item.tx = 0;
-          item.ty = 0;
+          item.tx = 0; item.ty = 0;
         }
-
         if (item.magnetic) {
           item.x += (item.tx - item.x) * 0.16;
           item.y += (item.ty - item.y) * 0.16;
@@ -564,14 +507,12 @@
   }
 
   /* ======================================================================
-     7. ScrollSystem —— 进度线 / 导航 / 进入动画 / 记忆连接线
+     9. ScrollSystem
      ====================================================================== */
   function initScroll() {
     var nav = document.getElementById('nav');
     var progress = document.getElementById('vg-progress');
-    var steps = document.querySelector('[data-steps]');
 
-    /* 7.1 进度线与导航状态 */
     var ticking = false;
     function updateChrome() {
       ticking = false;
@@ -587,20 +528,21 @@
     }, { passive: true });
     updateChrome();
 
-    /* 7.2 进入动画：先武装再播放；没有 JS 时根本不武装 */
     var REVEAL_SELECTOR = [
       '.section-head',
-      '.manifesto-lede',
-      '.manifesto-grid',
       '.meet-points',
+      '.principle',
       '.meet-shot',
-      '.steps',
+      '.memory-demo',
+      '.memory-pager',
+      '.pager-dots',
       '.demo-note',
-      '.memory-aside .shot',
       '.tabs',
       '.panels',
       '.stage-note',
       '.gallery-grid',
+      '.gallery-rail',
+      '.rail-hint',
       '.platforms',
       '.download-notes'
     ].join(', ');
@@ -608,19 +550,13 @@
     if (!Performance.reduced && 'IntersectionObserver' in window) {
       var nodes = Array.prototype.slice.call(document.querySelectorAll(REVEAL_SELECTOR));
       var armed = [];
-
       nodes.forEach(function (node) {
-        // 只武装"明显在首屏之外"的元素：首屏内容不参与，避免任何闪一下
         if (node.getBoundingClientRect().top > window.innerHeight * 0.92) {
           node.classList.add('is-armed');
           armed.push(node);
         }
       });
-
-      var reveal = function (node) {
-        if (!node.classList.contains('is-in')) node.classList.add('is-in');
-      };
-
+      var reveal = function (node) { if (!node.classList.contains('is-in')) node.classList.add('is-in'); };
       var observer = new IntersectionObserver(function (entries, self) {
         entries.forEach(function (entry) {
           if (!entry.isIntersecting) return;
@@ -630,7 +566,6 @@
       }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
       armed.forEach(function (node) { observer.observe(node); });
 
-      // 兜底：万一观察器没触发，滚动时按位置补一次
       window.addEventListener('scroll', function () {
         for (var i = 0; i < armed.length; i += 1) {
           var node = armed[i];
@@ -640,23 +575,6 @@
       }, { passive: true });
     }
 
-    /* 7.3 记忆连接线：进入视口点亮一次 */
-    if (steps) {
-      if (Performance.reduced || !('IntersectionObserver' in window)) {
-        steps.classList.add('is-lit');
-      } else {
-        var stepObserver = new IntersectionObserver(function (entries, self) {
-          entries.forEach(function (entry) {
-            if (!entry.isIntersecting) return;
-            steps.classList.add('is-lit');
-            self.unobserve(entry.target);
-          });
-        }, { threshold: 0.35 });
-        stepObserver.observe(steps);
-      }
-    }
-
-    /* 7.4 导航当前章节 */
     if ('IntersectionObserver' in window) {
       var links = Array.prototype.slice.call(document.querySelectorAll('.nav-links a'));
       var map = {};
@@ -668,11 +586,9 @@
       var sectionObserver = new IntersectionObserver(function (entries) {
         entries.forEach(function (entry) {
           var link = map[entry.target.id];
-          if (!link) return;
-          if (entry.isIntersecting) {
-            links.forEach(function (l) { l.classList.remove('is-current'); });
-            link.classList.add('is-current');
-          }
+          if (!link || !entry.isIntersecting) return;
+          links.forEach(function (l) { l.classList.remove('is-current'); });
+          link.classList.add('is-current');
         });
       }, { rootMargin: '-45% 0px -50% 0px' });
       Object.keys(map).forEach(function (id) { sectionObserver.observe(document.getElementById(id)); });
@@ -680,7 +596,7 @@
   }
 
   /* ======================================================================
-     8. 世界切换
+     10. 世界切换
      ====================================================================== */
   function initTabs() {
     var list = document.querySelector('.tabs');
@@ -688,13 +604,10 @@
     if (!list) return;
     var tabs = Array.prototype.slice.call(list.querySelectorAll('[role="tab"]'));
     if (!tabs.length) return;
-
-    var panels = tabs.map(function (tab) {
-      return document.getElementById(tab.getAttribute('aria-controls') || '');
-    });
+    var panels = tabs.map(function (tab) { return document.getElementById(tab.getAttribute('aria-controls') || ''); });
 
     function select(index, moveFocus) {
-      var key = ['map', 'scene', 'timeline'][index] || 'map';
+      var keys = ['map', 'scene', 'timeline'];
       tabs.forEach(function (tab, i) {
         var active = i === index;
         tab.setAttribute('aria-selected', active ? 'true' : 'false');
@@ -704,7 +617,6 @@
         if (active) {
           panel.hidden = false;
           panel.classList.add('is-entering');
-          // 强制一次样式读取：从 display:none 切出来也能走过渡，而不是硬切
           void panel.offsetHeight;
           window.requestAnimationFrame(function () { panel.classList.remove('is-entering'); });
         } else {
@@ -712,14 +624,11 @@
           panel.classList.remove('is-entering');
         }
       });
-      if (stage) stage.setAttribute('data-world', key);
+      if (stage) stage.setAttribute('data-world', keys[index] || 'map');
       if (moveFocus) tabs[index].focus();
     }
 
-    tabs.forEach(function (tab, i) {
-      tab.addEventListener('click', function () { select(i, false); });
-    });
-
+    tabs.forEach(function (tab, i) { tab.addEventListener('click', function () { select(i, false); }); });
     list.addEventListener('keydown', function (event) {
       var current = tabs.indexOf(document.activeElement);
       if (current < 0) return;
@@ -736,7 +645,6 @@
     var initial = tabs.findIndex(function (tab) { return tab.getAttribute('aria-selected') === 'true'; });
     select(initial < 0 ? 0 : initial, false);
 
-    // 隐藏面板里的截图浏览器不会提前下载：接近世界区域时预热一次
     var warmUp = function () {
       panels.forEach(function (panel) {
         if (!panel) return;
@@ -764,95 +672,355 @@
   }
 
   /* ======================================================================
-     9. Lightbox —— 打开/关闭都有过渡，快速切换不会被旧定时器覆盖
+     11. 世界星图：点节点看详情
+     ====================================================================== */
+  var MAP_NODES = {
+    core: { title: '我的生活', place: '正在持续', cast: '古月娜 · 艾莉 · 林霜', time: '此刻', beat: '时间会走，角色也有自己的去处。' },
+    rain: { title: '雨夜便利店', place: '街角便利店', cast: '古月娜 · 艾莉', time: '深夜', beat: '你把面试的事说给她听。' },
+    roof: { title: '天台夜谈', place: '学校天台', cast: '艾莉', time: '傍晚', beat: '风把云的影子推着走。' },
+    ice: { title: '冰原重逢', place: '极北冰原', cast: '古月娜', time: '清晨', beat: '她还没承认自己等了很久。（已暂停）' },
+  };
+
+  function initStarMap() {
+    var map = document.getElementById('star-map');
+    var detail = document.getElementById('map-detail');
+    if (!map || !detail) return;
+    var nodes = Array.prototype.slice.call(map.querySelectorAll('.map-node'));
+    if (!nodes.length) return;
+
+    function select(node) {
+      nodes.forEach(function (n) { n.setAttribute('aria-pressed', n === node ? 'true' : 'false'); });
+      var data = MAP_NODES[node.getAttribute('data-node')] || MAP_NODES.core;
+      ['title', 'place', 'cast', 'time', 'beat'].forEach(function (key) {
+        var el = detail.querySelector('[data-detail="' + key + '"]');
+        if (el && data[key]) el.textContent = data[key];
+      });
+    }
+
+    nodes.forEach(function (node) {
+      node.addEventListener('click', function () { select(node); });
+    });
+
+    var pressed = nodes.filter(function (n) { return n.getAttribute('aria-pressed') === 'true'; })[0];
+    select(pressed || nodes[0]);
+  }
+
+  /* ======================================================================
+     12. 记忆三步演示（桌面联动 + 手机分页）
+     ====================================================================== */
+  function initMemoryDemo() {
+    var steps = Array.prototype.slice.call(document.querySelectorAll('.step'));
+    var demos = document.querySelectorAll('[data-memory-demo]').length > 0;
+    var stepsList = document.querySelector('[data-steps]');
+    var pager = document.querySelector('[data-memory-pager]');
+    var dots = Array.prototype.slice.call(document.querySelectorAll('.pager-dot'));
+    var screens = steps.map(function (step) { return document.getElementById(step.getAttribute('aria-controls') || ''); });
+    var current = 0;
+
+    function syncDots(index) {
+      dots.forEach(function (dot, i) {
+        dot.classList.toggle('is-active', i === index);
+        dot.setAttribute('aria-selected', i === index ? 'true' : 'false');
+      });
+    }
+
+    function select(index, moveFocus) {
+      if (index < 0 || index >= Math.max(steps.length, 3)) return;
+      current = index;
+      if (demos && steps.length) {
+        steps.forEach(function (step, i) {
+          var active = i === index;
+          step.setAttribute('aria-selected', active ? 'true' : 'false');
+          step.tabIndex = active ? 0 : -1;
+          var screen = screens[i];
+          if (!screen) return;
+          if (active) {
+            screen.hidden = false;
+            screen.classList.add('is-entering');
+            void screen.offsetHeight;
+            window.requestAnimationFrame(function () { screen.classList.remove('is-entering'); });
+          } else {
+            screen.hidden = true;
+            screen.classList.remove('is-entering');
+          }
+        });
+      }
+      if (stepsList) stepsList.style.setProperty('--lit', index === 0 ? 0.34 : index === 1 ? 0.68 : 1);
+      syncDots(index);
+      if (moveFocus && steps[index]) steps[index].focus();
+    }
+
+    if (demos && steps.length) {
+      steps.forEach(function (step, i) { step.addEventListener('click', function () { select(i, false); }); });
+      var list = stepsList;
+      if (list) {
+        list.addEventListener('keydown', function (event) {
+          var at = steps.indexOf(document.activeElement);
+          if (at < 0) return;
+          var next = null;
+          if (event.key === 'ArrowDown' || event.key === 'ArrowRight') next = (at + 1) % steps.length;
+          else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') next = (at - 1 + steps.length) % steps.length;
+          else if (event.key === 'Home') next = 0;
+          else if (event.key === 'End') next = steps.length - 1;
+          if (next === null) return;
+          event.preventDefault();
+          select(next, true);
+        });
+      }
+    }
+
+    // 手机分页：滑动或点圆点
+    function scrollToSlide(index) {
+      if (!pager || !pager.children[index]) return;
+      var slide = pager.children[index];
+      pager.scrollTo({ left: slide.offsetLeft - pager.offsetLeft, behavior: Performance.reduced ? 'auto' : 'smooth' });
+    }
+
+    dots.forEach(function (dot, i) {
+      dot.addEventListener('click', function () {
+        select(i, false);
+        scrollToSlide(i);
+      });
+    });
+
+    if (pager) {
+      var ticking = false;
+      pager.addEventListener('scroll', function () {
+        if (ticking) return;
+        ticking = true;
+        window.requestAnimationFrame(function () {
+          ticking = false;
+          var center = pager.scrollLeft + pager.clientWidth / 2;
+          var best = 0;
+          var bestDist = Infinity;
+          Array.prototype.forEach.call(pager.children, function (slide, i) {
+            var c = slide.offsetLeft + slide.offsetWidth / 2;
+            var d = Math.abs(c - center);
+            if (d < bestDist) { bestDist = d; best = i; }
+          });
+          if (best !== current) syncDots(best), (current = best);
+        });
+      }, { passive: true });
+    }
+
+    select(0, false);
+  }
+
+  /* ======================================================================
+     13. 手机端导航菜单
+     ====================================================================== */
+  function initNavMenu() {
+    var button = document.getElementById('nav-menu-btn');
+    var menu = document.getElementById('nav-menu');
+    if (!button || !menu) return;
+    function setOpen(open) {
+      menu.hidden = !open;
+      button.setAttribute('aria-expanded', open ? 'true' : 'false');
+      button.setAttribute('aria-label', open ? '关闭菜单' : '打开菜单');
+    }
+    button.addEventListener('click', function () { setOpen(menu.hidden); });
+    menu.addEventListener('click', function (event) {
+      if (event.target.closest('a')) setOpen(false);
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && !menu.hidden) { setOpen(false); button.focus(); }
+    });
+    window.addEventListener('resize', function () {
+      if (window.innerWidth > 860 && !menu.hidden) setOpen(false);
+    });
+  }
+
+  /* ======================================================================
+     14. 下载提示
+     ====================================================================== */
+  function initDownloadToast() {
+    var toast = document.getElementById('vg-toast');
+    var links = Array.prototype.slice.call(document.querySelectorAll('[data-download]'));
+    if (!toast || !links.length) return;
+    var hideTimer = 0;
+    var offTimer = 0;
+    links.forEach(function (link) {
+      link.addEventListener('click', function () {
+        toast.textContent = '正在下载安装包';
+        toast.hidden = false;
+        void toast.offsetHeight;
+        toast.classList.add('is-on');
+        window.clearTimeout(hideTimer);
+        window.clearTimeout(offTimer);
+        hideTimer = window.setTimeout(function () {
+          toast.classList.remove('is-on');
+          offTimer = window.setTimeout(function () { toast.hidden = true; }, 260);
+        }, 2400);
+      });
+    });
+  }
+
+  /* ======================================================================
+     15. 图片查看（左右切换 / 下滑关闭）
      ====================================================================== */
   function initLightbox() {
     var box = document.getElementById('lightbox');
     var image = document.getElementById('lightbox-image');
     var caption = document.getElementById('lightbox-caption');
+    var counter = document.getElementById('lightbox-count');
     var closeButton = box ? box.querySelector('.lightbox-close') : null;
-    if (!box || !image || !caption || !closeButton) return;
+    var prevButton = document.getElementById('lightbox-prev');
+    var nextButton = document.getElementById('lightbox-next');
+    var figure = box ? box.querySelector('.lightbox-figure') : null;
+    var triggers = Array.prototype.slice.call(document.querySelectorAll('[data-lightbox]'));
+    if (!box || !image || !caption || !closeButton || !triggers.length) return;
 
     var CLOSE_MS = 340;
+    var index = 0;
     var lastFocus = null;
     var previousOverflow = '';
     var token = 0;
     var hideTimer = 0;
 
+    function render(i) {
+      index = (i + triggers.length) % triggers.length;
+      var trigger = triggers[index];
+      image.setAttribute('src', trigger.getAttribute('data-full'));
+      var inner = trigger.querySelector('img');
+      image.setAttribute('alt', inner ? inner.getAttribute('alt') || '' : '');
+      caption.textContent = trigger.getAttribute('data-caption') || '';
+      if (counter) counter.textContent = (index + 1) + ' / ' + triggers.length;
+    }
+
     function open(trigger) {
-      var source = trigger.getAttribute('data-full');
-      if (!source) return;
+      var at = triggers.indexOf(trigger);
       token += 1;
-      var myToken = token;
       window.clearTimeout(hideTimer);
       lastFocus = document.activeElement;
       previousOverflow = document.documentElement.style.overflow;
       document.documentElement.style.overflow = 'hidden';
-
-      image.setAttribute('src', source);
-      var inner = trigger.querySelector('img');
-      image.setAttribute('alt', inner ? inner.getAttribute('alt') || '' : '');
-      caption.textContent = trigger.getAttribute('data-caption') || '';
-
+      render(at < 0 ? 0 : at);
       box.hidden = false;
       void box.offsetHeight;
-      window.requestAnimationFrame(function () {
-        if (myToken !== token) return;
-        box.classList.add('is-open');
-      });
+      window.requestAnimationFrame(function () { box.classList.add('is-open'); });
       closeButton.focus();
     }
 
     function close() {
-      token += 1;
-      var myToken = token;
+      var myToken = ++token;
       box.classList.remove('is-open');
       document.documentElement.style.overflow = previousOverflow;
+      if (figure) figure.style.transform = '';
       if (lastFocus && typeof lastFocus.focus === 'function') lastFocus.focus();
       hideTimer = window.setTimeout(function () {
-        if (myToken !== token) return; // 已经被下一次打开取代
+        if (myToken !== token) return;
         box.hidden = true;
         image.removeAttribute('src');
         caption.textContent = '';
       }, CLOSE_MS);
     }
 
-    Array.prototype.forEach.call(document.querySelectorAll('.shot-open'), function (trigger) {
-      trigger.addEventListener('click', function () { open(trigger); });
-    });
-    Array.prototype.forEach.call(box.querySelectorAll('[data-lightbox-close]'), function (node) {
-      node.addEventListener('click', close);
-    });
+    function step(delta) { render(index + delta); }
+
+    triggers.forEach(function (trigger) { trigger.addEventListener('click', function () { open(trigger); }); });
+    Array.prototype.forEach.call(box.querySelectorAll('[data-lightbox-close]'), function (node) { node.addEventListener('click', close); });
+    if (prevButton) prevButton.addEventListener('click', function () { step(-1); });
+    if (nextButton) nextButton.addEventListener('click', function () { step(1); });
 
     document.addEventListener('keydown', function (event) {
       if (box.hidden) return;
       if (event.key === 'Escape') { event.preventDefault(); close(); return; }
+      if (event.key === 'ArrowLeft') { event.preventDefault(); step(-1); return; }
+      if (event.key === 'ArrowRight') { event.preventDefault(); step(1); return; }
       if (event.key === 'Tab') { event.preventDefault(); closeButton.focus(); }
     });
 
     Array.prototype.forEach.call(document.querySelectorAll('a[href^="#"]'), function (link) {
       link.addEventListener('click', function () { if (!box.hidden) close(); });
     });
+
+    // 触摸：左右切换 / 下滑关闭
+    if (figure) {
+      var startX = 0;
+      var startY = 0;
+      var dx = 0;
+      var dy = 0;
+      var dragging = false;
+
+      figure.addEventListener('touchstart', function (event) {
+        if (event.touches.length !== 1) return;
+        startX = event.touches[0].clientX;
+        startY = event.touches[0].clientY;
+        dx = 0; dy = 0; dragging = true;
+        figure.style.transition = 'none';
+      }, { passive: true });
+
+      figure.addEventListener('touchmove', function (event) {
+        if (!dragging || event.touches.length !== 1) return;
+        dx = event.touches[0].clientX - startX;
+        dy = event.touches[0].clientY - startY;
+        if (Math.abs(dy) > Math.abs(dx)) {
+          figure.style.transform = 'translate3d(0,' + Math.max(0, dy) + 'px,0)';
+          figure.style.opacity = String(Math.max(0.35, 1 - Math.abs(dy) / 320));
+        } else {
+          figure.style.transform = 'translate3d(' + dx + 'px,0,0)';
+        }
+      }, { passive: true });
+
+      figure.addEventListener('touchend', function () {
+        if (!dragging) return;
+        dragging = false;
+        figure.style.transition = '';
+        figure.style.transform = '';
+        figure.style.opacity = '';
+        if (dy > 90 && Math.abs(dy) > Math.abs(dx)) { close(); return; }
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) step(dx < 0 ? 1 : -1);
+      }, { passive: true });
+    }
   }
 
   /* ======================================================================
-     10. AmbientSync —— 环境光跟着内容走；标签页隐藏时停掉所有持续动画
+     16. ScrollerWarmup —— 横向滑动容器里的懒加载图，进入视口前先预热
+     （浏览器不会为横向滚动区外的图片发起请求，不预热的话滑动时会出现空白帧）
+     ====================================================================== */
+  function initScrollerWarmup() {
+    var scrollers = Array.prototype.slice.call(
+      document.querySelectorAll('[data-memory-pager], [data-gallery-rail], .gallery-grid'),
+    );
+    if (!scrollers.length || !('IntersectionObserver' in window)) return;
+
+    var warm = function (scroller) {
+      Array.prototype.forEach.call(scroller.querySelectorAll('img[loading="lazy"]'), function (img) {
+        var src = img.getAttribute('src');
+        if (!src) return;
+        img.setAttribute('loading', 'eager');
+        var preload = new Image();
+        preload.decoding = 'async';
+        preload.src = src;
+      });
+    };
+
+    var observer = new IntersectionObserver(function (entries, self) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        warm(entry.target);
+        self.unobserve(entry.target);
+      });
+    }, { rootMargin: '400px 0px' });
+    scrollers.forEach(function (scroller) { observer.observe(scroller); });
+  }
+
+  /* ======================================================================
+     17. AmbientSync
      ====================================================================== */
   function initAmbient() {
     var backlight = document.getElementById('vg-hero-backlight');
     var heroVisual = document.querySelector('.hero-visual');
 
     var sync = function () {
-      if (backlight && heroVisual) {
-        var rect = heroVisual.getBoundingClientRect();
-        if (rect.width > 0) {
-          backlight.style.left = rect.left + rect.width * 0.5 + 'px';
-          backlight.style.top = rect.top + rect.height * 0.42 + 'px';
-          backlight.style.width = rect.width * 2.6 + 'px';
-          backlight.style.height = rect.width * 2.6 + 'px';
-          backlight.style.marginLeft = -rect.width * 1.3 + 'px';
-        }
-      }
+      if (!backlight || !heroVisual) return;
+      var rect = heroVisual.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      backlight.style.left = rect.left + rect.width * 0.5 + 'px';
+      backlight.style.top = rect.top + rect.height * 0.42 + 'px';
+      backlight.style.width = rect.width * 2.6 + 'px';
+      backlight.style.height = rect.width * 2.6 + 'px';
+      backlight.style.marginLeft = -rect.width * 1.3 + 'px';
     };
 
     var scheduled = false;
@@ -866,10 +1034,7 @@
     window.setTimeout(sync, 60);
     sync();
 
-    // 标签页不可见 → 暂停 CSS 持续动画（省电，也让截图稳定）
-    var setPaused = function (paused) {
-      root.classList.toggle('is-paused', paused);
-    };
+    var setPaused = function (paused) { root.classList.toggle('is-paused', paused); };
     document.addEventListener('visibilitychange', function () { setPaused(document.hidden); });
     setPaused(document.hidden);
   }
@@ -878,6 +1043,7 @@
      启动
      ====================================================================== */
   var modules = [
+    initAtmosphere,
     initPointerVars,
     initParticles,
     initDepth,
@@ -885,14 +1051,17 @@
     initMagnetic,
     initScroll,
     initTabs,
+    initStarMap,
+    initMemoryDemo,
+    initNavMenu,
+    initDownloadToast,
     initLightbox,
+    initScrollerWarmup,
     initAmbient,
   ];
 
   modules.forEach(function (init) {
-    try {
-      init();
-    } catch (error) {
+    try { init(); } catch (error) {
       if (window.console && window.console.warn) window.console.warn('[virtugene] init failed:', error);
     }
   });
@@ -900,12 +1069,10 @@
   Ticker.start();
   if (Performance.reduced) Ticker.stop();
 
-  // 运行中切换"减少动态"时，直接停掉持续动画（无需刷新）
   var onMotionChange = function () {
     var reduced = motionQuery.matches;
     root.classList.toggle('reduced-motion', reduced);
-    if (reduced) Ticker.stop();
-    else Ticker.start();
+    if (reduced) Ticker.stop(); else Ticker.start();
   };
   if (motionQuery.addEventListener) motionQuery.addEventListener('change', onMotionChange);
   else if (motionQuery.addListener) motionQuery.addListener(onMotionChange);
