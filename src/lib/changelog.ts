@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '5.0.5',
+    date: '2026-09-19',
+    notes: [
+      '正式签名包：改用 release 变体构建并签名，安装包不再带调试标记，启动与运行更稳定。',
+      '沿用与 5.0.4 相同的签名证书，已安装的用户可以直接覆盖升级，本地角色、记忆、日记与世界不会丢失。',
+      '功能与 5.0.4 一致，本版只改变打包与签名方式。',
+    ],
+  },
+  {
     version: '5.0.4',
     date: '2026-09-18',
     notes: [

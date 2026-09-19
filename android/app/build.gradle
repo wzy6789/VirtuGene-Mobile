@@ -7,8 +7,8 @@ android {
         applicationId "com.virtugene.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 19
-        versionName "5.0.4"
+        versionCode 20
+        versionName "5.0.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +16,40 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    /**
+     * 正式签名（5.0.5 起）。
+     *
+     * 这里刻意沿用发布 5.0.4 时用的那把 Android 调试证书
+     * （C=US, O=Android, CN=Android Debug，SHA-256 EF:38:A0:1C…:40:16），原因是：
+     * 已经装过 5.0.4（debug 签名）的用户在 Android 上**只能**接受同证书的升级包，
+     * 换成任何新证书都会得到「签名不一致 / 应用未安装」，用户必须先卸载，
+     * 而卸载会清掉本地 IndexedDB —— 角色、记忆、日记、世界全部丢失。
+     *
+     * 代价说明：证书主体仍是 Android Debug，所以这只是"release 变体 + 既有证书"，
+     * 不是商店上架用的正式密钥。将来若要换成真正的正式密钥，必须配套一次
+     * 「导出备份 → 卸载 → 重装 → 导入」的迁移方案，不能直接替换签名。
+     */
+    // 密钥库位置从标准用户目录推导，绝不把某台机器的绝对路径写进版本库。
+    def vgReleaseKeystore = file("${System.properties['user.home']}/.android/debug.keystore")
+
+    signingConfigs {
+        release {
+            if (vgReleaseKeystore.exists()) {
+                storeFile vgReleaseKeystore
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // 缺少这把密钥库的机器（CI / 他人克隆）退回未签名构建，而不是直接构建失败。
+            if (vgReleaseKeystore.exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
