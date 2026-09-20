@@ -20,6 +20,7 @@ import { useNotificationStore } from './notification-store';
 import { useDiaryStore } from './diary-store';
 import { assignVoice } from '../lib/ai/voice-assigner';
 import { sanitizeVoiceProfile, completeVoiceProfile, ALL_VOICES, type VoiceProfile } from '../lib/voice-map';
+import { hasAiGatewayAccess } from '../lib/ai/gateway';
 
 /** 角色声线：创建/首次进入时由 AI 按形象判定并固定（幂等，只执行一次；失败静默不影响聊天） */
 async function assignVoiceIfNeeded(characterId: string, userId: string): Promise<void> {
@@ -365,7 +366,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { characters } = get();
     const apiKey = useAuthStore.getState().apiKey;
     const userId = useAuthStore.getState().userId ?? '';
-    if (!apiKey || characters.length === 0) return;
+    if ((!apiKey && !hasAiGatewayAccess()) || characters.length === 0) return;
 
     const now = new Date();
     const hour = now.getHours();
@@ -393,7 +394,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const lastMessageAt = msgs.length > 0 ? msgs[msgs.length - 1].createdAt : undefined;
 
       const content = await generateProactiveMessage({
-        apiKey,
+        apiKey: apiKey ?? '',
         systemPrompt: target.systemPrompt,
         characterName: target.name,
         lastMessages,
@@ -442,7 +443,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { characters } = get();
     const apiKey = useAuthStore.getState().apiKey;
     const userId = useAuthStore.getState().userId ?? '';
-    if (!apiKey || characters.length === 0) return;
+    if ((!apiKey && !hasAiGatewayAccess()) || characters.length === 0) return;
 
     // 只有主动倾向足够强的角色才会主动发消息（冰冷角色不会）
     const eligible = characters.filter((c) => proactivityOf(c) >= 0.15);
@@ -493,7 +494,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const lastMessageAt = msgs.length > 0 ? msgs[msgs.length - 1].createdAt : undefined;
 
       const result = await ipc.proactive.generate({
-        apiKey,
+        apiKey: apiKey ?? '',
         systemPrompt: targetChar.systemPrompt,
         characterName: targetChar.name,
         lastMessages,

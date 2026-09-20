@@ -141,6 +141,7 @@ interface VirtuGeneAPI {
       apiKey: string;
       history: { role: string; content: string }[];
       previousSummary?: string;
+      protectedMemories?: string[];
     }) => Promise<{ summary?: string; error?: string }>;
   };
   diary: {

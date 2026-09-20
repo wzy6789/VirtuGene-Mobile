@@ -1,8 +1,10 @@
 import { db, type MemoryItem } from './index';
+import { prepareMemoryMetadata } from '../lib/memory-engine';
 
 const MAX_MEMORIES_PER_CHAR = 30;
 
 function isProtectedMemory(memory: MemoryItem): boolean {
+  if ((memory.status ?? 'active') !== 'active') return false;
   // pinned is the explicit marker. The confidence/source fallback keeps older
   // manually remembered records safe after upgrading from pre-pinned versions.
   return memory.pinned === true || (
@@ -28,7 +30,13 @@ async function upsertMemory(memory: MemoryItem): Promise<string> {
   const existing = (await db.memories.where('characterId').equals(memory.characterId).toArray())
     .find((item) => item.userId === memory.userId && normalizeMemoryKey(item.content) === key);
   if (!existing) {
-    await db.memories.add(memory);
+    const metadata = prepareMemoryMetadata(memory.content, {
+      kind: memory.memoryKind,
+      pinned: memory.pinned === true,
+      stability: memory.stability,
+      confidence: memory.confidence,
+    });
+    await db.memories.add({ ...memory, ...metadata, pinned: memory.pinned ?? metadata.pinned });
     return memory.id;
   }
 
@@ -41,6 +49,10 @@ async function upsertMemory(memory: MemoryItem): Promise<string> {
     sourceMessageIds: sourceMessageIds.length > 0 ? sourceMessageIds : undefined,
     confidence: Math.max(existing.confidence ?? 0, memory.confidence ?? 0),
     pinned: existing.pinned === true || memory.pinned === true ? true : undefined,
+    memoryKind: memory.memoryKind ?? existing.memoryKind,
+    stability: memory.stability ?? existing.stability,
+    status: existing.status === 'withdrawn' ? 'withdrawn' : (memory.status ?? existing.status ?? 'active'),
+    lastConfirmedAt: Math.max(existing.lastConfirmedAt ?? 0, memory.lastConfirmedAt ?? 0) || undefined,
     updatedAt: Math.max(Date.now(), existing.updatedAt ?? 0),
   });
   return existing.id;
@@ -100,9 +112,8 @@ export const memoryRepo = {
       content: memory.content,
       // 表示它不是新角色从一段对话中自动提取出的结论。
       type: 'summary' as const,
-      pinned: memory.pinned,
+      ...prepareMemoryMetadata(memory.content, { kind: 'summary', pinned: memory.pinned === true, stability: 'stable', confidence: memory.confidence ?? 0.75 }),
       createdAt: now,
-      confidence: memory.confidence,
       updatedAt: now,
     })));
     return selected.length;
@@ -166,6 +177,7 @@ export const memoryRepo = {
       userId: input.userId,
       content,
       type: 'summary',
+      ...prepareMemoryMetadata(content, { kind: 'summary', stability: 'stable', confidence: 0.75 }),
       createdAt: now,
       sourceSessionId: input.sessionId,
       sourceMessageIds: input.sourceMessageIds,
@@ -181,6 +193,53 @@ export const memoryRepo = {
     if (ids.length === 0) return [];
     const items = await db.memories.bulkGet(ids);
     return items.filter((item): item is MemoryItem => !!item);
+  },
+
+  /** 记录最近一次被召回的记忆；只更新元数据，不改写记忆内容。 */
+  async markMentioned(ids: string[]): Promise<void> {
+    const unique = [...new Set(ids.filter(Boolean))];
+    if (unique.length === 0) return;
+    const now = Date.now();
+    await db.transaction('rw', db.memories, async () => {
+      const rows = await db.memories.bulkGet(unique);
+      for (const memory of rows) {
+        if (!memory || (memory.status ?? 'active') !== 'active') continue;
+        await db.memories.update(memory.id, {
+          lastMentionedAt: now,
+          mentionCount: (memory.mentionCount ?? 0) + 1,
+          updatedAt: Math.max(memory.updatedAt ?? 0, now),
+        });
+      }
+    });
+  },
+
+  async setPinned(id: string, pinned: boolean): Promise<void> {
+    await db.memories.update(id, {
+      pinned: pinned || undefined,
+      ...(pinned ? { stability: 'stable' as const, status: 'active' as const } : {}),
+      updatedAt: Date.now(),
+    });
+  },
+
+  /** 用新事实替代旧事实，保留旧记录与来源用于审计，但不再召回。 */
+  async supersede(oldId: string, replacementId: string): Promise<void> {
+    await db.memories.update(oldId, {
+      status: 'superseded',
+      supersededBy: replacementId,
+      updatedAt: Date.now(),
+    });
+  },
+
+  /** 用户明确纠正事实时，停用最可能的旧事实；普通新记忆不会触发。 */
+  async supersedeLikelyCorrections(characterId: string, userId: string, replacement: MemoryItem): Promise<void> {
+    if (!/其实|不是|不再|已经不|改成|更正|纠正|现在是/u.test(replacement.content)) return;
+    const words = Array.from(replacement.content.matchAll(/[\u4e00-\u9fff]{2}/gu)).map(([word]) => word);
+    if (words.length === 0) return;
+    const candidates = (await db.memories.where('characterId').equals(characterId).toArray())
+      .filter((memory) => memory.userId === userId && memory.id !== replacement.id && (memory.status ?? 'active') === 'active')
+      .filter((memory) => memory.memoryKind === 'fact' || memory.memoryKind === 'preference');
+    const target = candidates.find((memory) => words.filter((word) => memory.content.includes(word)).length >= 2);
+    if (target) await this.supersede(target.id, replacement.id);
   },
 
   async createMany(memories: MemoryItem[]): Promise<string[]> {

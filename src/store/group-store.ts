@@ -15,6 +15,7 @@ import { notifyLocal } from '../lib/notify';
 import { IS_MOBILE } from '../lib/platform';
 import { generateGroupTurn, type GroupMemberBrief, type GroupTurn } from '../lib/ai/group-chat';
 import { extractMemories } from '../lib/ai/memory-consolidator';
+import { prepareMemoryMetadata } from '../lib/memory-engine';
 
 /** 主动发言触发：距上一条消息超过该时长（且在群聊页停留时）触发一次 */
 const PROACTIVE_AFTER_MS = 5 * 60_000;
@@ -215,9 +216,10 @@ async function maybeExtractGroupMemories(sessionId: string, memberIds: string[],
             id: crypto.randomUUID(),
             characterId: charId,
             userId,
-            content,
-            type: 'auto' as const,
-            createdAt: now + i,
+              content,
+              type: 'auto' as const,
+              ...prepareMemoryMetadata(content, { confidence: 0.75 }),
+              createdAt: now + i,
           })),
         );
       }
@@ -635,6 +637,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
           userId,
           content: m.content.slice(0, 200),
           type: 'auto',
+          ...prepareMemoryMetadata(m.content.slice(0, 200), { kind: 'episode', pinned: true, stability: 'stable', confidence: 1 }),
           createdAt: now,
         });
       }

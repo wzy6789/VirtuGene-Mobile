@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { runWorldMigration } from '../lib/world/migrate-4x';
+import type { ChatConversationState } from '../lib/chat-conversation-state';
 
 export interface User {
   id: string;
@@ -710,6 +711,8 @@ export interface Session {
   modelAsked?: boolean;
   /** 长会话滚动摘要（早期对话的压缩文本，超出保留窗口后生成） */
   summary?: string;
+  /** 私聊连续注意力：当前话题、用户交流偏好与最近回复动作（仅本用户本会话）。 */
+  conversation?: ChatConversationState;
   /** 摘要覆盖到的时间点（早于该时间戳的消息均已纳入摘要） */
   summaryUpdatedAt?: number;
   /** 本会话选择的叙事时段；只影响模型营造的氛围，不改变消息 createdAt。 */
@@ -797,6 +800,18 @@ export interface MemoryItem {
   sourceMessageIds?: string[];
   /** 提取置信度 0~1（有消息依据时更高） */
   confidence?: number;
+  /** 记忆的语义层：事实、偏好、共同经历、约定、角色生活或压缩摘要。 */
+  memoryKind?: 'fact' | 'preference' | 'episode' | 'promise' | 'relationship' | 'character-life' | 'summary';
+  /** 稳定性：短期状态会自然衰减，稳定事实和明确记忆不会。 */
+  stability?: 'temporary' | 'stable';
+  /** 记忆生命周期。被纠正的旧事实保留来源，但不会再被召回。 */
+  status?: 'active' | 'superseded' | 'withdrawn';
+  supersededBy?: string;
+  /** 最近被角色提起的时间与次数，用于重复冷却。 */
+  lastMentionedAt?: number;
+  mentionCount?: number;
+  /** 用户确认事实的时间；不等同于创建时间。 */
+  lastConfirmedAt?: number;
   updatedAt?: number;
 }
 

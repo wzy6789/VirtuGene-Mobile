@@ -11,6 +11,7 @@ import { ipc } from '../lib/ipc-client';
 import { computeAffinityDelta } from '../lib/affinity';
 import { hasAiGatewayAccess } from '../lib/ai/gateway';
 import { boundAuxiliaryHistory } from '../lib/ai/history-window';
+import { prepareMemoryMetadata } from '../lib/memory-engine';
 import type { EmotionSnapshot } from '../db/index';
 
 const auxiliaryInFlight = new Set<string>();
@@ -216,6 +217,7 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
                 userId,
                 content: m.content,
                 type: 'auto' as const,
+                ...prepareMemoryMetadata(m.content, { confidence: sourceMessageIds.length > 0 ? 0.9 : 0.6 }),
                 createdAt: now + i,
                 sourceSessionId: sessionId,
                 sourceMessageIds,

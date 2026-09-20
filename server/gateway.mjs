@@ -239,11 +239,18 @@ function auxMessages(operation, payload) {
   const text = typeof payload?.text === 'string' ? payload.text.slice(0, 12_000) : '';
   const context = typeof payload?.context === 'string' ? payload.context.slice(0, 8_000) : '';
   const previousSummary = typeof payload?.previousSummary === 'string' ? payload.previousSummary.slice(0, 2_500) : '';
+  const protectedMemories = Array.isArray(payload?.protectedMemories)
+    ? payload.protectedMemories
+      .filter((item) => typeof item === 'string')
+      .map((item) => item.trim().slice(0, 180))
+      .filter(Boolean)
+      .slice(0, 8)
+    : [];
   const transcript = history.map((item) => `${item?.role === 'assistant' ? 'assistant' : 'user'}: ${String(item?.content || '').slice(0, 1_000)}`).join('\n');
   const prompts = {
-    memory: '从对话中提取值得长期记住的用户事实，只输出 JSON 数组，例如 ["用户喜欢咖啡"]；没有就输出 []。',
+    memory: '从对话中提取值得长期记住的用户事实。只记录用户明确说过或能直接确定的内容，不能把角色猜测当事实；注意时间范围和用户对旧事实的纠正。只输出 JSON 数组，例如 ["用户喜欢咖啡"]；没有就输出 []。',
     emotion: '分析 assistant 消息里的角色状态，只输出 JSON 对象：{"dimensions":{"valence":5,"arousal":5,"intimacy":5,"engagement":5,"expressiveness":5,"stability":5},"dominantEmotion":"","summary":""}。每个分数 1 到 10。',
-    'context-settle': '同时提取用户长期事实并分析对话状态，只输出 JSON 对象：{"memories":[],"dimensions":{"valence":5,"arousal":5,"intimacy":5,"engagement":5,"expressiveness":5,"stability":5},"dominantEmotion":"","userEmotion":"","summary":""}。',
+    'context-settle': '同时提取用户长期事实并分析对话状态。memory 只收录用户明确说过的事实、偏好、约定和计划；如果用户纠正旧信息，只保留新说法，不要补猜测。只输出 JSON 对象：{"memories":[],"dimensions":{"valence":5,"arousal":5,"intimacy":5,"engagement":5,"expressiveness":5,"stability":5},"dominantEmotion":"","userEmotion":"","summary":""}。',
     'context-summary': '把新增对话与之前的压缩摘要合并成 3 到 6 句中文摘要。优先保留用户明确要求记住的事情、确认过的事实、重要约定和未完成事项；不要凭空补充，不要机械重复。只输出 JSON 对象：{"summary":""}。',
     diary: '完成日记辅助任务。根据 mode 输出 JSON：普通模式为 {"text":""}；auto、compile、combine、recall 为 {"title":"","content":"","tags":[]}；persona 为 {"persona":{"keywords":[],"topics":[],"emotion":"","summary":""}}。不要输出 Markdown。',
   };
@@ -251,7 +258,9 @@ function auxMessages(operation, payload) {
   const user = operation === 'diary'
     ? `mode=${String(payload?.mode || '')}\n内容：${text}\n上下文：${context}`
     : operation === 'context-summary' && previousSummary
-      ? `之前的压缩摘要（保留其中仍然有效的事实）：\n${previousSummary}\n\n本次新增对话：\n${transcript || text}`
+      ? `之前的压缩摘要（保留其中仍然有效的事实）：\n${previousSummary}${protectedMemories.length > 0 ? `\n\n用户明确要求长期保留的记忆（必须逐条保留）：\n${protectedMemories.map((item) => `- ${item}`).join('\n')}` : ''}\n\n本次新增对话：\n${transcript || text}`
+      : operation === 'context-summary' && protectedMemories.length > 0
+        ? `用户明确要求长期保留的记忆（必须逐条保留）：\n${protectedMemories.map((item) => `- ${item}`).join('\n')}\n\n本次新增对话：\n${transcript || text}`
       : transcript || text;
   return [{ role: 'system', content: operationPrompt }, { role: 'user', content: user.slice(0, 20_000) }];
 }

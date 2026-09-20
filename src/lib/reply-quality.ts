@@ -19,6 +19,45 @@ export interface ReplyCheck {
 }
 
 /**
+ * 把模型偶尔带出的“内部格式”收束成手机聊天文本。
+ * 这里只做确定安全的本地清理，不改写角色观点，也不额外调用模型。
+ */
+export function polishChatResponse(
+  content: string,
+  options: { longForm?: boolean } = {},
+): string {
+  let text = content
+    .replace(/\r\n?/g, '\n')
+    .replace(/```(?:text|markdown|json)?\s*/gi, '')
+    .replace(/```/g, '')
+    .replace(/^\s*(?:回复|回答|角色回复|assistant)\s*[：:]+\s*/i, '')
+    .replace(/^\s*[【\[](?:回复|回答|assistant)[】\]]\s*/i, '')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+
+  // 普通聊天不应该把内部分析词带到用户面前；整句移除比留下半句更自然。
+  if (!options.longForm) {
+    text = text
+      .split('\n')
+      .filter((line) => !/(?:作为(?:一个)?(?:AI|人工智能|语言模型)|系统提示|内部指令|记忆库|人物心意|对话导演)/u.test(line))
+      .join('\n')
+      .trim();
+  }
+
+  // 不让模型用连续多个问号把聊天变成采访；只保留第一个真正的问题。
+  if (!options.longForm) {
+    let seenQuestion = false;
+    text = text.replace(/[？?]/gu, (mark) => {
+      if (seenQuestion) return '。';
+      seenQuestion = true;
+      return mark;
+    });
+  }
+
+  return text.replace(/[ \t]*\n+[ \t]*/g, ' ').replace(/[ \t]{2,}/g, ' ').trim();
+}
+
+/**
  * 字符集合重叠度（用于复述检测）：0-1，越接近 1 越相似。
  * 注意：短文本（如"好"vs"好的"）字符集必然高度重叠，因此调用方应对短消息跳过复述检测。
  */

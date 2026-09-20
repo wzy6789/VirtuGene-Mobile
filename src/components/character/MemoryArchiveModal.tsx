@@ -4,6 +4,9 @@ import { memoryRepo } from '../../db/memory-repo';
 import { sessionRepo } from '../../db/session-repo';
 import { messageRepo } from '../../db/message-repo';
 import { Modal } from '../ui/Modal';
+import { memoryKindLabel } from '../../lib/memory-engine';
+
+type MemoryFilter = 'all' | 'fact' | 'preference' | 'episode' | 'promise' | 'character-life';
 
 /**
  * 记忆档案：角色记得的每一件事，以及它从哪来。
@@ -26,6 +29,7 @@ export function MemoryArchiveModal({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [originals, setOriginals] = useState<Record<string, string[]>>({});
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<MemoryFilter>('all');
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -49,6 +53,7 @@ export function MemoryArchiveModal({
     setExpanded(null);
     setOriginals({});
     setConfirmId(null);
+    setFilter('all');
     void reload();
   }, [open, reload]);
 
@@ -83,14 +88,38 @@ export function MemoryArchiveModal({
           </div>
         )}
 
+        {!loading && memories.length > 0 && (
+          <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
+            {([
+              ['all', '全部'],
+              ['fact', '关于你'],
+              ['preference', '偏好'],
+              ['episode', '共同经历'],
+              ['promise', '约定'],
+              ['character-life', '角色生活'],
+            ] as [MemoryFilter, string][]).map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setFilter(value)}
+                className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] transition ${filter === value ? 'bg-life-cyan/20 text-life-cyan' : 'bg-black/5 text-gray-500'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <ul className="mt-3 space-y-2">
-          {memories.map((memory) => {
+          {memories.filter((memory) => filter === 'all' || memory.memoryKind === filter).map((memory) => {
             const hasOrigin = (memory.sourceMessageIds?.length ?? 0) > 0;
             const sessionTitle = memory.sourceSessionId ? sessionTitles[memory.sourceSessionId] : undefined;
             return (
               <li key={memory.id} className="rounded-2xl border border-gene-purple/20 bg-gene-purple/[0.05] px-3 py-2.5">
                 <p className="text-[12.5px] leading-relaxed text-ink">{memory.content}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-gray-500">
+                  <span className="rounded-full bg-life-cyan/10 px-1.5 py-0.5 text-life-cyan">{memoryKindLabel(memory.memoryKind)}</span>
+                  {memory.pinned && <span className="rounded-full bg-gene-purple/15 px-1.5 py-0.5 text-gene-purple">必须记住</span>}
+                  {memory.status === 'superseded' && <span className="rounded-full bg-gray-500/15 px-1.5 py-0.5 text-gray-500">已被新信息替代</span>}
                   <span>{new Date(memory.createdAt).toLocaleDateString('zh-CN')}</span>
                   {sessionTitle && <span>· 来自「{sessionTitle}」</span>}
                   <span>· {hasOrigin ? '有原话依据' : '由对话总结'}</span>
@@ -116,6 +145,12 @@ export function MemoryArchiveModal({
                   </div>
                 )}
                 <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={() => void memoryRepo.setPinned(memory.id, !memory.pinned).then(reload)}
+                    className="mr-2 rounded-lg px-2 py-1 text-[10px] text-life-cyan"
+                  >
+                    {memory.pinned ? '取消重点' : '设为必须记住'}
+                  </button>
                   {confirmId === memory.id ? (
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-gray-500">这段记忆将被永久抹除</span>

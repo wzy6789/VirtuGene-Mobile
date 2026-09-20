@@ -1,4 +1,6 @@
 import { stripRoleplayActions } from './text';
+import { gatewayChat, hasAiGatewayAccess } from './gateway';
+import { normalizeChatResponse } from '../chat-pacing';
 
 const PROACTIVE_INSTRUCTION =
   '你是下面描述的角色。用户已经有一段时间没有给你发消息了。请基于你的性格，主动发起一次自然的对话。\n\n' +
@@ -98,6 +100,23 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
     { role: 'user', content: userPrompt },
   ];
 
+  // 网关登录用户也应能收到主动话题。这里仍然只发一次请求，且不把
+  // “正在使用兜底模型”暴露给用户；网关内部按自己的模型策略处理。
+  if (!apiKey.trim() && hasAiGatewayAccess()) {
+    const result = await gatewayChat({
+      apiKey: '',
+      systemPrompt: systemContent,
+      message: userPrompt,
+      history: lastMessages.slice(-6).map((item) => ({
+        role: item.role === 'assistant' ? 'assistant' : 'user',
+        content: item.content.slice(0, 200),
+      })),
+      temperature: 0.9,
+      timeoutMs: 30_000,
+    });
+    return stripRoleplayActions(normalizeChatResponse(result.content)).trim();
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
 
@@ -119,7 +138,10 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
 
     if (response.ok) {
       const data = await response.json();
-      return stripRoleplayActions(data.choices[0].message.content.trim());
+      const content = typeof data?.choices?.[0]?.message?.content === 'string'
+        ? data.choices[0].message.content
+        : '';
+      return stripRoleplayActions(normalizeChatResponse(content)).trim();
     }
 
     console.error('[proactive] API error:', response.status);

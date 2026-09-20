@@ -34,7 +34,7 @@ export interface HumanConversationOptions {
 
 type HumanCharacter = Pick<
   Character,
-  'name' | 'tags' | 'proactivity' | 'signature' | 'greeting' | 'catchphrase' | 'boundaries'
+  'name' | 'tags' | 'proactivity' | 'signature' | 'greeting' | 'catchphrase' | 'boundaries' | 'systemPrompt'
 >;
 
 const TOPIC_SHIFT_MARKERS = [
@@ -49,16 +49,61 @@ const TOPIC_SHIFT_MARKERS = [
   '对了',
   '另外',
   '话说回来',
-  '算了',
+  '先聊点',
+  '聊点别的',
+  '说个别的',
 ];
 
 const EMOTION_MARKERS = /难过|难受|委屈|生气|烦|累|焦虑|害怕|紧张|孤单|失望|崩溃|开心|高兴|兴奋|想哭|哭了|不想说|没事吧|怎么办/u;
 const QUESTION_MARKERS = /[?？]|^(为什么|怎么|怎样|什么|哪儿|哪里|谁|几时|多久|能不能|可以吗|是不是|有没有|要不要)/u;
 const REQUEST_MARKERS = /^(帮我|请你|请帮|能帮|给我|替我|写一个|写段|整理|解释|分析|教我|告诉我|推荐|设计|制定)/u;
+// “算了，换个话题”属于转向，不是收尾；只有短句独立出现时才算结束。
 const CLOSING_MARKERS = /^(?:\u55ef|\u597d|\u884c|\u7b97\u4e86|\u5148\u8fd9\u6837|\u665a\u5b89|\u62dc\u62dc)(?:[呀啦哦嗯喽。！!，,\s]|$)/u;
 
 function compact(text: string): string {
   return text.trim().replace(/\s+/g, ' ');
+}
+
+const GENERIC_PERSONA_TAGS = new Set([
+  '温柔', '体贴', '善良', '可爱', '漂亮', '帅气', '聪明', '高冷', '活泼', '开朗',
+  '外向', '内向', '理性', '感性', '成熟', '稳重', '冷静', '神秘', '安静', '治愈',
+  '浪漫', '幽默', '搞笑', '傲娇', '毒舌', '热情', '主动', '慢热', '敏感', '元气',
+]);
+
+/**
+ * 把本地已有的生活线索整理成可供角色主动提起的候选。
+ * 先放具体事件，再放角色兴趣；性格标签只作为最后的语气参考，避免出现
+ * “我们聊聊温柔吧”这种不像真人的主动开场。整个过程只读本地数据。
+ */
+export function buildProactiveTopicSeeds(input: {
+  tags?: string[];
+  signature?: string;
+  lifeHints?: string[];
+  memories?: string[];
+  worldEvents?: string[];
+}): string[] {
+  const clean = (value: string): string => compact(value)
+    .replace(/^[-*•\d.、]+\s*/u, '')
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 64);
+  const values = [
+    ...(input.lifeHints ?? []),
+    ...(input.worldEvents ?? []),
+    ...(input.memories ?? []),
+    ...(input.tags ?? []).filter((tag) => !GENERIC_PERSONA_TAGS.has(clean(tag))),
+    ...(input.signature ? [input.signature] : []),
+  ];
+  const seen = new Set<string>();
+  return values
+    .map(clean)
+    .filter((value) => value.length >= 3 && value.length <= 64)
+    .filter((value) => {
+      const key = value.toLocaleLowerCase().replace(/[\s，。！？、,.!?;；:：]/g, '');
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 10);
 }
 
 function grams(text: string): Set<string> {
@@ -82,7 +127,10 @@ function overlap(a: string, b: string): number {
 }
 
 function hasTopicShiftMarker(text: string): boolean {
-  return TOPIC_SHIFT_MARKERS.some((marker) => text.includes(marker));
+  const compacted = compact(text);
+  if (TOPIC_SHIFT_MARKERS.some((marker) => compacted.includes(marker))) return true;
+  // “算了”后面仍有实质内容时，用户往往是在放下旧话题后继续说新的事。
+  return /^算了[，,、:：\s]+.{3,}/u.test(compacted);
 }
 
 function openerOf(text: string): string {
@@ -129,7 +177,11 @@ function repeatedTopics(messages: string[]): string[] {
 }
 
 function isClosing(text: string): boolean {
-  return CLOSING_MARKERS.test(text.trim());
+  const compacted = compact(text);
+  if (hasTopicShiftMarker(compacted)) return false;
+  // 长句里的“好了/算了”通常只是语气词，不要把后面的新内容吞掉。
+  if (compacted.length > 12 && /^(?:好了|算了)[，,、:：\s]+/u.test(compacted)) return false;
+  return CLOSING_MARKERS.test(compacted);
 }
 
 /**
@@ -144,8 +196,8 @@ export function chooseConversationAction(
   const recentUserMessages = history.filter((item) => item.role === 'user').map((item) => item.content).slice(-5);
   const recentAssistantMessages = history.filter((item) => item.role === 'assistant').map((item) => item.content).slice(-6);
   const signals = detectHumanTurn(userText, recentUserMessages);
-  if (isClosing(userText)) return 'short-close';
   if (signals.mode === 'topic-shift') return 'follow-topic';
+  if (isClosing(userText)) return 'short-close';
   if (signals.mode === 'emotional') return 'stay-present';
   if (signals.mode === 'question') return 'answer-directly';
   if (signals.mode === 'request') return 'finish-request';
@@ -172,6 +224,7 @@ function characterVoiceLines(character?: HumanCharacter | null): string[] {
   const greeting = character.greeting?.trim();
   const catchphrase = character.catchphrase?.trim();
   const boundaries = character.boundaries?.trim();
+  const persona = character.systemPrompt?.slice(0, 2_400) ?? '';
 
   lines.push(`你此刻就是「${character.name}」，不要站到角色外解释自己。`);
   if (tags.length) lines.push(`人格底色：${tags.join('、')}。把这些变成选词、判断和反应，不要逐项念出来。`);
@@ -205,6 +258,19 @@ function characterVoiceLines(character?: HumanCharacter | null): string[] {
   }
   if (has('幽默', '搞笑', '顽皮')) {
     lines.push('语言指纹：幽默来自观察和反应，不要每句话都抛梗；笑话没有接住时要自然收回来。');
+  }
+  // 人设正文里常有比标签更具体的约束；只提取语言行为，不把整段设定重复塞进本轮提示。
+  if (/少说|惜字如金|寡言|简短|不爱解释/u.test(persona)) {
+    lines.push('额外语言指纹：倾向短句和留白，重要的话说清就停，不用解释自己的沉默。');
+  }
+  if (/反问|吐槽|调侃|挖苦/u.test(persona)) {
+    lines.push('额外语言指纹：可以用反问或轻微吐槽表达态度，但每轮最多一次，认真情绪出现时先收住锋芒。');
+  }
+  if (/温吞|慢热|犹豫|含蓄|不善表达/u.test(persona)) {
+    lines.push('额外语言指纹：情绪不必一次说满，可以用动作、停顿或半句补充表达，不要直接替角色做心理报告。');
+  }
+  if (/直来直去|坦率|直接|不拐弯/u.test(persona)) {
+    lines.push('额外语言指纹：少绕圈，先说清自己的判断；关心用户时也保持这个人的直接。');
   }
   return lines;
 }
@@ -293,19 +359,30 @@ export function buildHumanConversationContext(
     lines.push('这是轻松交流。不要把每句话都当成待解决的问题；可以接梗、表达自己的偏好、随口分享一个具体细节，或者只回一句。');
   }
 
+  lines.push('允许偶尔停顿、改口或补发一句，让表达有人的犹豫和温度；但不要每轮刻意制造口吃、悬念或“戏剧化”停顿。');
+  lines.push('角色不是客服，也不是解说员。不要把刚才的话总结成结论，不要解释自己正在使用什么策略；把态度藏在选词、判断和一个具体动作里。');
+  lines.push('不要为了讨好用户而每件事都赞同；如果角色确实有不同看法，用符合关系和性格的方式说出来，但不要为了显得有个性而强行反驳。');
+
+  const recentAssistantText = recentAssistantMessages.slice(-4).join(' ');
   const candidateTopics = [...new Set((options.proactiveTopics ?? []).map(compact).filter((topic) => topic.length >= 2))]
     .filter((topic) => !compact(userText).includes(topic))
+    // 主动话题也有冷却：候选来自同一条记忆时，最近几轮已经说过就先放下。
+    .filter((topic) => topic.length < 5 || !recentAssistantText.includes(topic))
     .slice(0, 4);
   const userTurnCount = recentUserMessages.length + 1;
   const cadence = character?.proactivity != null && character.proactivity >= 0.72 ? 3 : 5;
-  const mayOpenTopic = candidateTopics.length > 0 &&
+  const mayOpenTopic =
     signals.mode === 'casual' &&
     !hasTopicShiftMarker(userText) &&
     !CLOSING_MARKERS.test(userText.trim()) &&
     // 只在一个自然的节拍点打开新话题；短消息本身不能让角色每一轮都主动插话。
     userTurnCount >= cadence && userTurnCount % cadence === 0;
   if (mayOpenTopic) {
-    lines.push(`这轮适合由你主动打开一个具体话题。候选只有：${candidateTopics.map((topic) => `「${topic}」`).join('、')}。请只挑一个最符合你性格、又和当前气氛接得上的，自然地说起它；不要把候选列表念出来，不要用“你最近怎么样”这种空问题开场，也不要连续抛问题。`);
+    if (candidateTopics.length > 0) {
+      lines.push(`这轮适合由你主动打开一个具体话题。候选只有：${candidateTopics.map((topic) => `「${topic}」`).join('、')}。请只挑一个最符合你性格、又和当前气氛接得上的，自然地说起它；不要把候选列表念出来，不要用“你最近怎么样”这种空问题开场，也不要连续抛问题。`);
+    } else {
+      lines.push('这轮适合由你主动带来一点新鲜感。可以分享一个符合你人设的具体偏好、正在想的事或小观察，不要编造用户的现实经历，不要用空泛的“最近怎么样”开场，也不要连续抛问题。');
+    }
   }
 
   const lifeHints = [...new Set((options.lifeHints ?? []).map(compact).filter((hint) => hint.length >= 3))].slice(0, 3);

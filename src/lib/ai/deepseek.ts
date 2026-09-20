@@ -265,6 +265,10 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const r = await attempt(usedModel, useVision);
   if (r) return r;
 
+  // 所选模型本身就是 Flash 时，重复发送同一个请求只会增加等待时间，
+  // 不会带来新的兜底能力；交给上层显示可重试的失败态即可。
+  if (usedModel.id === fallback.id) throw new Error('server:error');
+
   // 模型兜底：所选模型失败/空内容 → 自动切 deepseek-v4-flash 重试一次（对话不中断）
   const fb = await attempt(fallback, false);
   if (fb) return { ...fb, degraded: true };

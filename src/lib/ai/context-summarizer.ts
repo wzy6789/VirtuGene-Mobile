@@ -20,6 +20,8 @@ export interface SummarizeParams {
   apiKey: string;
   history: { role: string; content: string }[];
   previousSummary?: string;
+  /** 用户明确要求长期保留的事实；压缩时必须带上，不能被旧对话截断丢掉。 */
+  protectedMemories?: string[];
 }
 
 export interface SummarizeResult {
@@ -31,13 +33,18 @@ export interface SummarizeResult {
  * 临时离线兜底：模型或网关不可用时也保留一份可读的短记录。
  * 原始消息不会删除，下一次成功压缩时会再把它们合并进模型摘要。
  */
-function buildLocalFallbackSummary(history: { role: string; content: string }[], previousSummary: string): string {
+function buildLocalFallbackSummary(history: { role: string; content: string }[], previousSummary: string, protectedMemories: string[] = []): string {
   const recent = history
     .filter((item) => item.content.trim())
     .slice(-6)
     .map((item) => `${item.role === 'user' ? '用户' : '角色'}：${item.content.replace(/\s+/g, ' ').trim().slice(0, 120)}`)
     .join('；');
-  const merged = previousSummary
+  const protectedBlock = protectedMemories.length > 0
+    ? `长期记住：${protectedMemories.slice(0, 8).map((item) => item.trim().slice(0, 160)).filter(Boolean).join('；')}`
+    : '';
+  const merged = protectedBlock
+    ? `${protectedBlock}${previousSummary ? `；${previousSummary}` : ''}${recent ? `；近期对话：${recent}` : ''}`
+    : previousSummary
     ? `${previousSummary}${recent ? `；近期对话：${recent}` : ''}`
     : recent;
   return merged.slice(0, 900);
@@ -47,6 +54,12 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
   const { apiKey } = params;
   const history = boundAuxiliaryHistory(params.history);
   const previousSummary = params.previousSummary?.trim().slice(0, 2_500) ?? '';
+  const protectedMemories = [...new Set((params.protectedMemories ?? [])
+    .map((item) => item.trim().replace(/\s+/g, ' ').slice(0, 180))
+    .filter(Boolean))].slice(0, 8);
+  const protectedBlock = protectedMemories.length > 0
+    ? `\n\n必须保留的用户明确记忆（不要改写成猜测，也不要遗漏）：\n${protectedMemories.map((item) => `- ${item}`).join('\n')}`
+    : '';
   const previousBlock = previousSummary
     ? `\n\nPrevious compressed summary (keep valid facts):\n${previousSummary}`
     : '';
@@ -55,13 +68,13 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
     { role: 'system', content: SUMMARY_PROMPT },
     {
       role: 'user',
-      content: '请压缩以下早期对话，并与之前的压缩摘要合并：\n\n' + history.map((m) => `${m.role}: ${m.content}`).join('\n') + previousBlock,
+      content: '请压缩以下早期对话，并与之前的压缩摘要合并：\n\n' + history.map((m) => `${m.role}: ${m.content}`).join('\n') + protectedBlock + previousBlock,
     },
   ];
 
   if (!apiKey.trim()) {
-    if (!hasAiGatewayAccess()) return { summary: buildLocalFallbackSummary(history, previousSummary) };
-    return summarizeViaGateway(history, previousSummary);
+    if (!hasAiGatewayAccess()) return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
+    return summarizeViaGateway(history, previousSummary, protectedMemories);
   }
 
   try {
@@ -87,31 +100,31 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
       if (response.status === 401) return { error: 'auth:invalid_key' };
       if (response.status === 402) return { error: 'billing:insufficient' };
       if (response.status === 429) return { error: 'rate:limited' };
-      if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary);
-      return { error: 'server:error' };
+      if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary, protectedMemories);
+      return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
     }
 
     const data = await response.json();
     const text: string = data.choices?.[0]?.message?.content ?? '';
     const summary = text.trim().slice(0, 900);
     if (summary.length > 0) return { summary };
-    if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary);
-    return { summary: buildLocalFallbackSummary(history, previousSummary) };
+    if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary, protectedMemories);
+    return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
   } catch {
-    if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary);
-    return { summary: buildLocalFallbackSummary(history, previousSummary) };
+    if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary, protectedMemories);
+    return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
   }
 }
 
-async function summarizeViaGateway(history: { role: string; content: string }[], previousSummary = ''): Promise<SummarizeResult> {
+async function summarizeViaGateway(history: { role: string; content: string }[], previousSummary = '', protectedMemories: string[] = []): Promise<SummarizeResult> {
   try {
-    const result = await gatewayAux<{ summary?: unknown }>('context-summary', { history, previousSummary });
+    const result = await gatewayAux<{ summary?: unknown }>('context-summary', { history, previousSummary, protectedMemories });
     const summary = typeof result?.summary === 'string' ? result.summary.trim().slice(0, 900) : '';
-    return summary ? { summary } : { summary: buildLocalFallbackSummary(history, previousSummary) };
+    return summary ? { summary } : { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
   } catch {
     // Compression is background work. If the auxiliary provider is unavailable,
     // keep a local extractive record instead of blocking the chat or replacing a
     // valid previous summary with an error.
-    return { summary: buildLocalFallbackSummary(history, previousSummary) };
+    return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
   }
 }

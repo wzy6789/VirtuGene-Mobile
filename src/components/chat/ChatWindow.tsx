@@ -34,17 +34,19 @@ import { buildContextTrace, hasTraceContent } from '../../lib/chat-trace';
 import { ipc } from '../../lib/ipc-client';
 import { buildTimeContext, buildSceneTimeContext, buildRelationshipContext, buildUserEmotionContext, buildDayContext, buildMemoryRecall, buildCatchphrase, buildLifeContext, buildStoryRelationContext, buildContinuityThreadContext, buildSharedEventContext, buildSharedMemoryContext, buildDiaryContext, buildSceneContext, buildPulseEventContext, pickContinuityThreads } from '../../lib/chat-context';
 import { computeMessageDelays, splitReplyParts, formatSpokenParagraphs, normalizeChatResponse, prefersReducedMotion } from '../../lib/chat-pacing';
-import { checkReplyQuality, isLongFormRequest } from '../../lib/reply-quality';
+import { checkReplyQuality, isLongFormRequest, polishChatResponse } from '../../lib/reply-quality';
 import { DIARY_MOODS } from '../../lib/diary-utils';
 import { useNotificationStore } from '../../store/notification-store';
 import { useUIStore } from '../../store/ui-store';
 import { useTTS, synthesizeSpeech, audioBufToDataUrl, audioDurationSec } from '../../lib/tts';
 import { DEFAULT_VOICE, ALL_VOICES } from '../../lib/voice-map';
 import { resolveModel, findModel } from '../../lib/ai/llm';
-import { compileChatContext, selectRelevantMemories } from '../../lib/chat-context-compiler';
+import { compileChatContext } from '../../lib/chat-context-compiler';
 import { hasAiGatewayAccess } from '../../lib/ai/gateway';
-import { buildHumanConversationContext, recommendConversationTemperature } from '../../lib/chat-humanizer';
-import { buildHiddenUserProfile } from '../../lib/world/user-profile';
+import { buildHumanConversationContext, buildProactiveTopicSeeds, recommendConversationTemperature } from '../../lib/chat-humanizer';
+import { buildMemoryContext, prepareMemoryMetadata, rankConversationMemories } from '../../lib/memory-engine';
+import { buildChatConversationStateContext, updateChatConversationState } from '../../lib/chat-conversation-state';
+import { buildCharacterIntentContext, inferCharacterResponseAction, planCharacterIntent } from '../../lib/character-intent';
 import { ModelPickModal } from './ModelPickModal';
 import { ImmersiveSceneCard } from './ImmersiveSceneCard';
 import type { ContinuityThread, Diary, Message, SharedStoryEvent } from '../../db/index';
@@ -462,6 +464,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         content: m.content.slice(0, 200),
         type: 'auto',
         pinned: true,
+        ...prepareMemoryMetadata(m.content.slice(0, 200), { kind: 'episode', pinned: true, stability: 'stable', confidence: 1 }),
         createdAt: now,
         // 溯源：用户手动记住的记忆，明确指向这一条消息
         sourceSessionId: currentSessionId,
@@ -566,11 +569,12 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       !(memory.type === 'summary' && memory.sourceSessionId === sessionId),
     );
     const usedMemoryIds = recentMemoryIds(allMsgs);
-    const memories = selectRelevantMemories(genericMemories, text, 8).filter((memory) =>
+    const memories = rankConversationMemories(genericMemories, text, usedMemoryIds, 8).filter((memory) =>
       !usedMemoryIds.has(memory.id) || isMemoryExplicitlyMentioned(memory, text),
     );
-    const userBackgroundContext = buildHiddenUserProfile(memories, text, memories.length);
-    const memoryContext = userBackgroundContext;
+    const memoryContext = buildMemoryContext(memories);
+    // 召回冷却只更新元数据，不阻塞本轮回复；失败不会影响模型调用。
+    void memoryRepo.markMentioned(memories.map((memory) => memory.id)).catch(() => undefined);
 
     // 手动教记忆：用户说"记住……" → 存入角色记忆，并让角色当场确认记住了
     const teachMatch = text.match(/^[（(]?(?:记住|帮我记住|记一下|以后记住|别忘了|你要记住)[：:，,、\s]+(.+)$/);
@@ -579,18 +583,29 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     if (taughtMemory) {
       try {
         const taughtAt = Date.now();
+        const taughtId = crypto.randomUUID();
         await memoryRepo.create({
-          id: crypto.randomUUID(),
+          id: taughtId,
           characterId: character.id,
           userId,
           content: taughtMemory,
           type: 'auto',
           pinned: true,
+          ...prepareMemoryMetadata(taughtMemory, { kind: 'fact', pinned: true, stability: 'stable', confidence: 1 }),
           createdAt: taughtAt,
           sourceSessionId: sessionId,
           sourceMessageIds: [userMsg.id],
           confidence: 1,
           updatedAt: taughtAt,
+        });
+        await memoryRepo.supersedeLikelyCorrections(character.id, userId, {
+          id: taughtId,
+          characterId: character.id,
+          userId,
+          content: taughtMemory,
+          type: 'auto',
+          memoryKind: 'fact',
+          createdAt: taughtAt,
         });
         await stateRepo.recordLifeEvent(character.id, userId, {
           type: 'memory',
@@ -621,10 +636,11 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
               ? `用户分享了一张照片：${shareText.slice(0, 100)}`
               : '用户分享了一张照片（未配文）',
             type: 'auto',
+            ...prepareMemoryMetadata(shareText ? `用户分享了一张照片：${shareText.slice(0, 100)}` : '用户分享了一张照片（未配文）', { kind: 'episode', confidence: 0.9 }),
             createdAt: shareAt,
             sourceSessionId: sessionId,
             sourceMessageIds: [userMsg.id],
-            confidence: 1,
+            confidence: 0.9,
             updatedAt: shareAt,
           });
         }
@@ -821,22 +837,13 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     const summaryContext = sessionData?.summary
       ? `\n\n[早前对话摘要（更早的内容已压缩，不必逐条回忆，若与当前话题相关可自然提及）]\n${sessionData.summary.slice(0, MAX_SUMMARY_CHARS)}`
       : '';
+    const conversationStateContext = buildChatConversationStateContext(sessionData?.conversation);
+    const characterIntent = planCharacterIntent(text, history, sessionData?.conversation, character);
+    const characterIntentContext = buildCharacterIntentContext(characterIntent);
 
     // 主动话题候选只来自当前角色有权知道的本地数据：
     // 角色兴趣、未完成事项、共同经历、世界脉搏和已召回的长期记忆。
     // 选择与冷却由 chat-humanizer 在本地完成，不增加任何模型调用。
-    const proactiveTopicSeeds = [
-      ...(character.tags ?? []).slice(0, 4),
-      ...openThreads.map((thread) => thread.title),
-      ...sharedEvents.map((event) => event.title),
-      ...recalledPulseEvents.map((item) => item.event.title),
-      ...recallableMemories.map((item) => item.memory.summary || item.memory.title),
-      ...memories.slice(0, 3).map((memory) => memory.content),
-    ]
-      .map((value) => value.trim().replace(/[\r\n]+/g, ' ').slice(0, 42))
-      .filter((value, index, all) => value.length >= 2 && all.indexOf(value) === index)
-      .slice(0, 8);
-
     const lifeHints = [
       state.lifeFocus,
       ...(state.lifeEvents ?? []).slice(0, 3).map((event) => `${event.title}${event.detail ? `：${event.detail}` : ''}`),
@@ -847,6 +854,19 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       .map((value) => value.trim().replace(/[\r\n]+/g, ' ').slice(0, 96))
       .filter((value, index, all) => value.length >= 3 && all.indexOf(value) === index)
       .slice(0, 6);
+
+    const proactiveTopicSeeds = buildProactiveTopicSeeds({
+      tags: character.tags,
+      signature: character.signature,
+      lifeHints,
+      worldEvents: [
+        ...openThreads.map((thread) => thread.title),
+        ...sharedEvents.map((event) => event.title),
+        ...recalledPulseEvents.map((item) => item.event.title),
+        ...recallableMemories.map((item) => item.memory.summary || item.memory.title),
+      ],
+      memories: memories.slice(0, 3).map((memory) => memory.content),
+    });
 
     // 用户的时代/社会背景：角色从对话里主动适配用户所述的时代与生活语境
     const compiled = compileChatContext(
@@ -862,6 +882,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           }),
           priority: 99,
         },
+        { key: 'conversation-state', text: conversationStateContext, priority: 98 },
+        { key: 'character-intent', text: characterIntentContext, priority: 100 },
         { key: 'relationship', text: relationshipContext, priority: 100 },
         { key: 'story-relationships', text: storyRelationContext, priority: 97 },
         { key: 'continuity', text: threadContext, priority: 94 },
@@ -945,7 +967,10 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         // 带来的空行/文章式换行。之后的质量检查和落库都只使用清洗后的文本。
         if (result.content) {
           const normalized = normalizeChatResponse(result.content);
-          result = { ...result, content: normalized };
+          result = {
+            ...result,
+            content: polishChatResponse(normalized, { longForm: isLongFormRequest(text) }),
+          };
         }
 
         if (result.error || !result.content) break;
@@ -1047,7 +1072,15 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
             })();
           }
         }
-        await sessionRepo.touch(sessionId);
+        // 记录本轮对话的轻量节奏状态：不存原文，只保存话题标签、用户偏好和
+        // 最近使用过的回复动作，下一轮继续保持连贯。
+        const nextConversationState = updateChatConversationState(
+          sessionData?.conversation,
+          text,
+          result.content,
+          inferCharacterResponseAction(text, result.content),
+        );
+        await sessionRepo.update(sessionId, { conversation: nextConversationState });
 
         // 回复到达时用户已切到别的会话：不上屏，改弹应用内流体云提醒
         if (!stillCurrent()) {
@@ -1126,10 +1159,18 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       if (uncovered.length < SUMMARY_REGENERATE_THRESHOLD) return;
 
       const history = oldMsgs.slice(-80).map((m) => ({ role: m.role, content: m.content.slice(0, MAX_HISTORY_MESSAGE_CHARS) }));
+      // 摘要不能成为“记住”内容的第二个清理入口：明确置顶的记忆即使早于
+      // 本次压缩窗口，也要继续出现在摘要里。它们仍然按当前用户和角色隔离。
+      const protectedMemories = (await memoryRepo.getByCharacter(character?.id ?? '', userId))
+        .filter((memory) => memory.pinned === true)
+        .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))
+        .slice(0, 8)
+        .map((memory) => memory.content);
       const result = await ipc.context.summarize({
         apiKey: apiKey ?? '',
         history,
         previousSummary: sessionData?.summary?.slice(0, MAX_SUMMARY_CHARS),
+        protectedMemories,
       });
       if (result.summary) {
         await sessionRepo.updateSummary(sessionId, result.summary);
