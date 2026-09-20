@@ -330,6 +330,30 @@ export interface WorldSceneState {
   lastWorldChange?: string;
   /** 新加入角色默认携带的上下文范围；单个参与者可覆盖。 */
   entryMemoryMode?: 'memory' | 'present';
+  /** 5.2 Living World：不把短期对话节奏塞进世界正文，单独保存可压缩的导演状态。 */
+  conversation?: {
+    currentTopic?: string;
+    previousTopics: string[];
+    exhaustedMotifs: string[];
+    unansweredQuestions: string[];
+    lastSpeakerId?: string;
+    lastUserTurnAt?: number;
+    userWantsToShift: boolean;
+    turnsSinceTopicShift: number;
+    lastProactiveTopicAt?: number;
+  };
+  /** 5.2 Living World：地点与时段驱动的视觉状态，离开再回来保持一致。 */
+  visual?: {
+    primary: string;
+    secondary: string;
+    glow: string;
+    particle: 'none' | 'dust' | 'rain' | 'snow' | 'embers' | 'fireflies';
+    density: number;
+    light: 'dawn' | 'day' | 'dusk' | 'night';
+    weather?: string;
+    intensity: number;
+    updatedAt: number;
+  };
 }
 
 /** 一场 World Stage（互动章节） */
@@ -836,6 +860,69 @@ export interface Diary {
   updatedAt: number;
 }
 
+export type TodoStatus = 'todo' | 'completed' | 'cancelled' | 'deleted';
+export type TodoPriority = 'normal' | 'important' | 'urgent';
+export type TodoVisibility = 'private' | 'selected';
+export type TodoRecurrence =
+  | { kind: 'none' }
+  | { kind: 'daily'; interval?: number }
+  | { kind: 'weekdays' }
+  | { kind: 'weekly'; weekdays: number[]; interval?: number }
+  | { kind: 'monthly'; day: number; interval?: number }
+  | { kind: 'interval'; days: number };
+
+/** 现实待办：日期是本地生活日期，与世界的逻辑时间完全分离。 */
+export interface Todo {
+  id: string;
+  userId: string;
+  title: string;
+  note?: string;
+  subtasks?: { id: string; title: string; completed: boolean }[];
+  listName?: string;
+  tags?: string[];
+  priority: TodoPriority;
+  status: TodoStatus;
+  dueDate?: string;
+  dueTime?: string;
+  timezone?: string;
+  recurrence: TodoRecurrence;
+  reminderMinutes?: number[];
+  visibility: TodoVisibility;
+  visibleTo?: string[];
+  worldId?: string;
+  source?: 'manual' | 'world' | 'chat';
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  deletedAt?: number;
+}
+
+export interface TodoOccurrence {
+  id: string;
+  userId: string;
+  todoId: string;
+  dueDate: string;
+  dueTime?: string;
+  status: 'todo' | 'completed' | 'skipped' | 'cancelled';
+  originalDueDate: string;
+  completedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TodoReminder {
+  id: string;
+  userId: string;
+  todoId: string;
+  occurrenceId: string;
+  notificationId: number;
+  remindAt: number;
+  status: 'scheduled' | 'fired' | 'cancelled' | 'failed';
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export class VirtuGeneDB extends Dexie {
   users!: Table<User, string>;
   characters!: Table<Character, string>;
@@ -866,6 +953,9 @@ export class VirtuGeneDB extends Dexie {
   worldAgentStates!: Table<WorldAgentState, string>;
   worldPulses!: Table<WorldPulse, string>;
   worldObjects!: Table<WorldObject, string>;
+  todos!: Table<Todo, string>;
+  todoOccurrences!: Table<TodoOccurrence, string>;
+  todoReminders!: Table<TodoReminder, string>;
 
   constructor() {
     super('virtugene');
@@ -1117,6 +1207,12 @@ export class VirtuGeneDB extends Dexie {
     // readable stream while objects survive leaving and returning.
     this.version(20).stores({
       worldObjects: 'id,userId,worldId,locationId,sceneId,state,[worldId+locationId],updatedAt',
+    });
+    // v21：现实待办与可重复日期实例。任务数据按用户隔离，世界时间不参与计算。
+    this.version(21).stores({
+      todos: 'id,userId,status,dueDate,[userId+dueDate],[userId+status],updatedAt',
+      todoOccurrences: 'id,userId,todoId,dueDate,[userId+dueDate],[todoId+dueDate],status,updatedAt',
+      todoReminders: 'id,userId,todoId,occurrenceId,remindAt,status,[userId+remindAt],notificationId,updatedAt',
     });
   }
 }

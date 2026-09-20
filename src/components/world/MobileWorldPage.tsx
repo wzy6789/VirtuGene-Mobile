@@ -32,6 +32,7 @@ export function MobileWorldPage() {
   const [recentWorldEvents, setRecentWorldEvents] = useState<WorldEvent[]>([]);
   const [pulseBusy, setPulseBusy] = useState(false);
   const [worldExpanded, setWorldExpanded] = useState(false);
+  const [panelReady, setPanelReady] = useState(false);
 
   const selectedScene = useMemo(
     () => scenes.find((scene) => scene.id === selectedSceneId) ?? null,
@@ -39,6 +40,7 @@ export function MobileWorldPage() {
   );
   useEffect(() => {
     let alive = true;
+    let idleTimer: number | undefined;
     void (async () => {
       if (!userId) {
         setLoading(false);
@@ -70,35 +72,30 @@ export function MobileWorldPage() {
         if (alive) setLoading(false);
         const currentCharacters = useChatStore.getState().characters;
         if (currentCharacters.length > 0) {
-          setPulseBusy(true);
-          try {
-            const result: WorldAutonomyResult = await runWorldPulse({
-              userId,
-              worldId: world.id,
-              characters: currentCharacters,
-            });
-            if (alive && result.pulse) {
-              setPulse(result.pulse);
-              if (result.status !== 'skipped' && result.eventIds.length > 0) {
-                const [refreshedScenes, refreshedKernel, refreshedStats, refreshedEvents] = await Promise.all([
-                  worldSceneRepo.listScenes(world.id, { limit: 50, userId }),
-                  ensureWorldKernel({ userId, worldId: world.id, characterIds: currentCharacters.map((character) => character.id) }),
-                  worldRepo.stats(world.id),
-                  worldEventRepo.listTimeline(world.id, { limit: 4, userId }),
-                ]);
-                if (alive) {
-                  setScenes(refreshedScenes);
-                  setKernel(refreshedKernel);
-                  setStats(refreshedStats);
-                  setRecentWorldEvents(refreshedEvents);
+          // 给首屏和“此刻”展开留出一个绘制帧；世界脉冲仍然保留，只移到后台空闲时执行。
+          const runPulseWhenIdle = () => {
+            if (!alive) return;
+            setPulseBusy(true);
+            void (async () => {
+              try {
+                const result: WorldAutonomyResult = await runWorldPulse({ userId, worldId: world.id, characters: currentCharacters });
+                if (alive && result.pulse) {
+                  setPulse(result.pulse);
+                  if (result.status !== 'skipped' && result.eventIds.length > 0) {
+                    const [refreshedScenes, refreshedKernel, refreshedStats, refreshedEvents] = await Promise.all([
+                      worldSceneRepo.listScenes(world.id, { limit: 50, userId }),
+                      ensureWorldKernel({ userId, worldId: world.id, characterIds: currentCharacters.map((character) => character.id) }),
+                      worldRepo.stats(world.id),
+                      worldEventRepo.listTimeline(world.id, { limit: 4, userId }),
+                    ]);
+                    if (alive) { setScenes(refreshedScenes); setKernel(refreshedKernel); setStats(refreshedStats); setRecentWorldEvents(refreshedEvents); }
+                  }
                 }
-              }
-            }
-          } catch {
-            // 脉冲属于后台增强：世界入口已可用时，单次结算失败不应把整页变成读取失败。
-          } finally {
-            if (alive) setPulseBusy(false);
-          }
+              } catch { /* 后台增强失败不影响世界入口 */ }
+              finally { if (alive) setPulseBusy(false); }
+            })();
+          };
+          idleTimer = window.setTimeout(runPulseWhenIdle, 'requestIdleCallback' in window ? 480 : 720);
         }
       } catch {
         if (alive) {
@@ -114,8 +111,14 @@ export function MobileWorldPage() {
       }
     })();
     if (characters.length === 0) void useChatStore.getState().loadCharacters();
-    return () => { alive = false; };
+    return () => { alive = false; if (idleTimer !== undefined) window.clearTimeout(idleTimer); };
   }, [userId, characters.length, reloadToken]);
+
+  useEffect(() => {
+    if (!worldExpanded) { setPanelReady(false); return; }
+    const frame = window.setTimeout(() => setPanelReady(true), 32);
+    return () => window.clearTimeout(frame);
+  }, [worldExpanded]);
 
   useEffect(() => {
     let alive = true;
@@ -139,6 +142,7 @@ export function MobileWorldPage() {
   }, [selectedSceneId]);
 
   const openDiary = () => useUIStore.getState().setActiveView('diary');
+  const openTodo = () => useUIStore.getState().setActiveView('todo');
   const openStage = () => useUIStore.getState().setActiveView('stage');
   const openRelations = () => useUIStore.getState().setActiveView('relations');
   const openMemory = () => useUIStore.getState().setActiveView('memory');
@@ -185,6 +189,20 @@ export function MobileWorldPage() {
       {!selectedScene && (
         <div className="pt-5 vg-world-hero">
           <SpaceHeading eyebrow="" title="世界 Living World" detail="时间会走，角色也有自己的去处。" />
+          <nav className="vg-world-life-entries" aria-label="日记与待办">
+            <button type="button" className="vg-world-life-entry is-diary" onClick={openDiary}>
+              <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h6a3 3 0 0 1 3 3v14a4 4 0 0 0-4-2H4V4Z" /><path d="M13 7a3 3 0 0 1 3-3h4v15h-3a4 4 0 0 0-4 2M7 8h3M7 12h3" /></svg>
+              <strong>日记</strong>
+              <span>留下今天的故事</span>
+              <i aria-hidden="true">↗</i>
+            </button>
+            <button type="button" className="vg-world-life-entry is-todo" onClick={openTodo}>
+              <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="5" width="16" height="16" rx="3" /><path d="M8 3v4M16 3v4M4 10h16M8 15l3 3 5-5" /></svg>
+              <strong>待办</strong>
+              <span>安排接下来的事</span>
+              <i aria-hidden="true">↗</i>
+            </button>
+          </nav>
           <section className={`vg-world-now-card ${worldExpanded ? 'is-open' : ''}`} aria-label="此刻的世界">
             <div className="vg-world-now-head">
               <span className="vg-world-pulse-orb" aria-hidden="true" />
@@ -197,7 +215,7 @@ export function MobileWorldPage() {
             <p className="vg-world-now-summary">
               {pulseBusy ? '角色们正在沿着自己的生活继续行动。' : pulse?.summary ?? '你不在的时候，时间也会在这里留下痕迹。'}
             </p>
-            {worldExpanded && kernel && (
+            {worldExpanded && kernel && panelReady && (
               <WorldLivingPanel
                 kernel={kernel}
                 characters={characters}

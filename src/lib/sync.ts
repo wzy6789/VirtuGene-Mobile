@@ -2,7 +2,7 @@
  * 局域网同步数据：全量收集（导出）与合并写入（导入）。
  * 桌面端与手机端共用同一份格式，通过 HTTP 互传。
  */
-import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent, type WorldLocation, type WorldPresence, type WorldAgentState, type WorldPulse, type WorldObject } from '../db/index';
+import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent, type WorldLocation, type WorldPresence, type WorldAgentState, type WorldPulse, type WorldObject, type Todo, type TodoOccurrence, type TodoReminder } from '../db/index';
 
 export interface SyncExportData {
   __meta__: {
@@ -38,6 +38,9 @@ export interface SyncExportData {
   worldAgentStates?: WorldAgentState[];
   worldPulses?: WorldPulse[];
   worldObjects?: WorldObject[];
+  todos?: Todo[];
+  todoOccurrences?: TodoOccurrence[];
+  todoReminders?: TodoReminder[];
 }
 
 /** 收集当前设备全部业务数据（不含账号密码与 API Key，隐私不外传） */
@@ -47,7 +50,7 @@ export async function collectSyncData(
 ): Promise<SyncExportData> {
   const [characters, sessions, messages, memories, emotionSnapshots, characterStates, diaries, continuityThreads, sharedStoryEvents,
     worlds, worldEvents, worldScenes, worldSceneEntries, characterKnowledge, sharedMemories, relationshipStates, relationshipEvents,
-    worldLocations, worldPresences, worldAgentStates, worldPulses, worldObjects] =
+    worldLocations, worldPresences, worldAgentStates, worldPulses, worldObjects, todos, todoOccurrences, todoReminders] =
     await Promise.all([
       db.characters.toArray(),
       db.sessions.toArray(),
@@ -71,6 +74,9 @@ export async function collectSyncData(
       db.worldAgentStates.toArray(),
       db.worldPulses.toArray(),
       db.worldObjects.toArray(),
+      db.todos.toArray(),
+      db.todoOccurrences.toArray(),
+      db.todoReminders.toArray(),
     ]);
   return {
     __meta__: {
@@ -103,6 +109,9 @@ export async function collectSyncData(
     worldAgentStates,
     worldPulses,
     worldObjects,
+    todos,
+    todoOccurrences,
+    todoReminders,
   };
 }
 
@@ -133,7 +142,7 @@ export async function importSyncData(
       'rw',
       [db.characters, db.sessions, db.messages, db.memories, db.emotionSnapshots, db.characterStates, db.diaries, db.continuityThreads, db.sharedStoryEvents,
         db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents,
-        db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects],
+        db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects, db.todos, db.todoOccurrences, db.todoReminders],
       async () => {
         let n = 0;
         for (const c of data.characters ?? []) {
@@ -294,6 +303,16 @@ export async function importSyncData(
           n += 1;
         }
         counts.worldObjects = n;
+
+        n = 0;
+        for (const todo of data.todos ?? []) { await db.todos.put(todo); n += 1; }
+        counts.todos = n;
+        n = 0;
+        for (const occurrence of data.todoOccurrences ?? []) { await db.todoOccurrences.put(occurrence); n += 1; }
+        counts.todoOccurrences = n;
+        n = 0;
+        for (const reminder of data.todoReminders ?? []) { await db.todoReminders.put(reminder); n += 1; }
+        counts.todoReminders = n;
       },
     );
     return { ok: true, counts };

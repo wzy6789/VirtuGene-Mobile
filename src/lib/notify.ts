@@ -4,6 +4,7 @@
  */
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { IS_CAPACITOR } from './platform';
+import type { Todo, TodoOccurrence } from '../db';
 
 /** 请求通知权限（首次使用时调用；拒绝后静默） */
 export async function requestNotificationPermission(): Promise<boolean> {
@@ -38,4 +39,33 @@ export async function notifyLocal(title: string, body: string): Promise<boolean>
   } catch {
     return false;
   }
+}
+
+/** 待办通知使用稳定 id，编辑任务时可以精确取消旧提醒。 */
+export function todoNotificationId(todoId: string, occurrenceId: string, remindAt: number): number {
+  let hash = 2166136261;
+  for (const char of `${todoId}:${occurrenceId}:${remindAt}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  return 1000000 + ((hash >>> 0) % 1900000000);
+}
+
+export async function cancelTodoNotification(notificationId: number): Promise<void> {
+  if (!IS_CAPACITOR) return;
+  try { await LocalNotifications.cancel({ notifications: [{ id: notificationId }] }); } catch { /* desktop/web no-op */ }
+}
+
+export async function scheduleTodoNotification(todo: Todo, occurrence: TodoOccurrence, remindAt: number): Promise<{ id: number; ok: boolean }> {
+  const id = todoNotificationId(todo.id, occurrence.id, remindAt);
+  if (!IS_CAPACITOR || remindAt <= Date.now()) return { id, ok: false };
+  try {
+    await LocalNotifications.schedule({ notifications: [{
+      id,
+      title: todo.title,
+      body: todo.note?.trim() || '该做这件事了。',
+      schedule: { at: new Date(remindAt), allowWhileIdle: true },
+      smallIcon: 'ic_stat_icon',
+      iconColor: '#6C5CE7',
+      extra: { type: 'todo-reminder', todoId: todo.id, occurrenceId: occurrence.id },
+    }] });
+    return { id, ok: true };
+  } catch { return { id, ok: false }; }
 }

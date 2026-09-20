@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { ChatPage } from '../../pages/ChatPage';
 import { MobileChatListPage } from '../chat/MobileChatListPage';
 import { NotificationCloud } from '../chat/NotificationCloud';
@@ -11,15 +11,47 @@ import { WorldCanvas } from '../world/WorldCanvas';
 import { WorldMemoryPage } from '../world/WorldMemoryPage';
 import { WorldTimelinePage } from '../world/WorldTimelinePage';
 import { WorldSettingsPage } from '../world/WorldSettingsPage';
+import { MobileTabSwipe } from '../ui/MobileTabSwipe';
+import type { ActiveView } from '../../store/ui-store';
 
 // 手账包含日历、导出和多种 AI 辅助；仅在用户从「世界 → 我的生活」进入时下载。
 const DiaryPage = lazy(() => import('../../pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
+const TodoPage = lazy(() => import('../todo/TodoPage').then((m) => ({ default: m.TodoPage })));
 const MobileCharacterPage = lazy(() => import('../character/MobileCharacterPage').then((m) => ({ default: m.MobileCharacterPage })));
 const MobileMePage = lazy(() => import('./MobileMePage').then((m) => ({ default: m.MobileMePage })));
 
 /** 未读总数上限显示 99+ */
 function formatUnread(n: number): string {
   return n > 99 ? '99+' : String(n);
+}
+
+type MobileNavSnapshot = {
+  activeView: ActiveView;
+  mobileTab: MobileTab;
+  chatFromCharacters: boolean;
+  chatFromList: boolean;
+  canvasSceneId: string | null;
+};
+
+function readMobileNavSnapshot(): MobileNavSnapshot {
+  const state = useUIStore.getState();
+  return {
+    activeView: state.activeView,
+    mobileTab: state.mobileTab,
+    chatFromCharacters: state.chatFromCharacters,
+    chatFromList: state.chatFromList,
+    canvasSceneId: state.canvasSceneId,
+  };
+}
+
+function mobileNavSignature(snapshot: MobileNavSnapshot): string {
+  return [
+    snapshot.activeView,
+    snapshot.mobileTab,
+    snapshot.chatFromCharacters ? 'characters-chat' : '',
+    snapshot.chatFromList ? 'list-chat' : '',
+    snapshot.canvasSceneId ?? '',
+  ].join('|');
 }
 
 /** 底部 tab 线性图标（SVG，替代 emoji，更克制更像微信/QQ） */
@@ -77,10 +109,17 @@ export function MobileLayout() {
   const setTab = useUIStore((s) => s.setMobileTab);
   const chatFromCharacters = useUIStore((s) => s.chatFromCharacters);
   const chatFromList = useUIStore((s) => s.chatFromList);
+  const canvasSceneId = useUIStore((s) => s.canvasSceneId);
   const unreadByCharacter = useChatStore((s) => s.unreadByCharacter);
   const fetchUnreadCounts = useChatStore((s) => s.fetchUnreadCounts);
   /** 键盘弹出（输入聚焦）时隐藏底部 tab */
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const navigationRef = useRef<{
+    stack: MobileNavSnapshot[];
+    lastSignature: string;
+    suppressNextCommit: boolean;
+    timer?: ReturnType<typeof setTimeout>;
+  } | null>(null);
 
   // 聊天 tab 总未读 = 各角色未读之和（微信式：红点 + 数字）
   const totalUnread = useMemo(
@@ -95,6 +134,7 @@ export function MobileLayout() {
   // 它**不隐藏底部导航**，所以手机端不会出现"进去了出不来"；此时高亮「世界」。
   // 同一条规则适用于关系网络 / 记忆 / 时间线 / 世界设定（以及保留的旧剧场页）。
   const diaryOpen = activeView === 'diary';
+  const todoOpen = activeView === 'todo';
   const relationsOpen = activeView === 'relations';
   const stageOpen = activeView === 'stage';
   const memoryOpen = activeView === 'memory';
@@ -102,6 +142,71 @@ export function MobileLayout() {
   const settingsOpen = activeView === 'worldSettings';
   const overlayOpen = isWorldOverlay(activeView);
   const activeTab: MobileTab = overlayOpen ? 'world' : tab;
+
+  /** 受保护的移动端 history 栈：详情先返回，最后才允许离开应用。 */
+  useEffect(() => {
+    const initial = readMobileNavSnapshot();
+    window.history.replaceState({ ...(window.history.state ?? {}), vgMobileNav: 'root' }, '');
+    window.history.pushState({ vgMobileNav: 'guard' }, '');
+    navigationRef.current = {
+      stack: [initial],
+      lastSignature: mobileNavSignature(initial),
+      suppressNextCommit: false,
+    };
+
+    const onPopState = () => {
+      const navigation = navigationRef.current;
+      if (!navigation) return;
+      if (useUIStore.getState().canvasSheetOpen) {
+        useUIStore.getState().setCanvasSheetOpen(false);
+        window.dispatchEvent(new Event('vg-close-canvas-sheet'));
+        // popstate 已经把浏览器退到上一项；补回当前项，让下一次返回仍有层级可退。
+        window.history.pushState({ vgMobileNav: 'view', depth: navigation.stack.length }, '');
+        return;
+      }
+      if (navigation.stack.length > 1) {
+        navigation.stack.pop();
+        const previous = navigation.stack[navigation.stack.length - 1];
+        navigation.suppressNextCommit = true;
+        navigation.lastSignature = mobileNavSignature(previous);
+        useUIStore.setState(previous);
+        return;
+      }
+      window.history.pushState({ vgMobileNav: 'guard' }, '');
+    };
+    window.addEventListener('popstate', onPopState);
+
+    // Capacitor 版本若提供全局 App 插件，硬件返回键也走同一条 history 栈。
+    const capacitor = (window as unknown as {
+      Capacitor?: { Plugins?: { App?: { addListener?: (name: string, callback: () => void) => unknown } } };
+    }).Capacitor;
+    capacitor?.Plugins?.App?.addListener?.('backButton', () => window.history.back());
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  useEffect(() => {
+    const navigation = navigationRef.current;
+    if (!navigation) return;
+    const signature = mobileNavSignature(readMobileNavSnapshot());
+    if (navigation.suppressNextCommit) {
+      navigation.suppressNextCommit = false;
+      navigation.lastSignature = signature;
+      return;
+    }
+    if (signature === navigation.lastSignature) return;
+    if (navigation.timer) clearTimeout(navigation.timer);
+    navigation.timer = setTimeout(() => {
+      const latest = readMobileNavSnapshot();
+      const latestSignature = mobileNavSignature(latest);
+      if (latestSignature === navigation.lastSignature) return;
+      navigation.stack.push(latest);
+      navigation.lastSignature = latestSignature;
+      window.history.pushState({ vgMobileNav: 'view', depth: navigation.stack.length }, '');
+    }, 0);
+    return () => {
+      if (navigation.timer) clearTimeout(navigation.timer);
+    };
+  }, [activeView, tab, chatFromCharacters, chatFromList, canvasSceneId]);
 
   // 定时刷新未读数（主动消息到达时保持 tab 徽标新鲜；角色页也会自行拉取）
   useEffect(() => {
@@ -194,6 +299,11 @@ export function MobileLayout() {
         {/* 内容区：tab 切换带淡入动画 */}
         <main className="flex-1 min-h-0 overflow-hidden">
           <Suspense fallback={<div className="vg-loading" role="status">正在打开你的空间…</div>}>
+          <MobileTabSwipe
+            activeTab={tab}
+            enabled={activeView === 'chat' && !chatFromCharacters && !chatFromList}
+            onTabSwipe={switchTab}
+          >
           <div
             key={activeView + tab + (chatFromCharacters || chatFromList ? '-chat' : '')}
             className="h-full animate-tab-in"
@@ -221,6 +331,8 @@ export function MobileLayout() {
               <Suspense fallback={<div className="h-full flex items-center justify-center text-sm text-gray-500">正在打开我的生活…</div>}>
                 <DiaryPage />
               </Suspense>
+            ) : todoOpen ? (
+              <TodoPage />
             ) : (
               <>
                 {tab === 'chat' &&
@@ -243,6 +355,7 @@ export function MobileLayout() {
               </>
             )}
           </div>
+          </MobileTabSwipe>
           </Suspense>
         </main>
 

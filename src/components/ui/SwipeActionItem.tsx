@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 interface Action {
   label: string;
@@ -16,6 +16,8 @@ interface Props {
   swipeDistance?: number;
   /** 内容层额外样式（如置顶高亮背景） */
   contentClassName?: string;
+  /** 用于关闭其它已展开的行，保证同屏只保留一个操作层 */
+  itemId?: string;
 }
 
 /**
@@ -23,16 +25,31 @@ interface Props {
  * - 左滑超过阈值展开，再次左滑/点其他关闭；点击主体执行 onClick
  * - 不拦截纵向滚动：纵向位移大于横向时不进入滑动
  */
-export function SwipeActionItem({ children, actions, onClick, swipeDistance = 160, contentClassName = '' }: Props) {
+export function SwipeActionItem({ children, actions, onClick, swipeDistance = 160, contentClassName = '', itemId }: Props) {
   const [offset, setOffset] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const localId = useId();
+  const id = itemId ?? localId;
   const startRef = useRef<{ x: number; y: number; moved: boolean; dir: 'x' | 'y' | null } | null>(null);
   const offsetRef = useRef(0);
+  const revealDistance = Math.min(swipeDistance, Math.max(64, actions.length * 64));
 
   const setOffsetBoth = (v: number) => {
     offsetRef.current = v;
     setOffset(v);
   };
+
+  useEffect(() => {
+    const onOtherOpen = (event: Event) => {
+      const otherId = (event as CustomEvent<{ id?: string }>).detail?.id;
+      if (otherId && otherId !== id) {
+        setOffsetBoth(0);
+        setExpanded(false);
+      }
+    };
+    window.addEventListener('vg:swipe-action-open', onOtherOpen);
+    return () => window.removeEventListener('vg:swipe-action-open', onOtherOpen);
+  }, [id]);
 
   const onTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
@@ -52,8 +69,8 @@ export function SwipeActionItem({ children, actions, onClick, swipeDistance = 16
     if (s.dir !== 'x') return; // 纵向交给滚动
     s.moved = true;
     // 左滑为负方向；已展开时允许向右关闭
-    const base = expanded ? -swipeDistance : 0;
-    const next = Math.max(-swipeDistance, Math.min(0, base + dx));
+    const base = expanded ? -revealDistance : 0;
+    const next = Math.max(-revealDistance, Math.min(0, base + dx));
     setOffsetBoth(next);
   };
 
@@ -62,9 +79,10 @@ export function SwipeActionItem({ children, actions, onClick, swipeDistance = 16
     startRef.current = null;
     if (!s?.moved) return;
     // 超过一半展开，否则收起
-    if (offsetRef.current < -swipeDistance / 2) {
-      setOffsetBoth(-swipeDistance);
+    if (offsetRef.current < -revealDistance / 2) {
+      setOffsetBoth(-revealDistance);
       setExpanded(true);
+      window.dispatchEvent(new CustomEvent('vg:swipe-action-open', { detail: { id } }));
     } else {
       setOffsetBoth(0);
       setExpanded(false);
@@ -82,7 +100,7 @@ export function SwipeActionItem({ children, actions, onClick, swipeDistance = 16
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl">
+    <div data-swipe-action-item="true" className="relative overflow-hidden rounded-2xl" style={{ touchAction: 'pan-y' }}>
       {/* 底部操作按钮层（默认被不透明内容层完全遮住，左滑才露出） */}
       <div className="absolute inset-y-0 right-0 flex">
         {actions.map((a) => (

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { Character, WorldEvent, WorldPulse, WorldScene } from '../../db/index';
 import type { WorldKernelSnapshot } from '../../lib/world/world-kernel';
 import { eventLabel } from '../../lib/world/world-timeline';
@@ -19,7 +19,7 @@ function durationLabel(pulse: WorldPulse | null): string {
   return hours < 24 ? `${hours} 小时前进` : `${Math.round(hours / 24)} 天前进`;
 }
 
-export function WorldLivingPanel({
+export const WorldLivingPanel = memo(function WorldLivingPanel({
   kernel,
   characters,
   scenes,
@@ -90,7 +90,7 @@ export function WorldLivingPanel({
         <span>地点正在发生什么</span>
         <small>点开一个地点</small>
       </div>
-      <div className="vg-living-locations" role="list">
+      <div data-no-page-swipe="true" className="vg-living-locations" role="list">
         {locations.map((location) => {
           const people = kernel.presences.filter((presence) => presence.locationId === location.id && presence.status === 'present');
           const activeSceneCount = scenes.filter((scene) => scene.locationId === location.id || scene.place === location.name).filter((scene) => scene.status === 'active').length;
@@ -135,4 +135,4 @@ export function WorldLivingPanel({
       )}
     </section>
   );
-}
+});

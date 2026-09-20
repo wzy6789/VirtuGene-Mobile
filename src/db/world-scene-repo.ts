@@ -1,5 +1,6 @@
 import { db, type SceneParticipantState, type WorldScene, type WorldSceneEntry, type WorldSceneState } from './index';
 import { worldObjectRepo } from './world-object-repo';
+import { deriveWorldVisualState, emptyConversationState } from '../lib/world/world-immersion';
 
 /**
  * 场景仓库（World Stage）：
@@ -30,6 +31,7 @@ export interface NewSceneInput {
 }
 
 export function emptySceneState(sceneGoal?: string): WorldSceneState {
+  const visual = deriveWorldVisualState({ place: '', timeLabel: '', mood: '' });
   return {
     ...(sceneGoal ? { sceneGoal } : {}),
     currentAct: 1,
@@ -40,6 +42,8 @@ export function emptySceneState(sceneGoal?: string): WorldSceneState {
     resolvedEventIds: [],
     newEventIds: [],
     participants: [],
+    conversation: emptyConversationState(),
+    visual,
   };
 }
 

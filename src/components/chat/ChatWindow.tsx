@@ -24,6 +24,7 @@ import { continuityRepo } from '../../db/continuity-repo';
 import { sharedEventRepo } from '../../db/shared-event-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { worldRepo } from '../../db/world-repo';
+import { todoRepo, dateLabel } from '../../db/todo-repo';
 import { collectMessageAsSharedMemory, MEMORY_SOURCE_TYPE } from '../../lib/world/world-writer';
 import { selectRecallableSharedMemories, type RecallableSharedMemory } from '../../lib/world/recall';
 import { listMentionableDiaryIds } from '../../lib/world/diary-visibility';
@@ -788,6 +789,18 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       /* 世界层读不到不影响聊天 */
     }
 
+    // 现实待办默认私密；只有用户在待办详情中明确告诉这个角色的事项才会进入当前私聊。
+    // 这是本地按角色过滤，绝不把整个平台或其他角色的待办带进提示词。
+    let todoContext = '';
+    try {
+      const visibleTodos = await todoRepo.visibleForCharacter(userId, character.id, 4);
+      if (visibleTodos.length > 0) {
+        todoContext = `\n\n[用户明确告诉你的待办（仅供自然接话，不要像提醒机器人一样逐条盘问）]\n${visibleTodos.map((todo) => `- ${todo.title}${todo.dueDate ? `（${dateLabel(todo.dueDate)}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note.slice(0, 80)}` : ''}`).join('\n')}`;
+      }
+    } catch {
+      /* 待办读取失败不影响聊天 */
+    }
+
     // 长会话滚动摘要：早期对话压缩，角色不用逐条回忆
     const sessionModel = sessionData?.model ?? null;
     // 临时视觉窗口：发图且所选模型不支持视觉 → 用 DeepSeek 视觉模型兜底识图，
@@ -855,6 +868,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         { key: 'shared-memory', text: sharedMemoryContext, priority: 93 },
         { key: 'scene', text: sceneContext, priority: 91 },
         { key: 'world-pulse', text: pulseEventContext, priority: 89 },
+        { key: 'todo', text: todoContext, priority: 86 },
         { key: 'shared-events', text: sharedEventContext, priority: 88 },
         { key: 'life', text: lifeContext, priority: 92 },
         { key: 'current-time', text: timeContext, priority: 95 },

@@ -107,9 +107,9 @@ function CharacterGroup({ entries, character }: { entries: WorldSceneEntry[]; ch
         <p className="vg-beat-name">{name}</p>
         {entries.map((entry) => (
           entry.kind === 'action' ? (
-            <p key={entry.id} className="vg-beat-action">{entry.content}</p>
+            <p key={entry.id} className="vg-beat-action" data-beat-id={typeof entry.meta?.beatId === 'string' ? entry.meta.beatId : undefined}>{entry.content}</p>
           ) : (
-            <p key={entry.id} className="vg-beat-line">{entry.content}</p>
+            <p key={entry.id} className="vg-beat-line" data-beat-id={typeof entry.meta?.beatId === 'string' ? entry.meta.beatId : undefined}>{entry.content}</p>
           )
         ))}
       </div>
@@ -124,7 +124,7 @@ export function WorldStream({ entries, characters }: { entries: WorldSceneEntry[
     <div className="vg-stream">
       {groups.map((group) => {
         if (group.kind === 'narration') {
-          return <p key={group.id} className="vg-narration">{group.entry.content}</p>;
+          return <p key={group.id} className="vg-narration" data-beat-id={typeof group.entry.meta?.beatId === 'string' ? group.entry.meta.beatId : undefined}>{group.entry.content}</p>;
         }
         if (group.kind === 'user') {
           return <p key={group.id} className="vg-user-action">你{group.entry.content.startsWith('你') ? group.entry.content.slice(1) : `：${group.entry.content}`}</p>;

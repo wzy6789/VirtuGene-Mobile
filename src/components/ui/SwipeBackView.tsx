@@ -38,9 +38,11 @@ export function SwipeBackView({ onBack, enabled = true, children, className = ''
 
     const onStart = (e: TouchEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (t && t.closest('[data-no-back-swipe], button, a, input, textarea, select, [contenteditable="true"]')) return;
       const touch = e.touches[0];
       if (!touch) return;
+      // Android 系统边缘返回区不由页面手势接管；页面返回只接受内容区的右滑。
+      if (touch.clientX <= 28 || touch.clientX >= window.innerWidth - 28) return;
       gesture.current = { startX: touch.clientX, startY: touch.clientY, dir: null };
       dxRef.current = 0;
     };
@@ -92,7 +94,7 @@ export function SwipeBackView({ onBack, enabled = true, children, className = ''
   }, [enabled]);
 
   return (
-    <div ref={ref} className={`h-full will-change-transform ${className}`}>
+    <div ref={ref} data-no-page-swipe="true" className={`h-full will-change-transform ${className}`} style={{ touchAction: 'pan-y' }}>
       {children}
     </div>
   );

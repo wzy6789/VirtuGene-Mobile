@@ -61,6 +61,9 @@ export interface BackupData {
   worldAgentStates?: SyncExportData['worldAgentStates'];
   worldPulses?: SyncExportData['worldPulses'];
   worldObjects?: SyncExportData['worldObjects'];
+  todos?: SyncExportData['todos'];
+  todoOccurrences?: SyncExportData['todoOccurrences'];
+  todoReminders?: SyncExportData['todoReminders'];
 }
 
 /** 收集全量数据（含账号表，用于完整备份） */
@@ -92,6 +95,9 @@ export async function collectBackupData(userId: string | null, username: string 
     worldAgentStates: base.worldAgentStates,
     worldPulses: base.worldPulses,
     worldObjects: base.worldObjects,
+    todos: base.todos,
+    todoOccurrences: base.todoOccurrences,
+    todoReminders: base.todoReminders,
   };
 }
 
@@ -193,6 +199,9 @@ export async function restoreBackup(password: string): Promise<{
       worldAgentStates: data.worldAgentStates ?? [],
       worldPulses: data.worldPulses ?? [],
       worldObjects: data.worldObjects ?? [],
+      todos: data.todos ?? [],
+      todoOccurrences: data.todoOccurrences ?? [],
+      todoReminders: data.todoReminders ?? [],
     };
     const r = await importSyncData(syncPayload);
     if (!r.ok) return { ok: false, error: r.error ?? '数据导入失败' };

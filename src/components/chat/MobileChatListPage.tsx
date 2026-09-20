@@ -251,6 +251,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
               return (
                 <SwipeActionItem
                   key={c.id}
+                  itemId={c.id}
                   actions={actions}
                   onClick={() => handleItemClick(c)}
                   contentClassName={c.pinned ? 'border border-gene-purple/20 bg-gene-purple/[0.08] shadow-[0_6px_18px_rgba(108,92,231,0.08)]' : 'border border-transparent bg-panel/30'}

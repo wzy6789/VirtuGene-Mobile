@@ -36,6 +36,9 @@ import { listMentionableDiaryIds } from './diary-visibility';
 import { describeFacets, FACET_LABEL } from './relationships';
 import { buildHiddenUserProfile } from './user-profile';
 import { worldObjectRepo } from '../../db/world-object-repo';
+import { todoRepo } from '../../db/todo-repo';
+import type { WorldConversationState, WorldVisualState } from './world-immersion';
+import { deriveWorldVisualState, directorConversationHints, emptyConversationState } from './world-immersion';
 
 /** Context Builder 的输入（全部是已经取好的实体，避免在内部再查一遍角色） */
 export interface WorldContextParams {
@@ -53,6 +56,7 @@ export interface WorldContextParams {
 }
 
 export interface CharacterMemory {
+  persona?: string;
   characterId: string;
   name: string;
   /** TA 知道并且可以提起的共同记忆 */
@@ -69,9 +73,12 @@ export interface CharacterMemory {
   threads: ContinuityThread[];
   /** 只由该角色自己的 4.x 用户记忆整理出的隐藏画像，不跨角色共享 */
   userProfile?: string;
+  /** 用户明确告诉 TA 的现实待办；私密待办永远不在这里。 */
+  todos: { title: string; dueDate?: string; dueTime?: string; note?: string }[];
 }
 
 export interface WorldContext {
+  sceneGoal?: string;
   userId: string;
   worldId: string;
   sceneId: string;
@@ -95,6 +102,10 @@ export interface WorldContext {
   /** §27 一致性守护用：这个世界里存在的"秘密"（只有守门人能看到） */
   secrets: { ownerCharacterId: string; title: string }[];
   nameOf: (characterId: string) => string;
+  /** 短期导演状态：用于换题、主动发起和意象冷却。 */
+  conversation?: WorldConversationState;
+  /** 当前场景的稳定视觉状态。 */
+  visual?: WorldVisualState;
 }
 
 function presenceOf(scene: WorldScene, override?: string[]): string[] {
@@ -132,7 +143,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     const participant = scene.state.participants?.find((p) => p.characterId === characterId);
     const entryMemoryMode = participant?.entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory';
     const carryMemory = entryMemoryMode !== 'present';
-    const [facts, memories, scenes, diaryVisible, threads, relation, userMemories] = await Promise.all([
+    const [facts, memories, scenes, diaryVisible, threads, relation, userMemories, todos] = await Promise.all([
       worldFactRepo.listForCharacter(worldId, characterId, 10, userId),
       carryMemory ? selectRecallableSharedMemories({ userId, worldId, characterId, limit: 3 }) : Promise.resolve([]),
       carryMemory ? selectRecallableScenes({ userId, worldId, characterId, limit: 2 }) : Promise.resolve([]),
@@ -144,7 +155,8 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
           .filter((row) => row.userId === userId)
           .sort((a, b) => b.createdAt - a.createdAt)
           .slice(0, 18))
-        : Promise.resolve([]),
+      : Promise.resolve([]),
+      carryMemory ? todoRepo.visibleForCharacter(userId, characterId, 5) : Promise.resolve([]),
     ]);
 
     // 日记：可见 ∩ 可提起（与私聊完全同一口径，避免"世界页能说、私聊不能说"）
@@ -157,6 +169,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
       .map((d) => ({ id: d.id, date: d.date, title: d.title, content: d.content.slice(0, 400) }));
 
     perCharacter[characterId] = {
+      persona: params.characters.find((character) => character.id === characterId)?.systemPrompt,
       characterId,
       name: nameOf(characterId),
       memories: memories.map((m) => m.memory),
@@ -171,6 +184,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
       ...(relation && relation.userId === userId ? { userRelation: relation } : {}),
       threads,
       ...(carryMemory ? { userProfile: buildHiddenUserProfile(userMemories, params.userText) } : {}),
+      todos: todos.map((todo) => ({ title: todo.title, ...(todo.dueDate ? { dueDate: todo.dueDate } : {}), ...(todo.dueTime ? { dueTime: todo.dueTime } : {}), ...(todo.note ? { note: todo.note.slice(0, 120) } : {}) })),
     };
 
     // 秘密：TA 守着不说的事（只有一致性守护看得到）
@@ -182,6 +196,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
   }
 
   return {
+    sceneGoal: scene.state.sceneGoal,
     userId,
     worldId,
     sceneId: scene.id,
@@ -197,6 +212,8 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     perCharacter,
     secrets,
     nameOf,
+    conversation: scene.state.conversation ?? emptyConversationState(),
+    visual: scene.state.visual ?? deriveWorldVisualState(scene),
   };
 }
 
@@ -233,6 +250,7 @@ export function renderWorldLayer(ctx: WorldContext): string {
   const history = ctx.worldFacts.filter((f) => f.category === 'history' || f.category === 'shared_knowledge' || f.category === 'custom');
 
   lines.push(`【此刻】${ctx.place} · ${ctx.timeLabel} · 气氛：${ctx.mood}`);
+  if (ctx.sceneGoal) lines.push(`【这一段的方向】${ctx.sceneGoal}。这是可改变的尝试，不是必须强迫用户完成的任务。`);
   lines.push(`【在场】${ctx.presence.map((id) => ctx.nameOf(id)).join('、') || '只有你'}（用户也在场）`);
   if (rules.length) lines.push(`【这个世界不变的规则】\n${rules.map((f) => `- ${f.content}`).join('\n')}`);
   if (places.length) lines.push(`【这个世界的地方】\n${places.map((f) => `- ${f.content}`).join('\n')}`);
@@ -297,6 +315,7 @@ export function renderWorldBrief(ctx: WorldContext, recentLimit = 16): string {
     renderEventLayer(ctx),
     renderObjectLayer(ctx),
     renderRecentLayer(ctx, recentLimit),
+    directorConversationHints(ctx.conversation),
   ].filter(Boolean).join('\n\n');
 }
 
@@ -338,6 +357,9 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string): 
   }
   if (memory.threads.length) {
     lines.push(`【你心里还记着的事】\n${memory.threads.map((t) => `- ${t.title}${t.detail ? `（${t.detail}）` : ''}`).join('\n')}`);
+  }
+  if (memory.todos.length) {
+    lines.push(`【用户明确告诉你的待办】\n${memory.todos.map((todo) => `- ${todo.title}${todo.dueDate ? `（${todo.dueDate}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note}` : ''}`).join('\n')}\n只在话题相关时自然提起，不要像任务管理器一样盘问。`);
   }
   if (memory.userProfile) lines.push(memory.userProfile);
   return lines.join('\n');

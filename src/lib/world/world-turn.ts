@@ -43,6 +43,7 @@ import type { WorldTurn, WorldTurnStatus } from '../../db/index';
 import { worldLocationRepo } from '../../db/world-location-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
 import { worldObjectRepo } from '../../db/world-object-repo';
+import { deriveWorldVisualState, updateConversationState, type WorldBeatMeta } from './world-immersion';
 
 /* ------------------------------------------------------------------ *
  * 串行队列（§58）：同一个世界同一时刻只跑一轮，避免读到半完成状态
@@ -524,7 +525,11 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       if (narrated.narration) narration = narrated.narration;
     }
     if (narration) {
-      const entry = await worldSceneRepo.appendEntry(sceneId, { kind: 'narration', content: narration });
+      const entry = await worldSceneRepo.appendEntry(sceneId, {
+        kind: 'narration',
+        content: narration,
+        meta: { beatId: turn.id, layer: 'environment', sequence: turnEntries.length, camera: 'wide' } satisfies WorldBeatMeta,
+      });
       turnEntries.push(entry);
       emit({ type: 'entry', entry });
     }
@@ -539,7 +544,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       ...(plan.worldChanges.length ? { worldChanges: plan.worldChanges } : {}),
       ...(params.call ? { call: params.call } : {}),
     });
-    llmCalls += plan.speakers.length;
+    llmCalls += beats.reduce((sum, beat) => sum + (beat.llmCalls ?? 1), 0);
 
     /**
      * §40「让他们自己聊」：用户让角色自己交流时，在初次回应之后**继续往下走若干小拍**，
@@ -571,13 +576,23 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       if (beat.via === 'none') continue;
       const row: { beatIndex: number; actionEntryId?: string; dialogueEntryId?: string } = { beatIndex: beatRows.length };
       if (beat.action) {
-        const entry = await worldSceneRepo.appendEntry(sceneId, { kind: 'action', content: beat.action, speakerId: beat.characterId });
+        const entry = await worldSceneRepo.appendEntry(sceneId, {
+          kind: 'action',
+          content: beat.action,
+          speakerId: beat.characterId,
+          meta: { beatId: turn.id, layer: 'action', sequence: turnEntries.length, camera: 'focus' } satisfies WorldBeatMeta,
+        });
         turnEntries.push(entry);
         row.actionEntryId = entry.id;
         emit({ type: 'entry', entry });
       }
       if (beat.dialogue) {
-        const entry = await worldSceneRepo.appendEntry(sceneId, { kind: 'dialogue', content: beat.dialogue, speakerId: beat.characterId });
+        const entry = await worldSceneRepo.appendEntry(sceneId, {
+          kind: 'dialogue',
+          content: beat.dialogue,
+          speakerId: beat.characterId,
+          meta: { beatId: turn.id, layer: 'dialogue', sequence: turnEntries.length, camera: 'close' } satisfies WorldBeatMeta,
+        });
         turnEntries.push(entry);
         row.dialogueEntryId = entry.id;
         emit({ type: 'entry', entry });
@@ -633,6 +648,15 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         error: reason,
       });
     }
+
+    // 5.2：把这一拍的节奏与视觉状态写回场景。它们是可压缩的导演状态，
+    // 不会污染正文，也不会跨用户共享；下次进入同一地点时会自然延续。
+    const stateScene = (await worldSceneRepo.getScene(sceneId)) ?? beatScene;
+    const stateEntries = await worldSceneRepo.listEntries(sceneId, { limit: 120 });
+    await worldSceneRepo.patchSceneState(sceneId, {
+      conversation: updateConversationState(stateScene.state.conversation, text, stateEntries),
+      visual: deriveWorldVisualState(stateScene, stateScene.state.visual),
+    });
 
     // ---- 10) 可见内容已经给到用户：解除阻塞（§57）
     emit({ type: 'ready' });
@@ -757,7 +781,7 @@ export async function runAutoBeats(params: {
       ...(params.worldChanges?.length ? { worldChanges: params.worldChanges } : {}),
       ...(params.call ? { call: params.call } : {}),
     });
-    calls += 1;
+    calls += beat.llmCalls ?? 1;
     if (beat.via === 'none') return { beats: added, calls, interrupted: false };
     beats.push(beat);
     added.push(beat);
@@ -821,7 +845,7 @@ async function rerunAfterUserEntry(params: {
     sequential: plan.speakers.length > 1 ? true : plan.sequential,
     ...(params.call ? { call: params.call } : {}),
   });
-  llmCalls += plan.speakers.length;
+  llmCalls += beats.reduce((sum, beat) => sum + (beat.llmCalls ?? 1), 0);
   for (const beat of beats) {
     if (beat.action) {
       const entry = await worldSceneRepo.appendEntry(turn.sceneId, { kind: 'action', content: beat.action, speakerId: beat.characterId });

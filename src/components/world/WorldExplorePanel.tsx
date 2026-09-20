@@ -86,7 +86,7 @@ export function WorldExplorePanel({
             <h3 className="text-sm font-medium text-white/85">世界里的其他地点</h3>
             <span className="text-[11px] text-white/40">前往会写进剧情</span>
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-1">
+          <div data-no-page-swipe="true" className="flex gap-2 overflow-x-auto pb-1">
             {otherLocations.slice(0, 6).map((location) => (
               <button key={location.id} type="button" onClick={() => onMove(location)} className="shrink-0 rounded-full border border-violet-200/15 bg-violet-200/[.06] px-3 py-2 text-xs text-violet-100/80 active:scale-95">{location.name}</button>
             ))}

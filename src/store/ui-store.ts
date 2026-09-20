@@ -8,7 +8,7 @@ import { create } from 'zustand';
  * - `diary` / `relations` / `memory` / `timeline` / `worldSettings` / `stage` 都是「世界」下的
  *   **内容页**：底部导航保持可见，点任意一级导航即退出（不会出现"进去了出不来"）。
  */
-export type ActiveView = 'chat' | 'diary' | 'relations' | 'stage' | 'canvas' | 'memory' | 'timeline' | 'worldSettings';
+export type ActiveView = 'chat' | 'diary' | 'todo' | 'relations' | 'stage' | 'canvas' | 'memory' | 'timeline' | 'worldSettings';
 /** 手机端底部一级导航（5.0：消息｜世界｜角色｜我的） */
 export type MobileTab = 'chat' | 'world' | 'characters' | 'me';
 
@@ -24,7 +24,7 @@ export const MOBILE_TABS: { key: MobileTab; label: string }[] = [
 ];
 
 /** 哪些视图是"世界"下的内容页（底部导航保持可见） */
-export const WORLD_OVERLAY_VIEWS: ActiveView[] = ['diary', 'relations', 'stage', 'memory', 'timeline', 'worldSettings'];
+export const WORLD_OVERLAY_VIEWS: ActiveView[] = ['diary', 'todo', 'relations', 'stage', 'memory', 'timeline', 'worldSettings'];
 /** 沉浸式视图（隐藏底部导航） */
 export const IMMERSIVE_VIEWS: ActiveView[] = ['canvas'];
 
@@ -46,6 +46,9 @@ interface UIState {
    */
   canvasSceneId: string | null;
   setCanvasSceneId: (id: string | null) => void;
+  /** 世界画布底部控制面板是否打开；返回键先收起它，再离开画布 */
+  canvasSheetOpen: boolean;
+  setCanvasSheetOpen: (open: boolean) => void;
   /** 进入世界空间（可指定继续哪一段） */
   openCanvas: (sceneId?: string | null) => void;
 }
@@ -62,7 +65,9 @@ export const useUIStore = create<UIState>((set) => ({
   setChatFromList: (chatFromList) => set({ chatFromList }),
   canvasSceneId: null,
   setCanvasSceneId: (canvasSceneId) => set({ canvasSceneId }),
-  openCanvas: (sceneId) => set({ activeView: 'canvas', canvasSceneId: sceneId ?? null }),
+  canvasSheetOpen: false,
+  setCanvasSheetOpen: (canvasSheetOpen) => set({ canvasSheetOpen }),
+  openCanvas: (sceneId) => set({ activeView: 'canvas', canvasSceneId: sceneId ?? null, canvasSheetOpen: false }),
 }));
 
 export function isWorldOverlay(view: ActiveView): boolean {

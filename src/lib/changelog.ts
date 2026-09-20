@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '5.1.2',
+    date: '2026-09-20',
+    notes: [
+      '重新整理移动端滑动：一级页面横滑与消息行操作分区处理，竖向滚动、长按和按钮不会互相抢手势。',
+      '增加受保护的移动端返回层级，世界控制面板会先收起，避免误退出应用。',
+      '优化消息列表操作展开状态，置顶与删除更容易控制。',
+    ],
+  },
+  {
     version: '5.1.1',
     date: '2026-09-19',
     notes: [

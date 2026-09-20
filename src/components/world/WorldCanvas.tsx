@@ -42,18 +42,17 @@ import {
 import { retryWorldTurn, runWorldTurn } from '../../lib/world/world-turn';
 import { worldAiAvailability, type WorldAiAvailability } from '../../lib/world/world-ai-client';
 import { ensureWorldKernel } from '../../lib/world/world-kernel';
+import { runWorldPulse } from '../../lib/world/world-autonomy';
+import { worldEventRepo } from '../../db/world-event-repo';
 import { WorldStream } from './WorldStream';
 import { WorldComposer, WorldControlSheet, WorldSuggestions, type WorldControlAction } from './WorldControls';
 import { WorldExplorePanel } from './WorldExplorePanel';
+import { StoryCompass } from './StoryCompass';
+import { deriveWorldVisualState, visualCss, revealDelayFor } from '../../lib/world/world-immersion';
 
 const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 function canvasRevealDelay(entry: WorldSceneEntry, previousSpeaker: string | null): number {
-  const length = entry.content.trim().length;
-  if (entry.kind === 'narration') return Math.min(620, 160 + length * 5);
-  if (entry.kind !== 'dialogue' && entry.kind !== 'action') return 0;
-  const speakerChanged = Boolean(entry.speakerId && previousSpeaker && entry.speakerId !== previousSpeaker);
-  const breathingRoom = speakerChanged ? 680 : entry.kind === 'action' ? 260 : 180;
-  return Math.min(1_450, breathingRoom + length * (entry.kind === 'dialogue' ? 7 : 5));
+  return revealDelayFor(entry, previousSpeaker ?? undefined);
 }
 
 export function WorldCanvas() {
@@ -72,9 +71,21 @@ export function WorldCanvas() {
   const [failedTurnId, setFailedTurnId] = useState<string | null>(null);
   const [ai, setAi] = useState<WorldAiAvailability | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const setCanvasSheetOpen = useUIStore((state) => state.setCanvasSheetOpen);
   const [headerOpen, setHeaderOpen] = useState(false);
   const [unseen, setUnseen] = useState(0);
   const [savedStory, setSavedStory] = useState(false);
+
+  useEffect(() => {
+    setCanvasSheetOpen(sheetOpen);
+    return () => setCanvasSheetOpen(false);
+  }, [sheetOpen, setCanvasSheetOpen]);
+
+  useEffect(() => {
+    const closeSheet = () => setSheetOpen(false);
+    window.addEventListener('vg-close-canvas-sheet', closeSheet);
+    return () => window.removeEventListener('vg-close-canvas-sheet', closeSheet);
+  }, []);
   const [toast, setToast] = useState<string | null>(null);
   const [entryMemoryMode, setEntryMemoryMode] = useState<'memory' | 'present'>('memory');
   const [exploreOpen, setExploreOpen] = useState(false);
@@ -115,6 +126,18 @@ export function WorldCanvas() {
           setSuggestions(latestSuggestions(view.entries)?.options ?? []);
         }
         setSavedStory(await isSavedAsStory(userId, world.id, target));
+        // 世界脉冲在首屏之后后台推进，不能让用户为了等“世界自己生活”而卡在 loading。
+        void runWorldPulse({ userId, worldId: world.id, characters: list, reason: 'resume' }).then(async (pulse) => {
+          if (!alive || pulse.eventIds.length === 0) return;
+          const echo = await worldEventRepo.getById(pulse.eventIds[0]);
+          setToast(echo?.title ? `你离开的时候：${echo.title}` : '你离开的时候，世界也留下了一点动静。');
+          const refreshed = await loadCanvas(target, { userId });
+          if (alive && refreshed) {
+            setScene(refreshed.scene);
+            setEntries(refreshed.entries);
+            setHasMore(refreshed.hasMore);
+          }
+        });
       } catch {
         if (alive) setError('世界没有打开成功，请稍后再试。');
       } finally {
@@ -177,12 +200,13 @@ export function WorldCanvas() {
   /* ------------------------------ 返回键：先退出世界空间（§66） ------------------------------ */
   useEffect(() => {
     const onPop = () => {
-      if (sheetOpen) { setSheetOpen(false); window.history.pushState({ vgCanvas: true }, ''); return; }
+      if (window.history.state?.vgMobileNav) return;
+      if (sheetOpen) { setSheetOpen(false); return; }
       // 返回 = 离开世界空间，回到「世界」这一栏（底部导航恢复显示）
       useUIStore.getState().setActiveView('chat');
       useUIStore.getState().setMobileTab('world');
     };
-    window.history.pushState({ vgCanvas: true }, '');
+    // 移动端返回栈由 MobileLayout 统一管理，画布不再额外压入 history。
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [sheetOpen]);
@@ -450,8 +474,13 @@ export function WorldCanvas() {
 
   if (!userId) return null;
 
+  const canvasVisual = scene ? (scene.state.visual ?? deriveWorldVisualState(scene)) : undefined;
+
   return (
-    <div className="vg-canvas relative">
+    <div
+      className={`vg-canvas relative vg-world-light-${canvasVisual?.light ?? 'night'} vg-world-particle-${canvasVisual?.particle ?? 'dust'}`}
+      style={canvasVisual ? visualCss(canvasVisual) : undefined}
+    >
       {/* 顶部：只显示最必要的信息，点击才展开（§10） */}
       <div className="vg-canvas-top">
         <span className="vg-canvas-place">{scene ? `${scene.place} · ${worldTimeLabel(scene)}` : '正在进入世界…'}</span>
@@ -492,6 +521,12 @@ export function WorldCanvas() {
       )}
 
       {/* 内容流 */}
+      {scene && <StoryCompass key={scene.id} scene={scene} entries={entries} busy={busy}
+        onAct={(value) => void send(value, 'control')}
+        onGoal={async (sceneGoal) => {
+          await worldSceneRepo.patchSceneState(scene.id, { sceneGoal });
+          setScene((current) => current?.id === scene.id ? { ...current, state: { ...current.state, sceneGoal } } : current);
+        }} />}
       <div className="vg-canvas-scroll" ref={scrollerRef} onScroll={onScroll}>
         {hasMore && (
           <button type="button" className="vg-load-earlier" onClick={() => void loadMore()}>

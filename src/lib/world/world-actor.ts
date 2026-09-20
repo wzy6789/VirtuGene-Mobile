@@ -12,9 +12,11 @@
  */
 import { safeParseObject, salvagePlainText } from '../ai/safe-json';
 import { worldChat, type WorldLlmCaller } from './world-ai-client';
+import { findModel, resolveModel, getProviderKey } from '../ai/llm';
 import { entryLine, renderCharacterContext, type WorldContext } from './world-context';
 import type { TurnSpeaker } from './world-director';
 import { buildConversationFocus } from './user-profile';
+import { directorConversationHints } from './world-immersion';
 
 export interface ActorParams {
   ctx: WorldContext;
@@ -40,6 +42,8 @@ export interface ActorBeat {
   error?: string;
   via: 'json' | 'salvaged' | 'none';
   raw?: string;
+  /** 正常为 1；空响应触发备用模型时为 2。 */
+  llmCalls?: number;
 }
 
 function trimNatural(text: string, max: number): string {
@@ -76,9 +80,13 @@ const ACTOR_IMMERSION_NOTE = `
 export function buildActorSystem(params: ActorParams): string {
   const { ctx, speaker } = params;
   const blocks: string[] = [];
+  const identity = ctx.perCharacter[speaker.characterId];
+  blocks.push(`【你是谁】${identity?.name ?? ctx.nameOf(speaker.characterId)}\n${identity?.persona?.slice(0, 12000) ?? ''}`);
   blocks.push(renderCharacterContext(ctx, speaker.characterId));
   blocks.push(`【这一拍导演希望你】${speaker.intent}`);
   blocks.push(buildConversationFocus(params.userText, ctx.recentEntries));
+  const rhythm = directorConversationHints(ctx.conversation);
+  if (rhythm) blocks.push(`【对话节奏】\n${rhythm}`);
   if (speaker.mode === 'action') blocks.push('【这一拍只用动作回应，不要说话】');
   if (speaker.mode === 'dialogue') blocks.push('【这一拍用说话回应】');
 
@@ -102,7 +110,8 @@ export function parseActorOutput(raw: string, characterId: string): ActorBeat {
   const parsed = safeParseObject(text);
   if (parsed.via !== 'none') {
     const obj = parsed.value as Record<string, unknown>;
-    const dialogue = typeof obj.dialogue === 'string' ? trimNatural(obj.dialogue.trim(), 180) : '';
+    const spoken = obj.dialogue ?? obj.speech ?? obj.text ?? obj.content;
+    const dialogue = typeof spoken === 'string' ? trimNatural(spoken.trim(), 180) : '';
     const action = typeof obj.action === 'string' ? trimNatural(obj.action.trim(), 140) : '';
     if (dialogue || action) {
       return {
@@ -128,7 +137,7 @@ export async function actAsCharacter(params: ActorParams): Promise<ActorBeat> {
   ].filter(Boolean).join('\n') || '（这一刻刚开始）';
 
   try {
-    const res = await worldChat({
+    const request = {
       messages: [
         { role: 'system', content: buildActorSystem(params) },
         { role: 'user', content: userLine },
@@ -138,10 +147,40 @@ export async function actAsCharacter(params: ActorParams): Promise<ActorBeat> {
       jsonMode: true,
       maxTokens: 500,
       timeoutMs: 60_000,
-    }, params.call);
-    return parseActorOutput(res.content ?? '', params.speaker.characterId);
+    };
+    let first: ActorBeat;
+    try {
+      first = parseActorOutput((await worldChat(request, params.call)).content ?? '', params.speaker.characterId);
+    } catch (error) {
+      const reason = (error as Error).message;
+      if (/auth:|billing:|rate:/.test(reason)) throw error;
+      first = { characterId: params.speaker.characterId, via: 'none', error: reason };
+    }
+    if (first.via !== 'none') return { ...first, llmCalls: 1 };
+
+    // 只有“没有可用正文”才切换备用模型；正常回答绝不平白增加调用。
+    const primary = resolveModel();
+    const fallback = findModel('deepseek-v4-flash');
+    const canFallback = fallback && (params.call || await getProviderKey(fallback.provider));
+    try {
+      // 格式不兼容时改用自然语言请求；依然是完整响应，绝不逐字输出。
+      const second = await worldChat({
+        ...request,
+        jsonMode: false,
+        maxTokens: 800,
+        model: canFallback && fallback ? { provider: fallback.provider, id: fallback.id } : primary,
+        messages: [
+          ...request.messages,
+          { role: 'user', content: '上一轮未得到可用正文。现在直接给出这个角色的一小段台词或动作，不要 JSON、解释、分析，也不要替用户行动。' },
+        ],
+      }, params.call);
+      const recovered = parseActorOutput(second.content ?? '', params.speaker.characterId);
+      return { ...recovered, llmCalls: 2 };
+    } catch {
+      return { ...first, llmCalls: 2 };
+    }
   } catch (err) {
-    return { characterId: params.speaker.characterId, via: 'none', error: (err as Error)?.message ?? 'server:error' };
+    return { characterId: params.speaker.characterId, via: 'none', error: (err as Error)?.message ?? 'server:error', llmCalls: 1 };
   }
 }
 
