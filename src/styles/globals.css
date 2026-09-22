@@ -285,29 +285,14 @@
 .vg-moment-block-list label > span { display:flex; align-items:center; gap:9px; }
 .vg-moment-block-list b { font-weight:500; }
 .vg-moment-block-list input { width:18px; height:18px; accent-color:#6c5ce7; }
-/* 朋友圈的单条动态共用固定头像列，内容、点赞和评论始终从同一位置开始。 */
-.vg-moment-card { display:grid; grid-template-columns:40px minmax(0,1fr); column-gap:11px; padding:16px 12px; border-radius:16px; }
-.vg-moment-author { grid-column:1 / -1; display:grid; grid-template-columns:40px minmax(0,1fr) 26px; align-items:start; gap:11px; }
-.vg-moment-author > img,.vg-moment-author > span { grid-column:1; grid-row:1; width:40px; height:40px; align-self:start; }
-.vg-moment-author > span { display:flex; align-items:center; justify-content:center; }
-.vg-moment-author > div { grid-column:2; grid-row:1; min-width:0; padding-top:2px; }
-.vg-moment-author strong { font-size:15px; line-height:20px; }
-.vg-moment-author > div > span { font-size:12px; line-height:16px; }
-.vg-moment-more { grid-column:3; grid-row:1; }
-.vg-moment-text,.vg-moment-media,.vg-moment-actions,.vg-moment-likes,.vg-moment-comment-section { grid-column:2; min-width:0; }
-.vg-moment-text { margin-top:8px; }
+/* 朋友圈的单条动态：头像固定 40px 左置，正文 / 图片 / 互动都从同一列开始（通栏列表，非卡片盒） */
+.vg-moment-card { padding:14px 16px; }
+.vg-moment-text { margin-top:5px; }
 .vg-moment-media button { min-width:0; overflow:hidden; border-radius:6px; }
 .vg-moment-media img { cursor:pointer; }
-.vg-moment-actions { justify-content:flex-end; margin-top:9px; padding-top:0; border-top:0; }
-.vg-moment-actions button { min-height:32px; padding:0 8px; border-radius:8px; font-size:13px; }
-.vg-moment-likes { display:flex; align-items:center; gap:6px; width:100%; margin-top:3px; padding:8px; border-radius:9px; background:rgba(108,92,231,.065); color:var(--text-secondary); font-size:12px; text-align:left; }
-.vg-moment-like-heart { flex:none; color:#a89cf2; font-size:15px; }
-.vg-moment-like-avatars { display:flex; gap:4px; min-width:0; overflow:hidden; }
+.vg-moment-likes { width:100%; }
 .vg-moment-like-avatars > img,.vg-moment-like-avatars > span { width:26px; height:26px; flex:none; font-size:15px; }
-.vg-moment-comment-section { margin-top:5px; }
-.vg-moment-comments { margin:0; padding:8px 10px; }
-.vg-moment-comment-row { display:block; width:100%; padding:3px 0; font-size:14px; line-height:1.5; }
-.vg-moment-more-comments { margin-top:5px; color:#9eacda; font-size:12px; text-align:left; }
+.vg-moment-comment-row { display:block; width:100%; padding:2px 0; }
 .vg-moment-comment-box { flex-wrap:wrap; }
 .vg-moment-replying { flex-basis:100%; text-align:left; }
 .vg-moment-notification { width:100%; align-items:center; text-align:left; }
