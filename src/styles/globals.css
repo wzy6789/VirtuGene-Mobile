@@ -197,6 +197,8 @@
 .vg-moment-like-avatars > * + * { margin-left:-8px; }
 .vg-moment-likes + .vg-moment-comments { margin-top:8px; padding-top:8px; border-top:1px solid rgba(155,139,237,.14); }
 .vg-moment-menu { position:absolute; z-index:6; top:34px; right:14px; overflow:hidden; border:1px solid var(--border); border-radius:11px; background:var(--bg-panel); box-shadow:0 8px 26px rgba(0,0,0,.16); }
+/* 和 ⋯ 菜单一样带一层透明遮罩：点空白处也能收掉，三套浮层行为一致 */
+.vg-moment-menu-backdrop { position:fixed; z-index:5; inset:0; }
 .vg-moment-menu button { display:block; width:100%; padding:10px 13px; color:var(--text-secondary); font-size:12px; text-align:left; white-space:nowrap; }
 .vg-moment-menu button + button { border-top:1px solid var(--border); color:#ef8888; }
 .vg-moment-text { margin:5px 1px 0; color:var(--text); font-size:15px; line-height:1.72; white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -251,13 +253,14 @@
 .vg-moment-audience-sheet .vg-moment-publish { margin-top:12px; }
 /* 朋友圈设置面板：分组 + 行 + 开关（微信的设置页也是这个形状）
    行高与标题间距压到刚好一屏放得下四组九行（412×915 下不再需要滚动） */
-.vg-moment-setting-title { margin:12px 0 6px; color:#73f6ec; font-size:10.5px; letter-spacing:.16em; }
-.vg-moment-setting-title:not(:first-of-type) { padding-top:10px; border-top:1px solid rgba(155,139,237,.12); }
+.vg-moment-setting-title { margin:10px 0 5px; color:#73f6ec; font-size:10.5px; letter-spacing:.16em; }
+.vg-moment-setting-title:not(:first-of-type) { padding-top:8px; border-top:1px solid rgba(155,139,237,.12); }
 .vg-moment-settings-sheet .vg-moment-setting-title:first-of-type { margin-top:2px; }
-.vg-moment-setting-row { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:9px 12px; border:1px solid rgba(155,139,237,.16); border-radius:12px; background:rgba(108,92,231,.05); text-align:left; }
+.vg-moment-settings-sheet { padding-bottom:calc(env(safe-area-inset-bottom,0px) + 12px); }
+.vg-moment-setting-row { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:8px 12px; border:1px solid rgba(155,139,237,.16); border-radius:12px; background:rgba(108,92,231,.05); text-align:left; }
 .vg-moment-setting-row + .vg-moment-setting-row, .vg-moment-setting-row + .vg-moment-setting-actions { margin-top:6px; }
 .vg-moment-setting-row > span:first-child { min-width:0; color:var(--text); font-size:13px; }
-.vg-moment-setting-row small { display:block; margin-top:3px; color:var(--text-secondary); font-size:11px; }
+.vg-moment-setting-row small { display:block; margin-top:2px; color:var(--text-secondary); font-size:11px; }
 .vg-moment-setting-row > i { flex:none; color:var(--text-secondary); font-size:15px; font-style:normal; }
 .vg-moment-setting-buttons { display:flex; flex:none; gap:6px; }
 .vg-moment-setting-buttons button { padding:6px 10px; border:1px solid var(--border); border-radius:9px; color:var(--text-secondary); font-size:11.5px; }

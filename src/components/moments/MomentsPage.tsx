@@ -561,7 +561,10 @@ export function MomentsPage() {
               <div className="vg-moment-meta"><span>{timeLabel(moment.createdAt)}</span><span>{moment.authorCharacterId ? '角色动态' : audienceLabel(moment)}</span></div>
 
               {openMenu === moment.id && own && (
-                <div className="vg-moment-menu"><button type="button" onClick={() => openAudienceEditor(moment)}>修改谁可以看</button><button type="button" onClick={() => void remove(moment.id)}>删除这条动态</button></div>
+                <>
+                  <button type="button" className="vg-moment-menu-backdrop" aria-label="关闭菜单" onClick={() => setOpenMenu(null)} />
+                  <div className="vg-moment-menu"><button type="button" onClick={() => openAudienceEditor(moment)}>修改谁可以看</button><button type="button" onClick={() => void remove(moment.id)}>删除这条动态</button></div>
+                </>
               )}
 
               <div className="vg-moment-interact">

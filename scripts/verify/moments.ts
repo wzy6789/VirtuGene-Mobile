@@ -309,11 +309,13 @@ async function run(): Promise<void> {
   ownCard?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
   await sleep(250);
   const ownMenuItems = host ? Array.from(host.querySelectorAll('.vg-moment-menu button')).map((b) => (b.textContent ?? '').trim()) : [];
-  check('㉙ 长按别人的动态不出管理菜单，长按自己的才出',
-    !menuAfterOther && ownMenuItems.join('|') === '修改谁可以看|删除这条动态',
-    { menuAfterOther, ownMenuItems, hasOtherCard: otherCard !== null, hasOwnCard: ownCard !== null });
-  ownCard?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
-  await sleep(150);
+  const menuBackdrop = host?.querySelector('.vg-moment-menu-backdrop') as HTMLButtonElement | null;
+  menuBackdrop?.click();
+  await sleep(250);
+  const menuClosed = (host?.querySelector('.vg-moment-menu') ?? null) === null;
+  check('㉙ 长按别人的动态不出管理菜单；长按自己的出菜单，点空白处也能收起',
+    !menuAfterOther && ownMenuItems.join('|') === '修改谁可以看|删除这条动态' && menuBackdrop !== null && menuClosed,
+    { menuAfterOther, ownMenuItems, hasOtherCard: otherCard !== null, hasOwnCard: ownCard !== null, hasBackdrop: menuBackdrop !== null, menuClosed });
 
   // ---------- I. 封面偏好 ----------
   const fakeCover = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
