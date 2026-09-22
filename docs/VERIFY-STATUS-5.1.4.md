@@ -130,3 +130,20 @@ runner 等 150 秒后报 TIMEOUT。**不是 hang，也不是产品问题。** �
 
 注：`scripts/verify/world{F,G}.html`、`character-memory.html`、`gateway-stream.mjs`
 标题里的「5.2.0」是改造期的**内部代号**，正式发版号已统一为 **5.1.4**；套件名与断言未变。
+
+## 八、发版后在发版提交上复验
+
+发布完成后，在发版提交 `1059f15` 上重跑门槛集（`serve.cjs` → `build.mjs` → `run-suite.mjs`）：
+
+- `run-suite.mjs`：**PASS 13，FAIL 0，TIMEOUT 0；断言 fail=0**
+- `world-stream.mjs`：`PASS 16 stream assertions`
+- `gateway-stream.mjs`：`ALL PASS gateway stream assertions`
+- `tsc --noEmit -p tsconfig.json`：exit 0
+
+线上包本体（4,085,515 B）解包核对：`versionCode='25' versionName='5.1.4'`，
+签名 `ef38a01c…40:16` 未变；web 层 `index-DZWfVBjp.js` 含
+`WORLD CONSTELLATION` ×1、`朋友圈` ×19、`星域` ×27、`待办` ×5、`年表` ×4，
+且 `5.2.0` 出现 0 次 —— 说明线上那个包确实是星域改造之后的 5.1.4，不是被复用的旧产物。
+
+更新链路抽查（`compareVersions` 语义）：本机 5.0.4 / 5.1.0 / 5.1.3 → 线上 5.1.4 均**提示更新**；
+本机 5.1.4 不提示。`5.2.0` 只在本机开发期出现过、从未发布，不存在"版本号回退导致收不到更新"的用户。
