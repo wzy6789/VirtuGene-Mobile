@@ -6,7 +6,7 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: '5.2.0',
+    version: '5.1.4',
     date: '2026-09-22',
     notes: [
       '星域统一为单一播放器：新的世界、进入此刻、继续旧世界都进入同一个世界播放器，同一套回合管线。',
