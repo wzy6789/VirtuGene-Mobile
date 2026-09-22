@@ -225,7 +225,7 @@ export function MobileRelationsPage() {
             {pairStates.length === 0 ? (
               <p className="rounded-2xl border border-line bg-surface/60 px-4 py-5 text-center text-xs leading-6 text-gray-500">
                 角色之间还没有发生能被记下来的事。<br />
-                等他们在同一个故事里相遇，这里会慢慢长出关系网。
+                等他们在同一个世界里相遇，这里会慢慢长出关系网。
               </p>
             ) : (
               <ul className="space-y-2.5">

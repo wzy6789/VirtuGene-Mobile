@@ -61,7 +61,12 @@ export const messageRepo = {
   },
 
   async create(message: Message): Promise<string> {
-    return db.messages.add(message);
+    return db.transaction('rw', db.messages, db.sessions, db.groups, async () => {
+      const session = await db.sessions.get(message.sessionId);
+      const group = session?.type === 'group' && session.groupId ? await db.groups.get(session.groupId) : undefined;
+      const witnessedBy = group && group.userId === session?.userId ? [...new Set(group.characterIds)] : undefined;
+      return db.messages.add({ ...message, witnessedBy });
+    });
   },
 
   async deleteBySession(sessionId: string): Promise<void> {

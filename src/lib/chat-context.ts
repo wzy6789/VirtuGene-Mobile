@@ -269,7 +269,7 @@ export function buildDiaryContext(diaries: Diary[]): string {
 }
 
 /**
- * 舞台回忆注入（Phase 3b）：这个角色**亲身参与过、并且已经结束**的那几场戏。
+ * 星域回忆注入（Phase 3b）：这个角色**亲身参与过、并且已经结束**的那几场戏。
  *
  * 与其它区块的分工：
  * - `buildSharedMemoryContext`：你收藏下来的共同记忆（一句话级）
@@ -284,10 +284,35 @@ export function buildSceneContext(scenes: { title: string; place: string; timeLa
     .map((s) => `- 《${s.title}》（${s.place} · ${s.timeLabel}）${s.summary ? `：${s.summary.slice(0, 160)}` : ''}`)
     .join('\n');
   return (
-    `\n\n[你们一起经历过的事（世界舞台）]\n${lines}\n` +
+    `\n\n[你们一起经历过的事（星域）]\n${lines}\n` +
     '这些不是听说的——你**亲身在场**，和用户一起经历过。话题自然相关时，可以像回忆一件真事那样提起（提一句、带上当时的细节或情绪）。' +
     '要求：不要每次都提；不要逐字复述整段经过；不要编造没有发生过的细节；' +
     '也不要把它说成是你和**别的**角色一起经历的；用户不想聊就顺着用户。'
+  );
+}
+
+/**
+ * 进行中的世界星域：只给在场角色看最近几步，让“还没演完”的经历也能
+ * 在私聊里自然接上。它不是结算记忆，不应被说成已经写入年表。
+ */
+export function buildLiveSceneContext(
+  scenes: { title: string; place: string; timeLabel: string; status: string; entries: { kind: string; content: string; speakerName?: string }[] }[],
+): string {
+  const list = scenes.slice(0, 2);
+  if (list.length === 0) return '';
+  const lines = list.map((scene) => {
+    const moments = scene.entries
+      .slice(-5)
+      .map((entry) => {
+        const prefix = entry.kind === 'user_input' ? '用户' : entry.kind === 'dialogue' ? (entry.speakerName ?? '角色') : '旁白';
+        return `  ${prefix}：${entry.content.slice(0, 180)}`;
+      })
+      .join('\n');
+    return `- 《${scene.title}》（${scene.place} · ${scene.timeLabel} · ${scene.status === 'paused' ? '暂时停在这里' : '正在发生'}）\n${moments}`;
+  }).join('\n');
+  return (
+    `\n\n[正在发生的世界星域片段]\n${lines}\n` +
+    '这是你亲身在场、但还没有演完的经历。可以在用户问到相关话题时自然接上最近的动作或情绪；不要声称这已经是完整结局，不要把旁白当成自己的记忆，也不要向未参与这场戏的人透露。用户换话题时立刻跟着用户。'
   );
 }
 

@@ -13,8 +13,8 @@
  * - `TEMPORARY_ERROR`   上一次调用因超时/限流/服务端错误失败 ⇒ 可以重试
  * - `UNAVAILABLE`       没有任何可用的 AI 服务，或凭据明确无效 ⇒ 不该重试
  */
-import { llmChat, resolveModel, getProviderKey, type LLMChatParams, type LLMChatResult, type ProviderId } from '../ai/llm';
-import { gatewayChat, hasAiGatewayAccess } from '../ai/gateway';
+import { llmChat, llmChatStream, resolveModel, getProviderKey, type LLMChatParams, type LLMChatResult, type ProviderId } from '../ai/llm';
+import { gatewayChat, gatewayChatStream, hasAiGatewayAccess } from '../ai/gateway';
 
 /** 可注入的 LLM 边界（验收用；生产走 llmChat / gatewayChat） */
 export type WorldLlmCaller = typeof llmChat;
@@ -93,10 +93,17 @@ export interface WorldChatParams {
   timeoutMs?: number;
   /** 可选的模型覆盖，用于场景在主模型无输出时切换到兜底模型。 */
   model?: { provider: ProviderId; id: string };
+  /**
+   * 流式增量回调（星域呈现层使用）。BYOK 与网关流式（/v1/chat/stream）都支持 SSE；
+   * 只有验收注入路径自动退回非流式，调用方无需判断。
+   */
+  onDelta?: (accumulated: string, delta: string) => void;
 }
 
 export interface WorldChatResult extends LLMChatResult {
   route: 'byok' | 'gateway';
+  /** 流式正文流出后中断（与 BYOK 语义一致：已有的部分真实存在，不得整轮重发） */
+  interrupted?: boolean;
 }
 
 /**
@@ -137,12 +144,32 @@ export async function worldChat(params: WorldChatParams, call?: WorldLlmCaller):
       maxTokens: params.maxTokens ?? 1200,
       timeoutMs: params.timeoutMs ?? 90_000,
     };
+    if (params.onDelta) {
+      // 流式优先；若provider/环境不支持 SSE（未收到任何增量就失败），自动退回整读。
+      let gotDelta = false;
+      try {
+        const streamed = await llmChatStream({
+          ...llmParams,
+          onDelta: (accumulated, delta) => {
+            gotDelta = true;
+            params.onDelta?.(accumulated, delta);
+          },
+        });
+        return { ...streamed, route: 'byok' };
+      } catch (error) {
+        const message = (error as Error)?.message ?? '';
+        // 凭据、额度与限流问题换一种传输方式也不会恢复，避免白发第二次请求。
+        if (gotDelta || /^(auth:|billing:|rate:)/.test(message)) throw error;
+      }
+    }
     const res = await llmChat(llmParams);
     return { ...res, route: 'byok' };
   }
 
   if (hasAiGatewayAccess() && model.provider === 'deepseek') {
-    // 网关是 4.x 就有的单一聊天入口（server/ 不可改动）：把消息列表折回它的入参形态。
+    // 网关是 4.x 就有的单一聊天入口：把消息列表折回它的入参形态。
+    // 私聊继续用整段 /v1/chat；星域流式走独立的 /v1/chat/stream（网关转发供应商 SSE），
+    // 两条路径互不影响。
     const systems = params.messages.filter((m) => m.role === 'system').map((m) => String(m.content ?? ''));
     const rest = params.messages.filter((m) => m.role !== 'system');
     const last = rest[rest.length - 1];
@@ -150,7 +177,7 @@ export async function worldChat(params: WorldChatParams, call?: WorldLlmCaller):
       role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
       content: String(m.content ?? ''),
     }));
-    const res = await gatewayChat({
+    const gatewayParams = {
       // 网关按登录态令牌鉴权，不使用 apiKey（BYOK 分支在上面已经返回）
       apiKey: '',
       systemPrompt: systems.join('\n\n'),
@@ -159,7 +186,28 @@ export async function worldChat(params: WorldChatParams, call?: WorldLlmCaller):
       ...(params.temperature != null ? { temperature: params.temperature } : {}),
       ...(params.timeoutMs != null ? { timeoutMs: params.timeoutMs } : {}),
       sessionModel: { provider: model.provider, model: model.id },
-    });
+    };
+    if (params.onDelta) {
+      // 与 BYOK 同一套断线纪律：正文已开始流出后失败直接保留部分结果；
+      // 未流出正文才静默回退整段网关调用一次（旧网关没有流式端点时自动兼容）。
+      let gotDelta = false;
+      try {
+        const streamed = await gatewayChatStream({
+          ...gatewayParams,
+          maxTokens: params.maxTokens ?? 1200,
+          ...(params.disableThinking ? { disableThinking: true } : {}),
+          onDelta: (accumulated, delta) => {
+            gotDelta = true;
+            params.onDelta?.(accumulated, delta);
+          },
+        });
+        return { ...streamed, route: 'gateway' };
+      } catch (error) {
+        const message = (error as Error)?.message ?? '';
+        if (gotDelta || /^(auth:|billing:|rate:)/.test(message)) throw error;
+      }
+    }
+    const res = await gatewayChat(gatewayParams);
     return { content: res.content ?? '', route: 'gateway' };
   }
 

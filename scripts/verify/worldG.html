@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>VirtuGene 5.2.0 星域验收 G（新世界入口信息架构）</title>
+<link rel="stylesheet" href="./verify.css"></head>
+<body>
+<div id="app">running…</div>
+<script>
+  // 上报必须用**未被打点**的 fetch：harness 会替换 window.fetch 用来注入假 LLM
+  var realFetch = window.fetch.bind(window);
+  function report(kind, detail) {
+    try { realFetch('/result?suite=worldG', { method: 'POST', body: kind + '\n' + detail }); } catch (e) { /* ignore */ }
+  }
+  window.addEventListener('error', function (e) {
+    report('PAGE ERROR: ' + (e.message || ''), String((e.error && e.error.stack) || e.filename || ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    report('UNHANDLED REJECTION', String((e.reason && e.reason.stack) || e.reason));
+  });
+</script>
+<script src="./worldG.bundle.js"></script>
+</body>
+</html>

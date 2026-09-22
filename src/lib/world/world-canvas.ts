@@ -141,18 +141,18 @@ export async function loadCanvas(sceneId: string, opts: { pageSize?: number; use
   const scene = await worldSceneRepo.getScene(sceneId);
   if (!scene || (opts.userId !== undefined && scene.userId !== opts.userId)) return null;
   const pageSize = Math.max(10, opts.pageSize ?? CANVAS_PAGE_SIZE);
-  const all = await worldSceneRepo.listEntries(sceneId, { limit: 4000 });
-  const entries = all.slice(Math.max(0, all.length - pageSize));
-  return { scene, entries, total: all.length, hasMore: all.length > entries.length };
+  const [entries, total] = await Promise.all([
+    worldSceneRepo.listRecentEntries(sceneId, pageSize),
+    worldSceneRepo.countEntries(sceneId),
+  ]);
+  return { scene, entries, total, hasMore: total > entries.length };
 }
 
 /** 继续加载更早的内容（§68 顶部的"查看更早内容"） */
 export async function loadEarlier(sceneId: string, beforeIndex: number, limit = CANVAS_PAGE_SIZE, userId?: string): Promise<WorldSceneEntry[]> {
   const scene = await worldSceneRepo.getScene(sceneId);
   if (!scene || (userId !== undefined && scene.userId !== userId)) return [];
-  const all = await worldSceneRepo.listEntries(sceneId, { limit: 4000 });
-  const older = all.filter((e) => e.index < beforeIndex);
-  return older.slice(Math.max(0, older.length - limit));
+  return worldSceneRepo.listEntriesBefore(sceneId, beforeIndex, limit);
 }
 
 /** 一次只读：这一段现在是什么样（Canvas 顶部） */
@@ -217,7 +217,7 @@ export async function saveAsStory(params: {
 }): Promise<{ eventId: string; memoryId: string; title: string } | null> {
   const scene = await worldSceneRepo.getScene(params.sceneId);
   if (!scene || scene.userId !== params.userId) return null;
-  const entries = await worldSceneRepo.listEntries(params.sceneId, { limit: 4000 });
+  const entries = await worldSceneRepo.listRecentEntries(params.sceneId, 4000);
   const titled = params.title?.trim();
   const firstDialogue = entries.find((e) => e.kind === 'dialogue' && e.content.trim());
   const title = (titled || scene.title || firstDialogue?.content.slice(0, 20) || '一段共同经历').slice(0, 60);
@@ -279,7 +279,7 @@ export async function isSavedAsStory(userId: string, worldId: string, sceneId: s
   return !!existing;
 }
 
-/** 把这一段收束起来（用户点"结束这一刻"）：只暂停，0 次 AI 调用（结算由用户显式触发） */
+/** 把这一段收束起来（用户点"先离开一会儿"）：只暂停，0 次 AI 调用（结算由用户显式触发） */
 export async function pauseCanvas(sceneId: string, userId?: string): Promise<void> {
   const scene = await worldSceneRepo.getScene(sceneId);
   if (!scene || (userId !== undefined && scene.userId !== userId)) return;
@@ -298,7 +298,7 @@ export async function removeSegment(sceneId: string): Promise<void> {
 
 /** 这一段的全部正文（导出/分享/报告用） */
 export async function segmentEntries(sceneId: string): Promise<WorldSceneEntry[]> {
-  return worldSceneRepo.listEntries(sceneId, { limit: 4000 });
+  return worldSceneRepo.listRecentEntries(sceneId, 4000);
 }
 
 /** 段落条数统计（世界主页弱化统计用） */

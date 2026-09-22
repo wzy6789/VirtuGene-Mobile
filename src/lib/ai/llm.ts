@@ -105,9 +105,8 @@ export interface LLMChatResult {
   rawNote?: string;
 }
 
-/** 统一 chat 调用（OpenAI 兼容）；错误码与现有体系一致 */
-export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
-  const provider = LLM_PROVIDERS[params.provider];
+/** 构建 OpenAI 兼容请求体（普通与流式调用共用，保证参数适配一致） */
+function buildChatBody(params: LLMChatParams): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: params.model,
     messages: params.messages,
@@ -127,6 +126,21 @@ export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
   if (params.jsonMode && (params.provider === 'deepseek' || params.provider === 'qwen')) {
     body.response_format = { type: 'json_object' };
   }
+  return body;
+}
+
+/** 把非 200 状态码映射成统一错误码（普通与流式调用共用） */
+function throwForStatus(status: number): never {
+  if (status === 401) throw new Error('auth:invalid_key');
+  if (status === 402) throw new Error('billing:insufficient');
+  if (status === 429) throw new Error('rate:limited');
+  throw new Error('server:error');
+}
+
+/** 统一 chat 调用（OpenAI 兼容）；错误码与现有体系一致 */
+export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
+  const provider = LLM_PROVIDERS[params.provider];
+  const body = buildChatBody(params);
 
   try {
     const response = await fetchWithTimeout(
@@ -169,16 +183,190 @@ export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
       return { content, truncated, usage };
     }
 
-    if (response.status === 401) {
-      throw new Error('auth:invalid_key');
-    }
-    if (response.status === 402) {
-      throw new Error('billing:insufficient');
-    }
-    if (response.status === 429) {
-      throw new Error('rate:limited');
-    }
+    throwForStatus(response.status);
+  } catch (err) {
+    if (isTimeoutError(err)) throw new Error('timeout');
+    if (err instanceof Error) throw err;
     throw new Error('server:error');
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 流式调用（仅星域使用；聊天界面保持非流式，不改动 llmChat）
+ *
+ * - SSE（stream: true）逐段解析，onDelta 收到**累计正文**与本次增量；
+ * - 环境不支持 ReadableStream（如被 CapacitorHttp 接管的 fetch）时自动回退整读；
+ * - 错误码与 llmChat 完全一致，调用方无需区分。
+ * - 断线纪律：**正文已经开始流出后中断，绝不整轮重发**——把已生成的部分
+ *   原样交还给调用方并标记 truncated/interrupted；只有在**还没收到任何正文**
+ *   时失败才抛错，交给上层按既定规则回退（世界出口回退非流式重发一次）。
+ * ------------------------------------------------------------------ */
+export interface LLMStreamParams extends LLMChatParams {
+  /** 每收到一段增量回调一次：accumulated 为截至目前全文，delta 为本段新增 */
+  onDelta: (accumulated: string, delta: string) => void;
+}
+
+export interface LLMStreamResult extends LLMChatResult {
+  /**
+   * 流在正文流出后被掐断（网络断开/超时/对端未发结束帧）。
+   * 与 truncated（max_tokens 截断）并列：都表示"内容不完整，但已有的部分是真实的"。
+   */
+  interrupted?: boolean;
+}
+
+export interface SseReadOutcome {
+  content: string;
+  truncated: boolean;
+  /** 未看到 [DONE] / finish_reason 就结束（断线或坏流） */
+  interrupted: boolean;
+  usage?: { inputTokens: number; outputTokens: number };
+}
+
+/**
+ * 共享 SSE 解析器（BYOK 直连与网关流式复用，保证分片/断线行为完全一致）。
+ *
+ * 健壮性约定（验收逐条断言）：
+ * - CRLF 与跨网络分片：在累计 buffer 上统一换行后再按空行切事件；
+ * - 事件内多行 data: 先拼接再 JSON.parse（OpenAI 实现是单行，但按规范兼容）；
+ * - 无可读流（CapacitorHttp 桥接）：整读文本，自动区分 SSE 文本与 JSON 整读体；
+ * - 流尾无空行残留的半截事件：冲刷 decoder 后补消费；
+ * - **断线检测**：只有见过 [DONE] 或任意 finish_reason 才算干净结束，
+ *   否则 interrupted=true；
+ * - 已经流出正文后的读取错误**不抛出**，保留部分正文 + interrupted；
+ *   首段正文之前的错误原样抛出（调用方决定是否回退）。
+ */
+export async function readSseResponse(
+  response: Response,
+  onDelta: (accumulated: string, delta: string) => void,
+): Promise<SseReadOutcome> {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let content = '';
+  let sawFinish = false;
+  let sawDone = false;
+  let truncatedFlag = false;
+  let usage: SseReadOutcome['usage'];
+
+  const consumeEvent = (rawEvent: string) => {
+    const dataLines: string[] = [];
+    for (const line of rawEvent.split('\n')) {
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5);
+      dataLines.push(payload.startsWith(' ') ? payload.slice(1) : payload);
+    }
+    const payload = dataLines.join('\n').trim();
+    if (!payload) return;
+    if (payload === '[DONE]') { sawDone = true; return; }
+    let json: {
+      choices?: { delta?: { content?: unknown }; finish_reason?: string }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    try { json = JSON.parse(payload); }
+    catch { return; }
+    const delta = json.choices?.[0]?.delta?.content;
+    if (typeof delta === 'string' && delta) {
+      content += delta;
+      onDelta(content, delta);
+    }
+    const finishReason = json.choices?.[0]?.finish_reason;
+    if (typeof finishReason === 'string' && finishReason) {
+      sawFinish = true;
+      if (finishReason === 'length') truncatedFlag = true;
+    }
+    if (json.usage) {
+      usage = {
+        inputTokens: Number(json.usage.prompt_tokens ?? 0),
+        outputTokens: Number(json.usage.completion_tokens ?? 0),
+      };
+    }
+  };
+
+  const consumeBuffer = () => {
+    buffer = buffer.replace(/\r\n/g, '\n');
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary >= 0) {
+      consumeEvent(buffer.slice(0, boundary));
+      buffer = buffer.slice(boundary + 2);
+      boundary = buffer.indexOf('\n\n');
+    }
+  };
+
+  // 有些 WebView/网络桥接只提供完整文本，没有 ReadableStream；正文仍可能是 SSE。
+  if (!response.body) {
+    const raw = await response.text();
+    if (raw.trimStart().startsWith('{')) {
+      const data = JSON.parse(raw);
+      const value = data.choices?.[0]?.message?.content;
+      content = typeof value === 'string' ? value : Array.isArray(value)
+        ? value.map((part: string | { text?: string }) => typeof part === 'string' ? part : part?.text ?? '').join('') : '';
+      truncatedFlag = data.choices?.[0]?.finish_reason === 'length';
+      sawFinish = typeof data.choices?.[0]?.finish_reason === 'string';
+      if (content) onDelta(content, content);
+    } else {
+      buffer = raw;
+      consumeBuffer();
+      if (buffer.trim()) consumeEvent(buffer);
+    }
+  } else {
+    const reader = response.body.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        consumeBuffer();
+      }
+    } catch (error) {
+      // 正文已开始流出后断线：不抛出、不重发，把已生成的部分交还给调用方。
+      if (!content) throw error;
+      console.warn('[llm] 流式中断，保留已生成内容', (error as Error)?.message ?? error);
+    }
+    buffer += decoder.decode();
+    consumeBuffer();
+    if (buffer.trim()) consumeEvent(buffer);
+  }
+
+  const interrupted = content.length > 0 && !sawDone && !sawFinish;
+  return { content, truncated: truncatedFlag, interrupted, usage };
+}
+
+export async function llmChatStream(params: LLMStreamParams): Promise<LLMStreamResult> {
+  const provider = LLM_PROVIDERS[params.provider];
+  const body = {
+    ...buildChatBody(params),
+    stream: true,
+    // DeepSeek 只有在 stream_options 里显式要求才在流内回传 usage（费用统计依赖它）
+    ...(params.provider === 'deepseek' ? { stream_options: { include_usage: true } } : {}),
+  };
+
+  try {
+    const response = await fetchWithTimeout(
+      `${provider.baseUrl}/chat/completions`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${params.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      },
+      params.timeoutMs ?? 60_000,
+    );
+
+    if (!response.ok) throwForStatus(response.status);
+
+    const outcome = await readSseResponse(response, params.onDelta);
+    const { content, usage } = outcome;
+    const truncated = outcome.truncated || outcome.interrupted;
+
+    if (!content.trim() || truncated) {
+      const note = `stream=true, truncated=${outcome.truncated}, interrupted=${outcome.interrupted}`;
+      console.warn(`[llm] 流式响应(空/截断/中断)`, note);
+      // 空流不能作为成功响应返回：让世界 AI 出口改用非流式请求补救。
+      if (!content.trim()) throw new Error('stream:empty');
+      return { content, truncated, interrupted: outcome.interrupted, usage, rawNote: note };
+    }
+    return { content, usage };
   } catch (err) {
     if (isTimeoutError(err)) throw new Error('timeout');
     if (err instanceof Error) throw err;

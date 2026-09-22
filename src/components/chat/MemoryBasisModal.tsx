@@ -76,16 +76,22 @@ export function MemoryBasisModal({
   const missingScene = (trace?.sceneIds?.length ?? 0) - scenes.length;
   const missingPulseEvent = (trace?.pulseEventIds?.length ?? 0) - pulseEvents.length;
   const empty =
-    memories.length === 0 && threads.length === 0 && events.length === 0 && sharedMemories.length === 0 && scenes.length === 0 && pulseEvents.length === 0;
+    memories.length === 0 && threads.length === 0 && events.length === 0 && sharedMemories.length === 0 && scenes.length === 0 && pulseEvents.length === 0 && !trace?.crossChannelReferences?.length;
 
   return (
     <Modal open={open} onClose={onClose} title="这条回复的记忆依据" width="max-w-md">
       <div className="p-5 space-y-4">
         <p className="text-[11px] leading-relaxed text-gray-500">
-          这里记录的是生成这条回复时，本机**实际注入**给{characterName || '角色'}的资料。全部保存在你的手机上，不会被上传。
+          这里记录的是生成这条回复时，实际提供给{characterName || '角色'}的记忆来源。原记录保存在本机，选中的内容会随请求发送给你使用的模型服务。
         </p>
 
         {loading && <p className="py-8 text-center text-xs text-gray-500">正在读取本地记忆…</p>}
+        {!!trace?.crossChannelReferences?.length && (
+          <section className="text-xs leading-6 text-sub">
+            <h3 className="font-semibold text-ink">跨场景记忆</h3>
+            <p>本轮参考了 {trace.crossChannelReferences.filter(r => r.source === 'group').length} 条群聊记录、{trace.crossChannelReferences.filter(r => r.source === 'moment').length} 条动态或互动记录。这里保留来源标识，不复制已删除的正文。</p>
+          </section>
+        )}
 
         {!loading && empty && (
           <div className="py-8 text-center text-xs text-gray-500">

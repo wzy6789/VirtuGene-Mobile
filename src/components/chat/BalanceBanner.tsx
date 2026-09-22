@@ -16,10 +16,10 @@ const ERROR_MAP: Record<string, { text: string; action?: string; link?: string }
     text: '请求过于频繁，请稍后重试',
   },
   'server:error': {
-    text: '基因链接中断，请重试',
+    text: '这条消息暂时没收到回复，点消息旁的感叹号重试',
   },
   'timeout': {
-    text: '基因链接超时，请重试',
+    text: '等待回复超时，消息已保留，可点感叹号重试',
   },
 };
 

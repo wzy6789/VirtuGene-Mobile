@@ -19,6 +19,7 @@
  */
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
+import { useUIStore } from '../../src/store/ui-store';
 import Dexie from 'dexie';
 import { db } from '../../src/db/index';
 import { worldRepo } from '../../src/db/world-repo';
@@ -108,6 +109,7 @@ async function seedChat(): Promise<void> {
 }
 
 async function run() {
+  useUIStore.getState().setWorldTheaterOpen(true);
   // 全新库（保证是"新用户"从零开始）
   await Dexie.delete(DB);
   await db.open();

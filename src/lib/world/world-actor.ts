@@ -32,6 +32,11 @@ export interface ActorParams {
   priorBeats?: { characterId: string; dialogue?: string; action?: string }[];
   /** 这一拍的世界变化（例如"下雨了"） */
   worldChanges?: string[];
+  /**
+   * 流式增量回调（星域呈现用）：生成过程中持续吐出已产出的台词/动作前缀。
+   * 不支持的通道（网关、验收注入）不会触发，调用方按"可能没有增量"处理。
+   */
+  onPartial?: (partial: { dialogue?: string; action?: string }) => void;
   call?: WorldLlmCaller;
 }
 
@@ -51,6 +56,42 @@ function trimNatural(text: string, max: number): string {
   const head = text.slice(0, max);
   const boundary = Math.max(head.lastIndexOf('。'), head.lastIndexOf('！'), head.lastIndexOf('？'), head.lastIndexOf('…'));
   return boundary >= Math.floor(max * 0.55) ? head.slice(0, boundary + 1) : `${head.slice(0, max - 1)}…`;
+}
+
+/**
+ * 从不完整的 JSON 文本里增量提取某个字符串字段的**已产出前缀**（流式呈现用）。
+ * 只处理 `\"key\":\"…` 形态；引号未闭合也返回已有部分；末尾悬挂的转义符会先留着不消费。
+ */
+export function extractPartialJsonString(text: string, key: string): string | undefined {
+  const marker = `"${key}"`;
+  const at = text.indexOf(marker);
+  if (at < 0) return undefined;
+  let i = at + marker.length;
+  while (i < text.length && /[\s:]/.test(text[i])) i += 1;
+  if (text[i] !== '"') return undefined;
+  i += 1;
+  let out = '';
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '\\') {
+      if (i + 1 >= text.length) break; // 悬挂转义：等下一段增量
+      const next = text[i + 1];
+      if (next === 'n') out += '\n';
+      else if (next === 't') out += '\t';
+      else if (next === 'u') {
+        if (i + 5 >= text.length) break; // Unicode 转义尚未到齐，不能先把字母 u 显示出来
+        const hex = text.slice(i + 2, i + 6);
+        if (/^[0-9a-fA-F]{4}$/.test(hex)) { out += String.fromCharCode(Number.parseInt(hex, 16)); i += 6; continue; }
+        break;
+      } else out += next;
+      i += 2;
+      continue;
+    }
+    if (ch === '"') break; // 字段结束
+    out += ch;
+    i += 1;
+  }
+  return out || undefined;
 }
 
 export const ACTOR_INSTRUCTION = `你现在**只扮演一个角色**，在一次共同生活里做出这一拍的反应。
@@ -150,7 +191,24 @@ export async function actAsCharacter(params: ActorParams): Promise<ActorBeat> {
     };
     let first: ActorBeat;
     try {
-      first = parseActorOutput((await worldChat(request, params.call)).content ?? '', params.speaker.characterId);
+      first = parseActorOutput((await worldChat({
+        ...request,
+        // 星域呈现：边生成边把已产出的台词/动作前缀吐给世界流（网关/验收通道自动静默）
+        ...(params.onPartial
+          ? {
+            onDelta: (accumulated: string) => {
+              const dialogue = extractPartialJsonString(accumulated, 'dialogue');
+              const action = extractPartialJsonString(accumulated, 'action');
+              if (dialogue || action) {
+                params.onPartial?.({
+                  ...(dialogue ? { dialogue } : {}),
+                  ...(action ? { action } : {}),
+                });
+              }
+            },
+          }
+          : {}),
+      }, params.call)).content ?? '', params.speaker.characterId);
     } catch (error) {
       const reason = (error as Error).message;
       if (/auth:|billing:|rate:/.test(reason)) throw error;
@@ -173,6 +231,10 @@ export async function actAsCharacter(params: ActorParams): Promise<ActorBeat> {
           ...request.messages,
           { role: 'user', content: '上一轮未得到可用正文。现在直接给出这个角色的一小段台词或动作，不要 JSON、解释、分析，也不要替用户行动。' },
         ],
+        // 兜底输出是自然语言正文：直接作为台词增量呈现
+        ...(params.onPartial
+          ? { onDelta: (accumulated: string) => params.onPartial?.({ dialogue: accumulated.trim() }) }
+          : {}),
       }, params.call);
       const recovered = parseActorOutput(second.content ?? '', params.speaker.characterId);
       return { ...recovered, llmCalls: 2 };
@@ -199,6 +261,8 @@ export async function actWorldBeat(params: {
   userAction?: string;
   sequential: boolean;
   worldChanges?: string[];
+  /** 流式增量（星域呈现用）：带角色 id，UI 按人渲染正在生成的内容 */
+  onPartial?: (characterId: string, partial: { dialogue?: string; action?: string }) => void;
   call?: WorldLlmCaller;
 }): Promise<ActorBeat[]> {
   const { ctx, speakers } = params;
@@ -211,6 +275,7 @@ export async function actWorldBeat(params: {
       userText: params.userText,
       ...(params.userAction ? { userAction: params.userAction } : {}),
       ...(params.worldChanges?.length ? { worldChanges: params.worldChanges } : {}),
+      ...(params.onPartial ? { onPartial: (partial: { dialogue?: string; action?: string }) => params.onPartial?.(speaker.characterId, partial) } : {}),
       ...(params.call ? { call: params.call } : {}),
     })));
   }
@@ -228,6 +293,7 @@ export async function actWorldBeat(params: {
         ...(b.action ? { action: b.action } : {}),
       })),
       ...(params.worldChanges?.length ? { worldChanges: params.worldChanges } : {}),
+      ...(params.onPartial ? { onPartial: (partial: { dialogue?: string; action?: string }) => params.onPartial?.(speaker.characterId, partial) } : {}),
       ...(params.call ? { call: params.call } : {}),
     });
     beats.push(beat);

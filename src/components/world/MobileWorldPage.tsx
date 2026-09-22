@@ -13,6 +13,7 @@ import { ensureWorldKernel, type WorldKernelSnapshot } from '../../lib/world/wor
 import { runWorldPulse, type WorldAutonomyResult } from '../../lib/world/world-autonomy';
 import { worldPulseRepo } from '../../db/world-pulse-repo';
 import { WorldLivingPanel } from './WorldLivingPanel';
+import { momentsRepo } from '../../db/moments-repo';
 
 const DAY_MS = 86_400_000;
 
@@ -33,6 +34,16 @@ export function MobileWorldPage() {
   const [pulseBusy, setPulseBusy] = useState(false);
   const [worldExpanded, setWorldExpanded] = useState(false);
   const [panelReady, setPanelReady] = useState(false);
+  const [momentUnread, setMomentUnread] = useState(0);
+  const theaterOpen = useUIStore((state) => state.worldTheaterOpen);
+
+  useEffect(() => {
+    if (!userId) return;
+    const refresh = () => void momentsRepo.unreadNotifications(userId).then((items) => setMomentUnread(items.length)).catch(() => undefined);
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    return () => window.clearInterval(timer);
+  }, [userId]);
 
   const selectedScene = useMemo(
     () => scenes.find((scene) => scene.id === selectedSceneId) ?? null,
@@ -143,13 +154,27 @@ export function MobileWorldPage() {
 
   const openDiary = () => useUIStore.getState().setActiveView('diary');
   const openTodo = () => useUIStore.getState().setActiveView('todo');
+  const openMoments = () => useUIStore.getState().setActiveView('moments');
   const openStage = () => useUIStore.getState().setActiveView('stage');
+  const createWorld = () => {
+    // 直接展开创建表单；创建成功后由资料页送入统一播放器
+    useUIStore.getState().setWorldCreateIntent(true);
+    useUIStore.getState().setActiveView('stage');
+  };
   const openRelations = () => useUIStore.getState().setActiveView('relations');
   const openMemory = () => useUIStore.getState().setActiveView('memory');
   const openTimeline = () => useUIStore.getState().setActiveView('timeline');
   const openSettings = () => useUIStore.getState().setActiveView('worldSettings');
+  const openTheater = () => {
+    setSelectedSceneId(null);
+    useUIStore.getState().setWorldTheaterOpen(true);
+  };
+  const leaveTheater = () => {
+    setSelectedSceneId(null);
+    useUIStore.getState().setWorldTheaterOpen(false);
+  };
   const enterLivingWorld = () => {
-    // “此刻”只回到仍在进行的生活；已暂停的旧剧情从它自己的星点继续，避免串场。
+    // “此刻”只回到仍在进行的生活；已暂停的旧世界从它自己的星点继续，避免串场。
     const active = scenes.find((scene) => scene.status === 'active');
     useUIStore.getState().openCanvas(active?.id ?? null);
   };
@@ -184,12 +209,50 @@ export function MobileWorldPage() {
     }
   }, [characters, kernel, pulseBusy, userId]);
 
+  const nowCard = (
+    <section className={`vg-world-now-card ${worldExpanded ? 'is-open' : ''}`} aria-label="此刻的世界">
+      <div className="vg-world-now-head">
+        <span className="vg-world-pulse-orb" aria-hidden="true" />
+        <div>
+          <span>此刻</span>
+          <strong>{kernel ? `第 ${Math.max(1, Math.floor((kernel.currentWorldTime - kernel.world.createdAt) / DAY_MS) + 1)} 天 · ${characters.length} 位角色 · ${stats?.sharedMemoryCount ?? 0} 段共同经历` : '世界正在醒来'}</strong>
+        </div>
+        <button type="button" onClick={() => setWorldExpanded((value) => !value)}>{worldExpanded ? '收起' : '看看发生了什么'}</button>
+      </div>
+      <p className="vg-world-now-summary">
+        {pulseBusy ? '角色们正在沿着自己的生活继续行动。' : pulse?.summary ?? '你不在的时候，时间也会在这里留下痕迹。'}
+      </p>
+      {worldExpanded && kernel && panelReady && (
+        <WorldLivingPanel
+          kernel={kernel}
+          characters={characters}
+          scenes={scenes}
+          events={recentWorldEvents}
+          pulse={pulse}
+          pulseBusy={pulseBusy}
+          onPulse={() => void triggerManualPulse()}
+        />
+      )}
+      <div className="vg-world-now-actions">
+        <button type="button" className="is-primary" onClick={enterLivingWorld}>进入此刻</button>
+        <button type="button" onClick={() => void triggerManualPulse()} disabled={pulseBusy || characters.length === 0}>{pulseBusy ? '世界行走中…' : '让时间走一步'}</button>
+      </div>
+    </section>
+  );
+
   return (
     <div className="vg-world-page h-full overflow-y-auto px-4 pb-8">
-      {!selectedScene && (
+      {!theaterOpen && !selectedScene && (
         <div className="pt-5 vg-world-hero">
-          <SpaceHeading eyebrow="" title="世界 Living World" detail="时间会走，角色也有自己的去处。" />
-          <nav className="vg-world-life-entries" aria-label="日记与待办">
+          <SpaceHeading eyebrow="" title="世界 Living World" detail="你的生活，与他们的时间在这里相遇。" />
+          <nav className="vg-world-life-entries" aria-label="世界入口">
+            <button type="button" className="vg-world-life-entry is-moments" onClick={openMoments}>
+              <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8A2.5 2.5 0 0 1 17.5 16H11l-5 4v-4.2A2.5 2.5 0 0 1 4 13.5v-8Z" /><path d="M8 8h8M8 11h5" /></svg>
+              <strong>朋友圈</strong>
+              <span>分享今天的片段</span>
+              {momentUnread > 0 && <em className="vg-world-moment-badge">{momentUnread > 99 ? '99+' : momentUnread} 条新互动</em>}
+              <i aria-hidden="true">↗</i>
+            </button>
             <button type="button" className="vg-world-life-entry is-diary" onClick={openDiary}>
               <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h6a3 3 0 0 1 3 3v14a4 4 0 0 0-4-2H4V4Z" /><path d="M13 7a3 3 0 0 1 3-3h4v15h-3a4 4 0 0 0-4 2M7 8h3M7 12h3" /></svg>
               <strong>日记</strong>
@@ -202,35 +265,13 @@ export function MobileWorldPage() {
               <span>安排接下来的事</span>
               <i aria-hidden="true">↗</i>
             </button>
+            <button type="button" className="vg-world-life-entry is-stage" onClick={openTheater}>
+              <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-11Z" /><path d="m9 8 6 4-6 4V8Z" /></svg>
+              <strong>星域</strong>
+              <span>进入正在发生的世界</span>
+              <i aria-hidden="true">↗</i>
+            </button>
           </nav>
-          <section className={`vg-world-now-card ${worldExpanded ? 'is-open' : ''}`} aria-label="此刻的世界">
-            <div className="vg-world-now-head">
-              <span className="vg-world-pulse-orb" aria-hidden="true" />
-              <div>
-                <span>此刻</span>
-                <strong>{kernel ? `第 ${Math.max(1, Math.floor((kernel.currentWorldTime - kernel.world.createdAt) / DAY_MS) + 1)} 天 · ${characters.length} 位角色 · ${stats?.sharedMemoryCount ?? 0} 段共同经历` : '世界正在醒来'}</strong>
-              </div>
-              <button type="button" onClick={() => setWorldExpanded((value) => !value)}>{worldExpanded ? '收起' : '看看发生了什么'}</button>
-            </div>
-            <p className="vg-world-now-summary">
-              {pulseBusy ? '角色们正在沿着自己的生活继续行动。' : pulse?.summary ?? '你不在的时候，时间也会在这里留下痕迹。'}
-            </p>
-            {worldExpanded && kernel && panelReady && (
-              <WorldLivingPanel
-                kernel={kernel}
-                characters={characters}
-                scenes={scenes}
-                events={recentWorldEvents}
-                pulse={pulse}
-                pulseBusy={pulseBusy}
-                onPulse={() => void triggerManualPulse()}
-              />
-            )}
-            <div className="vg-world-now-actions">
-              <button type="button" className="is-primary" onClick={enterLivingWorld}>进入此刻</button>
-              <button type="button" onClick={() => void triggerManualPulse()} disabled={pulseBusy || characters.length === 0}>{pulseBusy ? '世界行走中…' : '让时间走一步'}</button>
-            </div>
-          </section>
         </div>
       )}
 
@@ -239,36 +280,51 @@ export function MobileWorldPage() {
       ) : loadError ? (
         <section className="mt-5 rounded-[26px] border border-rose-400/25 bg-rose-500/[0.06] px-5 py-7 text-center">
           <h2 className="mt-1 text-base font-semibold text-ink">世界读取失败</h2>
-          <p className="mt-2 text-xs leading-6 text-gray-500">没有读到本机保存的剧情记录。你的数据仍在这台设备上。</p>
+          <p className="mt-2 text-xs leading-6 text-gray-500">没有读到本机保存的世界记录。你的数据仍在这台设备上。</p>
           <button type="button" onClick={() => setReloadToken((token) => token + 1)} className="mt-5 w-full rounded-xl border border-line px-4 py-2.5 text-sm text-sub active:scale-[.99]">重新读取</button>
         </section>
       ) : (
         <>
-          {selectedScene ? (
-            <WorldSceneConstellation
-              scene={selectedScene}
-              entries={selectedEntries}
-              characters={characters}
-              entriesLoading={entriesLoading}
-              onBack={() => setSelectedSceneId(null)}
-              onContinue={continueScene}
-            />
+          {theaterOpen ? (
+            <section className="vg-world-theater" aria-label="世界星域">
+              <header className="vg-world-theater-header">
+                <button type="button" onClick={leaveTheater} aria-label="返回世界">‹</button>
+                <div>
+                  <span>WORLD CONSTELLATION</span>
+                  <h1>星域</h1>
+                </div>
+                <i aria-hidden="true" />
+              </header>
+              {selectedScene ? (
+                <WorldSceneConstellation
+                  scene={selectedScene}
+                  entries={selectedEntries}
+                  characters={characters}
+                  entriesLoading={entriesLoading}
+                  onBack={() => setSelectedSceneId(null)}
+                  onContinue={continueScene}
+                />
+              ) : (
+                <>
+                  {nowCard}
+                  <WorldConstellation
+                    scenes={scenes}
+                    currentSceneId={selectedSceneId}
+                    onOpenScene={openSceneDetails}
+                    onOpenStage={openStage}
+                    onCreate={createWorld}
+                  />
+                  <nav className="vg-world-dock" aria-label="世界档案">
+                    <button type="button" onClick={openRelations}><span>⌁</span><b>关系</b><em>谁与谁正在靠近</em></button>
+                    <button type="button" onClick={openMemory}><span>✦</span><b>记忆</b><em>共同留下的片段</em></button>
+                    <button type="button" onClick={openTimeline}><span>↗</span><b>年表</b><em>世界如何走到今天</em></button>
+                    <button type="button" onClick={openSettings}><span>◌</span><b>设定</b><em>世界遵守的规则</em></button>
+                  </nav>
+                </>
+              )}
+            </section>
           ) : (
-            <>
-              <WorldConstellation
-                scenes={scenes}
-                currentSceneId={selectedSceneId}
-                onOpenScene={openSceneDetails}
-                onOpenStage={openStage}
-                onOpenDiary={openDiary}
-              />
-              <nav className="vg-world-dock" aria-label="世界档案">
-                <button type="button" onClick={openRelations}><span>⌁</span><b>关系</b><em>谁与谁正在靠近</em></button>
-                <button type="button" onClick={openMemory}><span>✦</span><b>记忆</b><em>共同留下的片段</em></button>
-                <button type="button" onClick={openTimeline}><span>↗</span><b>年表</b><em>世界如何走到今天</em></button>
-                <button type="button" onClick={openSettings}><span>◌</span><b>设定</b><em>世界遵守的规则</em></button>
-              </nav>
-            </>
+            null
           )}
         </>
       )}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { db, type Todo, type TodoPriority, type TodoRecurrence, type TodoVisibility } from '../../db';
 import { todoRepo, addLocalDays, dateLabel, localDateKey, type TodoWithOccurrence } from '../../db/todo-repo';
 import { cancelTodoNotification, requestNotificationPermission, scheduleTodoNotification } from '../../lib/notify';
@@ -6,9 +6,11 @@ import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
 
-type ViewMode = 'schedule' | 'calendar';
+type ViewMode = 'schedule' | 'calendar' | 'overview';
 const RANGE_START = addLocalDays(localDateKey(), -30);
 const RANGE_END = addLocalDays(localDateKey(), 365);
+const OVERVIEW_START = addLocalDays(localDateKey(), -365);
+const OVERVIEW_END = addLocalDays(localDateKey(), 365);
 
 function formatWeekday(date: string) {
   const [y, m, d] = date.split('-').map(Number);
@@ -26,19 +28,34 @@ export function TodoPage() {
   const [view, setView] = useState<ViewMode>('schedule');
   const [range, setRange] = useState<'today' | 'week' | 'all' | 'overdue'>('today');
   const [rows, setRows] = useState<TodoWithOccurrence[]>([]);
+  const [overviewRows, setOverviewRows] = useState<TodoWithOccurrence[]>([]);
   const [selectedDate, setSelectedDate] = useState(localDateKey());
   const [monthCursor, setMonthCursor] = useState(localDateKey().slice(0, 7) + '-01');
   const [editor, setEditor] = useState<{ todo?: Todo; date?: string } | null>(null);
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState('');
+  const overviewRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     if (!userId) return;
     const to = range === 'today' || range === 'overdue' ? localDateKey() : range === 'week' ? addLocalDays(localDateKey(), 7) : RANGE_END;
-    setRows((await todoRepo.list(userId, range === 'all' || range === 'overdue' ? RANGE_START : localDateKey(), to)).filter(({ occurrence }) => range !== 'overdue' || occurrence.dueDate < localDateKey()));
+    const [nextRows, nextOverview] = await Promise.all([
+      todoRepo.list(userId, range === 'all' || range === 'overdue' ? RANGE_START : localDateKey(), to),
+      todoRepo.list(userId, OVERVIEW_START, OVERVIEW_END),
+    ]);
+    setRows(nextRows.filter(({ occurrence }) => range !== 'overdue' || occurrence.dueDate < localDateKey()));
+    setOverviewRows(nextOverview);
     void todoRepo.rebuildReminders(userId);
   }, [range, userId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!overviewRows.length) return;
+    // 概览默认把最新的有日期事项放在底部并让它成为视觉焦点。
+    const frame = window.requestAnimationFrame(() => {
+      if (overviewRef.current) overviewRef.current.scrollTop = overviewRef.current.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [overviewRows.length, view]);
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 2800); return () => window.clearTimeout(timer); }, [toast]);
 
   const filteredRows = useMemo(() => rows.filter(({ todo }) => !query.trim() || `${todo.title} ${todo.note ?? ''}`.toLowerCase().includes(query.trim().toLowerCase())), [query, rows]);
@@ -72,7 +89,7 @@ export function TodoPage() {
         <p>把想做的事放在时间里，世界会替你记得。</p>
       </section>
       <div className="vg-todo-toolbar">
-        <div className="vg-todo-segment"><button className={view === 'schedule' ? 'active' : ''} onClick={() => setView('schedule')}>日程表</button><button className={view === 'calendar' ? 'active' : ''} onClick={() => setView('calendar')}>月历</button></div>
+        <div className="vg-todo-segment"><button className={view === 'schedule' ? 'active' : ''} onClick={() => setView('schedule')}>日程表</button><button className={view === 'calendar' ? 'active' : ''} onClick={() => setView('calendar')}>月历</button><button className={view === 'overview' ? 'active' : ''} onClick={() => setView('overview')}>全部</button></div>
         <button className="vg-todo-search" onClick={() => setQuery(query ? '' : ' ')}>{query ? '清除' : '⌕'}</button>
       </div>
       {query !== '' && <input autoFocus className="vg-todo-search-input" value={query.trimStart()} onChange={(e) => setQuery(e.target.value)} placeholder="搜索待办、备注或标签" />}
@@ -82,12 +99,33 @@ export function TodoPage() {
           {grouped.length === 0 ? <EmptyState onCreate={() => openEditor()} /> : grouped.map(([date, items]) => <div className="vg-todo-day" key={date}><div className="vg-todo-day-title"><strong>{dateLabel(date)}</strong><span>{formatWeekday(date)} · {date}</span><button onClick={() => openEditor(date)}>＋</button></div>{items.map(({ todo, occurrence }) => <TodoRow key={occurrence.id} todo={todo} occurrence={occurrence} onToggle={(checked) => void finish(todo, occurrence.dueDate, checked)} onEdit={() => setEditor({ todo, date: occurrence.dueDate })} />)}</div>)}
           {filteredRows.some(({ occurrence }) => occurrence.dueDate === '9999-12-31') && <div className="vg-todo-unplanned"><strong>未安排日期</strong><span>有想法，也可以先放在这里</span>{filteredRows.filter(({ occurrence }) => occurrence.dueDate === '9999-12-31').map(({ todo, occurrence }) => <TodoRow key={occurrence.id} todo={todo} occurrence={occurrence} onToggle={(checked) => void finish(todo, localDateKey(), checked)} onEdit={() => setEditor({ todo })} />)}</div>}
         </>
-      ) : <CalendarView cursor={monthCursor} selected={selectedDate} rows={filteredRows} onCursor={setMonthCursor} onSelect={(date) => { setSelectedDate(date); setView('schedule'); setRange('all'); }} />}
-      <button type="button" className="vg-todo-fab" onClick={() => openEditor()}>＋ <span>新建待办</span></button>
+      ) : view === 'calendar' ? <CalendarView cursor={monthCursor} selected={selectedDate} rows={filteredRows} onCursor={setMonthCursor} onSelect={(date) => { setSelectedDate(date); setView('schedule'); setRange('all'); }} /> : <TodoOverview rows={overviewRows} scrollRef={overviewRef} onEdit={(todo, date) => setEditor({ todo, date })} />}
       {editor && userId && <TodoEditor userId={userId} todo={editor.todo} date={editor.date ?? selectedDate} characters={characters} onClose={closeEditor} onSaved={(message) => { closeEditor(); setToast(message); void load(); }} />}
       {toast && <div className="vg-todo-toast" role="status">{toast}</div>}
     </section>
   );
+}
+
+function TodoOverview({ rows, scrollRef, onEdit }: { rows: TodoWithOccurrence[]; scrollRef: RefObject<HTMLDivElement | null>; onEdit: (todo: Todo, date: string) => void }) {
+  const ordered = useMemo(() => [...rows].sort((a, b) => {
+    const dateA = a.occurrence.dueDate === '9999-12-31' ? '' : a.occurrence.dueDate;
+    const dateB = b.occurrence.dueDate === '9999-12-31' ? '' : b.occurrence.dueDate;
+    return dateA.localeCompare(dateB)
+      || (a.occurrence.dueTime ?? '23:59').localeCompare(b.occurrence.dueTime ?? '23:59')
+      || a.todo.title.localeCompare(b.todo.title, 'zh-CN');
+  }), [rows]);
+  return <section className="vg-todo-overview-list" aria-label="全部待办概览">
+    <div className="vg-todo-overview-list-head"><div><span>ALL TASKS</span><strong>全部待办</strong></div><small>{ordered.length} 件</small></div>
+    {ordered.length === 0 ? <p className="vg-todo-overview-empty">还没有可概览的事项</p> : <div className="vg-todo-overview-scroll" ref={scrollRef} tabIndex={0}>
+      {ordered.map(({ todo, occurrence }) => {
+        const unplanned = occurrence.dueDate === '9999-12-31';
+        const time = unplanned ? '待定' : `${dateLabel(occurrence.dueDate)}${occurrence.dueTime ? ` ${occurrence.dueTime}` : ''}`;
+        return <button type="button" className={`vg-todo-overview-item ${occurrence.status === 'completed' ? 'is-done' : ''}`} key={occurrence.id} onClick={() => onEdit(todo, occurrence.dueDate)}>
+          <time>{time}</time><span><b>{todo.title}</b>{todo.note && <small>{todo.note}</small>}</span>
+        </button>;
+      })}
+    </div>}
+  </section>;
 }
 
 function TodoRow({ todo, occurrence, onToggle, onEdit }: { todo: Todo; occurrence: TodoWithOccurrence['occurrence']; onToggle: (checked: boolean) => void; onEdit: () => void }) {

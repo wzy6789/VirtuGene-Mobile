@@ -1,4 +1,5 @@
 import type { ChatParams, ChatResult } from './deepseek';
+import { readSseResponse, type LLMStreamResult } from './llm';
 
 const GATEWAY_URL = (import.meta.env.VITE_AI_GATEWAY_URL ?? '').trim().replace(/\/$/, '');
 const GATEWAY_TOKEN = (import.meta.env.VITE_AI_GATEWAY_TOKEN ?? '').trim();
@@ -149,9 +150,68 @@ export async function gatewayChat(params: ChatParams): Promise<ChatResult> {
   }
 }
 
+/**
+ * 星域流式网关调用：独立端点 `/v1/chat/stream`，与私聊的 `/v1/chat` 互不影响。
+ *
+ * - 请求体与 gatewayChat 相同（外加可选 maxTokens/disableThinking，供世界管线控制预算），
+ *   网关把 DeepSeek 的 SSE 帧原样转发，因此这里复用 BYOK 的共享 SSE 解析器，
+ *   CRLF/分片/断线/空流行为与 BYOK 完全一致；
+ * - 正文已开始流出后中断：保留部分正文并标记 interrupted（调用方不得整轮重发）；
+ * - 未流出正文就失败：按统一错误码抛出，世界出口按既定规则回退整段网关调用。
+ */
+export async function gatewayChatStream(
+  params: ChatParams & {
+    onDelta: (accumulated: string, delta: string) => void;
+    maxTokens?: number;
+    disableThinking?: boolean;
+  },
+  options: { baseUrl?: string } = {},
+): Promise<LLMStreamResult> {
+  const baseUrl = (options.baseUrl ?? GATEWAY_URL).replace(/\/$/, '');
+  if (!baseUrl) throw new Error('server:error');
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), params.timeoutMs ?? 65_000);
+  try {
+    const response = await fetch(`${baseUrl}/v1/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authorization(),
+      },
+      body: JSON.stringify({
+        systemPrompt: params.systemPrompt,
+        message: params.message,
+        image: params.image,
+        history: params.history,
+        retryHint: params.retryHint,
+        temperature: params.temperature,
+        character: params.character,
+        sessionModel: params.sessionModel,
+        forceVision: params.forceVision,
+        ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
+        ...(params.disableThinking ? { disableThinking: true } : {}),
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw gatewayError(response.status);
+    const outcome = await readSseResponse(response, params.onDelta);
+    const truncated = outcome.truncated || outcome.interrupted;
+    if (!outcome.content.trim()) throw new Error('stream:empty');
+    return {
+      content: outcome.content,
+      ...(truncated ? { truncated, interrupted: outcome.interrupted } : {}),
+      ...(outcome.usage ? { usage: outcome.usage } : {}),
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw new Error('timeout');
+    throw error instanceof Error ? error : new Error('server:error');
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 /** 网关侧的低频辅助任务统一走 JSON 输出，避免每个功能重复携带供应商密钥。 */
-export async function gatewayAux<T>(operation: string, payload: unknown): Promise<T> {
-  if (!GATEWAY_URL) throw new Error('server:error');
+export async function gatewayAux<T>(operation: string, payload: unknown): Promise<T> {  if (!GATEWAY_URL) throw new Error('server:error');
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 45_000);
   try {

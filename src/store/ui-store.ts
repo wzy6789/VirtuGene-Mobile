@@ -1,20 +1,20 @@
 import { create } from 'zustand';
 
 /**
- * 桌面端主内容区（聊天 / 手账）。手机端手账已下沉为「世界 → 我的生活」覆盖页，仍复用 activeView。
+ * 桌面端主内容区（聊天 / 手账）。手机端手账已下沉为「世界 → 日记」覆盖页，仍复用 activeView。
  *
  * 5.0.0 Living World 的视图语义（重要）：
  * - `canvas` 是**沉浸式**的：进入世界空间后底部一级导航隐藏（§67），返回键先收键盘再退出。
  * - `diary` / `relations` / `memory` / `timeline` / `worldSettings` / `stage` 都是「世界」下的
  *   **内容页**：底部导航保持可见，点任意一级导航即退出（不会出现"进去了出不来"）。
  */
-export type ActiveView = 'chat' | 'diary' | 'todo' | 'relations' | 'stage' | 'canvas' | 'memory' | 'timeline' | 'worldSettings';
+export type ActiveView = 'chat' | 'diary' | 'todo' | 'moments' | 'relations' | 'stage' | 'canvas' | 'memory' | 'timeline' | 'worldSettings';
 /** 手机端底部一级导航（5.0：消息｜世界｜角色｜我的） */
 export type MobileTab = 'chat' | 'world' | 'characters' | 'me';
 
 /**
  * 底部一级导航的唯一来源（外壳与验收脚本共用，避免"两处各写一份"）。
- * 手账不再是 tab：它从「世界 → 我的生活」进入（5.0 起 世界 是核心一级入口）。
+ * 手账不再是 tab：它从「世界 → 日记」进入（5.0 起 世界 是核心一级入口）。
  */
 export const MOBILE_TABS: { key: MobileTab; label: string }[] = [
   { key: 'chat', label: '消息' },
@@ -24,7 +24,7 @@ export const MOBILE_TABS: { key: MobileTab; label: string }[] = [
 ];
 
 /** 哪些视图是"世界"下的内容页（底部导航保持可见） */
-export const WORLD_OVERLAY_VIEWS: ActiveView[] = ['diary', 'todo', 'relations', 'stage', 'memory', 'timeline', 'worldSettings'];
+export const WORLD_OVERLAY_VIEWS: ActiveView[] = ['diary', 'todo', 'moments', 'relations', 'stage', 'memory', 'timeline', 'worldSettings'];
 /** 沉浸式视图（隐藏底部导航） */
 export const IMMERSIVE_VIEWS: ActiveView[] = ['canvas'];
 
@@ -34,6 +34,12 @@ interface UIState {
   /** 手机端底部 tab */
   mobileTab: MobileTab;
   setMobileTab: (tab: MobileTab) => void;
+  /** 世界首页的星域入口是否已打开；纳入手机返回栈，保证星域可自然返回世界。 */
+  worldTheaterOpen: boolean;
+  setWorldTheaterOpen: (open: boolean) => void;
+  /** 从星图点「新的世界」时置位：星域资料页据此直接展开创建表单（一次性消费）。 */
+  worldCreateIntent: boolean;
+  setWorldCreateIntent: (value: boolean) => void;
   /** 微信式推入：从角色页进入聊天时，聊天作为角色 tab 之上的覆盖层 */
   chatFromCharacters: boolean;
   setChatFromCharacters: (v: boolean) => void;
@@ -59,6 +65,10 @@ export const useUIStore = create<UIState>((set) => ({
   setActiveView: (activeView) => set({ activeView }),
   mobileTab: 'chat',
   setMobileTab: (mobileTab) => set({ mobileTab }),
+  worldTheaterOpen: false,
+  setWorldTheaterOpen: (worldTheaterOpen) => set({ worldTheaterOpen }),
+  worldCreateIntent: false,
+  setWorldCreateIntent: (worldCreateIntent) => set({ worldCreateIntent }),
   chatFromCharacters: false,
   setChatFromCharacters: (chatFromCharacters) => set({ chatFromCharacters }),
   chatFromList: false,

@@ -13,6 +13,7 @@
 import { safeParseObject, salvagePlainText } from '../ai/safe-json';
 import { worldChat, type WorldLlmCaller } from './world-ai-client';
 import { renderWorldBrief, type WorldContext } from './world-context';
+import { extractPartialJsonString } from './world-actor';
 import type { WorldAction } from './world-actions';
 
 export const NARRATOR_INSTRUCTION = `你是一段共同生活里的旁白。只写**看得见、听得见**的东西。
@@ -32,6 +33,8 @@ export interface NarrateParams {
   userText: string;
   /** Director 已经给的这一拍走向（旁白要服务于它） */
   planSummary?: string;
+  /** 流式增量（星域呈现用）：旁白正文的已产出前缀 */
+  onPartial?: (text: string) => void;
   call?: WorldLlmCaller;
 }
 
@@ -76,6 +79,15 @@ export async function narrateWorldBeat(params: NarrateParams): Promise<NarrateRe
       jsonMode: true,
       maxTokens: 300,
       timeoutMs: 45_000,
+      // 星域呈现：边生成边把旁白前缀吐给世界流（网关/验收通道自动静默）
+      ...(params.onPartial
+        ? {
+          onDelta: (accumulated: string) => {
+            const partial = extractPartialJsonString(accumulated, 'narration');
+            if (partial) params.onPartial?.(partial);
+          },
+        }
+        : {}),
     }, params.call);
 
     const parsed = safeParseObject(res.content);

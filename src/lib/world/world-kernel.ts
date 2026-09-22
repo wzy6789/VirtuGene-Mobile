@@ -27,8 +27,8 @@ function initialClock(world: World, now = Date.now()): WorldClock {
 /**
  * 补齐并同步世界内核基础状态。
  *
- * 这一步是幂等的：旧剧情只会被投影成地点与当前位置，不会写入新的世界事件，
- * 因而打开世界页面不会悄悄制造剧情，也不会触发模型调用。
+ * 这一步是幂等的：旧片段只会被投影成地点与当前位置，不会写入新的世界事件，
+ * 因而打开世界页面不会悄悄制造情节，也不会触发模型调用。
  */
 export async function ensureWorldKernel(params: {
   userId: string;
@@ -79,7 +79,7 @@ export async function ensureWorldKernel(params: {
 
   const characterIds = [...new Set(params.characterIds ?? activeScenes.flatMap((scene) => scene.characterIds))];
   await worldAgentRepo.ensureStates(params.userId, params.worldId, characterIds);
-  // 没有进入具体剧情的角色仍属于这个世界。把他们放在现实锚点，避免“有角色但没有位置”的幽灵状态。
+  // 没有进入具体星域场景的角色仍属于这个世界。把他们放在现实锚点，避免“有角色但没有位置”的幽灵状态。
   for (const characterId of characterIds) {
     const presence = await db.worldPresences.get(presenceId(params.worldId, characterId));
     if (!presence || presence.userId !== params.userId) {
@@ -90,7 +90,7 @@ export async function ensureWorldKernel(params: {
         locationId: reality.id,
         worldTime: clock.worldAt,
         status: 'present',
-        note: '尚未进入具体剧情地点',
+        note: '尚未进入具体星域场景',
       });
     }
   }

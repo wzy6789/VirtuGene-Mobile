@@ -27,6 +27,7 @@ import { worldSceneRepo } from '../../db/world-scene-repo';
 import { worldLocationRepo } from '../../db/world-location-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
 import { worldObjectRepo } from '../../db/world-object-repo';
+import { Avatar } from '../ui/Avatar';
 import {
   canvasPresence,
   ensureCanvasScene,
@@ -40,6 +41,7 @@ import {
   worldTimeLabel,
 } from '../../lib/world/world-canvas';
 import { retryWorldTurn, runWorldTurn } from '../../lib/world/world-turn';
+import { finishSceneAndSettle } from '../../lib/world/scene-runtime';
 import { worldAiAvailability, type WorldAiAvailability } from '../../lib/world/world-ai-client';
 import { ensureWorldKernel } from '../../lib/world/world-kernel';
 import { runWorldPulse } from '../../lib/world/world-autonomy';
@@ -53,6 +55,24 @@ import { deriveWorldVisualState, visualCss, revealDelayFor } from '../../lib/wor
 const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 function canvasRevealDelay(entry: WorldSceneEntry, previousSpeaker: string | null): number {
   return revealDelayFor(entry, previousSpeaker ?? undefined);
+}
+
+/** Keep provider/network details out of the world surface. The retry action
+ * remains available, but the copy should sound like a person waiting for a
+ * scene to reconnect rather than an internal error log. */
+function humanWorldError(message?: string): string {
+  const text = message?.trim() ?? '';
+  if (!text) return '这一轮没有接上，再试一次就好。';
+  if (/auth:|invalid[_ -]?key|api.?key|鉴权|权限/i.test(text)) {
+    return '当前模型暂时不可用，请检查 AI 设置后再试。';
+  }
+  if (/timeout|timed out|超时|network|fetch|连接|网络/i.test(text)) {
+    return '回应来得有点慢，网络恢复后再试一次。';
+  }
+  if (/截断|没有返回|空响应|生成失败|不可用的场景内容/i.test(text)) {
+    return '这一轮没有接上，再试一次就好。';
+  }
+  return text;
 }
 
 export function WorldCanvas() {
@@ -101,6 +121,51 @@ export function WorldCanvas() {
   const visibleQueueRef = useRef<Promise<void>>(Promise.resolve());
   const visibleSpeakerRef = useRef<string | null>(null);
 
+  /* ------------------------------ 流式增量（星域呈现） ------------------------------
+   * 角色/旁白边生成边上屏：partial 是**未落库**的临时内容，
+   * 最终正文仍以 worldSceneEntries 为准（守护改写后也以落库版本为准）。
+   * 每个临时片段用 turnId + sceneId + speakerId + kind 复合键标识——
+   * 同一角色一轮里动作/对白分两拍、自动小拍连说两次，只按 speakerId 会互相覆盖。
+   * 高频增量先收进 ref，按 requestAnimationFrame 合帧上屏，避免每个 token 整页重渲染。 */
+  interface PartialSlice { speakerId: string | null; field: 'narration' | 'dialogue' | 'action'; text: string }
+  const [partials, setPartials] = useState<Record<string, PartialSlice>>({});
+  const pendingPartialsRef = useRef<Map<string, PartialSlice>>(new Map());
+  const partialFrameRef = useRef(0);
+  /** 本轮里有过流式呈现的复合键：对应 entry 落库时跳过节拍延迟，避免"看过的再等一遍" */
+  const streamedKeysRef = useRef<Set<string>>(new Set());
+
+  const partialKeyOf = useCallback((turnId: string, sceneId: string, speakerId: string | null, field: string) =>
+    `${turnId}:${sceneId}:${speakerId ?? '__narration'}:${field}`, []);
+
+  const clearPartials = useCallback(() => {
+    if (partialFrameRef.current) {
+      cancelAnimationFrame(partialFrameRef.current);
+      partialFrameRef.current = 0;
+    }
+    pendingPartialsRef.current.clear();
+    setPartials({});
+    streamedKeysRef.current.clear();
+  }, []);
+
+  /** 流式增量上屏：按动画帧合帧批量替换，滚动跟随只看 stickRef（§70） */
+  const handleTurnPartial = useCallback((event: { turnId: string; sceneId: string; speakerId: string | null; field: 'narration' | 'dialogue' | 'action'; text: string }) => {
+    const key = partialKeyOf(event.turnId, event.sceneId, event.speakerId, event.field);
+    streamedKeysRef.current.add(key);
+    pendingPartialsRef.current.set(key, { speakerId: event.speakerId, field: event.field, text: event.text });
+    if (partialFrameRef.current) return;
+    partialFrameRef.current = requestAnimationFrame(() => {
+      partialFrameRef.current = 0;
+      const pending = pendingPartialsRef.current;
+      if (pending.size === 0) return;
+      pendingPartialsRef.current = new Map();
+      setPartials((prev) => {
+        const next = { ...prev };
+        for (const [key, slice] of pending) next[key] = slice;
+        return next;
+      });
+    });
+  }, [partialKeyOf]);
+
   /* ------------------------------ 载入片段 ------------------------------ */
   useEffect(() => {
     if (!userId) return;
@@ -111,9 +176,14 @@ export function WorldCanvas() {
         await useChatStore.getState().loadCharacters();
         const list = useChatStore.getState().characters;
         const world = await worldRepo.ensureDefaultWorld(userId);
-        // 指定了片段就打开它（从记忆页点进来）；否则取/建"此刻"
+        // 指定了片段就打开它（从星图/记忆页点进来）；否则取/建"此刻"
         const target = canvasSceneId ?? (await ensureCanvasScene({ userId, worldId: world.id, characters: list })).id;
         await ensureWorldKernel({ userId, worldId: world.id, characterIds: list.map((character) => character.id) });
+        // 继续一段暂停中的世界：把它唤醒为进行中（finished 保持只读，绝不改写状态）
+        const targetScene = await worldSceneRepo.getScene(target);
+        if (targetScene && (targetScene.status === 'paused' || targetScene.status === 'draft')) {
+          await worldSceneRepo.setSceneStatus(target, 'active');
+        }
         const view = await loadCanvas(target, { userId });
         if (!alive) return;
         if (view) {
@@ -121,6 +191,7 @@ export function WorldCanvas() {
           setEntryMemoryMode(view.scene.state.entryMemoryMode ?? 'memory');
           visibleSpeakerRef.current = null;
           visibleQueueRef.current = Promise.resolve();
+          clearPartials();
           setEntries(view.entries);
           setHasMore(view.hasMore);
           setSuggestions(latestSuggestions(view.entries)?.options ?? []);
@@ -231,18 +302,36 @@ export function WorldCanvas() {
       const el = scrollerRef.current;
       if (el) el.scrollTop = el.scrollHeight;
     }
-  }, [entries]);
+  }, [entries, partials]);
 
   const appendEntry = useCallback((entry: WorldSceneEntry) => {
     visibleQueueRef.current = visibleQueueRef.current.then(async () => {
-      const reveal = canvasRevealDelay(entry, visibleSpeakerRef.current);
+      // 这条内容如果刚刚流式出现过，直接落位：清掉临时气泡，也不再等节拍延迟。
+      // 复合键与流式增量一致（turnId + sceneId + speakerId + kind），
+      // 旧数据没有 meta 时拿不到 turnId → 认为没流式过，走正常揭示节拍。
+      const rawTurnId = entry.meta?.turnId ?? entry.meta?.beatId;
+      const entryTurnId = typeof rawTurnId === 'string' ? rawTurnId : null;
+      const streamable = entry.kind === 'narration' || entry.kind === 'dialogue' || entry.kind === 'action';
+      const streamKey = entryTurnId && streamable
+        ? partialKeyOf(entryTurnId, entry.sceneId, entry.speakerId ?? null, entry.kind)
+        : null;
+      const wasStreamed = Boolean(streamKey) && streamedKeysRef.current.has(streamKey!);
+      if (wasStreamed) {
+        setPartials((prev) => {
+          if (!prev[streamKey!]) return prev;
+          const next = { ...prev };
+          delete next[streamKey!];
+          return next;
+        });
+      }
+      const reveal = wasStreamed ? 0 : canvasRevealDelay(entry, visibleSpeakerRef.current);
       if (reveal > 0) await wait(reveal);
       setEntries((prev) => (prev.some((e) => e.id === entry.id) ? prev : [...prev, entry]));
       if (!stickRef.current) setUnseen((n) => n + 1);
       if (entry.kind === 'dialogue' || entry.kind === 'action') visibleSpeakerRef.current = entry.speakerId ?? null;
     });
     return visibleQueueRef.current;
-  }, []);
+  }, [partialKeyOf]);
 
   const onScroll = () => {
     const el = scrollerRef.current;
@@ -254,9 +343,10 @@ export function WorldCanvas() {
   };
 
   /* ------------------------------ 一轮世界交互 ------------------------------ */
-  const send = useCallback(async (value: string, origin: 'text' | 'suggestion' | 'control' = 'text') => {
+  const send = useCallback(async (value: string, origin: 'text' | 'suggestion' | 'control' = 'text', options: { forceSettle?: boolean } = {}) => {
     const payload = value.trim();
     if (!payload || !scene || !userId || busy) return;
+    if (scene.status === 'finished') return; // 已结束的世界只读
     let awaitingVisibleReply = true;
     const releaseVisibleReply = () => {
       if (!awaitingVisibleReply) return;
@@ -271,10 +361,12 @@ export function WorldCanvas() {
     setSuggestions([]);
     setText('');
     setExploreOpen(false);
+    clearPartials();
     stickRef.current = true;
     try {
       const world = await worldRepo.ensureDefaultWorld(userId);
       const list = useChatStore.getState().characters;
+      let firstCharacterReplyShown = false;
       const result = await runWorldTurn({
         userId,
         worldId: world.id,
@@ -283,8 +375,18 @@ export function WorldCanvas() {
         origin,
         characters: list,
         entryMemoryMode,
+        ...(options.forceSettle ? { forceSettle: true } : {}),
         onEvent: (event) => {
-          if (event.type === 'entry' || event.type === 'user_entry') appendEntry(event.entry);
+          if (event.type === 'partial') handleTurnPartial(event);
+          if (event.type === 'entry' || event.type === 'user_entry') {
+            appendEntry(event.entry);
+            // 世界流已经出现第一位角色的完整动作/对白后，允许用户继续输入。
+            // 后续内容仍按队列依次落下，世界运行本身由 world-turn 队列串行保护。
+            if (!firstCharacterReplyShown && event.type === 'entry' && (event.entry.kind === 'dialogue' || event.entry.kind === 'action')) {
+              firstCharacterReplyShown = true;
+              void visibleQueueRef.current.then(releaseVisibleReply);
+            }
+          }
           if (event.type === 'ready') void visibleQueueRef.current.then(releaseVisibleReply);
           if (event.type === 'status' && event.status === 'failed') void visibleQueueRef.current.then(releaseVisibleReply);
         },
@@ -292,7 +394,7 @@ export function WorldCanvas() {
       await visibleQueueRef.current;
       if (result.status === 'failed') {
         setFailedTurnId(result.turnId);
-        setError('这一次世界没有继续回应。');
+        setError(humanWorldError(result.error));
       } else {
         setSuggestions(result.suggestions);
       }
@@ -303,12 +405,13 @@ export function WorldCanvas() {
         setEntries(refreshed.entries);
         setHasMore(refreshed.hasMore);
       }
-    } catch {
-      setError('这一次世界没有继续回应。');
+    } catch (cause) {
+      setError(humanWorldError(cause instanceof Error ? cause.message : String(cause)));
     } finally {
       releaseVisibleReply();
+      clearPartials();
     }
-  }, [scene, userId, busy, appendEntry, entryMemoryMode]);
+  }, [scene, userId, busy, appendEntry, entryMemoryMode, clearPartials, handleTurnPartial]);
 
   /** 世界主页的「灵感」按钮：进入世界后由它把那句话说出来（§79） */
   useEffect(() => {
@@ -332,11 +435,13 @@ export function WorldCanvas() {
     awaitingVisibleReplyRef.current += 1;
     setBusy(true);
     setError(null);
+    clearPartials();
     try {
       const result = await retryWorldTurn({
         turnId: failedTurnId,
         characters: useChatStore.getState().characters,
         onEvent: (event) => {
+          if (event.type === 'partial') handleTurnPartial(event);
           if (event.type === 'entry') appendEntry(event.entry);
           if (event.type === 'ready') void visibleQueueRef.current.then(releaseVisibleReply);
         },
@@ -346,12 +451,13 @@ export function WorldCanvas() {
         setFailedTurnId(null);
         setSuggestions(result.suggestions);
       } else {
-        setError('这一次世界仍然没有回应。');
+        setError(humanWorldError(result?.error));
       }
     } finally {
       releaseVisibleReply();
+      clearPartials();
     }
-  }, [failedTurnId, appendEntry]);
+  }, [failedTurnId, appendEntry, clearPartials, handleTurnPartial]);
 
   /* ------------------------------ 控制面板动作 ------------------------------ */
   const runControl = useCallback(async (action: WorldControlAction) => {
@@ -378,8 +484,10 @@ export function WorldCanvas() {
         await send(action.label, 'control');
         return;
       case 'save_moment':
+        // 「保存这一刻」= 强制把当前值得记住的事件写入世界层（§39 forceSettle），
+        // 不等于结束：世界继续，状态保持进行中。
         setSheetOpen(false);
-        await send('把刚刚这一刻记下来。', 'control');
+        await send('把刚刚这一刻记下来。', 'control', { forceSettle: true });
         return;
       case 'undo': {
         setSheetOpen(false);
@@ -387,22 +495,56 @@ export function WorldCanvas() {
         return;
       }
       case 'pause':
+        // 暂时离开：保留进行状态，不结算、不释放角色。
         await pauseCanvas(scene.id, userId ?? undefined);
         setSheetOpen(false);
         setToast('这一段留着，随时回来。');
         return;
-      case 'finish':
-        await pauseCanvas(scene.id, userId ?? undefined);
+      case 'finish': {
+        // 结束这个世界：一次性结算并把这一段标为 finished（幂等：重复调用不会重复写世界层）。
         setSheetOpen(false);
-        setToast('这一段收在这里了，下次可以从新的时刻开始。');
+        setBusy(true);
+        try {
+          const finishedScene = await worldSceneRepo.getScene(scene.id);
+          if (finishedScene?.status === 'finished') {
+            setScene(finishedScene);
+            setToast('这个世界已经结束并保存过了。');
+            return;
+          }
+          const result = await finishSceneAndSettle({
+            userId,
+            sceneId: scene.id,
+            apiKey: useAuthStore.getState().apiKey ?? '',
+          });
+          if (result.error) {
+            setError(humanWorldError(result.error));
+            return;
+          }
+          const refreshed = await loadCanvas(scene.id, { userId });
+          if (refreshed) {
+            setScene(refreshed.scene);
+            setEntries(refreshed.entries);
+            setHasMore(refreshed.hasMore);
+          }
+          const parts: string[] = ['这个世界的经历已经保存'];
+          if (result.memoryId) parts.push('留下了一段共同记忆');
+          if (result.relationshipEvents > 0) parts.push(`${result.relationshipEvents} 处关系变化`);
+          if (result.unresolvedThreads > 0) parts.push(`${result.unresolvedThreads} 件未完成的事`);
+          setToast(parts.join(' · '));
+        } catch {
+          setError('结束这个世界时没能保存经历，请再试一次。');
+        } finally {
+          setBusy(false);
+        }
         return;
+      }
       case 'save_story': {
         const world = await worldRepo.ensureDefaultWorld(userId);
         const saved = await saveAsStory({ userId, worldId: world.id, sceneId: scene.id });
         setSheetOpen(false);
         if (saved) {
           setSavedStory(true);
-          setToast(`已经收进你们的故事：${saved.title}`);
+          setToast(`已经写入这个世界：${saved.title}`);
         }
         return;
       }
@@ -478,24 +620,24 @@ export function WorldCanvas() {
 
   return (
     <div
-      className={`vg-canvas relative vg-world-light-${canvasVisual?.light ?? 'night'} vg-world-particle-${canvasVisual?.particle ?? 'dust'}`}
+      className={`vg-canvas relative vg-world-light-${canvasVisual?.light ?? 'night'} vg-world-particle-${canvasVisual?.particle ?? 'dust'}${busy ? ' vg-canvas-is-busy' : ''}${sheetOpen ? ' vg-canvas-sheet-open' : ''}`}
       style={canvasVisual ? visualCss(canvasVisual) : undefined}
     >
-      {/* 顶部：只显示最必要的信息，点击才展开（§10） */}
+      {/* 顶部只留入口、当前片段和两个动作；地点/人物详情点开再看。 */}
       <div className="vg-canvas-top">
-        <span className="vg-canvas-place">{scene ? `${scene.place} · ${worldTimeLabel(scene)}` : '正在进入世界…'}</span>
-        <span className="vg-canvas-people">
-          {presence.present.length > 0 ? `${presence.present.map((c) => c.name).join(' · ')} · 你` : '只有你'}
-        </span>
-        <button type="button" className="vg-canvas-more" onClick={() => setHeaderOpen((v) => !v)} aria-expanded={headerOpen}>
-          {headerOpen ? '收起' : '状态'}
-        </button>
-        <button type="button" className="vg-canvas-more" onClick={() => setExploreOpen((value) => !value)} aria-expanded={exploreOpen}>
-          探索
-        </button>
-        <button type="button" className="vg-canvas-exit" onClick={() => void exitCanvas()}>
-          退出
-        </button>
+        <button type="button" className="vg-canvas-back" onClick={() => void exitCanvas()} aria-label="离开世界">‹</button>
+        <div className="vg-canvas-title-stack">
+          <p className="vg-canvas-title">{scene?.title || '世界'}</p>
+          <p className="vg-canvas-place">{scene ? `${scene.place} · ${worldTimeLabel(scene)}` : '正在进入世界…'}</p>
+        </div>
+        <div className="vg-canvas-actions">
+          <button type="button" className="vg-canvas-more" onClick={() => setExploreOpen((value) => !value)} aria-expanded={exploreOpen}>
+            <span aria-hidden="true">⌖</span><span>探索</span>
+          </button>
+          <button type="button" className="vg-canvas-more vg-canvas-menu-button" onClick={() => setHeaderOpen((v) => !v)} aria-expanded={headerOpen} aria-label="查看世界状态">
+            <span aria-hidden="true">···</span>
+          </button>
+        </div>
       </div>
       {scene && exploreOpen && (
         <WorldExplorePanel
@@ -535,7 +677,7 @@ export function WorldCanvas() {
         )}
         {loading ? (
           <p className="vg-canvas-loading" role="status">正在打开你的世界…</p>
-        ) : entries.length === 0 ? (
+        ) : entries.length === 0 && Object.keys(partials).length === 0 ? (
           <div className="vg-canvas-empty">
             <span aria-hidden="true" />
             <p>这一刻很安静。</p>
@@ -544,6 +686,44 @@ export function WorldCanvas() {
         ) : (
           <WorldStream entries={entries} characters={characters} />
         )}
+
+        {/* 流式增量：正在生成的角色台词/动作/旁白（未落库，最终以世界流正文为准）。
+            同一角色动作/对白分两拍时并排呈现，落库后由 WorldStream 合成一个视觉组。 */}
+        {(() => {
+          const slices = Object.values(partials);
+          const narrations = slices.filter((slice) => slice.field === 'narration' && slice.text);
+          const bySpeaker = new Map<string, PartialSlice[]>();
+          for (const slice of slices) {
+            if (slice.field === 'narration' || !slice.speakerId) continue;
+            const list = bySpeaker.get(slice.speakerId) ?? [];
+            list.push(slice);
+            bySpeaker.set(slice.speakerId, list);
+          }
+          return (
+            <>
+              {narrations.map((slice, index) => (
+                <p key={`narration-${index}`} className="vg-narration vg-stream-live">{slice.text}</p>
+              ))}
+              {[...bySpeaker.entries()].map(([speakerId, speakerSlices]) => {
+                const character = characters.find((c) => c.id === speakerId);
+                const ordered = [...speakerSlices].sort((a, b) => (a.field === 'action' ? 0 : 1) - (b.field === 'action' ? 0 : 1));
+                return (
+                  <div key={speakerId} className="vg-beat">
+                    <Avatar avatar={character?.avatar ?? '🙂'} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="vg-beat-name">{character?.name ?? '某人'}</p>
+                      {ordered.map((slice, index) => slice.field === 'action' ? (
+                        <p key={index} className="vg-beat-action vg-stream-live">{slice.text}</p>
+                      ) : (
+                        <p key={index} className="vg-beat-line vg-stream-live">{slice.text}</p>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          );
+        })()}
 
         {error && (
           <div className="vg-canvas-error">
@@ -561,22 +741,32 @@ export function WorldCanvas() {
         </button>
       )}
 
-      {/* 灵感与输入：角色召入直接用自然语言完成，不再占用一整行快捷栏。 */}
+      {/* 灵感与输入：角色召入直接用自然语言完成，不再占用一整行快捷栏。
+          已结束的世界是只读回看：不再提供输入，出口明确。 */}
       <div className="vg-canvas-bottom">
-        <WorldSuggestions
-          options={suggestions}
-          onPick={(option) => void send(option, 'suggestion')}
-          onDismiss={() => setSuggestions([])}
-        />
-        <WorldComposer
-          value={text}
-          onChange={setText}
-          onSend={() => void send(text)}
-          onOpenControls={() => setSheetOpen(true)}
-          busy={busy}
-          aiDetail={ai && ai.status === 'UNAVAILABLE' ? ai.detail : null}
-        />
-        {savedStory && <p className="vg-canvas-saved">这一段已经收进你们的故事。</p>}
+        {scene?.status === 'finished' ? (
+          <div className="vg-canvas-finished">
+            <p>这个世界已经结束，经历已经写入世界记录。</p>
+            <button type="button" onClick={() => void exitCanvas()}>返回星域</button>
+          </div>
+        ) : (
+          <>
+            <WorldSuggestions
+              options={suggestions}
+              onPick={(option) => void send(option, 'suggestion')}
+              onDismiss={() => setSuggestions([])}
+            />
+            <WorldComposer
+              value={text}
+              onChange={setText}
+              onSend={() => void send(text)}
+              onOpenControls={() => setSheetOpen(true)}
+              busy={busy}
+              aiDetail={ai && ai.status === 'UNAVAILABLE' ? ai.detail : null}
+            />
+          </>
+        )}
+        {savedStory && <p className="vg-canvas-saved">这一段已经写入世界记录。</p>}
       </div>
 
       <WorldControlSheet

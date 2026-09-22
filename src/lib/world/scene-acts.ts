@@ -7,7 +7,7 @@
  *
  * 规则（自下而上，第一条命中即推进）：
  *  1. **张力到位**：本幕张力达到阈值，且本幕已有足够多的正文（不是刚开场就翻幕）
- *  2. **节奏兜底**：剧情一直平，但本幕已经很长了，也必须往前推（避免永远停在第一幕）
+ *  2. **节奏兜底**：场面一直平，但本幕已经很长了，也必须往前推（避免永远停在第一幕）
  * 幕数上限固定，走到最后一幕就不再推进（留给"结束这场戏"）。
  */
 import type { WorldSceneEntry, WorldSceneState } from '../../db/index';
@@ -21,11 +21,11 @@ export const ACT_MIN_ENTRIES = 6;
 /** 节奏兜底：本幕正文多到这个数，即使张力不足也推进 */
 export const ACT_FORCE_ENTRIES = 12;
 
-const ACT_LABELS = ['第一幕', '第二幕', '第三幕', '第四幕', '第五幕', '第六幕'];
+const ACT_LABELS = ['其一', '其二', '其三', '其四', '其五', '其六'];
 
 export function actLabel(act: number): string {
   const index = Math.max(1, Math.round(act)) - 1;
-  return ACT_LABELS[index] ?? `第 ${act} 幕`;
+  return ACT_LABELS[index] ?? `其 ${act}`;
 }
 
 /** 本幕的正文条数（不算 system 标记，也不算"选择提示"本身——选择由用户回答，属于下一拍的引子） */

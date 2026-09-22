@@ -159,7 +159,7 @@ function toContentBlock(text: string, image?: string): string | Array<Record<str
 }
 
 /** 按给定模型发送一次请求；useVision=true 时图片以块发送（仅视觉模型），否则图片降级为占位 */
-async function doSend(params: ChatParams, model: LLMModel, useVision: boolean): Promise<ChatResult> {
+async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, recovery = false): Promise<ChatResult> {
   const { systemPrompt, message, history, retryHint, temperature, image, apiKey } = params;
 
   const buildContent = (text: string, img?: string) => {
@@ -172,7 +172,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean): 
     {
       role: 'system',
       content:
-        systemPrompt + '\n\n' + COMPACT_MESSAGING_INSTRUCTION + '\n\n' + REPETITION_GUARD + (retryHint ? `\n\n${retryHint}` : ''),
+        systemPrompt + '\n\n' + COMPACT_MESSAGING_INSTRUCTION + '\n\n' + REPETITION_GUARD + (retryHint ? `\n\n${retryHint}` : '') + (recovery ? '\n\n本轮请直接给出可显示的正文，不输出思考过程。' : ''),
     },
     ...history.slice(-12).map((h) => ({ role: h.role, content: buildContent(h.content, h.image) })),
     { role: 'user', content: buildContent(message, image) },
@@ -214,7 +214,8 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean): 
     messages,
     temperature,
     visionRequest: useVision,
-    maxTokens: useVision ? 900 : 700,
+    disableThinking: recovery,
+    maxTokens: useVision ? 1000 : recovery ? 1000 : 900,
     timeoutMs: useVision ? 120_000 : 60_000,
   });
   return {
@@ -228,7 +229,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean): 
 /** 可降级的错误：鉴权/额度/限流降级无意义，不降；服务端错误/超时降级重试 */
 function isDegradable(err: unknown): boolean {
   const msg = (err as Error)?.message;
-  return msg === 'server:error' || msg === 'timeout';
+  return msg === 'server:error' || msg === 'timeout' || err instanceof TypeError;
 }
 
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
@@ -251,9 +252,9 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const fallback = findModel('deepseek-v4-flash')!;
 
   /** 尝试一次请求：失败（抛错）或空内容 → 返回 null 交给兜底 */
-  const attempt = async (m: LLMModel, vision: boolean): Promise<ChatResult | null> => {
+  const attempt = async (m: LLMModel, vision: boolean, recovery = false): Promise<ChatResult | null> => {
     try {
-      const r = await doSend({ ...params, history, image }, m, vision);
+      const r = await doSend({ ...params, history, image }, m, vision, recovery);
       if (r.content.trim()) return r;
       return null;
     } catch (err) {
@@ -265,12 +266,15 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const r = await attempt(usedModel, useVision);
   if (r) return r;
 
-  // 所选模型本身就是 Flash 时，重复发送同一个请求只会增加等待时间，
-  // 不会带来新的兜底能力；交给上层显示可重试的失败态即可。
-  if (usedModel.id === fallback.id) throw new Error('server:error');
+  // 思考模式耗尽输出额度时，服务可能返回 200 但正文为空；关闭思考作一次有界恢复。
+  if (usedModel.id === fallback.id) {
+    const recovered = await attempt(fallback, false, true);
+    if (recovered) return recovered;
+    throw new Error('server:error');
+  }
 
   // 模型兜底：所选模型失败/空内容 → 自动切 deepseek-v4-flash 重试一次（对话不中断）
-  const fb = await attempt(fallback, false);
+  const fb = await attempt(fallback, false, true);
   if (fb) return { ...fb, degraded: true };
   throw new Error('server:error');
 }

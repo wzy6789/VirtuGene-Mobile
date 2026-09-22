@@ -112,6 +112,14 @@ export function installFakeLlm(): FakeLlm {
     if (url.includes('chat/completions')) {
       httpCalls += 1;
       const next = httpQueue.shift() ?? '';
+      // 真实星域 UI 现在请求 SSE。验收端点必须按请求的传输形态返回，
+      // 否则把整段 JSON 当作 SSE 会触发无意义的重试并打乱后续响应队列。
+      let stream = false;
+      try { stream = JSON.parse(String(init?.body ?? '{}')).stream === true; } catch { /* 非 JSON 请求由整段分支处理 */ }
+      if (stream) {
+        const frame = `data: ${JSON.stringify({ choices: [{ delta: { content: next }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`;
+        return wait().then(() => new Response(frame, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }));
+      }
       return wait().then(() => new Response(JSON.stringify({
         choices: [{ message: { content: next }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 10, completion_tokens: 5 },

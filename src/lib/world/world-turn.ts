@@ -29,7 +29,7 @@ import { continuityRepo } from '../../db/continuity-repo';
 import { db } from '../../db/index';
 import { buildWorldContext, renderWorldBrief, type WorldContext } from './world-context';
 import { interpretWorldIntent } from './world-intent';
-import { directWorldTurn, type TurnPlan, type TurnSpeaker } from './world-director';
+import { directWorldTurn, fallbackPlan, type TurnPlan, type TurnSpeaker } from './world-director';
 import { actAsCharacter, actWorldBeat, type ActorBeat } from './world-actor';
 import { narrateWorldBeat, shouldNarrate } from './world-narrator';
 import { applyGuard, guardWorldBeat } from './world-consistency';
@@ -307,6 +307,12 @@ export async function applyLocalWorldAction(params: {
 export type WorldTurnEvent =
   | { type: 'user_entry'; entry: WorldSceneEntry }
   | { type: 'entry'; entry: WorldSceneEntry }
+  /**
+   * 流式增量（5.3 星域呈现）：角色/旁白正在生成的内容前缀；最终仍以落库的 entry 为准。
+   * 用 turnId + sceneId + speakerId + field 唯一标识一段临时内容——同一角色在一轮里
+   * 连续说两次（对白 + 动作分两拍）时，只按 speakerId 存放会互相覆盖。
+   */
+  | { type: 'partial'; turnId: string; sceneId: string; speakerId: string | null; field: 'narration' | 'dialogue' | 'action'; text: string }
   | { type: 'status'; status: WorldTurnStatus }
   /** 可见内容已经全部落库：用户可以继续输入了（结算仍在后台进行，§58） */
   | { type: 'ready' }
@@ -392,6 +398,11 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
   if (!scene || scene.userId !== userId || scene.worldId !== worldId) {
     return { turnId: '', status: 'failed', beats: [], suggestions: [], entries: [], llmCalls: 0, error: '这一片段不存在' };
   }
+  if (scene.status === 'finished') {
+    return { turnId: '', status: 'failed', beats: [], suggestions: [], entries: [], llmCalls: 0, error: '这个世界已经结束了' };
+  }
+  // 旧世界兼容：继续/发言前补齐新管线必需的默认导演状态（只在缺字段时写一次状态补丁，不动正文）
+  await worldSceneRepo.ensureSceneCompat(scene);
 
   // ---- 0) 用户输入先落库（§51/§52）：无论后面发生什么，这句话都不会丢
   const turn = await worldTurnRepo.create({
@@ -404,6 +415,16 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     before: snapshotOf(scene),
   });
   let llmCalls = 0;
+
+  // 「保存这一刻」的强制结算意图要随轮次落库：主轮若在此之后失败，
+  // 重试路径必须能还原同样的结算条件（否则该轮的持久变化不会被写进世界层）。
+  if (params.forceSettle === true) await worldTurnRepo.patch(turn.id, { forceSettle: true });
+
+  /** 角色台词/动作的流式增量：对白与动作各自一个复合键，互不覆盖 */
+  const emitCharacterPartial = (characterId: string, partial: { dialogue?: string; action?: string }) => {
+    if (partial.action !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId, speakerId: characterId, field: 'action', text: partial.action });
+    if (partial.dialogue !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId, speakerId: characterId, field: 'dialogue', text: partial.dialogue });
+  };
 
   const userEntry = await worldSceneRepo.appendEntry(sceneId, {
     kind: params.origin === 'suggestion' ? 'choice' : 'user_input',
@@ -439,7 +460,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       timeLabel: scene.timeLabel,
       // 让解析器知道已有的世界设定，这样"改设定"能带上 replacesFact（§101）
       worldRules: (await worldFactRepo.listByWorld(worldId, { category: 'rule', activeOnly: true, userId })).map((f) => f.content).slice(0, 12),
-      recent: await worldSceneRepo.listEntries(sceneId, { limit: 12 }),
+      recent: await worldSceneRepo.listRecentEntries(sceneId, 12),
       ...(params.call ? { call: params.call } : {}),
     });
     llmCalls += interpreted.llmCalls;
@@ -503,9 +524,15 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       ...(params.call ? { call: params.call } : {}),
     });
     llmCalls += planBase.llmCalls;
+    // 某些模型会返回合法 JSON，但把 speakers 和 narration 都留空。
+    // 只要这一轮不是“请保持安静”，就用本地确定性计划接住，让角色 Actor
+    // 继续尝试生成；不伪造台词，也不把空计划直接显示成世界停摆。
+    const usablePlan = !action.silence && action.requiresCharacterResponse !== false && planBase.speakers.length === 0 && !planBase.narration
+      ? { ...fallbackPlan(action, ctx, 2), error: planBase.error ?? '导演没有安排可见回应' }
+      : planBase;
     // 本地识别出的世界变化要并进计划（模型可能没意识到我们已经改了地点/时间）
     const plan: TurnPlan = {
-      ...planBase,
+      ...usablePlan,
       worldChanges: [...new Set([...local.changes, ...planBase.worldChanges])],
     };
 
@@ -519,6 +546,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       const narrated = await narrateWorldBeat({
         ctx, action, userText: text,
         ...(plan.worldChanges.length ? { planSummary: plan.worldChanges.join('；') } : {}),
+        onPartial: (partialText) => emit({ type: 'partial', turnId: turn.id, sceneId, speakerId: null, field: 'narration', text: partialText }),
         ...(params.call ? { call: params.call } : {}),
       });
       llmCalls += narrated.llmCalls;
@@ -531,6 +559,8 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         meta: { beatId: turn.id, layer: 'environment', sequence: turnEntries.length, camera: 'wide' } satisfies WorldBeatMeta,
       });
       turnEntries.push(entry);
+      // 立刻记入轮次：如果角色表演随后失败，重试/撤销都要能精确回收这条旁白
+      await worldTurnRepo.addEntryIds(turn.id, [entry.id]);
       emit({ type: 'entry', entry });
     }
 
@@ -542,6 +572,8 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       // 两位及以上角色必须按顺序演出，后一位要先听到前一位的回应。
       sequential: plan.speakers.length > 1 ? true : plan.sequential,
       ...(plan.worldChanges.length ? { worldChanges: plan.worldChanges } : {}),
+      // 星域呈现：角色台词/动作边生成边上屏
+      onPartial: emitCharacterPartial,
       ...(params.call ? { call: params.call } : {}),
     });
     llmCalls += beats.reduce((sum, beat) => sum + (beat.llmCalls ?? 1), 0);
@@ -561,6 +593,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         worldChanges: plan.worldChanges,
         rounds: autoRounds,
         prior: beats,
+        onPartial: emitCharacterPartial,
         ...(params.call ? { call: params.call } : {}),
         ...(params.shouldInterrupt ? { shouldStop: params.shouldInterrupt } : {}),
       });
@@ -571,10 +604,13 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     // ---- 7) 角色内容落库（动作与对白分成两条，UI 负责把同一角色合成一组）
     //     先落库再守护：用户要**立刻**看到第一位角色的回应（§57），
     //     守护发现问题后再把改写落回那一行（不是"让用户看到未修正版本"）。
-    const beatRows: { beatIndex: number; actionEntryId?: string; dialogueEntryId?: string }[] = [];
-    for (const beat of beats) {
+    // beatRows 记录的是 beats 数组里的**原始下标**：中间有角色选择沉默（via 'none'）
+    // 被跳过时，按下标错位会把 A 的守护改写落到 B 的条目上。
+    const beatRows: { beatIndex: number; characterId: string; actionEntryId?: string; dialogueEntryId?: string }[] = [];
+    for (let beatIndex = 0; beatIndex < beats.length; beatIndex += 1) {
+      const beat = beats[beatIndex];
       if (beat.via === 'none') continue;
-      const row: { beatIndex: number; actionEntryId?: string; dialogueEntryId?: string } = { beatIndex: beatRows.length };
+      const row: { beatIndex: number; characterId: string; actionEntryId?: string; dialogueEntryId?: string } = { beatIndex, characterId: beat.characterId };
       if (beat.action) {
         const entry = await worldSceneRepo.appendEntry(sceneId, {
           kind: 'action',
@@ -610,10 +646,9 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     if (guard.rewrites.length > 0) {
       const rewritten = applyGuard(beats, guard.rewrites);
       const byCharacter = new Map(guard.rewrites.map((r) => [r.characterId, r]));
-      for (let i = 0; i < beats.length && i < beatRows.length; i += 1) {
-        const fix = byCharacter.get(beats[i].characterId);
+      for (const row of beatRows) {
+        const fix = byCharacter.get(row.characterId);
         if (!fix) continue;
-        const row = beatRows[i];
         if (fix.drop) {
           if (row.actionEntryId) await worldSceneRepo.removeEntry(row.actionEntryId);
           if (row.dialogueEntryId) await worldSceneRepo.removeEntry(row.dialogueEntryId);
@@ -652,7 +687,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     // 5.2：把这一拍的节奏与视觉状态写回场景。它们是可压缩的导演状态，
     // 不会污染正文，也不会跨用户共享；下次进入同一地点时会自然延续。
     const stateScene = (await worldSceneRepo.getScene(sceneId)) ?? beatScene;
-    const stateEntries = await worldSceneRepo.listEntries(sceneId, { limit: 120 });
+    const stateEntries = await worldSceneRepo.listRecentEntries(sceneId, 120);
     await worldSceneRepo.patchSceneState(sceneId, {
       conversation: updateConversationState(stateScene.state.conversation, text, stateEntries),
       visual: deriveWorldVisualState(stateScene, stateScene.state.visual),
@@ -679,14 +714,15 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     if (wantSettle) {
       await worldTurnRepo.setStatus(turn.id, 'settling');
       emit({ type: 'status', status: 'settling' });
-      ctx = (await worldSceneRepo.getScene(sceneId))
-        ? await buildWorldContext({ userId, worldId, scene: (await worldSceneRepo.getScene(sceneId))!, characters, userText: text })
-        : ctx;
+      const settledScene = await worldSceneRepo.getScene(sceneId);
+      if (settledScene) {
+        ctx = await buildWorldContext({ userId, worldId, scene: settledScene, characters, userText: text });
+      }
       settlement = await settleWorldTurn({
         ctx,
         actionText: text,
         // 结算依据**从数据库读回**：守护可能改写过某些行，内存里的副本未必最新
-        transcript: [recallBlock, buildTranscript(await worldSceneRepo.listEntries(sceneId, { limit: 400 }), ctx.nameOf, userEntry.index)].filter(Boolean).join('\n\n'),
+        transcript: [recallBlock, buildTranscript(await worldSceneRepo.listRecentEntries(sceneId, 400), ctx.nameOf, userEntry.index)].filter(Boolean).join('\n\n'),
         turnId: turn.id,
         ...(params.call ? { call: params.call } : {}),
       });
@@ -720,7 +756,6 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       ...(settlement ? { settlement } : {}),
     });
   } catch (err) {
-    llmCalls += 0;
     return finish({ status: 'failed', error: (err as Error)?.message ?? 'server:error' });
   }
 }
@@ -757,6 +792,8 @@ export async function runAutoBeats(params: {
   worldChanges?: string[];
   rounds: number;
   prior?: ActorBeat[];
+  /** 流式增量（星域呈现用） */
+  onPartial?: (characterId: string, partial: { dialogue?: string; action?: string }) => void;
   call?: WorldLlmCaller;
   shouldStop?: () => boolean;
 }): Promise<AutoBeatsResult> {
@@ -779,6 +816,7 @@ export async function runAutoBeats(params: {
         ...(b.action ? { action: b.action } : {}),
       })),
       ...(params.worldChanges?.length ? { worldChanges: params.worldChanges } : {}),
+      ...(params.onPartial ? { onPartial: (partial: { dialogue?: string; action?: string }) => params.onPartial?.(speaker.characterId, partial) } : {}),
       ...(params.call ? { call: params.call } : {}),
     });
     calls += beat.llmCalls ?? 1;
@@ -820,12 +858,32 @@ async function rerunAfterUserEntry(params: {
   const { turn } = params;
   const scene = await worldSceneRepo.getScene(turn.sceneId);
   if (!scene) return { turnId: turn.id, status: 'failed', beats: [], suggestions: [], entries: [], llmCalls: 0, error: '这一片段不存在' };
-  const entries = await worldSceneRepo.listEntries(turn.sceneId, { limit: 400 });
-  const userEntry = entries.find((e) => e.id === turn.userEntryId);
+
+  // 失败轮可能已经把部分模型正文写进世界流（例如在守护/建议阶段出错）。
+  // 重试先生成内容就会重复——先把这一轮**模型生成的**正文（旁白/对白/动作/灵感）
+  // 精确回收，保留用户原话与本地系统痕迹（地点/时间变化是既成事实，不重演）。
+  const GENERATED_KINDS = new Set(['narration', 'action', 'dialogue', 'suggestion']);
+  const priorEntries = await worldSceneRepo.getEntriesById(turn.entryIds);
+  const turnEntryIds = new Set(turn.entryIds);
+  const staleGenerated = priorEntries.filter((e) => turnEntryIds.has(e.id) && GENERATED_KINDS.has(e.kind));
+  for (const stale of staleGenerated) {
+    await worldSceneRepo.removeEntry(stale.id);
+  }
+  if (staleGenerated.length > 0) {
+    const staleIds = new Set(staleGenerated.map((e) => e.id));
+    await worldTurnRepo.patch(turn.id, { entryIds: turn.entryIds.filter((id) => !staleIds.has(id)) });
+  }
+
+  const userEntry = turn.userEntryId ? (await worldSceneRepo.getEntriesById([turn.userEntryId]))[0] : undefined;
   const ctx = await buildWorldContext({ userId: turn.userId, worldId: turn.worldId, scene, characters: params.characters });
   const emit = (event: WorldTurnEvent) => params.onEvent?.(event);
   const action: WorldAction = turn.action ?? { intent: 'freeform', raw: turn.input, by: 'fallback', requiresNarration: true, requiresCharacterResponse: true };
   let llmCalls = 0;
+
+  const emitCharacterPartial = (characterId: string, partial: { dialogue?: string; action?: string }) => {
+    if (partial.action !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId: turn.sceneId, speakerId: characterId, field: 'action', text: partial.action });
+    if (partial.dialogue !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId: turn.sceneId, speakerId: characterId, field: 'dialogue', text: partial.dialogue });
+  };
 
   const plan = await directWorldTurn({ ctx, action, userText: turn.input, ...(params.call ? { call: params.call } : {}) });
   llmCalls += plan.llmCalls;
@@ -834,7 +892,11 @@ async function rerunAfterUserEntry(params: {
 
   const added: WorldSceneEntry[] = [];
   if (plan.narration) {
-    const entry = await worldSceneRepo.appendEntry(turn.sceneId, { kind: 'narration', content: plan.narration });
+    const entry = await worldSceneRepo.appendEntry(turn.sceneId, {
+      kind: 'narration',
+      content: plan.narration,
+      meta: { beatId: turn.id, layer: 'environment', sequence: added.length, camera: 'wide' } satisfies WorldBeatMeta,
+    });
     added.push(entry);
     emit({ type: 'entry', entry });
   }
@@ -843,17 +905,29 @@ async function rerunAfterUserEntry(params: {
     speakers: plan.speakers,
     userText: turn.input,
     sequential: plan.speakers.length > 1 ? true : plan.sequential,
+    // 星域呈现：重试时同样边生成边上屏
+    onPartial: emitCharacterPartial,
     ...(params.call ? { call: params.call } : {}),
   });
   llmCalls += beats.reduce((sum, beat) => sum + (beat.llmCalls ?? 1), 0);
   for (const beat of beats) {
     if (beat.action) {
-      const entry = await worldSceneRepo.appendEntry(turn.sceneId, { kind: 'action', content: beat.action, speakerId: beat.characterId });
+      const entry = await worldSceneRepo.appendEntry(turn.sceneId, {
+        kind: 'action',
+        content: beat.action,
+        speakerId: beat.characterId,
+        meta: { beatId: turn.id, layer: 'action', sequence: added.length, camera: 'focus' } satisfies WorldBeatMeta,
+      });
       added.push(entry);
       emit({ type: 'entry', entry });
     }
     if (beat.dialogue) {
-      const entry = await worldSceneRepo.appendEntry(turn.sceneId, { kind: 'dialogue', content: beat.dialogue, speakerId: beat.characterId });
+      const entry = await worldSceneRepo.appendEntry(turn.sceneId, {
+        kind: 'dialogue',
+        content: beat.dialogue,
+        speakerId: beat.characterId,
+        meta: { beatId: turn.id, layer: 'dialogue', sequence: added.length, camera: 'close' } satisfies WorldBeatMeta,
+      });
       added.push(entry);
       emit({ type: 'entry', entry });
     }
@@ -869,7 +943,12 @@ async function rerunAfterUserEntry(params: {
   }
   emit({ type: 'ready' });
 
-  const wantSettle = plan.shouldSettle || plan.worldChanges.length > 0;
+  // 结算条件与主轮完全对齐（§53）：导演判断 + 世界变化 + 本地持久变化意图
+  // + 主轮落库的强制结算标记（"保存这一刻"）。
+  const wantSettle = turn.forceSettle === true
+    || plan.shouldSettle
+    || plan.worldChanges.length > 0
+    || LOCAL_SETTLE_INTENTS.includes(action.intent);
   let settlement: SettleTurnResult | undefined;
   if (wantSettle) {
     settlement = await settleWorldTurn({

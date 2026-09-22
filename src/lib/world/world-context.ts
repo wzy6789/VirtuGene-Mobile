@@ -31,6 +31,7 @@ import { relationshipRepo } from '../../db/relationship-repo';
 import { diaryRepo } from '../../db/diary-repo';
 import { characterRef, userRef } from './subjects';
 import { selectRecallableSharedMemories } from './recall';
+import { recallCharacterMemory } from '../character-memory';
 import { selectRecallableScenes } from './scene-recall';
 import { listMentionableDiaryIds } from './diary-visibility';
 import { describeFacets, FACET_LABEL } from './relationships';
@@ -56,6 +57,7 @@ export interface WorldContextParams {
 }
 
 export interface CharacterMemory {
+  crossChannelMemory?: string;
   persona?: string;
   characterId: string;
   name: string;
@@ -127,7 +129,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
 
   const [worldFacts, entries, recentEvents, allThreads, objects] = await Promise.all([
     worldFactRepo.listWorldLevel(worldId, 16, userId),
-    worldSceneRepo.listEntries(scene.id, { limit: Math.max(20, params.recentLimit ?? 60) }),
+    worldSceneRepo.listRecentEntries(scene.id, Math.max(20, params.recentLimit ?? 60)),
     worldEventRepo.getRecent(worldId, 12, userId),
     continuityRepo.getOpenByUser(userId),
     scene.locationId ? worldObjectRepo.listForLocation(worldId, scene.locationId, userId) : Promise.resolve([]),
@@ -169,6 +171,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
       .map((d) => ({ id: d.id, date: d.date, title: d.title, content: d.content.slice(0, 400) }));
 
     perCharacter[characterId] = {
+      crossChannelMemory: carryMemory ? (await recallCharacterMemory({ userId, characterId, query: params.userText, audience: presence, sources: ['chat', 'group', 'moment'], budget: 2200 })).text : '',
       persona: params.characters.find((character) => character.id === characterId)?.systemPrompt,
       characterId,
       name: nameOf(characterId),
@@ -362,6 +365,7 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string): 
     lines.push(`【用户明确告诉你的待办】\n${memory.todos.map((todo) => `- ${todo.title}${todo.dueDate ? `（${todo.dueDate}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note}` : ''}`).join('\n')}\n只在话题相关时自然提起，不要像任务管理器一样盘问。`);
   }
   if (memory.userProfile) lines.push(memory.userProfile);
+  if (memory.crossChannelMemory) lines.push(memory.crossChannelMemory);
   return lines.join('\n');
 }
 

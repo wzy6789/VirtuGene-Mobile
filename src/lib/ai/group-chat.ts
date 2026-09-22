@@ -104,7 +104,7 @@ async function attemptTurn(
 
     const membersDesc = params.members
       .map((m) => {
-        const mem = m.memory ? `\n　· 与用户的共同记忆：${m.memory}` : '';
+        const mem = m.memory ? `\n　· 可以在当前群里提起的真实记忆：${m.memory}` : '';
         const priv = m.privateChat ? `\n　· 与用户的最近私聊记录：\n${m.privateChat.split('\n').map((l) => '　　' + l).join('\n')}` : '';
         const soul = m.soulState ? `\n　· 与用户的灵魂状态（仅 TA 自己知道）：${m.soulState}` : '';
         const story = m.storyRelations ? `\n　· TA 知道的故事关系：${m.storyRelations}` : '';

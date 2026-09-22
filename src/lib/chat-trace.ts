@@ -35,6 +35,9 @@ export interface ContextTraceSources {
   scenes?: TraceMember[];
   /** 5.0 世界脉冲：角色在用户离开时亲身参与、且这一轮真的注入的行动 */
   pulseEvents?: TraceMember[];
+  /** 朋友圈：角色实际看过、且这一轮真的注入的动态 */
+  moments?: TraceMember[];
+  crossChannelReferences?: BuiltContextTrace['crossChannelReferences'];
   now?: number;
 }
 
@@ -59,8 +62,10 @@ export function buildContextTrace(sources: ContextTraceSources): BuiltContextTra
   const diaryIds = included.has('diary') ? (sources.diaries ?? []).map((d) => d.id) : [];
   const sceneIds = included.has('scene') ? (sources.scenes ?? []).map((s) => s.id) : [];
   const pulseEventIds = included.has('world-pulse') ? (sources.pulseEvents ?? []).map((e) => e.id) : [];
+  const momentIds = included.has('moments') ? (sources.moments ?? []).map((m) => m.id) : [];
 
   return {
+    ...(included.has('cross-channel-memory') && sources.crossChannelReferences?.length ? { crossChannelReferences: sources.crossChannelReferences } : {}),
     ...(memoryIds.size > 0 ? { memoryIds: [...memoryIds] } : {}),
     ...(continuityThreadIds.length > 0 ? { continuityThreadIds } : {}),
     ...(sharedEventIds.length > 0 ? { sharedEventIds } : {}),
@@ -68,6 +73,7 @@ export function buildContextTrace(sources: ContextTraceSources): BuiltContextTra
     ...(diaryIds.length > 0 ? { diaryIds } : {}),
     ...(sceneIds.length > 0 ? { sceneIds } : {}),
     ...(pulseEventIds.length > 0 ? { pulseEventIds } : {}),
+    ...(momentIds.length > 0 ? { momentIds } : {}),
     at: sources.now ?? Date.now(),
   };
 }
@@ -75,6 +81,7 @@ export function buildContextTrace(sources: ContextTraceSources): BuiltContextTra
 /** 这条溯源信息是否值得存到消息上（全空则不存，避免每条消息挂一个空对象） */
 export function hasTraceContent(trace: BuiltContextTrace): boolean {
   return (
+    (trace.crossChannelReferences?.length ?? 0) > 0 ||
     (trace.memoryIds?.length ?? 0) > 0 ||
     (trace.continuityThreadIds?.length ?? 0) > 0 ||
     (trace.sharedEventIds?.length ?? 0) > 0 ||
@@ -82,5 +89,6 @@ export function hasTraceContent(trace: BuiltContextTrace): boolean {
     (trace.diaryIds?.length ?? 0) > 0 ||
     (trace.sceneIds?.length ?? 0) > 0 ||
     (trace.pulseEventIds?.length ?? 0) > 0
+    || (trace.momentIds?.length ?? 0) > 0
   );
 }

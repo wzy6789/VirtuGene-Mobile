@@ -2,7 +2,7 @@
  * 局域网同步数据：全量收集（导出）与合并写入（导入）。
  * 桌面端与手机端共用同一份格式，通过 HTTP 互传。
  */
-import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent, type WorldLocation, type WorldPresence, type WorldAgentState, type WorldPulse, type WorldObject, type Todo, type TodoOccurrence, type TodoReminder } from '../db/index';
+import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent, type WorldLocation, type WorldPresence, type WorldAgentState, type WorldPulse, type WorldObject, type Todo, type TodoOccurrence, type TodoReminder, type Moment, type MomentMedia, type MomentView, type MomentReaction, type MomentContact, type MomentJob, type MomentNotification } from '../db/index';
 
 export interface SyncExportData {
   __meta__: {
@@ -41,6 +41,13 @@ export interface SyncExportData {
   todos?: Todo[];
   todoOccurrences?: TodoOccurrence[];
   todoReminders?: TodoReminder[];
+  moments?: Moment[];
+  momentMedia?: MomentMedia[];
+  momentViews?: MomentView[];
+  momentReactions?: MomentReaction[];
+  momentContacts?: MomentContact[];
+  momentJobs?: MomentJob[];
+  momentNotifications?: MomentNotification[];
 }
 
 /** 收集当前设备全部业务数据（不含账号密码与 API Key，隐私不外传） */
@@ -50,7 +57,8 @@ export async function collectSyncData(
 ): Promise<SyncExportData> {
   const [characters, sessions, messages, memories, emotionSnapshots, characterStates, diaries, continuityThreads, sharedStoryEvents,
     worlds, worldEvents, worldScenes, worldSceneEntries, characterKnowledge, sharedMemories, relationshipStates, relationshipEvents,
-    worldLocations, worldPresences, worldAgentStates, worldPulses, worldObjects, todos, todoOccurrences, todoReminders] =
+    worldLocations, worldPresences, worldAgentStates, worldPulses, worldObjects, todos, todoOccurrences, todoReminders,
+    moments, momentMedia, momentViews, momentReactions, momentContacts, momentJobs, momentNotifications] =
     await Promise.all([
       db.characters.toArray(),
       db.sessions.toArray(),
@@ -77,6 +85,13 @@ export async function collectSyncData(
       db.todos.toArray(),
       db.todoOccurrences.toArray(),
       db.todoReminders.toArray(),
+      db.moments.toArray(),
+      db.momentMedia.toArray(),
+      db.momentViews.toArray(),
+      db.momentReactions.toArray(),
+      db.momentContacts.toArray(),
+      db.momentJobs.toArray(),
+      db.momentNotifications.toArray(),
     ]);
   return {
     __meta__: {
@@ -112,6 +127,15 @@ export async function collectSyncData(
     todos,
     todoOccurrences,
     todoReminders,
+    // 朋友圈数据必须跟随当前账号导出。即使同一台设备切换过账号，
+    // 也不能把其他账号的动态、屏蔽名单或角色互动带到同步端。
+    moments: userId ? moments.filter((item) => item.userId === userId) : [],
+    momentMedia: userId ? momentMedia.filter((item) => item.userId === userId) : [],
+    momentViews: userId ? momentViews.filter((item) => item.userId === userId) : [],
+    momentReactions: userId ? momentReactions.filter((item) => item.userId === userId) : [],
+    momentContacts: userId ? momentContacts.filter((item) => item.userId === userId) : [],
+    momentJobs: userId ? momentJobs.filter((item) => item.userId === userId) : [],
+    momentNotifications: userId ? momentNotifications.filter((item) => item.userId === userId) : [],
   };
 }
 
@@ -142,7 +166,8 @@ export async function importSyncData(
       'rw',
       [db.characters, db.sessions, db.messages, db.memories, db.emotionSnapshots, db.characterStates, db.diaries, db.continuityThreads, db.sharedStoryEvents,
         db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents,
-        db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects, db.todos, db.todoOccurrences, db.todoReminders],
+        db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects, db.todos, db.todoOccurrences, db.todoReminders,
+        db.moments, db.momentMedia, db.momentViews, db.momentReactions, db.momentContacts, db.momentJobs, db.momentNotifications],
       async () => {
         let n = 0;
         for (const c of data.characters ?? []) {
@@ -313,6 +338,32 @@ export async function importSyncData(
         n = 0;
         for (const reminder of data.todoReminders ?? []) { await db.todoReminders.put(reminder); n += 1; }
         counts.todoReminders = n;
+
+        n = 0;
+        for (const moment of data.moments ?? []) { await db.moments.put(moment); n += 1; }
+        counts.moments = n;
+        n = 0;
+        for (const media of data.momentMedia ?? []) { await db.momentMedia.put(media); n += 1; }
+        counts.momentMedia = n;
+        n = 0;
+        for (const view of data.momentViews ?? []) { await db.momentViews.put(view); n += 1; }
+        counts.momentViews = n;
+        n = 0;
+        for (const reaction of data.momentReactions ?? []) { await db.momentReactions.put(reaction); n += 1; }
+        counts.momentReactions = n;
+        n = 0;
+        for (const contact of data.momentContacts ?? []) { await db.momentContacts.put(contact); n += 1; }
+        counts.momentContacts = n;
+        n = 0;
+        for (const job of data.momentJobs ?? []) {
+          // 恢复旧备份不能复活已撤销、失败或已完成的互动；只有原本排队的任务可继续。
+          await db.momentJobs.put({ ...job, status: job.status === 'running' ? 'queued' : job.status,
+            leaseUntil: undefined, updatedAt: Date.now() }); n += 1;
+        }
+        counts.momentJobs = n;
+        n = 0;
+        for (const notification of data.momentNotifications ?? []) { await db.momentNotifications.put(notification); n += 1; }
+        counts.momentNotifications = n;
       },
     );
     return { ok: true, counts };

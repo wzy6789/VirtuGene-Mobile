@@ -77,6 +77,7 @@ function threadAt(partial: Partial<ContinuityThread> & { id: string; kind: Conti
 }
 
 async function run() {
+  useUIStore.getState().setWorldTheaterOpen(true);
   await Dexie.delete(DB);
   await db.open();
 
@@ -130,7 +131,7 @@ async function run() {
 
   text = await render();
   // 5.0 最终版：首页的视觉核心是「此刻」（§6），"正等着继续的事"落在「还没做完的事」区块里，
-  // 不再是过去那种"大卡 + 其余列表"的两级结构（§7：不再有剧情式一级入口）。
+  // 不再是过去那种"大卡 + 其余列表"的两级结构（§7：不再有剧本式一级入口）。
   check('出现视觉核心「此刻」', text.includes('此刻'));
   check('「还没做完的事」里能看见逾期那条（真实挑选结果）', text.includes('答应陪她去看海'), text.slice(0, 260));
   check('线索行显示参与者与类别', text.includes('星遥') && text.includes('承诺'), text.slice(0, 300));

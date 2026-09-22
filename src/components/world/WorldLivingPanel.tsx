@@ -105,7 +105,7 @@ export const WorldLivingPanel = memo(function WorldLivingPanel({
             >
               <span className="vg-living-location-signal" aria-hidden="true" />
               <strong>{location.name}</strong>
-              <span>{people.length ? `${people.length} 人在场` : activeSceneCount ? '剧情进行中' : '暂时安静'}</span>
+              <span>{people.length ? `${people.length} 人在场` : activeSceneCount ? '世界正在发生' : '暂时安静'}</span>
             </button>
           );
         })}
@@ -125,7 +125,7 @@ export const WorldLivingPanel = memo(function WorldLivingPanel({
               ))}
             </div>
           )}
-          {selectedScenes.length > 0 && <p className="vg-living-location-scenes">这里有 {selectedScenes.length} 段相关剧情{selectedScenes.some((scene) => scene.status === 'active') ? '，其中一段正在发生' : ''}。</p>}
+          {selectedScenes.length > 0 && <p className="vg-living-location-scenes">这里有 {selectedScenes.length} 个相关世界{selectedScenes.some((scene) => scene.status === 'active') ? '，其中一个正在发生' : ''}。</p>}
           {selectedEvents.length > 0 && (
             <div className="vg-living-location-events">
               {selectedEvents.map((event) => <p key={event.id}><small>{eventLabel(event)}</small><span>{event.title}</span></p>)}

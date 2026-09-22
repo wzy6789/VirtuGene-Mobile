@@ -27,7 +27,7 @@ export function fitConstellationName(value: string, maxChars = 5): string {
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 }
 
-/** 主页星图的剧情主题名：数据层已经限制为五字，这里兼容旧数据且不追加省略号。 */
+/** 主页星图的场景标题：数据层已经限制为五字，这里兼容旧数据且不追加省略号。 */
 export function plainConstellationTitle(value: string, maxChars = 5): string {
   return value.trim().slice(0, maxChars);
 }

@@ -97,14 +97,18 @@ async function run() {
     const host = mount(createElement(MobileLayout), 800);
     await sleep(500);
     const text = host.innerText;
-    check('① 标题是「世界」+ 持续生活的一句自然描述', text.includes('世界') && text.includes('时间会走') && text.includes('自己的去处'), text.slice(0, 180));
-    check('② 视觉核心是「此刻」', text.includes('此刻'));
+    check('① 世界首页展示品牌标题与自然描述', text.includes('世界 Living World') && text.includes('你的生活，与他们的时间在这里相遇'), text.slice(0, 180));
+    check('② 日记、待办、朋友圈、星域各有独立入口', ['朋友圈', '日记', '待办', '星域'].every((label) => text.includes(label)));
     check('③ 主导航仍然是 消息｜世界｜角色｜我的',
       ['消息', '世界', '角色', '我的'].every((t) => text.includes(t)), text.slice(-120));
     check('④ 主 UI 里没有「世界剧场」这种一级入口（§7/§77）', !text.includes('世界剧场'), text.slice(0, 400));
     check('⑤ 主 UI 里没有「故事模式」这种要求用户先选模式的词（§4）', !text.includes('故事模式'));
-    check('⑥ 档案入口收进关系 / 记忆 / 年表 / 设定，我的生活留在星图核心',
-      ['关系', '记忆', '年表', '设定', '我的生活'].every((t) => text.includes(t)) && !!host.querySelector('.vg-world-dock'));
+    const stageEntry = Array.from(host.querySelectorAll('button')).find((button) => button.classList.contains('is-stage')) as HTMLButtonElement | undefined;
+    stageEntry?.click();
+    await sleep(120);
+    const stageText = host.innerText;
+    check('⑥ 进入星域后才呈现「此刻」和关系 / 记忆 / 年表 / 设定',
+      ['此刻', '关系', '记忆', '年表', '设定'].every((label) => stageText.includes(label)) && !!host.querySelector('.vg-world-dock'));
     check('⑦ 底部一级导航在世界主页可见',
       !(host.querySelector('.mobile-bottom-nav')?.className ?? '').includes('hidden'));
 
@@ -123,8 +127,13 @@ async function run() {
     check('① 进入世界空间后**底部一级导航隐藏**（沉浸式，§67）',
       (host.querySelector('.mobile-bottom-nav')?.className ?? '').includes('hidden'),
       host.querySelector('.mobile-bottom-nav')?.className);
-    check('② 顶部只显示地点 · 时间与在场的人（点击才展开）',
-      text.includes('古月娜') && text.includes('星遥') && text.includes('状态'), text.slice(0, 160));
+    const details = host.querySelector('.vg-canvas-menu-button') as HTMLButtonElement | null;
+    details?.click();
+    await sleep(60);
+    check('② 顶部显示当前世界与地点时间，人物信息点开后可见',
+      text.includes('此刻') && text.includes('你们常在的地方') &&
+      host.innerText.includes('在场：') && host.innerText.includes('古月娜') && host.innerText.includes('星遥'), text.slice(0, 160));
+    details?.click();
     check('③ 输入框用沉浸式短提示，不在对话区解释功能',
       (host.querySelector('textarea')?.getAttribute('placeholder') ?? '') === '让世界继续发生……',
       host.querySelector('textarea')?.getAttribute('placeholder'));
@@ -198,7 +207,7 @@ async function run() {
     await sleep(80);
     const sheet = host.innerText;
     check('⑮ 世界控制面板里每一项都有对应的一句自然语言（§39）',
-      sheet.includes('让他们自己聊一会儿') && sheet.includes('跳过时间') && sheet.includes('撤销上一轮') && sheet.includes('保存为故事'),
+      sheet.includes('让他们自己聊一会儿') && sheet.includes('跳过时间') && sheet.includes('撤销上一轮') && sheet.includes('写入世界记录') && sheet.includes('保存这一刻'),
       sheet.slice(-400));
     check('⑯ 控制面板只保留动作，不重复解释输入框用法', !sheet.includes('这些也可以用一句话做到') && !host.querySelector('.vg-sheet-hint'));
     unmount();

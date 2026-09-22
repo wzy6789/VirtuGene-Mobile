@@ -11,10 +11,11 @@ import { WorldCanvas } from '../world/WorldCanvas';
 import { WorldMemoryPage } from '../world/WorldMemoryPage';
 import { WorldTimelinePage } from '../world/WorldTimelinePage';
 import { WorldSettingsPage } from '../world/WorldSettingsPage';
+import { MomentsPage } from '../moments/MomentsPage';
 import { MobileTabSwipe } from '../ui/MobileTabSwipe';
 import type { ActiveView } from '../../store/ui-store';
 
-// 手账包含日历、导出和多种 AI 辅助；仅在用户从「世界 → 我的生活」进入时下载。
+// 手账包含日历、导出和多种 AI 辅助；仅在用户从「世界 → 日记」进入时下载。
 const DiaryPage = lazy(() => import('../../pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
 const TodoPage = lazy(() => import('../todo/TodoPage').then((m) => ({ default: m.TodoPage })));
 const MobileCharacterPage = lazy(() => import('../character/MobileCharacterPage').then((m) => ({ default: m.MobileCharacterPage })));
@@ -28,6 +29,7 @@ function formatUnread(n: number): string {
 type MobileNavSnapshot = {
   activeView: ActiveView;
   mobileTab: MobileTab;
+  worldTheaterOpen: boolean;
   chatFromCharacters: boolean;
   chatFromList: boolean;
   canvasSceneId: string | null;
@@ -38,6 +40,7 @@ function readMobileNavSnapshot(): MobileNavSnapshot {
   return {
     activeView: state.activeView,
     mobileTab: state.mobileTab,
+    worldTheaterOpen: state.worldTheaterOpen,
     chatFromCharacters: state.chatFromCharacters,
     chatFromList: state.chatFromList,
     canvasSceneId: state.canvasSceneId,
@@ -48,6 +51,7 @@ function mobileNavSignature(snapshot: MobileNavSnapshot): string {
   return [
     snapshot.activeView,
     snapshot.mobileTab,
+    snapshot.worldTheaterOpen ? 'theater' : '',
     snapshot.chatFromCharacters ? 'characters-chat' : '',
     snapshot.chatFromList ? 'list-chat' : '',
     snapshot.canvasSceneId ?? '',
@@ -110,6 +114,7 @@ export function MobileLayout() {
   const chatFromCharacters = useUIStore((s) => s.chatFromCharacters);
   const chatFromList = useUIStore((s) => s.chatFromList);
   const canvasSceneId = useUIStore((s) => s.canvasSceneId);
+  const worldTheaterOpen = useUIStore((s) => s.worldTheaterOpen);
   const unreadByCharacter = useChatStore((s) => s.unreadByCharacter);
   const fetchUnreadCounts = useChatStore((s) => s.fetchUnreadCounts);
   /** 键盘弹出（输入聚焦）时隐藏底部 tab */
@@ -130,11 +135,12 @@ export function MobileLayout() {
   // 沉浸式视图（世界空间）：隐藏底部一级导航，进入真正的"世界"（§67）
   const immersive = IMMERSIVE_VIEWS.includes(activeView);
 
-  // 5.0：手账不再是底部 tab，而是「世界 → 我的生活」打开的内容（复用 activeView === 'diary'）。
+  // 5.0：手账不再是底部 tab，而是「世界 → 日记」打开的内容（复用 activeView === 'diary'）。
   // 它**不隐藏底部导航**，所以手机端不会出现"进去了出不来"；此时高亮「世界」。
   // 同一条规则适用于关系网络 / 记忆 / 时间线 / 世界设定（以及保留的旧剧场页）。
   const diaryOpen = activeView === 'diary';
   const todoOpen = activeView === 'todo';
+  const momentsOpen = activeView === 'moments';
   const relationsOpen = activeView === 'relations';
   const stageOpen = activeView === 'stage';
   const memoryOpen = activeView === 'memory';
@@ -206,7 +212,7 @@ export function MobileLayout() {
     return () => {
       if (navigation.timer) clearTimeout(navigation.timer);
     };
-  }, [activeView, tab, chatFromCharacters, chatFromList, canvasSceneId]);
+  }, [activeView, tab, chatFromCharacters, chatFromList, canvasSceneId, worldTheaterOpen]);
 
   // 定时刷新未读数（主动消息到达时保持 tab 徽标新鲜；角色页也会自行拉取）
   useEffect(() => {
@@ -265,6 +271,7 @@ export function MobileLayout() {
     // 离开聊天/角色 tab 时清掉推入状态，避免残留
     if (t !== 'characters') useUIStore.getState().setChatFromCharacters(false);
     if (t !== 'chat') useUIStore.getState().setChatFromList(false);
+    useUIStore.getState().setWorldTheaterOpen(false);
     setTab(t);
     // 手账/关系网络是覆盖页：点任何一级导航都退出它（含点「世界」本身）
     useUIStore.getState().setActiveView('chat');
@@ -333,6 +340,8 @@ export function MobileLayout() {
               </Suspense>
             ) : todoOpen ? (
               <TodoPage />
+            ) : momentsOpen ? (
+              <MomentsPage />
             ) : (
               <>
                 {tab === 'chat' &&

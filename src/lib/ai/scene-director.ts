@@ -13,10 +13,10 @@
  */
 import { llmChat, getProviderKey } from './llm';
 import { findModel, resolveModel, type LLMModel } from './llm';
-import { safeParseObject } from './safe-json';
+import { safeParseAIResponse, safeParseObject } from './safe-json';
 import { worldChat } from '../world/world-ai-client';
 import { buildTimeContext } from '../chat-context';
-import { validateChoiceOptions, MAX_ACTS, actLabel } from '../world/scene-acts';
+import { validateChoiceOptions } from '../world/scene-acts';
 import { buildConversationFocus } from '../world/user-profile';
 
 /** 可注入的 LLM 边界（验收用；生产走 llmChat） */
@@ -63,7 +63,8 @@ export interface SceneDirectorParams {
   scene: { title: string; place: string; timeLabel: string; mood: string; theme?: string };
   state: {
     sceneGoal?: string;
-    currentAct: number;
+    /** 旧数据兼容字段；新场景不再使用幕次。 */
+    currentAct?: number;
     currentTension: number;
     activeConflicts: string[];
     pendingConsequences: string[];
@@ -112,7 +113,7 @@ function sceneModelChain(primary: LLMModel): LLMModel[] {
   return [primary, ...rest];
 }
 
-const SCENE_INSTRUCTION = `你是一个互动故事（World Stage）的导演，同时扮演场景中的角色。
+const SCENE_INSTRUCTION = `你是一个共同生活世界的引导者，同时扮演世界中的角色。
 输出要求：
 1. **只输出 JSON**，形如：
 {"entries":[{"kind":"narration","content":"……"},{"kind":"dialogue","speaker":"角色名","content":"……"}],"tension":0.4,"newConflict":"……","pendingConsequence":"……"}
@@ -123,7 +124,7 @@ const SCENE_INSTRUCTION = `你是一个互动故事（World Stage）的导演，
 6. tension 是当前张力（0~1 的小数，可省略）；newConflict / pendingConsequence 只在真的出现时才给（人话一句，可省略）。
 7. **偶尔**（不要每轮）可以给用户一个岔路口，让 TA 选择怎么做：
    {"kind":"choice","content":"你要怎么做？","options":["选项一","选项二"]}
-   规则：选项 2~3 个、每个不超过 20 字、彼此明显不同、都能推动剧情；给了选项就**不要**再替用户写 TA 的动作。
+   规则：选项 2~3 个、每个不超过 20 字、彼此明显不同、都能让世界产生不同变化；给了选项就**不要**再替用户写 TA 的动作。
 8. 当前用户输入是本轮最高优先级；用户换话题时立刻顺着新话题，不要揪着旧冲突或同一件事反复追问。
 9. 不要输出 JSON 以外的任何文字。`;
 
@@ -138,6 +139,63 @@ function trimNatural(text: string, max: number): string {
   return boundary >= Math.floor(max * 0.55) ? head.slice(0, boundary + 1) : `${head.slice(0, max - 1)}…`;
 }
 
+/**
+ * 某些兼容端点会忽略 JSON 模式，直接返回一两句正文。只在非 JSON 重试
+ * 路径使用这个保守恢复：不猜角色、不补写内容，只把模型已经给出的文字
+ * 变成旁白（能识别出场角色前缀时才标成对白），避免舞台出现一片空白。
+ */
+function recoverPlainSceneEntries(raw: string, members: SceneDirectorMember[], maxEntries: number): SceneDirectorEntry[] {
+  const text = raw.trim().replace(/^```(?:text)?\s*/i, '').replace(/```$/i, '').trim();
+  if (!text || text.startsWith('{') || text.startsWith('[')) return [];
+  const byName = members
+    .map((member) => ({ name: member.name.trim(), id: member.characterId }))
+    .filter((member) => member.name.length > 0);
+  const lines = text
+    .split(/\r?\n+/)
+    .map((line) => line.trim().replace(/^[-*]\s*/, ''))
+    .filter((line) => line && !/^```/.test(line))
+    .slice(0, maxEntries);
+  return lines.map((line) => {
+    const match = line.match(/^([^：:]{1,24})[：:]\s*(.+)$/);
+    const speaker = match && byName.find((member) => member.name === match[1].trim());
+    if (speaker && match) return { kind: 'dialogue', speakerId: speaker.id, content: trimNatural(match[2].trim(), 180) };
+    return { kind: 'narration', content: trimNatural(line, 260) };
+  });
+}
+
+/** Recover complete content strings from a response truncated in the middle
+ * of its JSON envelope. Only text already present in the response is used;
+ * unknown speakers are discarded instead of being assigned by guesswork. */
+function recoverTruncatedSceneEntries(raw: string, members: SceneDirectorMember[], maxEntries: number): SceneDirectorEntry[] {
+  const text = raw.trim();
+  if (!text || (!text.includes('"content"') && !text.includes('"text"'))) return [];
+  const byName = new Map(members.map((member) => [member.name.trim(), member.characterId]));
+  const out: SceneDirectorEntry[] = [];
+  const itemPattern = /(?:\{|\[)[\s\S]{0,900}?"(?:kind|type)"\s*:\s*"(dialogue|narration|choice)"[\s\S]{0,900}?"(?:content|text)"\s*:\s*"((?:\\.|[^"\\])*)"/g;
+  for (const match of text.matchAll(itemPattern)) {
+    if (out.length >= maxEntries) break;
+    let content = '';
+    try { content = JSON.parse(`"${match[2]}"`) as string; } catch { continue; }
+    content = content.trim();
+    if (!content) continue;
+    if (match[1] !== 'dialogue') {
+      out.push({ kind: 'narration', content: trimNatural(content, 260) });
+      continue;
+    }
+    const before = match[0].slice(0, match[0].indexOf(match[2]));
+    const speakerMatch = before.match(/"speaker"\s*:\s*"((?:\\.|[^"\\])*)"/);
+    let speaker = '';
+    if (speakerMatch) {
+      try { speaker = JSON.parse(`"${speakerMatch[1]}"`) as string; } catch { speaker = ''; }
+    }
+    const speakerId = byName.get(speaker.trim())
+      ?? (members.some((member) => member.characterId === speaker.trim()) ? speaker.trim() : undefined);
+    if (!speakerId) continue;
+    out.push({ kind: 'dialogue', speakerId, content: trimNatural(content, 180) });
+  }
+  return out;
+}
+
 /** 导演输出的条目类型（解析后） */
 
 /** 解析导演输出：宽容取 JSON（可能被包在 ```json 里），逐条校验，丢弃非法条目 */
@@ -150,16 +208,16 @@ export function parseSceneOutput(
   const text = (raw ?? '').trim();
   if (!text) return { entries: [], via: 'none', unknownSpeakers };
 
-  let data: unknown;
-  try {
-    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    data = JSON.parse((fenced ? fenced[1] : text).trim());
-  } catch {
-    // 解析不出 JSON：**不猜**，如实返回空（由上层报错/重试）
+  const parsed = safeParseAIResponse<unknown>(text);
+  if (parsed.via === 'none' || parsed.value == null) {
     return { entries: [], via: 'none', unknownSpeakers };
   }
 
-  const obj = (data ?? {}) as Record<string, unknown>;
+  const obj: Record<string, unknown> = Array.isArray(parsed.value)
+    ? { entries: parsed.value }
+    : typeof parsed.value === 'object'
+      ? parsed.value as Record<string, unknown>
+      : {};
   const byName = new Map(members.map((m) => [m.name.trim(), m.characterId]));
   const byId = new Set(members.map((m) => m.characterId));
   const entries: SceneDirectorEntry[] = [];
@@ -192,6 +250,21 @@ export function parseSceneOutput(
       continue;
     }
     entries.push({ kind, speakerId, content });
+  }
+
+  // Some compatible endpoints return one valid item at the object root
+  // instead of wrapping it in `entries`. Preserve that text as one scene
+  // entry instead of treating a schema mismatch as an empty response.
+  if (entries.length === 0) {
+    const rootText = [obj.content, obj.text, obj.narration].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+    const rootDialogue = typeof obj.dialogue === 'string' ? obj.dialogue.trim() : '';
+    const rootSpeaker = typeof obj.speaker === 'string' ? obj.speaker.trim() : '';
+    const rootSpeakerId = byId.has(rootSpeaker) ? rootSpeaker : byName.get(rootSpeaker);
+    if (rootDialogue && rootSpeakerId) {
+      entries.push({ kind: 'dialogue', speakerId: rootSpeakerId, content: trimNatural(rootDialogue, 180) });
+    } else if (rootText) {
+      entries.push({ kind: 'narration', content: trimNatural(rootText.trim(), 260) });
+    }
   }
 
   const pickString = (v: unknown, max: number): string | undefined => {
@@ -230,24 +303,22 @@ export async function directSceneTurn(
   // 模型兜底：舞台比普通问答更不能停在空白处。切换一个稳定候选，
   // 避免一次点击在多个无 Key/慢模型上串行等待数分钟。
   // 这里不伪造正文，所有内容仍来自一次真实 LLM 调用。
-  const fallbackModels = sceneModelChain(model).slice(1, 2);
-  let lastFailure = second.error ?? first.error;
+  const fallbackModels = sceneModelChain(model).slice(1, 3);
   for (const fallbackModel of fallbackModels) {
     const fallbackJson = await attemptScene(params, fallbackModel, callLlm, true);
     llmCalls += fallbackJson.llmCalls ?? 1;
     if (fallbackJson.entries.length > 0) return { ...fallbackJson, fallback: true, llmCalls };
-    lastFailure = fallbackJson.error ?? lastFailure;
     const fallbackPlain = await attemptScene(params, fallbackModel, callLlm, false);
     llmCalls += fallbackPlain.llmCalls ?? 1;
     if (fallbackPlain.entries.length > 0) return { ...fallbackPlain, fallback: true, llmCalls };
-    lastFailure = fallbackPlain.error ?? lastFailure;
   }
 
+  // 所有模型都不可用或无法形成可信正文时，保持空正文并把原因交给 UI。
+  // 不能用固定旁白冒充世界已经推进；用户动作已经由 runtime 单独保存。
   return {
     entries: [],
     via: 'none',
-    error: lastFailure ?? '场景生成失败',
-    ...(second.raw ? { raw: second.raw } : first.raw ? { raw: first.raw } : {}),
+    error: 'scene:no_usable_content',
     modelId: model.id,
     llmCalls,
   };
@@ -272,10 +343,10 @@ async function attemptScene(
       .join('\n');
 
     const stateLines = [
-      `场景：${params.scene.title}（${params.scene.place} · ${params.scene.timeLabel} · 气氛：${params.scene.mood}）`,
+      `世界：${params.scene.title}（${params.scene.place} · ${params.scene.timeLabel} · 气氛：${params.scene.mood}）`,
       params.scene.theme ? `主题：${params.scene.theme}` : '',
       params.state.sceneGoal ? `本场目标：${params.state.sceneGoal}` : '',
-      `现在是 ${actLabel(params.state.currentAct)}（这一场最多 ${MAX_ACTS} 幕）；当前张力约 ${params.state.currentTension.toFixed(2)}`,
+      `当前张力约 ${params.state.currentTension.toFixed(2)}。这是一段连续发生的经历，不使用幕次或章节标签。`,
       params.state.activeConflicts.length > 0 ? `已经存在的冲突：${params.state.activeConflicts.join('；')}` : '',
       params.state.pendingConsequences.length > 0 ? `尚未落地的后果：${params.state.pendingConsequences.join('；')}` : '',
     ].filter(Boolean).join('\n');
@@ -298,8 +369,8 @@ async function attemptScene(
     }
 
     const userBlock = params.userAction
-      ? `（用户刚刚：${params.userAction}）\n请继续这一场戏。`
-      : '（场景刚刚开始，还没有人说话。请让角色自然地开口，或先用一句旁白给出画面。）';
+      ? `（用户刚刚：${params.userAction}）\n请让这段共同生活继续发生。`
+      : '（这里刚刚开始，还没有人说话。请让角色自然地开口，或先用一句旁白给出画面。）';
 
     const res = await callLlm({
       provider: model.provider,
@@ -319,10 +390,30 @@ async function attemptScene(
 
     const parsed = parseSceneOutput(res.content ?? '', params.members, maxEntries);
     if (parsed.entries.length === 0) {
+      const recovered = recoverPlainSceneEntries(res.content ?? '', params.members, maxEntries);
+      if (recovered.length > 0) {
+        return {
+          entries: recovered,
+          via: 'plain',
+          raw: res.content ?? '',
+          modelId: model.id,
+          llmCalls: 1,
+        };
+      }
+      const recoveredTruncated = recoverTruncatedSceneEntries(res.content ?? '', params.members, maxEntries);
+      if (recoveredTruncated.length > 0) {
+        return {
+          entries: recoveredTruncated,
+          via: 'plain',
+          raw: res.content ?? '',
+          modelId: model.id,
+          llmCalls: 1,
+        };
+      }
       return {
         entries: [],
         via: 'none',
-        error: res.truncated ? '模型输出被截断' : '模型没有返回可用的场景内容',
+        error: res.truncated ? '模型输出被截断' : '模型没有返回可用的世界内容',
         raw: res.content ?? '',
         modelId: model.id,
         llmCalls: 1,
@@ -339,7 +430,7 @@ async function attemptScene(
       llmCalls: 1,
     };
   } catch (err) {
-    return { entries: [], via: 'none', error: (err as Error)?.message ?? '场景生成失败', modelId: model.id, llmCalls: 1 };
+    return { entries: [], via: 'none', error: (err as Error)?.message ?? '世界回应生成失败', modelId: model.id, llmCalls: 1 };
   }
 }
 
@@ -353,8 +444,8 @@ export async function proposeSceneSettlement(
   },
   callLlm: SceneLlmCaller = sceneLlmChat,
 ): Promise<{ raw: string; error?: string; fallback?: boolean; modelId?: string; llmCalls: number }> {
-  const instruction = `你是一段互动故事的记录者。请阅读这场戏的正文，输出**只包含 JSON** 的结算建议：
-{"summary":"这场戏发生了什么（一句话，给年表用）",
+  const instruction = `你是共同生活世界的记录者。请阅读这段经历的正文，输出**只包含 JSON** 的结算建议：
+{"summary":"这段经历发生了什么（一句话，给年表用）",
  "memory":{"title":"值得两个人一起记住的一件事（一句话）","summary":"细节（可省略）"},
  "relationshipChanges":[{"a":"角色名或「用户」","b":"角色名或「用户」","facets":{"trust":3,"conflict":-2},"reason":"为什么变了（人话，一句）"}],
  "unresolved":[{"who":"角色名","kind":"promise|plan|topic|conflict|reminder","title":"还没做完/没说清的一件事"}]}
@@ -367,8 +458,8 @@ export async function proposeSceneSettlement(
   const flash = findModel('deepseek-v4-flash') ?? resolveModel();
   const models = sceneModelChain(flash);
   const messages = [
-    { role: 'system', content: `${instruction}\n\n出场角色：${params.memberNames.map((m) => m.name).join('、')}（用户也在这场戏里）` },
-    { role: 'user', content: `场景：${params.scene.title}（${params.scene.place} · ${params.scene.timeLabel}）\n\n正文：\n${params.transcript.slice(-6000)}` },
+    { role: 'system', content: `${instruction}\n\n出场角色：${params.memberNames.map((m) => m.name).join('、')}（用户也在这个世界里）` },
+    { role: 'user', content: `世界：${params.scene.title}（${params.scene.place} · ${params.scene.timeLabel}）\n\n正文：\n${params.transcript.slice(-6000)}` },
   ];
   let llmCalls = 0;
   let lastError = '结算没有返回可用内容';

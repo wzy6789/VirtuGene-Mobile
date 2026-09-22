@@ -154,7 +154,7 @@ export interface WorldClock {
   pace: 'realtime';
 }
 
-/** 世界中的稳定地点。剧情是地点上的一次发生，地点本身不会随剧情结束消失。 */
+/** 世界中的稳定地点。场景是地点上的一次发生，地点本身不会随场景结束消失。 */
 export interface WorldLocation {
   id: string;
   userId: string;
@@ -295,6 +295,8 @@ export interface SceneParticipantState {
   characterId: string;
   /** 进入场景时携带的上下文范围。 */
   entryMemoryMode?: 'memory' | 'present';
+  /** 进入时间；present 角色只读取此刻之后的舞台正文。旧数据没有时兼容为全量。 */
+  enteredAt?: number;
   /** 该角色本场想要什么 */
   goals: string[];
   /** 入场时已知道的事情（WorldEvent.id 列表） */
@@ -644,6 +646,8 @@ export interface WorldTurn {
   before?: WorldTurnSnapshot;
   /** 结算是否已经后台完成（用户不必等它） */
   settled: boolean;
+  /** 主轮以「保存这一刻」强制结算（§39）：重试路径必须还原同样的结算条件 */
+  forceSettle?: boolean;
   /** 本轮实际发生的 AI 调用次数（成本可核对） */
   llmCalls: number;
   /** 失败信息（哪一步失败 + 原始错误码） */
@@ -740,6 +744,8 @@ export interface Group {
 }
 
 export interface Message {
+  /** 群消息产生时的听众快照；旧消息无快照时不推断谁听过。 */
+  witnessedBy?: string[];
   id: string;
   sessionId: string;
   role: 'user' | 'assistant' | 'system';
@@ -780,6 +786,9 @@ export interface Message {
     sceneIds?: string[];
     /** 5.0 世界脉冲（worldEvents.id）：角色在用户离开时亲身参与、且这一轮真的注入的行动 */
     pulseEventIds?: string[];
+    /** 朋友圈（moments.id）：角色实际看过且本轮真的注入的动态 */
+    momentIds?: string[];
+    crossChannelReferences?: { source: 'chat' | 'group' | 'world' | 'moment'; id: string }[];
     /** 记录时间 */
     at: number;
   };
@@ -813,6 +822,97 @@ export interface MemoryItem {
   /** 用户确认事实的时间；不等同于创建时间。 */
   lastConfirmedAt?: number;
   updatedAt?: number;
+}
+
+/** 朋友圈式动态的可见范围。规则与角色互动完全由 moments-repo 统一裁定。 */
+export type MomentVisibility = 'all' | 'private' | 'selected' | 'excluded';
+
+export interface Moment {
+  id: string;
+  userId: string;
+  /** 角色代用户发布的动态；为空时表示用户本人发布。 */
+  authorCharacterId?: string;
+  text: string;
+  visibility: MomentVisibility;
+  /** selected / excluded 使用的角色 id 快照；发布后新增角色不会自动看到旧动态。 */
+  audienceCharacterIds: string[];
+  visibilityRevision: number;
+  mediaIds: string[];
+  deleted?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MomentMedia {
+  id: string;
+  userId: string;
+  momentId: string;
+  /** 第一版本地图片管线使用压缩后的 data URL；原图不进入动态列表。 */
+  dataUrl: string;
+  width: number;
+  height: number;
+  mime: string;
+  order: number;
+  createdAt: number;
+}
+
+export interface MomentView {
+  id: string;
+  userId: string;
+  momentId: string;
+  characterId: string;
+  viewedAt: number;
+}
+
+export type MomentReactionType = 'like' | 'comment';
+
+export interface MomentReaction {
+  id: string;
+  userId: string;
+  momentId: string;
+  characterId?: string;
+  type: MomentReactionType;
+  content?: string;
+  replyToId?: string;
+  status: 'active' | 'withdrawn' | 'deleted';
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MomentContact {
+  id: string;
+  userId: string;
+  characterId: string;
+  blocked?: boolean;
+  updatedAt: number;
+}
+
+export interface MomentJob {
+  id: string;
+  userId: string;
+  momentId: string;
+  characterId: string;
+  type: 'view' | 'react' | 'reply';
+  replyToId?: string;
+  status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+  visibilityRevision: number;
+  attempts: number;
+  availableAt: number;
+  leaseUntil?: number;
+  lastError?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MomentNotification {
+  id: string;
+  userId: string;
+  momentId: string;
+  characterId?: string;
+  type: 'like' | 'comment' | 'summary';
+  preview: string;
+  read: boolean;
+  createdAt: number;
 }
 
 export interface EmotionDimensions {
@@ -971,6 +1071,13 @@ export class VirtuGeneDB extends Dexie {
   todos!: Table<Todo, string>;
   todoOccurrences!: Table<TodoOccurrence, string>;
   todoReminders!: Table<TodoReminder, string>;
+  moments!: Table<Moment, string>;
+  momentMedia!: Table<MomentMedia, string>;
+  momentViews!: Table<MomentView, string>;
+  momentReactions!: Table<MomentReaction, string>;
+  momentContacts!: Table<MomentContact, string>;
+  momentJobs!: Table<MomentJob, string>;
+  momentNotifications!: Table<MomentNotification, string>;
 
   constructor() {
     super('virtugene');
@@ -1175,7 +1282,7 @@ export class VirtuGeneDB extends Dexie {
     /**
      * v19：Living World 2.0 的世界内核基础。
      * 新表只保存真实状态，不会重写旧聊天、群聊、日记或世界事件；
-     * 旧世界在升级时获得一个现实锚点与逻辑时钟，其他地点按需从剧情同步。
+     * 旧世界在升级时获得一个现实锚点与逻辑时钟，其他地点按需从场景同步。
      */
     this.version(19).stores({
       worlds: 'id,userId,isDefault',
@@ -1228,6 +1335,16 @@ export class VirtuGeneDB extends Dexie {
       todos: 'id,userId,status,dueDate,[userId+dueDate],[userId+status],updatedAt',
       todoOccurrences: 'id,userId,todoId,dueDate,[userId+dueDate],[todoId+dueDate],status,updatedAt',
       todoReminders: 'id,userId,todoId,occurrenceId,remindAt,status,[userId+remindAt],notificationId,updatedAt',
+    });
+    // v22：朋友圈式生活动态。全部记录带 userId，角色互动与世界/聊天数据隔离。
+    this.version(22).stores({
+      moments: 'id,userId,createdAt,[userId+createdAt],visibility,updatedAt',
+      momentMedia: 'id,userId,momentId,[momentId+order],createdAt',
+      momentViews: 'id,userId,momentId,characterId,[momentId+characterId],[userId+characterId]',
+      momentReactions: 'id,userId,momentId,characterId,type,[momentId+createdAt],[momentId+characterId],status',
+      momentContacts: 'id,userId,characterId,[userId+characterId],blocked,updatedAt',
+      momentJobs: 'id,userId,momentId,characterId,[momentId+characterId],status,[userId+availableAt],availableAt,updatedAt',
+      momentNotifications: 'id,userId,momentId,createdAt,[userId+createdAt],read',
     });
   }
 }

@@ -64,6 +64,13 @@ export interface BackupData {
   todos?: SyncExportData['todos'];
   todoOccurrences?: SyncExportData['todoOccurrences'];
   todoReminders?: SyncExportData['todoReminders'];
+  moments?: SyncExportData['moments'];
+  momentMedia?: SyncExportData['momentMedia'];
+  momentViews?: SyncExportData['momentViews'];
+  momentReactions?: SyncExportData['momentReactions'];
+  momentContacts?: SyncExportData['momentContacts'];
+  momentJobs?: SyncExportData['momentJobs'];
+  momentNotifications?: SyncExportData['momentNotifications'];
 }
 
 /** 收集全量数据（含账号表，用于完整备份） */
@@ -98,6 +105,13 @@ export async function collectBackupData(userId: string | null, username: string 
     todos: base.todos,
     todoOccurrences: base.todoOccurrences,
     todoReminders: base.todoReminders,
+    moments: base.moments,
+    momentMedia: base.momentMedia,
+    momentViews: base.momentViews,
+    momentReactions: base.momentReactions,
+    momentContacts: base.momentContacts,
+    momentJobs: base.momentJobs,
+    momentNotifications: base.momentNotifications,
   };
 }
 
@@ -202,6 +216,13 @@ export async function restoreBackup(password: string): Promise<{
       todos: data.todos ?? [],
       todoOccurrences: data.todoOccurrences ?? [],
       todoReminders: data.todoReminders ?? [],
+      moments: data.moments ?? [],
+      momentMedia: data.momentMedia ?? [],
+      momentViews: data.momentViews ?? [],
+      momentReactions: data.momentReactions ?? [],
+      momentContacts: data.momentContacts ?? [],
+      momentJobs: data.momentJobs ?? [],
+      momentNotifications: data.momentNotifications ?? [],
     };
     const r = await importSyncData(syncPayload);
     if (!r.ok) return { ok: false, error: r.error ?? '数据导入失败' };

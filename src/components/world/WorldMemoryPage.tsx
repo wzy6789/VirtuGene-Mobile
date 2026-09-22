@@ -5,7 +5,7 @@
  * 每条记忆是一段有情绪重量的片段，参与者写清楚（古月娜 · 星遥 · 你）。
  *
  * 数据纪律（沿用已验收的三道闸门，不新增任何口径）：
- * - 只读 `sharedMemories`（用户显式收藏 + 世界结算写入 + 保存为故事）
+ * - 只读 `sharedMemories`（用户显式收藏 + 世界结算写入 + 写入世界记录）
  * - 参与者是"谁经历了"，可见性是"谁被允许知道"，两者**不是一回事**，
  *   因此这里展示参与者，不展示可见性名单（避免让用户以为记忆是"分权限"的）
  */
@@ -97,7 +97,7 @@ export function WorldMemoryPage() {
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="rounded-full bg-life-cyan/12 px-2 py-0.5 text-[10px] text-life-cyan">
-                    {memory.tags.find((t) => t.includes('故事')) ?? '一起经历'}
+                    {memory.tags.find((t) => t.includes('共同') || t.includes('经历')) ?? '一起经历'}
                   </span>
                   <time className="shrink-0 text-[10px] text-gray-500">{relativeDay(memory.createdAt)}</time>
                 </div>
@@ -114,14 +114,14 @@ export function WorldMemoryPage() {
         </ul>
       )}
 
-      {/* 旧「世界剧场」的**回看**入口（§77：不再是主 UI 的一级入口，但能力保留） */}
+      {/* 旧入口的**回看**能力仍保留，但不再作为世界首页的一级入口。 */}
       {!loading && (
         <button
           type="button"
           onClick={() => useUIStore.getState().setActiveView('stage')}
           className="mt-5 w-full rounded-xl border border-line px-4 py-2.5 text-[11px] text-sub"
         >
-          一起演过的戏 ›
+          回看已经发生的世界 ›
         </button>
       )}
     </div>

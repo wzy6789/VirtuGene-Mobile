@@ -134,6 +134,7 @@ function makeCharacter(id: string, name: string): Character {
 }
 
 async function run() {
+  useUIStore.getState().setWorldTheaterOpen(true);
   /* ---------------- P. 纯函数 ---------------- */
   section('P. splitForMemory（标题/正文切分，纯函数）');
   {

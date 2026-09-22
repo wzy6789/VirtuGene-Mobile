@@ -84,7 +84,7 @@ export function WorldExplorePanel({
         <section className="mt-4 border-t border-white/8 pt-4">
           <div className="mb-2 flex items-center justify-between">
             <h3 className="text-sm font-medium text-white/85">世界里的其他地点</h3>
-            <span className="text-[11px] text-white/40">前往会写进剧情</span>
+          <span className="text-[11px] text-white/40">前往会写进世界</span>
           </div>
           <div data-no-page-swipe="true" className="flex gap-2 overflow-x-auto pb-1">
             {otherLocations.slice(0, 6).map((location) => (

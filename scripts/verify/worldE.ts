@@ -57,7 +57,7 @@ function v17Schema() {
 
 async function run() {
   /* ================= P. 迁移：4.1.0 / Phase 1 数据在 v18 下必须原样存活 ================= */
-  section('P. 迁移（最先跑）：v17 → v19 不丢任何既有数据');
+  section('P. 迁移（最先跑）：v17 → v22 不丢任何既有数据');
   {
     const legacy = new Dexie(DB_NAME);
     legacy.version(17).stores(v17Schema());
@@ -109,8 +109,8 @@ async function run() {
     for (const table of Object.keys(v17Schema())) countsBefore[table] = await legacy.table(table).count();
     legacy.close();
 
-    // 用**真实的** VirtuGeneDB 打开同一份数据 ⇒ 触发 v18/v19 升级
-    check('① 当前数据库版本是 19（新增世界事实/轮次与世界内核表，既有表一律不动）', db.verno === 19, db.verno);
+    // 用**真实的** VirtuGeneDB 打开同一份数据 ⇒ 触发 v18 至当前 v22 升级
+    check('① 当前数据库版本是 22（旧数据升级后保留）', db.verno === 22, db.verno);
     const user = await db.users.get(U);
     check('② 用户与角色都在', !!user && (await db.characters.count()) === 2);
     check('③ 会话与消息都在', (await db.sessions.count()) === 1 && (await db.messages.count()) === 2);

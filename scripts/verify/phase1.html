@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>VirtuGene Phase 1 验收（4.x 旧数据零丢失·幂等迁移·跨用户隔离）</title>
+<link rel="stylesheet" href="./verify.css"></head>
+<body>
+<div id="app">running…</div>
+<script>
+  // 该套件只跑真实 IndexedDB，不注入假 LLM；上报用原始 fetch
+  var realFetch = window.fetch.bind(window);
+  function report(kind, detail) {
+    try { realFetch('/result?suite=phase1', { method: 'POST', body: kind + '\n' + detail + '\n\n1 FAILED' }); } catch (e) { /* ignore */ }
+  }
+  window.addEventListener('error', function (e) {
+    report('PAGE ERROR: ' + (e.message || ''), String((e.error && e.error.stack) || e.filename || ''));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    report('UNHANDLED REJECTION', String((e.reason && e.reason.stack) || e.reason));
+  });
+</script>
+<script src="./phase1.bundle.js"></script>
+</body>
+</html>

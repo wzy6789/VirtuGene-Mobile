@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
+const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/$/, '');
 const DEFAULT_MODEL = process.env.DEEPSEEK_DEFAULT_MODEL || 'deepseek-chat';
 const GATEWAY_TOKEN = process.env.VIRTUGENE_GATEWAY_TOKEN || '';
 const AUTH_SECRET = process.env.GATEWAY_AUTH_SECRET || '';
@@ -267,7 +268,7 @@ function auxMessages(operation, payload) {
 
 async function aux(operation, payload) {
   if (!DEEPSEEK_API_KEY) throw Object.assign(new Error('missing_provider_key'), { status: 503 });
-  const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+  const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: DEFAULT_MODEL, messages: auxMessages(operation, payload), temperature: 0.3, max_tokens: operation === 'diary' ? 900 : operation === 'context-summary' ? 900 : 600, response_format: { type: 'json_object' } }),
@@ -287,7 +288,7 @@ async function chat(body) {
   if (!DEEPSEEK_API_KEY) throw Object.assign(new Error('missing_provider_key'), { status: 503 });
   const requested = body.sessionModel?.model || body.character?.model?.model;
   const model = typeof requested === 'string' && requested.startsWith('deepseek-v') ? DEFAULT_MODEL : (requested || DEFAULT_MODEL);
-  const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+  const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -314,6 +315,72 @@ async function chat(body) {
     usage: data.usage ? { inputTokens: Number(data.usage.prompt_tokens || 0), outputTokens: Number(data.usage.completion_tokens || 0) } : undefined,
     modelId: model,
   };
+}
+
+function writeSseHead(res) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-store',
+    Connection: 'keep-alive',
+    'Access-Control-Allow-Origin': process.env.GATEWAY_CORS_ORIGIN || '*',
+  });
+}
+
+/**
+ * 星域流式入口（5.2 星域呈现）：与 /v1/chat 完全同款的鉴权、限流、安全干预与消息组装，
+ * 差别只是把供应商的 SSE 帧原样转发给客户端。
+ *
+ * - 私聊继续走 /v1/chat（整段 JSON），本端点是为星域增加的独立能力，互不影响；
+ * - 额外接受 maxTokens / disableThinking（世界管线的结算与导演阶段需要更大预算、
+ *   表演阶段需要关闭思考），缺省行为与 /v1/chat 一致；
+ * - 供应商响应头已确认（response.ok）之后才写 SSE 头，之前出错仍按整段 JSON 错误返回；
+ *   正文开始转发后中断只能直接收尾——客户端会把已有正文标记为 truncated/interrupted，
+ *   不会整轮重发。
+ */
+async function streamChat(body, intervention, res) {
+  if (!DEEPSEEK_API_KEY) throw Object.assign(new Error('missing_provider_key'), { status: 503 });
+  if (intervention) {
+    writeSseHead(res);
+    res.write(`data: ${JSON.stringify(intervention)}\n\n`);
+    res.write('data: [DONE]\n\n');
+    res.end();
+    return;
+  }
+  const requested = body.sessionModel?.model || body.character?.model?.model;
+  const model = typeof requested === 'string' && requested.startsWith('deepseek-v') ? DEFAULT_MODEL : (requested || DEFAULT_MODEL);
+  const maxTokens = body.forceVision ? 900 : Math.max(16, Math.min(8000, Math.round(Number(body.maxTokens ?? 700)) || 700));
+  const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      messages: buildMessages(body),
+      temperature: Math.max(0, Math.min(1.2, Number(body.temperature ?? 0.8))),
+      max_tokens: maxTokens,
+      thinking: { type: body.forceVision || body.disableThinking === true ? 'disabled' : 'enabled' },
+      stream: true,
+      stream_options: { include_usage: true },
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) {
+    const error = new Error(`provider_${response.status}`);
+    error.status = response.status === 401 ? 401 : response.status === 402 ? 402 : response.status === 429 ? 429 : 502;
+    throw error;
+  }
+  writeSseHead(res);
+  try {
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!res.write(value)) await new Promise((resolve) => res.once('drain', resolve));
+    }
+  } catch {
+    // 上游或网络中途断开：客户端侧会保留已收到的正文并标记 interrupted。
+  } finally {
+    res.end();
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -360,7 +427,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, status, { error: status === 401 ? 'auth:invalid_credentials' : 'server:error' });
     }
   }
-  if (req.method !== 'POST' || !['/v1/chat', '/v1/aux'].includes(req.url)) return json(res, 404, { error: 'not_found' });
+  if (req.method !== 'POST' || !['/v1/chat', '/v1/chat/stream', '/v1/aux'].includes(req.url)) return json(res, 404, { error: 'not_found' });
   if (!authorized(req)) return json(res, 401, { error: 'auth:invalid_key' });
   const endpointKind = req.url === '/v1/aux' ? 'aux' : 'chat';
   if (!allowed(identity(req), endpointKind)) return json(res, 429, { error: 'rate:limited' });
@@ -372,6 +439,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (!text(body.message, 4_000).trim() || !text(body.systemPrompt, 12_000).trim()) return json(res, 400, { error: 'invalid_request' });
     const intervention = safetyIntervention(body.message);
+    if (req.url === '/v1/chat/stream') {
+      await streamChat(body, intervention, res);
+      return;
+    }
     return json(res, 200, intervention || await chat(body));
   } catch (error) {
     const status = Number(error?.status || 502);

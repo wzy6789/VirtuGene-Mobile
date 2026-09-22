@@ -5,6 +5,7 @@ import { sessionRepo } from '../db/session-repo';
 import { messageRepo } from '../db/message-repo';
 import { characterRepo } from '../db/character-repo';
 import { memoryRepo } from '../db/memory-repo';
+import { recallCharacterMemory } from '../lib/character-memory';
 import { useAuthStore } from './auth-store';
 import { useNotificationStore } from './notification-store';
 import { stateRepo } from '../db/state-repo';
@@ -86,30 +87,14 @@ async function getOrCreateGroupSession(groupId: string, userId: string): Promise
 }
 
 /** 构建群聊上下文：成员人设（含单聊记忆 + 最近私聊原话） */
-async function buildBriefs(group: Group, userId: string): Promise<GroupMemberBrief[]> {
+async function buildBriefs(group: Group, userId: string, query = ''): Promise<GroupMemberBrief[]> {
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
     (c): c is NonNullable<typeof c> => !!c,
   );
   return Promise.all(
     members.map(async (c) => {
-      const memories = await memoryRepo.getRecentByCharacter(c.id, userId, 10);
-      const memText = memories.map((m) => m.content.slice(0, 80)).join('；').slice(0, 300);
-      let privateChat: string | undefined;
-      try {
-        const sessions = await sessionRepo.getByCharacter(c.id, userId);
-        const latest = sessions[0];
-        if (latest) {
-          const lastMsgs = (await messageRepo.getBySession(latest.id)).slice(-6);
-          if (lastMsgs.length > 0) {
-            privateChat = lastMsgs
-              .map((m) => (m.role === 'user' ? `我：${m.content}` : `${c.name}：${m.content}`))
-              .join('\n')
-              .slice(0, 500);
-          }
-        }
-      } catch {
-        /* 私聊记录取不到不影响群聊 */
-      }
+      const recalled = await recallCharacterMemory({ userId, characterId: c.id, query, audience: group.characterIds, sources: ['world', 'moment'], budget: 1800 });
+      const memText = recalled.text;
       let soulState: string | undefined;
       let storyRelations: string | undefined;
       let sharedHistory: string | undefined;
@@ -151,7 +136,6 @@ async function buildBriefs(group: Group, userId: string): Promise<GroupMemberBri
         name: c.name,
         persona: c.signature || c.systemPrompt.slice(0, 60),
         memory: memText || undefined,
-        privateChat,
         soulState,
         storyRelations,
         sharedHistory,
@@ -366,7 +350,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         set({ groupSending: false, groupError: '群成员不足（至少需要 2 个成员）' });
         return;
       }
-      const briefs = await buildBriefs(group, userId);
+      const briefs = await buildBriefs(group, userId, trimmed);
       const history = (await messageRepo.getPage(sessionId, { limit: 20 }))
         .slice(-17, -1)
         .map((m) => ({

@@ -35,12 +35,13 @@ import {
 import { validateSettlement } from './scene-consequences';
 import { actMarkerContent, shouldAdvanceAct } from './scene-acts';
 import { buildHiddenUserProfile } from './user-profile';
+import { recallCharacterMemory } from '../character-memory';
 
 /** 一次场景推演的结果（供 UI 与验收断言） */
 export interface SceneTurnResult {
   entries: WorldSceneEntry[];
   tension?: number;
-  /** 本轮翻到了第几幕（没翻幕则没有这个字段） */
+  /** 兼容旧验收与旧调用方；新场景不再推进或显示幕次。 */
   actAdvanced?: number;
   error?: string;
   /** 主模型无输出时是否由备用模型接续（仅诊断，不展示内部模型细节）。 */
@@ -55,25 +56,23 @@ async function buildMembers(scene: WorldScene, userId: string, query = ''): Prom
     const character = await characterRepo.getById(characterId);
     if (!character) continue;
     const participant = scene.state.participants.find((p) => p.characterId === characterId);
+    const carryMemory = (participant?.entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory') !== 'present';
     // 角色**只能知道**自己参与过的事件：用认知边界过滤（§62）
-    const known = await knowledgeRepo.listKnownBy(characterId, scene.worldId, { minLevel: 'hint', limit: 6, userId });
-    const knownTitles: string[] = [];
-    for (const row of known) {
-      const event = await worldEventRepo.getById(row.eventId);
-      if (event && event.userId === userId && event.worldId === scene.worldId) knownTitles.push(event.title);
-    }
-    const userMemories = await db.memories.where('characterId').equals(characterId).toArray()
-      .then((rows) => rows
-        .filter((row) => row.userId === userId)
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, 18));
+    const recalled = carryMemory ? await recallCharacterMemory({ userId, characterId, query, audience: scene.characterIds, worldId: scene.worldId, excludeSceneId: scene.id }) : { text: '' };
+    const userMemories = carryMemory
+      ? await db.memories.where('characterId').equals(characterId).toArray()
+        .then((rows) => rows
+          .filter((row) => row.userId === userId)
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .slice(0, 18))
+      : [];
     const userProfile = buildHiddenUserProfile(userMemories, query);
     members.push({
       characterId,
       name: character.name,
       persona: (character.systemPrompt ?? '').slice(0, 600),
       ...(participant?.goals?.length ? { goal: participant.goals.join('；') } : {}),
-      ...(knownTitles.length ? { knows: knownTitles.join('；') } : {}),
+      ...(recalled.text ? { knows: recalled.text } : {}),
       ...(participant?.secrets?.length ? { secret: participant.secrets.join('；') } : {}),
       ...(userProfile ? { userProfile } : {}),
     });
@@ -83,11 +82,13 @@ async function buildMembers(scene: WorldScene, userId: string, query = ''): Prom
 
 /** 把场景正文转成导演需要的 history（新的在后，取最近若干条） */
 function toDirectorHistory(entries: WorldSceneEntry[], nameOf: (id: string) => string) {
-  return entries.map((e) => ({
-    kind: e.kind === 'dialogue' || e.kind === 'narration' || e.kind === 'user_input' ? e.kind : ('narration' as const),
-    ...(e.speakerId ? { speakerName: nameOf(e.speakerId) } : {}),
-    content: e.content,
-  }));
+  return entries
+    .filter((e) => !(e.kind === 'system' && e.content.startsWith('——')))
+    .map((e) => ({
+      kind: e.kind === 'dialogue' || e.kind === 'narration' || e.kind === 'user_input' ? e.kind : ('narration' as const),
+      ...(e.speakerId ? { speakerName: nameOf(e.speakerId) } : {}),
+      content: e.content,
+    }));
 }
 
 /**
@@ -107,11 +108,11 @@ export async function startScene(params: {
   participants?: { characterId: string; goals: string[]; knowsEventIds: string[]; secrets: string[]; entryMemoryMode?: 'memory' | 'present' }[];
 }): Promise<string> {
   if (params.characterIds.length === 0) throw new Error('scene:participants_required');
-  // 同一个角色同一时间只属于一段正在进行的剧情。离开旧剧情会先暂停它；
-  // 若要把完整经历写入世界记忆，再结束并保存旧剧情即可。
+  // 同一个角色同一时间只属于一段正在进行的星域片段。离开旧片段会先暂停它；
+  // 若要把完整经历写入世界记忆，再结束并保存旧片段即可。
   const activeScenes = await worldSceneRepo.listScenes(params.worldId, { limit: 500, userId: params.userId });
-  // 活跃或暂停中的剧情都仍然占用角色；只有明确结束并保存后才释放。
-  // 这样角色离开旧剧情后，必须先保留完整经历，才能进入下一段剧情。
+  // 活跃或暂停中的片段都仍然占用角色；只有明确结束并保存后才释放。
+  // 这样角色离开旧片段后，必须先保留完整经历，才能进入下一段片段。
   const occupied = new Set(
     activeScenes
       .filter((scene) => scene.status === 'active' || scene.status === 'paused')
@@ -154,6 +155,41 @@ export async function startScene(params: {
 }
 
 /**
+ * 先把用户这一轮写进舞台正文，再开始等待模型。
+ *
+ * 这是有意独立出来的两阶段写入：用户按下发送时，动作已经是真实发生过的，
+ * 即使模型稍后超时或所有供应商都不可用，也不能让这句话从屏幕和历史里消失。
+ * 调用方随后把返回的 id 作为 retryOfUserEntryId 传给 runSceneTurn，避免重复写入。
+ */
+export async function appendSceneUserEntry(params: {
+  userId: string;
+  sceneId: string;
+  action: string;
+  chosenFromEntryId?: string;
+}): Promise<WorldSceneEntry> {
+  const scene = await worldSceneRepo.getScene(params.sceneId);
+  if (!scene || scene.userId !== params.userId) throw new Error('scene:not_found');
+  if (scene.status === 'finished') throw new Error('scene:finished');
+  const action = params.action.trim().slice(0, 600);
+  if (!action) throw new Error('scene:empty_action');
+
+  if (params.chosenFromEntryId) {
+    await worldSceneRepo.patchEntryMeta(params.chosenFromEntryId, { chosen: action });
+    const row = await worldSceneRepo.appendEntry(params.sceneId, {
+      kind: 'choice',
+      content: action,
+      meta: { chosen: action, fromEntryId: params.chosenFromEntryId },
+    });
+    if (scene.status === 'draft') await worldSceneRepo.setSceneStatus(params.sceneId, 'active');
+    return row;
+  }
+
+  const row = await worldSceneRepo.appendEntry(params.sceneId, { kind: 'user_input', content: action });
+  if (scene.status === 'draft') await worldSceneRepo.setSceneStatus(params.sceneId, 'active');
+  return row;
+}
+
+/**
  * 推演一轮：**恰好 1 次调用** → 追加多条正文 + 更新结构化状态。
  * 失败时**不写入任何编造内容**，只把 error 交给 UI。
  */
@@ -163,6 +199,8 @@ export async function runSceneTurn(params: {
   userAction?: string;
   /** 这次动作来自哪个"选择提示"（点选项时传；会在那条上记录用户的选择） */
   chosenFromEntryId?: string;
+  /** 失败后重试时传入原用户动作条目，避免再次写入同一条动作。 */
+  retryOfUserEntryId?: string;
   apiKey: string;
   callLlm?: SceneLlmCaller;
 }): Promise<SceneTurnResult> {
@@ -173,35 +211,35 @@ export async function runSceneTurn(params: {
   const characters = await Promise.all(scene.characterIds.map((id) => characterRepo.getById(id)));
   const nameOf = (id: string) => characters.find((c) => c?.id === id)?.name ?? '某人';
 
-  // 1) 用户动作先落库（它是真实发生过的，与生成成功与否无关）
+  // 1) 用户动作通常已由 UI 在等待模型前落库；旧调用方仍可直接调用 runtime，
+  //    所以这里保留同样的幂等写入逻辑。重试沿用原条目，不复制动作。
   const appended: WorldSceneEntry[] = [];
   if (params.userAction?.trim()) {
     const action = params.userAction.trim().slice(0, 600);
-    // 来自选项的：标记那条选择提示"已被选"，并把选择本身记成一条 choice 条目（可回看"你当时选了什么"）
-    if (params.chosenFromEntryId) {
-      await worldSceneRepo.patchEntryMeta(params.chosenFromEntryId, { chosen: action });
-      appended.push(
-        await worldSceneRepo.appendEntry(params.sceneId, {
-          kind: 'choice',
-          content: action,
-          meta: { chosen: action, fromEntryId: params.chosenFromEntryId },
-        }),
-      );
+    const existingRetry = params.retryOfUserEntryId
+      ? (await worldSceneRepo.getEntriesById([params.retryOfUserEntryId]))[0]
+      : undefined;
+    if (existingRetry) {
+      // 原条目已经在本地显示，director 仍会从完整历史读取它。
     } else {
-      appended.push(await worldSceneRepo.appendEntry(params.sceneId, { kind: 'user_input', content: action }));
+      appended.push(await appendSceneUserEntry({
+        userId: params.userId,
+        sceneId: params.sceneId,
+        action,
+        ...(params.chosenFromEntryId ? { chosenFromEntryId: params.chosenFromEntryId } : {}),
+      }));
     }
   }
   if (scene.status === 'draft') await worldSceneRepo.setSceneStatus(params.sceneId, 'active');
 
   // 2) 一次调用出多条
-  const history = await worldSceneRepo.listEntries(params.sceneId, { limit: 200 });
+  const history = await worldSceneRepo.listRecentEntries(params.sceneId, 200);
   const members = await buildMembers(scene, params.userId, params.userAction);
   const directorParams: SceneDirectorParams = {
     apiKey: params.apiKey,
     scene: { title: scene.title, place: scene.place, timeLabel: scene.timeLabel, mood: scene.mood, ...(scene.theme ? { theme: scene.theme } : {}) },
     state: {
       ...(scene.state.sceneGoal ? { sceneGoal: scene.state.sceneGoal } : {}),
-      currentAct: scene.state.currentAct,
       currentTension: scene.state.currentTension,
       activeConflicts: scene.state.activeConflicts,
       pendingConsequences: scene.state.pendingConsequences,
@@ -240,14 +278,11 @@ export async function runSceneTurn(params: {
   if (result.newConflict) patch.activeConflicts = [...scene.state.activeConflicts, result.newConflict];
   if (result.pendingConsequence) patch.pendingConsequences = [...scene.state.pendingConsequences, result.pendingConsequence];
 
-  /**
-   * 5) 幕次推进（**本地规则**，0 次调用；见 lib/world/scene-acts.ts）：
-   *    张力到位 + 本幕够长，或者本幕实在太长（节奏兜底）⇒ 翻到下一幕，
-   *    并写一条用户看得见的标记；张力重新积累。
-   */
+  // 旧数据兼容：仍维护内部节奏游标与历史标记，便于旧场景和导出数据继续工作。
+  // 新 UI 会隐藏这些 system 条目，模型提示词也不再暴露“其一/其二”。
   let actAdvanced: number | undefined;
   {
-    const allEntries = await worldSceneRepo.listEntries(params.sceneId, { limit: 400 });
+    const allEntries = await worldSceneRepo.listRecentEntries(params.sceneId, 400);
     const decision = shouldAdvanceAct({
       state: { currentAct: scene.state.currentAct, currentTension: patch.currentTension ?? scene.state.currentTension },
       entries: allEntries,
@@ -258,15 +293,14 @@ export async function runSceneTurn(params: {
       actAdvanced = decision.nextAct;
     }
   }
+
   if (Object.keys(patch).length > 0) await worldSceneRepo.patchSceneState(params.sceneId, patch);
   if (actAdvanced != null) {
-    appended.push(
-      await worldSceneRepo.appendEntry(params.sceneId, {
-        kind: 'system',
-        content: actMarkerContent(actAdvanced),
-        act: actAdvanced,
-      }),
-    );
+    appended.push(await worldSceneRepo.appendEntry(params.sceneId, {
+      kind: 'system',
+      content: actMarkerContent(actAdvanced),
+      act: actAdvanced,
+    }));
   }
 
   return {
@@ -315,7 +349,7 @@ export async function finishSceneAndSettle(params: {
   // 并且可能覆盖那次真实的结算结果（验收 C⑳ 抓到的真实缺陷）
   if (scene.status === 'finished') return { ...empty, error: '这场戏已经结束了' };
 
-  const entries = await worldSceneRepo.listEntries(params.sceneId, { limit: 400 });
+  const entries = await worldSceneRepo.listRecentEntries(params.sceneId, 400);
   const characters = await Promise.all(scene.characterIds.map((id) => characterRepo.getById(id)));
   const names = scene.characterIds.map((id) => ({ characterId: id, name: characters.find((c) => c?.id === id)?.name ?? '某人' }));
   const nameOf = (id: string) => names.find((n) => n.characterId === id)?.name ?? '某人';
@@ -368,7 +402,7 @@ export async function finishSceneAndSettle(params: {
     visibility: 'selected',
     visibleTo: [...scene.characterIds],
     resolved: true,
-    tags: ['世界舞台'],
+    tags: ['星域'],
     meta: { place: scene.place, timeLabel: scene.timeLabel, mood: scene.mood, ...(scene.theme ? { theme: scene.theme } : {}) },
   });
 
@@ -445,7 +479,7 @@ export async function finishSceneAndSettle(params: {
   }
 
   // 6) 收尾：场景标记结束 + 挂上事件 + 清空已落地的待结算后果
-  await worldSceneRepo.appendEntry(scene.id, { kind: 'system', content: '—— 这场戏结束了 ——' });
+  await worldSceneRepo.appendEntry(scene.id, { kind: 'system', content: '这个世界结束了，经历已经写入世界。' });
   await worldSceneRepo.patchSceneState(scene.id, {
     pendingConsequences: [],
     newEventIds: [...scene.state.newEventIds, eventId],
@@ -480,5 +514,5 @@ export async function deleteScene(sceneId: string, userId?: string): Promise<voi
 export async function loadScene(sceneId: string, userId?: string): Promise<{ scene?: WorldScene; entries: WorldSceneEntry[] }> {
   const scene = await worldSceneRepo.getScene(sceneId);
   if (!scene || (userId !== undefined && scene.userId !== userId)) return { entries: [] };
-  return { scene, entries: await worldSceneRepo.listEntries(sceneId, { limit: 400 }) };
+  return { scene, entries: await worldSceneRepo.listRecentEntries(sceneId, 400) };
 }

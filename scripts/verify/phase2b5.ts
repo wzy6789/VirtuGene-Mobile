@@ -113,6 +113,7 @@ function makeCharacter(id: string, name: string, userId = U): Character {
 }
 
 async function run() {
+  useUIStore.getState().setWorldTheaterOpen(true);
   /* ---------------- P. 纯函数 ---------------- */
   section('P. 纯函数：分面语义化 / 配对标题 / 原因');
   {

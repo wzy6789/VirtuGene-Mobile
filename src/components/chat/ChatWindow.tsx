@@ -17,6 +17,7 @@ import { IS_MOBILE } from '../../lib/platform';
 import { messageRepo } from '../../db/message-repo';
 import { sessionRepo } from '../../db/session-repo';
 import { memoryRepo } from '../../db/memory-repo';
+import { recallCharacterMemory } from '../../lib/character-memory';
 import { emotionRepo } from '../../db/emotion-repo';
 import { diaryRepo, todayStr } from '../../db/diary-repo';
 import { stateRepo } from '../../db/state-repo';
@@ -28,11 +29,11 @@ import { todoRepo, dateLabel } from '../../db/todo-repo';
 import { collectMessageAsSharedMemory, MEMORY_SOURCE_TYPE } from '../../lib/world/world-writer';
 import { selectRecallableSharedMemories, type RecallableSharedMemory } from '../../lib/world/recall';
 import { listMentionableDiaryIds } from '../../lib/world/diary-visibility';
-import { selectRecallableScenes, type RecallableScene } from '../../lib/world/scene-recall';
+import { selectRecallableScenes, selectLiveSceneMoments, type RecallableScene, type LiveSceneMoment } from '../../lib/world/scene-recall';
 import { selectRecallablePulseEvents, type RecallablePulseEvent } from '../../lib/world/pulse-recall';
 import { buildContextTrace, hasTraceContent } from '../../lib/chat-trace';
 import { ipc } from '../../lib/ipc-client';
-import { buildTimeContext, buildSceneTimeContext, buildRelationshipContext, buildUserEmotionContext, buildDayContext, buildMemoryRecall, buildCatchphrase, buildLifeContext, buildStoryRelationContext, buildContinuityThreadContext, buildSharedEventContext, buildSharedMemoryContext, buildDiaryContext, buildSceneContext, buildPulseEventContext, pickContinuityThreads } from '../../lib/chat-context';
+import { buildTimeContext, buildSceneTimeContext, buildRelationshipContext, buildUserEmotionContext, buildDayContext, buildMemoryRecall, buildCatchphrase, buildLifeContext, buildStoryRelationContext, buildContinuityThreadContext, buildSharedEventContext, buildSharedMemoryContext, buildDiaryContext, buildSceneContext, buildLiveSceneContext, buildPulseEventContext, pickContinuityThreads } from '../../lib/chat-context';
 import { computeMessageDelays, splitReplyParts, formatSpokenParagraphs, normalizeChatResponse, prefersReducedMotion } from '../../lib/chat-pacing';
 import { checkReplyQuality, isLongFormRequest, polishChatResponse } from '../../lib/reply-quality';
 import { DIARY_MOODS } from '../../lib/diary-utils';
@@ -45,6 +46,8 @@ import { compileChatContext } from '../../lib/chat-context-compiler';
 import { hasAiGatewayAccess } from '../../lib/ai/gateway';
 import { buildHumanConversationContext, buildProactiveTopicSeeds, recommendConversationTemperature } from '../../lib/chat-humanizer';
 import { buildMemoryContext, prepareMemoryMetadata, rankConversationMemories } from '../../lib/memory-engine';
+import { selectRecallableMoments, buildMomentContext, isDirectMomentQuestion, isMomentLikeRequest, isForceMomentLikeRequest, type RecallableMoment } from '../../lib/moments/recall';
+import { momentsRepo } from '../../db/moments-repo';
 import { buildChatConversationStateContext, updateChatConversationState } from '../../lib/chat-conversation-state';
 import { buildCharacterIntentContext, inferCharacterResponseAction, planCharacterIntent } from '../../lib/character-intent';
 import { ModelPickModal } from './ModelPickModal';
@@ -688,6 +691,37 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       /* 读不到就当没有，不影响发送 */
     }
 
+    // 朋友圈：只有角色实际看过、当前仍有权限的动态才可召回；撤权后下一轮立即失效。
+    let recalledMoments: RecallableMoment[] = [];
+    let momentsContext = '';
+    let momentImage: string | undefined;
+    let momentActionContext = '';
+    try {
+      const recentlyMentionedMomentIds = allMsgs.slice(-8).flatMap((message) => message.contextTrace?.momentIds ?? []);
+      recalledMoments = await selectRecallableMoments({ userId, characterId: character.id, query: text, excludeMomentIds: recentlyMentionedMomentIds });
+      momentsContext = buildMomentContext(recalledMoments, isDirectMomentQuestion(text));
+      if (isDirectMomentQuestion(text) && recalledMoments.length === 0) {
+        momentsContext = '\n[朋友圈权限查询] 当前没有任何你有权查看的用户动态。不要假称看过、点赞或知道其中内容。';
+      }
+      if (isDirectMomentQuestion(text) && !image && recalledMoments.length === 1 && recalledMoments[0].moment.mediaIds.length === 1) {
+        const media = await momentsRepo.media(recalledMoments[0].moment.id, userId);
+        momentImage = media[0]?.dataUrl;
+        if (momentImage) momentsContext += '\n本轮附带这条动态的原图，可以根据实际看见的内容回答。';
+      }
+      if (isMomentLikeRequest(text)) {
+        const action = await momentsRepo.requestCharacterLike(userId, character, isForceMomentLikeRequest(text));
+        momentActionContext = action.status === 'liked'
+          ? '\n[朋友圈动作] 你已经给用户最近一条仍可见的动态点了赞。可以自然地告诉用户这件事，但不要夸大成评论或分享。'
+          : action.status === 'already'
+            ? '\n[朋友圈动作] 你之前已经给这条动态点过赞。可以自然地说自己早就点过了。'
+            : action.status === 'declined'
+              ? '\n[朋友圈动作] 用户请求你点赞，但你这一次没有立刻照做。保持自己的性格，可以轻轻推辞或开玩笑；如果用户再次明确坚持，下一轮会重新处理。'
+              : '\n[朋友圈动作] 用户请求点赞，但当前没有你能看到的用户动态。不能假装已经点过。';
+      }
+    } catch {
+      /* 朋友圈读不到不影响正常聊天 */
+    }
+
     // 4.0 人物共同事件：角色与其他角色之间的故事（与用户无关，但角色自己记得）
     let sharedEvents: SharedStoryEvent[] = preloadedSharedEvents;
     let sharedEventContext = '';
@@ -764,12 +798,14 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
      * 全程本地读取；读不到就当没有，绝不影响发送。
      */
     let recalledScenes: RecallableScene[] = [];
+    let liveSceneMoments: LiveSceneMoment[] = [];
     let sceneContext = '';
     try {
       const worldForScene = await worldPromise;
       if (!worldForScene) throw new Error('world:unavailable');
       recalledScenes = await selectRecallableScenes({ userId, worldId: worldForScene.id, characterId: character.id });
-      sceneContext = buildSceneContext(
+      liveSceneMoments = await selectLiveSceneMoments({ userId, worldId: worldForScene.id, characterId: character.id });
+      const finishedContext = buildSceneContext(
         recalledScenes.map((item) => ({
           title: item.scene.title,
           place: item.scene.place,
@@ -777,6 +813,18 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           summary: item.event.summary,
         })),
       );
+      const liveContext = buildLiveSceneContext(liveSceneMoments.map((item) => ({
+        title: item.scene.title,
+        place: item.scene.place,
+        timeLabel: item.scene.timeLabel,
+        status: item.scene.status,
+        entries: item.entries.map((entry) => ({
+          kind: entry.kind,
+          content: entry.content,
+          ...(entry.speakerId ? { speakerName: characters.find((candidate) => candidate.id === entry.speakerId)?.name } : {}),
+        })),
+      })));
+      sceneContext = `${finishedContext}${liveContext}`;
     } catch {
       /* 世界层读不到不影响聊天 */
     }
@@ -869,6 +917,13 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     });
 
     // 用户的时代/社会背景：角色从对话里主动适配用户所述的时代与生活语境
+    const crossChannelMemory = await recallCharacterMemory({
+      userId, characterId: character.id, query: text, sources: ['group', 'moment'], budget: 2200,
+      excludeReferences: [
+        ...recalledMoments.map(({ moment }) => ({ source: 'moment' as const, id: moment.id })),
+        ...(/群|朋友圈|动态|评论|点赞|记得|之前|上次/.test(text) ? [] : allMsgs.slice(-6).flatMap(m => m.contextTrace?.crossChannelReferences ?? [])),
+      ],
+    });
     const compiled = compileChatContext(
       character.systemPrompt.slice(0, MAX_CHARACTER_PROMPT_CHARS),
       [
@@ -888,6 +943,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         { key: 'story-relationships', text: storyRelationContext, priority: 97 },
         { key: 'continuity', text: threadContext, priority: 94 },
         { key: 'shared-memory', text: sharedMemoryContext, priority: 93 },
+        { key: 'cross-channel-memory', text: crossChannelMemory.text, priority: 92 },
         { key: 'scene', text: sceneContext, priority: 91 },
         { key: 'world-pulse', text: pulseEventContext, priority: 89 },
         { key: 'todo', text: todoContext, priority: 86 },
@@ -901,6 +957,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         { key: 'summary', text: summaryContext, priority: 75 },
         { key: 'diary', text: diaryShareContext, priority: 70 },
         { key: 'diary-mood', text: diaryMoodContext, priority: 65 },
+        { key: 'moments', text: momentsContext + momentActionContext, priority: isDirectMomentQuestion(text) || momentActionContext ? 99 : 69 },
         { key: 'recall', text: recallContext, priority: 50 },
         { key: 'day', text: dayContext, priority: 45 },
         { key: 'catchphrase', text: catchphraseContext, priority: 35 },
@@ -911,6 +968,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     // 记忆依据（溯源）：只记录这一轮**真的完整注入**的本地数据 id，不是整段 prompt。
     // 规则与 4.x 完全一致（预算不足被截断的区块一律不记录），已抽成纯函数便于验收覆盖。
     const contextTrace = buildContextTrace({
+      crossChannelReferences: crossChannelMemory.references.map(({ source, id }) => ({ source, id })),
       compiled,
       memories,
       recalledMemoryId,
@@ -918,8 +976,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       sharedEvents,
       sharedMemories: recallableMemories.map((item) => item.memory),
       diaries: knownDiaries,
-      scenes: recalledScenes.map((item) => item.scene),
+      scenes: [...recalledScenes.map((item) => item.scene), ...liveSceneMoments.map((item) => item.scene)],
       pulseEvents: recalledPulseEvents.map((item) => item.event),
+      moments: recalledMoments.map((item) => item.moment),
     });
     const hasTrace = hasTraceContent(contextTrace);
 
@@ -954,7 +1013,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           apiKey: apiKey ?? '',
           systemPrompt: enrichedPrompt,
           message: apiMessage,
-          image,
+          image: image ?? momentImage,
           history,
           retryHint,
           temperature,
@@ -1072,6 +1131,10 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
             })();
           }
         }
+        // 角色偶尔把这段经历写成自己的朋友圈。概率、冷却与隐私过滤都在仓库层处理，
+        // 这里不阻塞当前回复，也不把每轮聊天变成额外动态。
+        // 角色发动态只读取自己的公开回复摘要，不把用户原话或私聊原文送进朋友圈生成器。
+        void momentsRepo.maybeCharacterPost(userId, character, result.content, sessionId).catch(() => undefined);
         // 记录本轮对话的轻量节奏状态：不存原文，只保存话题标签、用户偏好和
         // 最近使用过的回复动作，下一轮继续保持连贯。
         const nextConversationState = updateChatConversationState(

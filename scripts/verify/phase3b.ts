@@ -152,12 +152,14 @@ async function run() {
   let sceneId = '';
   let stageEventId = '';
   let memoryTitle = '';
+  let sceneTitle = '';
   {
     sceneId = await startScene({
       userId: U, worldId: world.id,
       title: '雨夜的便利店', place: '凌晨的便利店', timeLabel: '凌晨两点', mood: '潮湿安静',
       characterIds: [C1], sceneGoal: '把上次没说完的话说完',
     });
+    sceneTitle = (await worldSceneRepo.getScene(sceneId))!.title;
     stageQueue = [
       JSON.stringify({ entries: [{ kind: 'narration', content: '雨点敲在玻璃上。' }, { kind: 'dialogue', speaker: '星遥', content: '你来了。' }], tension: 0.5 }),
       JSON.stringify({
@@ -239,11 +241,11 @@ async function run() {
     const before = chatCalls;
     await sendFromUI(host, '你还记得那天晚上吗');
     check('① 一次发送 = 1 次调用', chatCalls - before === 1, chatCalls - before);
-    check('② prompt 里出现「你们一起经历过的事（世界舞台）」区块',
-      capturedPrompt.includes('[你们一起经历过的事（世界舞台）]'), capturedPrompt.slice(0, 300));
+    check('② prompt 里出现「你们一起经历过的事（星域）」区块',
+      capturedPrompt.includes('[你们一起经历过的事（星域）]'), capturedPrompt.slice(0, 300));
     check('③ 区块里就是那场戏（标题 + 事件摘要）',
-      capturedPrompt.includes('《雨夜的便利店》') && capturedPrompt.includes('把那句没说完的话说完了'),
-      capturedPrompt.slice(capturedPrompt.indexOf('[你们一起经历过的事（世界舞台）]'), capturedPrompt.indexOf('[你们一起经历过的事（世界舞台）]') + 240));
+      capturedPrompt.includes(`《${sceneTitle}》`) && capturedPrompt.includes('把那句没说完的话说完了'),
+      capturedPrompt.slice(capturedPrompt.indexOf('[你们一起经历过的事（星域）]'), capturedPrompt.indexOf('[你们一起经历过的事（星域）]') + 240));
 
     const assistant = (await messageRepo.getPage(SESSION, { limit: 50 })).filter((m) => m.role === 'assistant').pop();
     check('④ 溯源如实记录 sceneIds', (assistant?.contextTrace?.sceneIds ?? []).length === 2,
@@ -256,7 +258,7 @@ async function run() {
     await sleep(900);
     await sendFromUI(host2, '在吗');
     check('⑤ 没在场的角色，prompt 里没有这场戏',
-      !capturedPrompt.includes('[你们一起经历过的事（世界舞台）]') && !capturedPrompt.includes('雨夜的便利店'),
+      !capturedPrompt.includes('[你们一起经历过的事（星域）]') && !capturedPrompt.includes(sceneTitle),
       capturedPrompt.slice(0, 200));
     check('⑥ 没在场的角色，溯源里也没有 sceneIds',
       (((await messageRepo.getPage(SESSION, { limit: 50 })).filter((m) => m.role === 'assistant').pop())?.contextTrace?.sceneIds ?? []).length === 0);
@@ -271,8 +273,8 @@ async function run() {
     await sleep(900);
     await sendFromUI(host3, '随便聊聊');
     check('① 舞台区块在整段 prompt 里恰好出现 1 次',
-      (capturedPrompt.match(/\[你们一起经历过的事（世界舞台）\]/g) ?? []).length === 1,
-      (capturedPrompt.match(/\[你们一起经历过的事（世界舞台）\]/g) ?? []).length);
+      (capturedPrompt.match(/\[你们一起经历过的事（星域）\]/g) ?? []).length === 1,
+      (capturedPrompt.match(/\[你们一起经历过的事（星域）\]/g) ?? []).length);
     check('② 这场戏的摘要恰好出现 1 次（没有被别的区块重复讲一遍）',
       (capturedPrompt.match(/把那句没说完的话说完了/g) ?? []).length === 1,
       (capturedPrompt.match(/把那句没说完的话说完了/g) ?? []).length);
@@ -329,7 +331,7 @@ async function run() {
     const modalText = document.body.innerText;
     check('② 面板出现「你们一起演过的戏」区块', modalText.includes('你们一起演过的戏'), modalText.slice(0, 300));
     check('③ 面板里能看到那场戏的标题与地点',
-      modalText.includes('雨夜的便利店') && modalText.includes('凌晨的便利店'), modalText.slice(0, 400));
+      modalText.includes(sceneTitle) && modalText.includes('凌晨的便利店'), modalText.slice(0, 400));
     unmount();
     modalHost.remove();
   }

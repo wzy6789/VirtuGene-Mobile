@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { type WorldScene, type WorldSceneEntry } from '../../db/index';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
@@ -10,50 +10,45 @@ import {
   finishSceneAndSettle,
   listScenes,
   loadScene,
-  pauseScene,
-  runSceneTurn,
   startScene,
 } from '../../lib/world/scene-runtime';
 import { SpaceHeading } from '../ui/SpaceHeading';
 import { Avatar } from '../ui/Avatar';
-import { actLabel } from '../../lib/world/scene-acts';
 import { cleanConstellationTitle } from '../../lib/world/constellation-typography';
 import { worldAiAvailability } from '../../lib/world/world-ai-client';
 
-const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-function stageRevealDelay(previous: WorldSceneEntry | undefined, next: WorldSceneEntry): number {
-  if (!previous || (next.kind !== 'dialogue' && next.kind !== 'action')) return 0;
-  if (previous.speakerId && next.speakerId && previous.speakerId !== next.speakerId) return 260;
-  return 90;
-}
-
 /**
- * 世界剧场（World Stage，Phase 3）
+ * 星域资料管理页（世界列表 / 建立新世界 / 回看）。
  *
- * 成本纪律（§56/§57）写进 UI：
- * - 打开 / 离开 / 暂停：不花钱
- * - 每个用户动作：先用 1 次调用（一次出多条），无效回复才切换备用模型
- * - 结束这场戏：正常 1 次结算调用，把后果真正写回世界层
+ * 5.2 起这里**不再**是第二条发言路径：所有世界的继续与发言都进统一的世界播放器
+ * （WorldCanvas + runWorldTurn）。本页保留的是历史资料管理能力：
+ * 创建世界、回看正文、结束世界并结算、删除世界。
  */
 const STATUS_LABEL: Record<WorldScene['status'], string> = {
   draft: '还没开始',
   active: '正在进行',
   paused: '先搁着',
-  finished: '已经结束',
+  finished: '已结束',
 };
+
+function humanStageError(message?: string): string {
+  const text = message?.trim() ?? '';
+  if (!text) return '这一次还没接上，请再试一次。';
+  if (/auth:|invalid_key|api.?key|鉴权|权限/i.test(text)) return '当前模型暂时不可用，请检查 AI 设置后再试。';
+  if (/timeout|timed out|超时|network|fetch|连接|网络/i.test(text)) return '回应来得有点慢，网络恢复后再试一次。';
+  return '这一次还没接上，请再试一次。';
+}
 
 export function MobileStagePage() {
   const userId = useAuthStore((s) => s.userId) ?? '';
   const username = useAuthStore((s) => s.username) ?? undefined;
   const apiKey = useAuthStore((s) => s.apiKey) ?? '';
   const [providerAiAvailable, setProviderAiAvailable] = useState(false);
-  const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const turnInFlight = useRef(false);
   const hasAi = Boolean(apiKey) || hasAiGatewayAccess() || providerAiAvailable;
   const characters = useChatStore((s) => s.characters);
 
   // DeepSeek Key 在登录态里，千问/MiMo Key 在设备加密存储里；不能只看前者，
-  // 否则用户切到其它模型后发送按钮会被错误地禁用。
+  // 否则用户切到其它模型后按钮会被错误地禁用。
   useEffect(() => {
     let alive = true;
     void worldAiAvailability().then((availability) => {
@@ -70,20 +65,23 @@ export function MobileStagePage() {
   const [loadError, setLoadError] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
-  /** 打开的那场戏 */
+  /** 当前打开回看的世界（只读；继续/发言去统一的世界播放器） */
   const [openScene, setOpenScene] = useState<WorldScene | null>(null);
   const [entries, setEntries] = useState<WorldSceneEntry[]>([]);
-  const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  /** 新开一场戏的表单 */
+  /** 建立新世界的表单 */
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ title: '', place: '', timeLabel: '傍晚', mood: '安静', goal: '', picked: [] as string[], entryMemoryMode: 'memory' as 'memory' | 'present' });
 
+  /** 从星图「新的世界」进来时直接展开创建表单 */
+  const createIntent = useUIStore((s) => s.worldCreateIntent);
+  const setCreateIntent = useUIStore((s) => s.setWorldCreateIntent);
+
   const myCharacters = useMemo(() => characters.filter((c) => c.createdBy === userId), [characters, userId]);
-  const nameOf = useCallback((id: string) => characters.find((c) => c.id === id)?.name ?? '某人', [characters]);
+  const nameOf = (id: string) => characters.find((c) => c.id === id)?.name ?? '某人';
   const occupiedByScene = useMemo(() => {
     const map = new Map<string, WorldScene>();
     for (const scene of scenes) {
@@ -105,6 +103,7 @@ export function MobileStagePage() {
         if (!alive) return;
         setWorldId(world.id);
         setScenes(rows);
+        if (createIntent) setCreating(true);
       } catch {
         if (alive) { setScenes([]); setLoadError(true); }
       } finally {
@@ -113,31 +112,44 @@ export function MobileStagePage() {
     })();
     if (characters.length === 0) void useChatStore.getState().loadCharacters();
     return () => { alive = false; };
+    // createIntent 只在进入页面时消费一次，不作为持续依赖。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, username, characters.length, reloadToken]);
+
+  useEffect(() => () => setCreateIntent(false), [setCreateIntent]);
 
   const openTheScene = async (sceneId: string) => {
     setError(null);
     setNotice(null);
-    const { scene, entries: rows } = await loadScene(sceneId, userId);
-    if (!scene) { setError('这场戏已经不在了'); return; }
-    setOpenScene(scene);
-    setEntries(rows);
+    try {
+      const { scene, entries: rows } = await loadScene(sceneId, userId);
+      if (!scene) { setError('这个世界已经不在了'); return; }
+      setOpenScene(scene);
+      setEntries(rows);
+    } catch {
+      setError('没能打开这个世界，请再试一次');
+    }
+  };
+
+  /** 进入统一的世界播放器：新建、继续、回看都走同一条路径 */
+  const continueInCanvas = (sceneId: string) => {
+    useUIStore.getState().openCanvas(sceneId);
   };
 
   const createAndOpen = async () => {
     if (!worldId) return;
-    if (form.picked.length === 0) { setError('至少选一个角色一起上场'); return; }
+    if (form.picked.length === 0) { setError('至少选一位同行者'); return; }
     const conflicts = form.picked
       .map((characterId) => ({ characterId, scene: occupiedByScene.get(characterId) }))
       .filter((item): item is { characterId: string; scene: WorldScene } => Boolean(item.scene));
     if (conflicts.length > 0) {
-      setError(`${conflicts.map((item) => nameOf(item.characterId)).join('、')} 正在另一段剧情中，请先结束并保存那段经历。`);
+      setError(`${conflicts.map((item) => nameOf(item.characterId)).join('、')} 正在另一个世界中，请先结束并保存那段经历。`);
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      // 空标题直接使用地点（或“此刻”），不要替用户拼接生硬的“的那场戏”。
+      // 空标题直接使用地点（或“此刻”），不要替用户拼接生硬的标题。
       const requestedTitle = form.title.trim() || form.place.trim() || '此刻';
       const sceneId = await startScene({
         userId,
@@ -159,17 +171,18 @@ export function MobileStagePage() {
       setCreating(false);
       setForm({ title: '', place: '', timeLabel: '傍晚', mood: '安静', goal: '', picked: [], entryMemoryMode: 'memory' });
       setReloadToken((n) => n + 1);
-      await openTheScene(sceneId);
+      // 创建成功后直接进入统一播放器（§5.2 单一可交互播放器）
+      continueInCanvas(sceneId);
     } catch (cause) {
       setError(cause instanceof Error && cause.message === 'scene:character_occupied'
-        ? '有人还在另一段剧情里，请先结束并保存那段经历。'
-        : '没能开始这场戏，请再试一次');
+        ? '有人还在另一个世界中，请先结束并保存那段经历。'
+        : '没能进入这个世界，请再试一次');
     } finally {
       setBusy(false);
     }
   };
 
-  /** 结束旧剧情并保存经历，角色随后才能进入另一段剧情。 */
+  /** 结束旧世界并结算（幂等：finished 的世界不会重复结算） */
   const finishAndRelease = async (scene: WorldScene) => {
     if (scene.status === 'finished' || busy) return;
     setBusy(true);
@@ -177,9 +190,9 @@ export function MobileStagePage() {
     try {
       const result = await finishSceneAndSettle({ userId, sceneId: scene.id, apiKey });
       if (result.error) {
-        setError(result.error);
+        setError(humanStageError(result.error));
       } else {
-        setNotice(`《${scene.title}》已保存，角色可以进入新的剧情了。`);
+        setNotice(`《${scene.title}》已结束，经历已经写入世界。`);
         setReloadToken((n) => n + 1);
       }
     } catch {
@@ -189,90 +202,11 @@ export function MobileStagePage() {
     }
   };
 
-  /** 推演一轮：优先 1 次调用；无效回复时由备用模型接续。 */
-  const takeTurn = async (action?: string, chosenFromEntryId?: string) => {
-    if (!openScene || busy || turnInFlight.current) return;
-    const normalizedAction = action?.trim().slice(0, 600) || '';
-    turnInFlight.current = true;
-    if (normalizedAction) setPendingAction(normalizedAction);
-    const knownIds = new Set(entries.map((entry) => entry.id));
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await runSceneTurn({
-        userId,
-        sceneId: openScene.id,
-        ...(normalizedAction ? { userAction: normalizedAction } : {}),
-        ...(chosenFromEntryId ? { chosenFromEntryId } : {}),
-        apiKey,
-      });
-      const { scene, entries: rows } = await loadScene(openScene.id, userId);
-      if (scene) setOpenScene(scene);
-      const fresh = rows.filter((entry) => !knownIds.has(entry.id));
-      const existing = rows.filter((entry) => knownIds.has(entry.id));
-      setPendingAction(null);
-      setEntries(existing);
-      let previous = existing[existing.length - 1];
-      for (const entry of fresh) {
-        await wait(stageRevealDelay(previous, entry));
-        setEntries((current) => (current.some((item) => item.id === entry.id) ? current : [...current, entry]));
-        previous = entry;
-      }
-      if (result.error) setError(result.error);
-      if (normalizedAction) setDraft('');
-    } catch {
-      setPendingAction(null);
-      setError('这一轮没能接上，请再试一次');
-    } finally {
-      turnInFlight.current = false;
-      setBusy(false);
-    }
-  };
-
-  /** 结束并结算：优先 1 次调用，后果真正写回世界层 */
-  const finish = async () => {
-    if (!openScene || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await finishSceneAndSettle({ userId, sceneId: openScene.id, apiKey });
-      if (result.error) {
-        setError(result.error);
-      } else {
-        const parts: string[] = ['这场戏已经记进你们的世界'];
-        if (result.memoryId) parts.push('留下了一段共同记忆');
-        if (result.relationshipEvents > 0) parts.push(`${result.relationshipEvents} 处关系变化`);
-        if (result.unresolvedThreads > 0) parts.push(`${result.unresolvedThreads} 件未完成的事`);
-        setNotice(parts.join(' · '));
-      }
-      const { scene, entries: rows } = await loadScene(openScene.id, userId);
-      if (scene) setOpenScene(scene);
-      setEntries(rows);
-      setReloadToken((n) => n + 1);
-    } catch {
-      setError('结算没能完成，请再试一次');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /** 先离开（暂停）：**0 次调用** */
-  const leave = async () => {
-    if (!openScene) return;
-    await pauseScene(openScene.id, userId);
+  /** 明确离开，回到世界首页 */
+  const exitPage = () => {
     setOpenScene(null);
     setEntries([]);
     setError(null);
-    setReloadToken((n) => n + 1);
-  };
-
-  /** 明确离开剧场，回到世界入口；进行中的场景会保留为暂停状态。 */
-  const exitTheater = async () => {
-    if (openScene?.status === 'active') await pauseScene(openScene.id, userId);
-    setOpenScene(null);
-    setEntries([]);
-    setError(null);
-    setReloadToken((n) => n + 1);
     useUIStore.getState().setActiveView('chat');
     useUIStore.getState().setMobileTab('world');
   };
@@ -282,7 +216,7 @@ export function MobileStagePage() {
     setReloadToken((n) => n + 1);
   };
 
-  /* ------------------------------ 舞台上（正在演一场戏） ------------------------------ */
+  /* ------------------------------ 世界正文回看（只读） ------------------------------ */
   if (openScene) {
     const finished = openScene.status === 'finished';
     return (
@@ -293,14 +227,11 @@ export function MobileStagePage() {
               <p className="vg-story-title-text truncate text-ink">{cleanConstellationTitle(openScene.title)}</p>
               <p className="mt-0.5 truncate text-[11px] text-gray-500">{openScene.place} · {openScene.timeLabel} · {openScene.mood}</p>
             </div>
-            <button type="button" onClick={() => void exitTheater()} className="vg-stage-exit">退出</button>
+            <button type="button" onClick={() => { setOpenScene(null); setEntries([]); setError(null); }} className="vg-stage-exit">返回</button>
           </div>
           <div className="mt-2 flex items-center gap-2">
             <span className="vg-stage-status rounded-full border border-line bg-surface px-2 py-0.5 text-[10px] text-gray-500">
               {STATUS_LABEL[openScene.status]}
-            </span>
-            <span className="rounded-full border border-gene-purple/30 bg-gene-purple/10 px-2 py-0.5 text-[10px] text-gene-purple">
-              {actLabel(openScene.state.currentAct)}
             </span>
             {openScene.characterIds.map((id) => (
               <span key={id} className="text-[10px] text-gray-500">{nameOf(id)}</span>
@@ -311,24 +242,16 @@ export function MobileStagePage() {
 
         <div className="vg-stage-transcript min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {entries.length === 0 && (
-            <p className="py-10 text-center text-xs text-gray-500">让他们先开口，故事会自己找到方向。</p>
+            <p className="py-10 text-center text-xs text-gray-500">这里还没有发生过的痕迹。</p>
           )}
           <ul className="space-y-3">
-            {pendingAction && (
-              <li className="vg-stage-pending flex justify-end" aria-live="polite">
-                <p className="max-w-[80%] rounded-2xl rounded-br-md bg-gradient-to-br from-gene-purple/80 to-[#5B4BD4]/80 px-4 py-2.5 text-sm text-white">
-                  {pendingAction}
-                  <span className="ml-2 text-[10px] text-white/60">正在回应…</span>
-                </p>
-              </li>
-            )}
             {entries.map((entry) => {
               if (entry.kind === 'system') {
-                // 幕次标记单独强调（用户能看见"翻幕了"）
-                const isAct = entry.content.startsWith('——');
+                // 旧版本写入的“第一幕/第二幕”等标记只在数据里保留，不当作正文展示。
+                if (entry.content.startsWith('——')) return null;
                 return (
                   <li key={entry.id} className="py-1 text-center">
-                    <span className={isAct ? 'text-[11px] tracking-[0.22em] text-gene-purple' : 'text-[10px] text-gray-500'}>
+                    <span className="text-[10px] text-gray-500">
                       {entry.content}
                     </span>
                   </li>
@@ -344,43 +267,16 @@ export function MobileStagePage() {
                 );
               }
               if (entry.kind === 'choice') {
-                const options = entry.meta?.options ?? [];
-                const chosen = typeof entry.meta?.chosen === 'string' ? entry.meta.chosen : '';
-                /**
-                 * 已经选过的选择：只留一行"你选了…"。
-                 * 注意必须**先判断 chosen**：选项文本仍留在 meta.options 里（用于回看当时有哪些岔路），
-                 * 如果先看 options 就会把已经做过的选择继续显示成可点按钮（验收 C② 抓到的真实缺陷）。
-                 */
-                if (chosen) {
-                  return (
-                    <li key={entry.id} className="flex justify-end">
-                      <p className="max-w-[80%] rounded-2xl rounded-br-md border border-gene-purple/30 bg-gene-purple/10 px-4 py-2.5 text-sm text-ink">
-                        {chosen}
-                      </p>
-                    </li>
-                  );
-                }
+                const chosen = typeof entry.meta?.chosen === 'string' ? entry.meta.chosen : entry.content;
                 return (
-                  <li key={entry.id} className="rounded-2xl border border-gene-purple/25 bg-gene-purple/[0.05] px-4 py-3">
-                    <p className="text-[13px] leading-6 text-ink">{entry.content}</p>
-                    {options.length > 0 && (
-                      <div className="mt-2.5 space-y-1.5">
-                        {options.map((option) => (
-                          <button
-                            key={option}
-                            type="button"
-                            disabled={busy || finished}
-                            onClick={() => void takeTurn(option, entry.id)}
-                            className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-left text-[13px] text-sub transition-colors hover:border-gene-purple/40 disabled:opacity-50"
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  <li key={entry.id} className="flex justify-end">
+                    <p className="max-w-[80%] rounded-2xl rounded-br-md border border-gene-purple/30 bg-gene-purple/10 px-4 py-2.5 text-sm text-ink">
+                      {chosen}
+                    </p>
                   </li>
                 );
               }
+              if (entry.kind === 'suggestion') return null;
               if (entry.kind === 'action') {
                 return (
                   <li key={entry.id} className="px-1">
@@ -422,67 +318,28 @@ export function MobileStagePage() {
           )}
         </div>
 
-        {!finished && (
-          <div className="vg-stage-composer shrink-0 border-t border-line px-4 py-3">
-            {entries.length === 0 && (
-              <button
-                type="button"
-                disabled={busy || !hasAi}
-                onClick={() => void takeTurn()}
-                className="mb-2 w-full rounded-xl bg-gene-purple px-4 py-2.5 text-sm font-medium text-white disabled:opacity-40"
-              >
-                {busy ? '正在发生…' : '让他们先开口'}
-              </button>
-            )}
-            <div className="flex items-end gap-2">
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  // 与聊天输入一致的约定：Enter 继续，Shift+Enter 换行（中文输入法组合键不触发）
-                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    if (draft.trim().length > 0 && !busy) void takeTurn(draft.trim());
-                  }
-                }}
-                rows={2}
-                placeholder={hasAi ? '写下你的行动…' : '写下你的行动（会先保存）…'}
-                className="min-h-[44px] flex-1 resize-none rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-gene-purple/50"
-              />
-              <button
-                type="button"
-                disabled={busy || draft.trim().length === 0}
-                onClick={() => void takeTurn(draft.trim())}
-                className="rounded-xl bg-gene-purple px-3.5 py-2.5 text-sm font-medium text-white disabled:opacity-40"
-              >
-                {busy ? '…' : '继续'}
-              </button>
-            </div>
-            <div className="mt-2 flex items-center gap-3">
-              <button type="button" disabled={busy} onClick={() => void leave()} className="text-[11px] text-gray-400 hover:text-ink">
-                离开
-              </button>
-              <div className="flex-1" />
-              <button
-                type="button"
-                disabled={busy || !hasAi || entries.length === 0}
-                onClick={() => void finish()}
-                className="text-[11px] text-life-cyan disabled:opacity-40"
-              >
-                结束
-              </button>
-            </div>
-          </div>
-        )}
+        <div className="vg-stage-composer shrink-0 border-t border-line px-4 py-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => continueInCanvas(openScene.id)}
+            className="w-full rounded-xl bg-gene-purple px-4 py-2.5 text-sm font-medium text-white disabled:opacity-40"
+          >
+            {finished ? '在世界播放器中回看' : '继续这个世界'}
+          </button>
+          {!finished && (
+            <p className="mt-2 text-center text-[10px] text-gray-400">继续与发言都在统一的世界播放器里进行。</p>
+          )}
+        </div>
       </div>
     );
   }
 
-  /* ------------------------------ 剧场（场景列表） ------------------------------ */
+  /* ------------------------------ 星域（世界列表 / 建立新世界） ------------------------------ */
   return (
     <div className="vg-stage-room h-full overflow-y-auto px-4 pb-6">
       <div className="pt-5">
-        <SpaceHeading eyebrow="world stage" title="世界剧场" detail="和他们一起演一场戏，结束后它会真的留在你们的世界里。" />
+        <SpaceHeading eyebrow="world constellation" title="星域" detail="让一个世界在这里继续生长。" />
       </div>
       <button
         type="button"
@@ -493,11 +350,11 @@ export function MobileStagePage() {
       </button>
 
       {loading ? (
-        <div className="mt-10 text-center text-sm text-gray-500" role="status">正在读取剧场…</div>
+        <div className="mt-10 text-center text-sm text-gray-500" role="status">正在读取星域…</div>
       ) : loadError ? (
         <section className="mt-5 rounded-[26px] border border-rose-400/25 bg-rose-500/[0.06] px-5 py-7 text-center">
-          <h2 className="text-base font-semibold text-ink">剧场读取失败</h2>
-          <p className="mt-2 text-xs leading-6 text-gray-500">没能从本机读到场景记录。你的数据仍保存在这台设备上。</p>
+          <h2 className="text-base font-semibold text-ink">星域读取失败</h2>
+          <p className="mt-2 text-xs leading-6 text-gray-500">没能从本机读到世界记录。你的数据仍保存在这台设备上。</p>
           <button
             type="button"
             onClick={() => setReloadToken((n) => n + 1)}
@@ -515,43 +372,43 @@ export function MobileStagePage() {
               disabled={myCharacters.length === 0}
               className="mt-4 w-full rounded-xl bg-gene-purple px-4 py-2.5 text-sm font-medium text-white disabled:opacity-40"
             >
-              ＋ 开一场戏
+              ＋ 新的世界
             </button>
           )}
 
           {creating && (
             <section className="vg-stage-create mt-4 rounded-[22px] border border-line bg-surface/70 px-4 py-4">
               <div className="vg-stage-create-head">
-                <span className="vg-stage-create-code">SCENE INITIALIZER</span>
-                <p className="vg-stage-create-title">开启一段剧情</p>
-                <p className="vg-stage-create-subtitle">让一个地点、一束记忆，先成为世界的入口。</p>
+                <span className="vg-stage-create-code">WORLD INITIALIZER</span>
+                <p className="vg-stage-create-title">建立一个新的世界</p>
+                <p className="vg-stage-create-subtitle">从一个地点和一束记忆开始，让它成为你们共同的去处。</p>
               </div>
-              <p className="vg-stage-create-question text-xs font-medium text-ink">这场戏发生在哪里？</p>
+              <p className="vg-stage-create-question text-xs font-medium text-ink">从哪里开始？</p>
               {myCharacters.length === 0 ? (
-                <p className="mt-2 text-[11px] text-gray-500">先去「角色」里认识一个角色，才有戏可演。</p>
+                <p className="mt-2 text-[11px] text-gray-500">先去「角色」里认识一位角色，才能一起进入世界。</p>
               ) : (
                 <>
                   <input
                     value={form.place}
                     onChange={(e) => setForm((f) => ({ ...f, place: e.target.value }))}
-                    placeholder="地方（例如：凌晨的便利店）"
+                    placeholder="起始地点（例如：凌晨的便利店）"
                     className="mt-2 w-full rounded-xl border border-line bg-app px-3 py-2 text-sm text-ink outline-none focus:border-gene-purple/50"
                   />
                   <input
                     value={form.title}
                     maxLength={5}
                     onChange={(e) => setForm((f) => ({ ...f, title: e.target.value.slice(0, 5) }))}
-                    placeholder="主题名（最多5个字，可留空）"
+                    placeholder="世界名称（最多5个字，可留空）"
                     className="mt-2 w-full rounded-xl border border-line bg-app px-3 py-2 text-sm text-ink outline-none focus:border-gene-purple/50"
                   />
                   <p className="mt-1 text-right text-xs text-gray-500">{form.title.length}/5</p>
                   <input
                     value={form.goal}
                     onChange={(e) => setForm((f) => ({ ...f, goal: e.target.value }))}
-                    placeholder="你想在这一场里做什么（可留空）"
+                    placeholder="你想怎样开始？（可留空）"
                     className="mt-2 w-full rounded-xl border border-line bg-app px-3 py-2 text-sm text-ink outline-none focus:border-gene-purple/50"
                   />
-                  <p className="mt-3 text-[10px] text-gray-500">谁上场（可多选）</p>
+                  <p className="mt-3 text-[10px] text-gray-500">和谁一起？（可多选）</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {myCharacters.map((c) => {
                       const on = form.picked.includes(c.id);
@@ -565,18 +422,18 @@ export function MobileStagePage() {
                           className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
                             on ? 'border-gene-purple/50 bg-gene-purple/12 text-gene-purple' : occupied ? 'border-line bg-surface/40 text-gray-600 opacity-60' : 'border-line bg-surface text-gray-500'
                           }`}
-                          title={occupied ? `正在《${occupied.title}》中，请先结束并保存那段剧情` : undefined}
+                          title={occupied ? `正在《${occupied.title}》中，请先结束并保存那段经历` : undefined}
                         >
-                          {c.avatar.startsWith('data:') ? '🙂' : c.avatar} {c.name}{occupied ? ' · 剧情中' : ''}
+                          {c.avatar.startsWith('data:') ? '🙂' : c.avatar} {c.name}{occupied ? ' · 世界中' : ''}
                         </button>
                       );
                     })}
                   </div>
                   {Array.from(occupiedByScene.values()).some((scene) => scene.status !== 'finished') && (
-                    <p className="mt-2 text-[10px] leading-5 text-gray-500">角色一次只能属于一段未结束的剧情。离开后会暂停并留在星图中；结束并保存经历后，才能加入新的剧情。</p>
+                    <p className="mt-2 text-[10px] leading-5 text-gray-500">角色一次只能属于一个未结束的世界。暂时离开会暂停并留在星域；结束并保存经历后，才能进入新的世界。</p>
                   )}
                   <div className="vg-entry-memory mt-4">
-                    <p className="text-[10px] text-gray-500">角色进入时带着什么</p>
+                    <p className="text-[10px] text-gray-500">进入世界时带着什么</p>
                     <div className="mt-1.5 grid grid-cols-2 gap-2">
                       <button
                         type="button"
@@ -606,7 +463,7 @@ export function MobileStagePage() {
                       onClick={() => void createAndOpen()}
                       className="rounded-xl bg-gene-purple px-3.5 py-2 text-xs font-medium text-white disabled:opacity-40"
                     >
-                      开始
+                      进入世界
                     </button>
                   </div>
                 </>
@@ -616,8 +473,8 @@ export function MobileStagePage() {
 
           {scenes.length === 0 ? (
             <p className="mt-5 rounded-2xl border border-line bg-surface/60 px-4 py-6 text-center text-xs leading-6 text-gray-500">
-              还没有演过任何一场戏。<br />
-              世界舞台是"你们一起经历故事"的地方——开一场，故事就会真的发生。
+              这里还没有新的世界。<br />
+              从一个地方、几位熟悉的人开始，经历会在这里留下痕迹。
             </p>
           ) : (
             <ul className="mt-4 space-y-2.5">
@@ -638,9 +495,16 @@ export function MobileStagePage() {
                     <button
                       type="button"
                       onClick={() => void openTheScene(scene.id)}
+                      className="text-[11px] text-gray-500"
+                    >
+                      回看
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => continueInCanvas(scene.id)}
                       className="text-[11px] text-life-cyan"
                     >
-                      {scene.status === 'finished' ? '回看' : '继续这场戏'}
+                      {scene.status === 'finished' ? '在世界播放器中回看' : '继续'}
                     </button>
                     <div className="flex-1" />
                     <button

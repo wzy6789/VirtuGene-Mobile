@@ -1,4 +1,4 @@
-﻿# 批量跑验收套件（每套一个全新 Chrome profile，按套件收取结果文件）
+# 批量跑验收套件（每套一个全新 Chrome profile，按套件收取结果文件）
 #
 #   powershell -File scripts/verify/run-all.ps1 -Suites phase1,phase2a,worldA
 #
@@ -10,7 +10,7 @@ param(
   [string[]]$Suites = @(
     'index', 'phase2a', 'phase2b0', 'phase2b1', 'phase2b2', 'phase2b3', 'phase2b4',
     'phase2b5', 'phase2b6', 'phase3', 'phase3b', 'phase3c',
-    'worldA', 'worldB', 'worldC', 'worldD', 'worldE'
+    'worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF'
   ),
   [int]$TimeoutSec = 150,
   [string]$Chrome = 'C:\Program Files\Google\Chrome\Application\chrome.exe'

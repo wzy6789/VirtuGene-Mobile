@@ -2,7 +2,7 @@ import type { MemoryItem, WorldSceneEntry } from '../../db/index';
 import { selectRelevantMemories } from '../chat-context-compiler';
 
 /**
- * 剧情里的隐藏用户画像。
+ * 星域里的隐藏用户画像。
  * 画像只由当前角色已经拥有的 4.x 用户记忆拼成，绝不跨角色汇总，
  * 也不写入新的数据库字段。它只作为模型上下文存在，不渲染给用户。
  */

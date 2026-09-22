@@ -375,11 +375,11 @@ export async function applyWorldSettlement(params: {
             origin: 'ai',
             sourceWorldEventId: result.worldEventIds[0],
           });
-          if (before.length < 8) {
-            const after = await continuityRepo.getOpenByCharacter(item.characterId, userId);
-            const created = after.find((t) => t.title === item.title);
-            if (created) result.threadIds.push(created.id);
-          }
+          // 无论创建前是否已满 8 条都要追踪新线索：满了时最旧的会被自动归档，
+          // 但新线索本身仍然存在，撤销时若漏掉它的 id 就回收不干净。
+          const after = await continuityRepo.getOpenByCharacter(item.characterId, userId);
+          const created = after.find((t) => t.title === item.title);
+          if (created) result.threadIds.push(created.id);
         } catch {
           result.appliedDropped.push('未完成事件写入失败');
         }

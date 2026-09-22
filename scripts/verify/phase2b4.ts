@@ -158,6 +158,7 @@ async function makeDiary(content: string, date: string, characterId?: string): P
 }
 
 async function run() {
+  useUIStore.getState().setWorldTheaterOpen(true);
   /* ---------------- P. 纯函数 ---------------- */
   section('P. 纯函数：日记区块文案 + 溯源契约');
   {

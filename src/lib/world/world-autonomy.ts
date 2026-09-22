@@ -195,7 +195,7 @@ async function buildPulsePrompt(params: {
     `可用地点：\n${locationLines.join('\n') || '暂无地点'}`,
     `角色状态：\n${presenceLines.join('\n') || '暂无角色'}`,
     `世界设定：\n${facts.map((fact) => `- ${fact.content}`).join('\n') || '暂无额外设定'}`,
-    `正在进行的剧情：\n${scenes.map((scene) => `- ${scene.title} @ ${scene.place}`).join('\n') || '无'}`,
+    `正在进行的世界：\n${scenes.map((scene) => `- ${scene.title} @ ${scene.place}`).join('\n') || '无'}`,
   ].join('\n\n');
   const user = `世界时间从 ${new Date(params.fromWorldTime).toLocaleString('zh-CN')} 走到 ${new Date(params.toWorldTime).toLocaleString('zh-CN')}（约 ${formatHours(params.fromWorldTime, params.toWorldTime)}）。\n最近发生：\n${events.map((event) => `- ${event.title}：${event.summary}`).join('\n') || '暂无记录'}\n请只返回值得记入世界年表的行动，普通等待就返回 wait。`;
   return { system, user, locations, presences, agents };

@@ -147,13 +147,9 @@ export function WorldControlSheet(params: {
             <b>让他们自己聊一会儿</b>
             <span>你只要看着，随时可以插话</span>
           </button>
-          <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'save_moment' })}>
-            <b>保存这一刻</b>
-            <span>请世界把刚刚发生的事记下来</span>
-          </button>
           <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'save_story' })}>
-            <b>保存为故事</b>
-            <span>把这一段标成完整的一章</span>
+            <b>写入世界记录</b>
+            <span>把这一段收进世界的书里，之后随时可以回看</span>
           </button>
         </div>
 
@@ -169,17 +165,22 @@ export function WorldControlSheet(params: {
         </div>
 
         <div className="vg-sheet-group">
+          <p className="vg-sheet-sub">这一段世界</p>
           <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'undo' })}>
             <b>撤销上一轮</b>
             <span>回到上一刻，世界不会留下它的痕迹</span>
           </button>
           <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'pause' })}>
-            <b>先离开一会儿</b>
-            <span>这一段会留着，回来继续</span>
+            <b>暂时离开</b>
+            <span>保留进行状态，不结算；随时回来继续</span>
+          </button>
+          <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'save_moment' })}>
+            <b>保存这一刻</b>
+            <span>把值得记住的事写进世界，世界继续，不会结束</span>
           </button>
           <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'finish' })}>
-            <b>结束这一段</b>
-            <span>收束它，之后再开始新的一段</span>
+            <b>结束这个世界</b>
+            <span>一次性结算：经历、共同记忆与关系变化写入世界，之后只能回看</span>
           </button>
         </div>
 

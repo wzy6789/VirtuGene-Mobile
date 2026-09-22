@@ -55,7 +55,7 @@ export const worldSceneRepo = {
       id,
       userId: input.userId,
       worldId: input.worldId,
-      // 剧情主题是星图上的短标签，统一限制为五个字，避免移动端布局被长标题挤坏。
+      // 场景标题是星图上的短标签，统一限制为五个字，避免移动端布局被长标题挤坏。
       title: input.title.trim().slice(0, 5),
       place: input.place.trim().slice(0, 80),
       timeLabel: input.timeLabel.trim().slice(0, 40),
@@ -63,7 +63,13 @@ export const worldSceneRepo = {
       ...(input.theme ? { theme: input.theme.trim().slice(0, 80) } : {}),
       characterIds: [...new Set(input.characterIds)],
       status: 'draft',
-      state: { ...emptySceneState(input.sceneGoal), participants: input.participants ?? [] },
+      state: {
+        ...emptySceneState(input.sceneGoal),
+        participants: (input.participants ?? []).map((participant) => ({
+          ...participant,
+          enteredAt: participant.enteredAt ?? now,
+        })),
+      },
       ...(input.templateId ? { templateId: input.templateId } : {}),
       ...(input.locationId ? { locationId: input.locationId } : {}),
       ...(input.pulseId ? { pulseId: input.pulseId } : {}),
@@ -159,6 +165,7 @@ export const worldSceneRepo = {
         goals: [],
         knowsEventIds: [],
         secrets: [],
+        enteredAt: Date.now(),
         ...(options.entryMemoryMode ? { entryMemoryMode: options.entryMemoryMode } : {}),
       };
       const next: WorldScene = {
@@ -216,7 +223,12 @@ export const worldSceneRepo = {
     return db.transaction('rw', db.worldScenes, db.worldSceneEntries, async () => {
       const scene = await db.worldScenes.get(sceneId);
       const rows = await db.worldSceneEntries.where('sceneId').equals(sceneId).toArray();
-      const nextIndex = rows.reduce((max, r) => Math.max(max, r.index + 1), 0);
+      // 旧数据若有一行 index 缺失/损坏，不能把 NaN 传播给后续所有新行：
+      // 忽略非有限值，至少让追加顺序稳定（单调递增）。
+      const nextIndex = rows.reduce((max, r) => {
+        const value = Number(r.index);
+        return Number.isFinite(value) ? Math.max(max, value + 1) : max;
+      }, 0);
       const row: WorldSceneEntry = {
         id: crypto.randomUUID(),
         sceneId,
@@ -234,6 +246,39 @@ export const worldSceneRepo = {
     });
   },
 
+  /**
+   * 旧版本世界的兼容读取（不清库、不重建、不重写正文）：
+   * 老数据缺的只是 SceneState 里后加的导演/沉浸字段，补齐默认值即可被新管线继续；
+   * 已有字段与 worldSceneEntries 正文一律原样保留。只有确实缺字段时才写一次状态补丁。
+   */
+  async ensureSceneCompat(scene: WorldScene): Promise<WorldScene> {
+    const state = scene.state as Partial<WorldScene['state']> | undefined;
+    const complete = Boolean(
+      state
+      && state.conversation
+      && state.visual
+      && Array.isArray(state.participants)
+      && Array.isArray(state.activeConflicts)
+      && Array.isArray(state.pendingConsequences)
+      && Array.isArray(state.newEventIds),
+    );
+    if (complete) return scene;
+    await this.patchSceneState(scene.id, {
+      ...state,
+      conversation: state?.conversation ?? emptyConversationState(),
+      visual: state?.visual ?? deriveWorldVisualState(scene),
+      participants: Array.isArray(state?.participants) ? state!.participants! : [],
+      activeConflicts: Array.isArray(state?.activeConflicts) ? state!.activeConflicts! : [],
+      pendingConsequences: Array.isArray(state?.pendingConsequences) ? state!.pendingConsequences! : [],
+      newEventIds: Array.isArray(state?.newEventIds) ? state!.newEventIds! : [],
+      currentAct: state?.currentAct ?? 1,
+      currentTension: state?.currentTension ?? 0,
+      activeSecrets: Array.isArray(state?.activeSecrets) ? state!.activeSecrets! : [],
+      resolvedEventIds: Array.isArray(state?.resolvedEventIds) ? state!.resolvedEventIds! : [],
+    });
+    return (await this.getScene(scene.id)) ?? scene;
+  },
+
   /** 场景正文分页：afterIndex 之后取 limit 条（断点恢复 / 长场景懒加载） */
   async listEntries(sceneId: string, opts: { afterIndex?: number; limit?: number } = {}): Promise<WorldSceneEntry[]> {
     const rows = await db.worldSceneEntries.where('sceneId').equals(sceneId).toArray();
@@ -241,6 +286,29 @@ export const worldSceneRepo = {
       .filter((r) => (opts.afterIndex != null ? r.index > opts.afterIndex : true))
       .sort((a, b) => a.index - b.index)
       .slice(0, Math.max(1, opts.limit ?? 200));
+  },
+
+  /** 最近的正文，仍按发生顺序返回。不能复用 listEntries：它从最早一条开始截取。 */
+  async listRecentEntries(sceneId: string, limit = 200): Promise<WorldSceneEntry[]> {
+    const rows = await db.worldSceneEntries.where('sceneId').equals(sceneId).toArray();
+    return rows
+      .sort((a, b) => a.index - b.index)
+      .slice(-Math.max(1, limit));
+  },
+
+  /** 从当前可见的第一条向前翻页；只返回紧邻它的旧记录。 */
+  async listEntriesBefore(sceneId: string, beforeIndex: number, limit = 60): Promise<WorldSceneEntry[]> {
+    const rows = await db.worldSceneEntries.where('sceneId').equals(sceneId).toArray();
+    return rows
+      .filter((row) => row.index < beforeIndex)
+      .sort((a, b) => a.index - b.index)
+      .slice(-Math.max(1, limit));
+  },
+
+  /** 按主键读取一轮的条目，长场景中不依赖「前 400 条」窗口。 */
+  async getEntriesById(ids: string[]): Promise<WorldSceneEntry[]> {
+    if (ids.length === 0) return [];
+    return (await db.worldSceneEntries.bulkGet(ids)).filter((row): row is WorldSceneEntry => !!row);
   },
 
   async countEntries(sceneId: string): Promise<number> {

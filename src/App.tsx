@@ -16,6 +16,7 @@ import { getChangelog, LAST_SEEN_VERSION_KEY } from './lib/changelog';
 import { notifyLocal, requestNotificationPermission } from './lib/notify';
 import { loadPersistedApiKey } from './lib/api-key-storage';
 import { useGroupStore } from './store/group-store';
+import { momentsRepo } from './db/moments-repo';
 import { isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from './lib/ai/gateway';
 import { UseTimeReminder } from './components/compliance/UseTimeReminder';
 
@@ -164,6 +165,25 @@ export default function App() {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVis);
     };
+  }, [isLoggedIn]);
+
+  // 角色看动态、点赞和评论在应用前台持续推进；用户离开朋友圈也不会让任务停住。
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let running = false;
+    const check = async () => {
+      const userId = useAuthStore.getState().userId;
+      if (!userId || running || document.visibilityState !== 'visible') return;
+      running = true;
+      try { await momentsRepo.processJobs(userId); }
+      catch { /* 下次前台检查会继续处理到期任务。 */ }
+      finally { running = false; }
+    };
+    const first = window.setTimeout(() => { void check(); }, 15_000);
+    const timer = window.setInterval(() => { void check(); }, 60_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') void check(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
   }, [isLoggedIn]);
 
   const handleCloseUpdateNotes = () => {

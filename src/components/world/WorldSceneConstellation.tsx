@@ -51,14 +51,14 @@ export function WorldSceneConstellation({
   const labelScale = constellationLabelScale(1);
 
   return (
-    <section className="vg-scene-constellation" aria-label={`剧情星域：${scene.title}`}>
+    <section className="vg-scene-constellation" aria-label={`世界星域：${scene.title}`}>
       <header className="vg-scene-constellation-header">
-        <button type="button" onClick={onBack} className="vg-scene-back">‹ 世界星图</button>
+        <button type="button" onClick={onBack} className="vg-scene-back">‹ 世界星域</button>
         <span className={`vg-world-scene-status is-${scene.status}`}>{statusLabel(scene.status)}</span>
       </header>
 
       <div className="vg-scene-constellation-map">
-        <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={`剧情 ${scene.title} 的详情星域`}>
+        <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={`世界 ${scene.title} 的详情星域`}>
           <defs>
             <radialGradient id="vg-scene-core" cx="50%" cy="42%" r="68%">
               <stop offset="0%" stopColor={tone} stopOpacity=".42" />
@@ -83,7 +83,7 @@ export function WorldSceneConstellation({
 
           <g className="vg-scene-star-core" filter="url(#vg-scene-glow)">
             <text className="vg-scene-title" x={CENTER.x} y={CENTER.y - 5} textAnchor="middle" fill="#f0edff" fontSize={CONSTELLATION_TYPE.sector * labelScale} fontWeight="600">{cleanConstellationTitle(scene.title)}</text>
-            <text x={CENTER.x} y={CENTER.y + 15} textAnchor="middle" fill="#a9a3c8" fontSize={CONSTELLATION_TYPE.body * labelScale}>这段剧情</text>
+            <text x={CENTER.x} y={CENTER.y + 15} textAnchor="middle" fill="#a9a3c8" fontSize={CONSTELLATION_TYPE.body * labelScale}>这个世界</text>
           </g>
 
           <g className="vg-scene-satellite">
@@ -114,7 +114,7 @@ export function WorldSceneConstellation({
         </svg>
 
         <div className="vg-scene-constellation-note">
-          <p>最近留下的片段</p>
+          <p>最近发生</p>
           {entriesLoading ? (
             <span>正在读取这段经历…</span>
           ) : recentEntries.length ? (
@@ -122,12 +122,12 @@ export function WorldSceneConstellation({
               {recentEntries.map((entry) => <span key={entry.id}><b>{entryLabel(entry, characters)}</b>{entry.content}</span>)}
             </div>
           ) : (
-            <span>故事还没有开始，下一句话会决定它的方向。</span>
+            <span>这里还没有经历，下一句话会决定它的方向。</span>
           )}
         </div>
 
         <button type="button" className="vg-scene-constellation-continue" onClick={onContinue}>
-          <span className="vg-scene-constellation-continue-label">{scene.status === 'finished' ? '查看这段剧情' : '继续'}</span>
+          <span className="vg-scene-constellation-continue-label">{scene.status === 'finished' ? '回看世界' : '继续生活'}</span>
           <span aria-hidden="true">→</span>
         </button>
       </div>

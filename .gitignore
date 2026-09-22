@@ -44,3 +44,12 @@ scripts/verify/verify.css
 # 生产环境变量（当前只有注释；将来可能放网关地址/令牌，绝不入库）
 .env.production
 .tmp-site-shots/
+
+# --- 本地构建/运行残留（不属于源码，禁止提交）---
+.gradle-local/
+.gradle-user/
+.user-home/
+.android-user/
+.tmp-edge-preview/
+.tmp-*.png
+unicode-test*.txt

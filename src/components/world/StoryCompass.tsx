@@ -17,7 +17,7 @@ export function StoryCompass({ scene, entries, busy, onAct, onGoal }: {
   return <section className="vg-story-compass">
     <button className="vg-story-compass-heading" onClick={() => setOpen(!open)} aria-expanded={open}>
       <span><small>正在经历</small><strong>{scene.title}</strong></span>
-      <span>{open ? '收起' : '故事方向'} {open ? '−' : '+'}</span>
+      <span>{open ? '收起' : '世界方向'} {open ? '−' : '+'}</span>
     </button>
     {open && <div className="vg-story-compass-body">
       <label>这一段，你想尝试什么？<input value={goal} maxLength={180} onChange={(event) => setGoal(event.target.value)} placeholder="例如：找出钟楼停止的原因" /></label>

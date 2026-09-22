@@ -14,7 +14,7 @@ type ScenePoint = {
 };
 
 /**
- * 非对称的深空坐标。剧情星点与文字各占独立区域，
+ * 非对称的深空坐标。世界信标与文字各占独立区域，
  * 中文标题即使达到五个字也不会压住节点或其他文字。
  */
 const SCENE_POINTS: ScenePoint[] = [
@@ -70,13 +70,15 @@ export function WorldConstellation({
   currentSceneId,
   onOpenScene,
   onOpenStage,
-  onOpenDiary,
+  onCreate,
 }: {
   scenes: WorldScene[];
   currentSceneId?: string | null;
   onOpenScene: (sceneId: string) => void;
+  /** 查看全部世界（资料管理列表） */
   onOpenStage: () => void;
-  onOpenDiary: () => void;
+  /** 建立新的世界（进入创建表单） */
+  onCreate: () => void;
 }) {
   const visibleScenes = scenes.slice(0, SCENE_POINTS.length);
   const extraScenes = Math.max(0, scenes.length - visibleScenes.length);
@@ -84,18 +86,18 @@ export function WorldConstellation({
   const labelScale = constellationLabelScale(1);
 
   return (
-    <section className="vg-world-constellation" aria-label="世界星图">
+    <section className="vg-world-constellation" aria-label="世界星域">
       <div className="vg-world-constellation-head">
         <div>
-          <p className="vg-world-constellation-kicker">STORY ORBITS</p>
-          <h2>剧情星域</h2>
-          <p>{scenes.length > 0 ? `${scenes.length} 段生活仍在留下回声` : '第一段故事，正等你点亮。'}</p>
+          <p className="vg-world-constellation-kicker">WORLD MATRIX</p>
+          <h2>世界星域</h2>
+          <p>{scenes.length > 0 ? `${scenes.length} 个世界仍在留下回声` : '第一个世界，正等你点亮。'}</p>
         </div>
-        <button type="button" onClick={onOpenStage}><i />新建剧情</button>
+        <button type="button" onClick={onCreate}><i />新的世界</button>
       </div>
 
       <div className="vg-world-constellation-map">
-        <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label="由生活核心与多段剧情信标组成的世界星图">
+        <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label="由世界核心与多段世界信标组成的世界星域">
           <defs>
             <linearGradient id="vg-world-core-surface" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stopColor="#21265a" stopOpacity=".98" />
@@ -139,21 +141,14 @@ export function WorldConstellation({
             );
           })}
 
-          <g
-            role="button"
-            tabIndex={0}
-            aria-label="打开我的生活日记"
-            className="vg-world-constellation-core"
-            onClick={onOpenDiary}
-            onKeyDown={(event) => onActivate(event, onOpenDiary)}
-          >
+          <g className="vg-world-constellation-core" aria-label="世界核心">
             <circle cx={CENTER.x} cy={CENTER.y} r="76" fill="url(#vg-world-halo)" />
             <ellipse className="vg-world-core-aura" cx={CENTER.x} cy={CENTER.y} rx="86" ry="58" />
             <path className="vg-world-core-rays" d="M 108 190 H 136 M 224 190 H 252 M 180 118 V 145 M 180 235 V 262 M 124 134 L 143 153 M 217 227 L 236 246 M 236 134 L 217 153 M 143 227 L 124 246" />
             <path className="vg-world-core-scan" d="M 122 176 H 238" />
-            <text x={CENTER.x} y={CENTER.y - 31} textAnchor="middle" className="vg-world-core-code" style={{ fontSize: `${CONSTELLATION_TYPE.body * labelScale}px` }}>REALITY CORE</text>
-            <text x={CENTER.x} y={CENTER.y + 7} textAnchor="middle" className="vg-world-core-title" style={{ fontSize: `${CONSTELLATION_TYPE.world * labelScale}px` }}>我的生活</text>
-            <text x={CENTER.x} y={CENTER.y + 35} textAnchor="middle" className="vg-world-core-subtitle" style={{ fontSize: `${CONSTELLATION_TYPE.body * labelScale}px` }}>记忆持续写入</text>
+            <text x={CENTER.x} y={CENTER.y - 31} textAnchor="middle" className="vg-world-core-code" style={{ fontSize: `${CONSTELLATION_TYPE.body * labelScale}px` }}>WORLD CORE</text>
+            <text x={CENTER.x} y={CENTER.y + 7} textAnchor="middle" className="vg-world-core-title" style={{ fontSize: `${CONSTELLATION_TYPE.world * labelScale}px` }}>世界</text>
+            <text x={CENTER.x} y={CENTER.y + 35} textAnchor="middle" className="vg-world-core-subtitle" style={{ fontSize: `${CONSTELLATION_TYPE.body * labelScale}px` }}>时间持续写入</text>
           </g>
 
           {visibleScenes.map((scene, index) => {
@@ -167,7 +162,7 @@ export function WorldConstellation({
                 key={scene.id}
                 role="button"
                 tabIndex={0}
-                aria-label={`查看剧情：${scene.title}`}
+                aria-label={`查看世界：${scene.title}`}
                 onClick={() => onOpenScene(scene.id)}
                 onKeyDown={(event) => onActivate(event, () => onOpenScene(scene.id))}
                 className={`vg-world-constellation-node is-${scene.status}${selected ? ' is-selected' : ''}`}
@@ -184,7 +179,7 @@ export function WorldConstellation({
           })}
 
           {extraScenes > 0 && (
-            <g className="vg-world-constellation-overflow" role="button" tabIndex={0} aria-label={`查看其余 ${extraScenes} 段剧情`} onClick={onOpenStage} onKeyDown={(event) => onActivate(event, onOpenStage)}>
+            <g className="vg-world-constellation-overflow" role="button" tabIndex={0} aria-label={`查看其余 ${extraScenes} 个世界`} onClick={onOpenStage} onKeyDown={(event) => onActivate(event, onOpenStage)}>
               <text x="183" y="67" textAnchor="middle" fill="#d0c9ff" fontSize="22">✦</text>
               <text x="183" y="85" textAnchor="middle" fill="#d0c9ff" fontSize={CONSTELLATION_TYPE.status}>＋{extraScenes}</text>
             </g>
@@ -193,10 +188,10 @@ export function WorldConstellation({
       </div>
 
       {visibleScenes.length === 0 && (
-        <button type="button" className="vg-world-constellation-empty" onClick={onOpenStage}>
-          <span>NO STORY SIGNAL</span>
-          <b>这里还没有剧情</b>
-          <i>建立第一段世界切片 →</i>
+        <button type="button" className="vg-world-constellation-empty" onClick={onCreate}>
+          <span>NO WORLD SIGNAL</span>
+          <b>这里还没有新的世界</b>
+          <i>从一个地方、几位同行者开始 →</i>
         </button>
       )}
     </section>
