@@ -24,6 +24,7 @@ import { AUDIENCE_MODE_LABELS, AUDIENCE_MODES } from '../../src/lib/moments/pref
 import type { Character } from '../../src/db/index';
 
 const U = 'u-momentsA';
+const USERNAME = '朋友圈验收';
 const C1 = 'c-ma-xingyao';
 const C2 = 'c-ma-linjian';
 const PREF_KEY = `virtugene-moments-audience:${U}`;
@@ -91,7 +92,7 @@ async function run(): Promise<void> {
   await db.delete();
   await db.open();
   localStorage.removeItem(PREF_KEY);
-  useAuthStore.getState().login(U, '朋友圈验收', 'sk-fake', '');
+  useAuthStore.getState().login(U, USERNAME, 'sk-fake', '');
 
   const char1 = makeCharacter(C1, '星遥');
   const char2 = makeCharacter(C2, '林间');
@@ -107,6 +108,10 @@ async function run(): Promise<void> {
   await db.momentReactions.put({ id: `moment-comment:${first.id}:${C2}`, userId: U, momentId: first.id, characterId: C2, type: 'comment', content: '这句话我记住了。', status: 'active', createdAt: now, updatedAt: now });
   await db.momentNotifications.put({ id: `moment-notice:like:${first.id}:${C1}`, userId: U, momentId: first.id, characterId: C1, type: 'like', preview: '星遥 点了赞', read: false, createdAt: now });
   await db.momentNotifications.put({ id: `moment-notice:comment:${first.id}:${C2}`, userId: U, momentId: first.id, characterId: C2, type: 'comment', preview: '林间 评论了你的动态：这句话我记住了。', read: false, createdAt: now + 1 });
+  // 评论回复链：用户回复自己的评论（不该显示「我 回复 我」）+ 角色回复用户（该显示「林间 回复 我」）
+  await db.momentReactions.put({ id: 'moment-comment:user-1', userId: U, momentId: first.id, type: 'comment', content: '甜是甜，就是酱油忘了买。', status: 'active', createdAt: now + 2, updatedAt: now + 2 });
+  await db.momentReactions.put({ id: 'moment-comment:user-2', userId: U, momentId: first.id, type: 'comment', content: '下次记得买。', replyToId: 'moment-comment:user-1', status: 'active', createdAt: now + 3, updatedAt: now + 3 });
+  await db.momentReactions.put({ id: `moment-comment:${first.id}:${C2}:reply`, userId: U, momentId: first.id, characterId: C2, type: 'comment', content: '双份牛肉不算奖励，算补偿。', replyToId: 'moment-comment:user-1', status: 'active', createdAt: now + 4, updatedAt: now + 4 });
 
   const pageText = await render();
 
@@ -214,6 +219,13 @@ async function run(): Promise<void> {
   const blocked = (await momentsRepo.contactSettings(U)).filter((item) => item.blocked).map((item) => item.characterId);
   check('⑰ 勾选后真正落库（blocked 名单里有这个角色）', blocked.length === 1, { blocked });
 
+  // ---------- F. 评论行的「回复 X」不自指 ----------
+  const replyText = (await render()).replace(/\s+/g, ' ');
+  check('⑱ 用户回复自己的评论不再显示「我 回复 我」',
+    !replyText.includes(`${USERNAME} 回复 ${USERNAME}`) && replyText.includes(`${USERNAME}：下次记得买。`),
+    replyText.slice(0, 240));
+  check('⑲ 角色回复用户时仍显示「林间 回复 我」', replyText.includes(`林间 回复 ${USERNAME}`), replyText.slice(0, 240));
+
   // ---------- 清理 ----------
   await db.momentNotifications.where('userId').equals(U).delete();
   await db.momentReactions.where('userId').equals(U).delete();
@@ -224,7 +236,7 @@ async function run(): Promise<void> {
   await characterRepo.deleteById(C2);
   localStorage.removeItem(PREF_KEY);
   const left = { moments: await db.moments.where('userId').equals(U).count(), notices: await db.momentNotifications.where('userId').equals(U).count(), pref: localStorage.getItem(PREF_KEY) };
-  check('⑱ 清理干净（动态 / 通知 / 本机偏好都不留）',
+  check('⑳ 清理干净（动态 / 通知 / 本机偏好都不留）',
     left.moments === 0 && left.notices === 0 && left.pref === null, left);
 }
 

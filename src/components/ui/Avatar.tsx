@@ -16,10 +16,12 @@ const SIZES = {
  */
 export function Avatar({ avatar, size = 'md', className = '' }: AvatarProps) {
   const cls = `${SIZES[size]} rounded-full shrink-0 overflow-hidden ${className}`;
-  if (avatar.startsWith('data:')) {
+  // 空字符串也要有东西可看：旧账号/演示账号可能没有头像，直接渲染会留下一个空圆圈。
+  const glyph = avatar.trim() || '🧬';
+  if (glyph.startsWith('data:')) {
     return (
       <img
-        src={avatar}
+        src={glyph}
         alt=""
         className={`${cls} object-cover`}
         style={{ imageRendering: 'auto' }}
@@ -29,7 +31,7 @@ export function Avatar({ avatar, size = 'md', className = '' }: AvatarProps) {
   }
   return (
     <span className={`${cls} flex items-center justify-center bg-surface`}>
-      {avatar}
+      {glyph}
     </span>
   );
 }
