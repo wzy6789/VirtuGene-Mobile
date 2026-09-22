@@ -299,6 +299,22 @@ async function run(): Promise<void> {
     !replyText.includes(`${USERNAME} 回复 ${USERNAME}`) && replyText.includes(`${USERNAME}：下次记得买。`), replyText.slice(0, 240));
   check('㉘ 角色回复用户时仍显示「林间 回复 我」', replyText.includes(`林间 回复 ${USERNAME}`), replyText.slice(0, 240));
 
+  // ---------- H4. 长按管理菜单只对自己的动态响应 ----------
+  const cards = host ? (Array.from(host.querySelectorAll('.vg-moment-card')) as HTMLElement[]) : [];
+  const otherCard = cards.find((el) => (el.innerText ?? '').includes('角色动态')) ?? null;
+  const ownCard = cards.find((el) => !(el.innerText ?? '').includes('角色动态')) ?? null;
+  otherCard?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+  await sleep(250);
+  const menuAfterOther = (host?.querySelector('.vg-moment-menu') ?? null) !== null;
+  ownCard?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+  await sleep(250);
+  const ownMenuItems = host ? Array.from(host.querySelectorAll('.vg-moment-menu button')).map((b) => (b.textContent ?? '').trim()) : [];
+  check('㉙ 长按别人的动态不出管理菜单，长按自己的才出',
+    !menuAfterOther && ownMenuItems.join('|') === '修改谁可以看|删除这条动态',
+    { menuAfterOther, ownMenuItems, hasOtherCard: otherCard !== null, hasOwnCard: ownCard !== null });
+  ownCard?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+  await sleep(150);
+
   // ---------- I. 封面偏好 ----------
   const fakeCover = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   saveMomentsPreferences(U, { ...loadMomentsPreferences(U), cover: fakeCover });
@@ -307,7 +323,7 @@ async function run(): Promise<void> {
   const coverApplied = coverEl ? getComputedStyle(coverEl).backgroundImage.includes('data:image/gif') : false;
   clickText('展开朋友圈封面');
   await sleep(250);
-  check('㉙ 自定义封面会渲染到封面上（且能展开看到更换入口）',
+  check('㉚ 自定义封面会渲染到封面上（且能展开看到更换入口）',
     coverApplied && clickText('更换封面') && covered.length > 0, { coverApplied });
   saveMomentsPreferences(U, { ...loadMomentsPreferences(U), cover: '' });
 
@@ -318,7 +334,7 @@ async function run(): Promise<void> {
   await sleep(350);
   const cleared = clickText('清空记录', host?.querySelector('.vg-moment-settings-sheet') ?? null);
   await sleep(400);
-  check('㉚ 清空记录后互动消息清空，但动态与评论都还在',
+  check('㉛ 清空记录后互动消息清空，但动态与评论都还在',
     cleared && (await momentsRepo.notifications(U)).length === 0
       && (await db.moments.where('userId').equals(U).count()) >= 2
       && (await momentsRepo.reactions(first.id, U)).some((row) => row.characterId && row.type === 'comment'),
@@ -334,11 +350,11 @@ async function run(): Promise<void> {
   await characterRepo.deleteById(C2);
   localStorage.removeItem(PREF_KEY);
   const left = { moments: await db.moments.where('userId').equals(U).count(), notices: await db.momentNotifications.where('userId').equals(U).count(), pref: localStorage.getItem(PREF_KEY) };
-  check('㉛ 清理干净（动态 / 通知 / 本机偏好都不留）',
+  check('㉜ 清理干净（动态 / 通知 / 本机偏好都不留）',
     left.moments === 0 && left.notices === 0 && left.pref === null, left);
 
   // 出厂值自检：默认偏好对象与模块常量一致，避免"测试自己造了一套默认"
-  check('㉜ 默认偏好与出厂值一致（红点开、宽松、全部、无封面）',
+  check('㉝ 默认偏好与出厂值一致（红点开、宽松、全部、无封面）',
     DEFAULT_MOMENTS_PREFERENCES.showUnreadBadge === true
       && DEFAULT_MOMENTS_PREFERENCES.density === 'comfortable'
       && DEFAULT_MOMENTS_PREFERENCES.historyWindow === 'all'
