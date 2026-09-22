@@ -127,3 +127,6 @@ runner 等 150 秒后报 TIMEOUT。**不是 hang，也不是产品问题。** �
 （旧的「此刻卡片 + STORY ORBITS 剧情星域 + 消息/世界/角色/我的 底栏」）。
 重拍要求：按当前构建在 412×915 dsf=2 下重截，导出 824×1830 JPEG q90，
 并同步替换 `website/assets/product/source/*.png`；重拍画面与逐张屏上文字记在本节末尾。
+
+注：`scripts/verify/world{F,G}.html`、`character-memory.html`、`gateway-stream.mjs`
+标题里的「5.2.0」是改造期的**内部代号**，正式发版号已统一为 **5.1.4**；套件名与断言未变。
