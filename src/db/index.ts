@@ -883,7 +883,10 @@ export interface MomentContact {
   id: string;
   userId: string;
   characterId: string;
+  /** 不让他（她）看我的朋友圈：对方看不到新动态，也不参与未完成的互动 */
   blocked?: boolean;
+  /** 不看他（她）的朋友圈：只过滤我这边的动态流，不影响对方能否互动 */
+  muted?: boolean;
   updatedAt: number;
 }
 

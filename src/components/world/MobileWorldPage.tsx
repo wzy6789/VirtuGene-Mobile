@@ -14,6 +14,7 @@ import { runWorldPulse, type WorldAutonomyResult } from '../../lib/world/world-a
 import { worldPulseRepo } from '../../db/world-pulse-repo';
 import { WorldLivingPanel } from './WorldLivingPanel';
 import { momentsRepo } from '../../db/moments-repo';
+import { loadMomentsPreferences } from '../../lib/moments/preferences';
 
 const DAY_MS = 86_400_000;
 
@@ -39,7 +40,14 @@ export function MobileWorldPage() {
 
   useEffect(() => {
     if (!userId) return;
-    const refresh = () => void momentsRepo.unreadNotifications(userId).then((items) => setMomentUnread(items.length)).catch(() => undefined);
+    // 角标跟着朋友圈设置里的「新互动红点」开关走；关掉就不再提示未读（记录仍保留）
+    const refresh = () => {
+      if (!loadMomentsPreferences(userId).showUnreadBadge) {
+        setMomentUnread(0);
+        return;
+      }
+      void momentsRepo.unreadNotifications(userId).then((items) => setMomentUnread(items.length)).catch(() => undefined);
+    };
     refresh();
     const timer = window.setInterval(refresh, 30_000);
     return () => window.clearInterval(timer);

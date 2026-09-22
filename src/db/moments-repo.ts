@@ -5,6 +5,7 @@ import { sendMessage } from '../lib/ai/deepseek';
 import { hasAiGatewayAccess } from '../lib/ai/gateway';
 import { useAuthStore } from '../store/auth-store';
 import { recallCharacterMemory } from '../lib/character-memory';
+import { historyWindowCutoff } from '../lib/moments/preferences';
 
 export type MomentAudience = {
   visibility: Moment['visibility'];
@@ -91,6 +92,9 @@ async function isBlocked(userId: string, characterId: string): Promise<boolean> 
 export async function visibleToCharacter(moment: Moment, characterId: string): Promise<boolean> {
   if (moment.deleted || moment.visibility === 'private') return false;
   if (await isBlocked(moment.userId, characterId)) return false;
+  // 「允许角色查看我的历史动态」：超出窗口的动态对角色不存在（本机偏好，默认不限制）
+  const cutoff = historyWindowCutoff(moment.userId);
+  if (cutoff > 0 && moment.createdAt < cutoff) return false;
   return moment.audienceCharacterIds.includes(characterId);
 }
 
@@ -347,13 +351,56 @@ export const momentsRepo = {
   },
 
   async block(userId: string, characterId: string, blocked: boolean): Promise<void> {
-    const row: MomentContact = { id: contactId(userId, characterId), userId, characterId, blocked, updatedAt: Date.now() };
+    const id = contactId(userId, characterId);
+    const existing = await db.momentContacts.get(id);
+    // 保留同一行上的另一个开关：blocked 与 muted 是两个方向的设置，不能互相覆盖
+    const row: MomentContact = {
+      id, userId, characterId,
+      ...(blocked ? { blocked: true } : {}),
+      ...(existing?.muted ? { muted: true } : {}),
+      updatedAt: Date.now(),
+    };
     await db.momentContacts.put(row);
     if (blocked) {
       await db.momentJobs.where('characterId').equals(characterId).modify((job) => {
         if (job.userId === userId && job.status === 'queued') job.status = 'cancelled';
       });
     }
+  },
+
+  /** 不看他（她）的朋友圈：只过滤我这边的动态流，不影响对方能否看到我、能否互动 */
+  async setMuted(userId: string, characterId: string, muted: boolean): Promise<void> {
+    const id = contactId(userId, characterId);
+    const existing = await db.momentContacts.get(id);
+    const row: MomentContact = {
+      id, userId, characterId,
+      ...(existing?.blocked ? { blocked: true } : {}),
+      ...(muted ? { muted: true } : {}),
+      updatedAt: Date.now(),
+    };
+    await db.momentContacts.put(row);
+  },
+
+  async mutedCharacterIds(userId: string): Promise<string[]> {
+    return (await db.momentContacts.where('userId').equals(userId).toArray())
+      .filter((item) => item.muted === true)
+      .map((item) => item.characterId);
+  },
+
+  /**
+   * 删除自己的评论：只允许删"没有 characterId"的评论（角色评论不归用户处置），
+   * 而且是软删（status='deleted'）——角色可能已经基于这条评论产生过记忆。
+   */
+  async deleteOwnComment(userId: string, reactionId: string): Promise<boolean> {
+    const row = await db.momentReactions.get(reactionId);
+    if (!row || row.userId !== userId || row.characterId || row.type !== 'comment' || row.status !== 'active') return false;
+    await db.momentReactions.update(reactionId, { status: 'deleted', updatedAt: Date.now() });
+    return true;
+  },
+
+  /** 清空互动消息记录（不动动态与评论本身） */
+  async clearNotifications(userId: string): Promise<void> {
+    await db.momentNotifications.where('userId').equals(userId).delete();
   },
 
   async unreadNotifications(userId: string): Promise<MomentNotification[]> {

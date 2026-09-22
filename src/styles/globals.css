@@ -134,8 +134,8 @@
 .vg-world-theater > .vg-world-now-card { margin-top:0; }
 
 /* 朋友圈（Moments）：内容优先，图片与互动保持轻量，避免世界页的科幻特效侵入阅读。 */
-.vg-moments-page { background:radial-gradient(ellipse 120% 30% at 50% 0%,rgba(108,92,231,.09),transparent 75%); }
-.vg-moments-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:22px 2px 15px; }
+.vg-moments-page { padding:0 0 32px; background:radial-gradient(ellipse 120% 30% at 50% 0%,rgba(108,92,231,.09),transparent 75%); }
+.vg-moments-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:22px 16px 14px; }
 .vg-moments-eyebrow { margin:0 0 5px; color:#73f6ec; font-size:9px; letter-spacing:.22em; }
 .vg-moments-header h1 { margin:0; color:var(--text); font-size:26px; letter-spacing:.1em; }
 .vg-moments-header p:last-child { margin:6px 0 0; color:var(--text-secondary); font-size:12px; }
@@ -149,13 +149,17 @@
 .vg-moments-settings-menu button { display:block; width:100%; padding:11px 14px; color:var(--text); font-size:12.5px; text-align:left; white-space:nowrap; }
 .vg-moments-settings-menu button + button { border-top:1px solid var(--border); }
 .vg-moments-settings-menu button:active { color:#bffcf7; background:rgba(115,246,236,.08); }
-.vg-moments-profile { position:relative; margin-bottom:22px; overflow:hidden; border:1px solid rgba(155,139,237,.19); border-radius:20px; background:var(--bg-panel); }
-.vg-moments-cover { height:72px; background:radial-gradient(circle at 80% 20%,rgba(115,246,236,.22),transparent 20%),linear-gradient(120deg,#211c45,#142f3e 70%,#16182d); }
-.vg-moments-profile-row { display:flex; align-items:center; gap:11px; padding:0 16px 14px; }
-.vg-moments-profile-row > img, .vg-moments-profile-row > span { margin-top:-18px; border:3px solid var(--bg-panel); }
+/* 名片与封面：通栏（微信也是整幅封面 + 头像压在封面上），点封面展开/收起 */
+.vg-moments-profile { position:relative; margin:0 0 10px; }
+.vg-moments-cover { display:block; width:100%; height:74px; padding:0; border:0; background-color:#1b1733; background-image:radial-gradient(circle at 80% 20%,rgba(115,246,236,.22),transparent 20%),linear-gradient(120deg,#211c45,#142f3e 70%,#16182d); background-position:center; background-size:cover; transition:height .22s ease; }
+.vg-moments-profile[data-expanded="true"] .vg-moments-cover { height:196px; }
+.vg-moments-cover-actions { position:absolute; z-index:2; top:150px; right:12px; display:flex; gap:8px; }
+.vg-moments-cover-actions button { padding:6px 11px; border:1px solid rgba(255,255,255,.22); border-radius:999px; color:#eae6ff; background:rgba(10,8,24,.45); backdrop-filter:blur(6px); font-size:11.5px; }
+.vg-moments-profile-row { display:flex; align-items:center; gap:11px; padding:0 16px; }
+.vg-moments-profile-row > img, .vg-moments-profile-row > span { margin-top:-20px; border:3px solid var(--bg); }
 .vg-moments-profile-row strong { display:block; color:var(--text); font-size:15px; }
 .vg-moments-profile-row > div > span { display:block; margin-top:2px; color:var(--text-secondary); font-size:11px; }
-.vg-moments-inbox { display:flex; align-items:center; gap:11px; width:100%; margin:0 0 16px; padding:12px 14px; border:1px solid rgba(155,139,237,.19); border-radius:18px; background:var(--bg-panel); text-align:left; }
+.vg-moments-inbox { display:flex; align-items:center; gap:11px; width:calc(100% - 32px); margin:12px 16px 6px; padding:12px 14px; border:1px solid rgba(155,139,237,.19); border-radius:18px; background:var(--bg-panel); text-align:left; }
 .vg-moments-inbox:active { background:rgba(108,92,231,.09); }
 .vg-moments-inbox-avatars { display:flex; flex:none; align-items:center; }
 .vg-moments-inbox-avatars > * { border:2px solid var(--bg-panel); }
@@ -167,29 +171,43 @@
 .vg-moments-inbox-body small { display:block; margin-top:2px; overflow:hidden; color:var(--text-secondary); font-size:11.5px; text-overflow:ellipsis; white-space:nowrap; }
 .vg-moments-inbox-dot { flex:none; width:7px; height:7px; border-radius:999px; background:#ff6b81; box-shadow:0 0 8px rgba(255,107,129,.55); }
 .vg-moments-inbox-chevron { flex:none; color:var(--text-secondary); font-size:17px; }
-.vg-moment-card { position:relative; margin:0 0 16px; padding:15px; border:1px solid rgba(155,139,237,.15); border-radius:20px; background:color-mix(in srgb,var(--bg-panel) 91%,transparent); box-shadow:0 9px 24px rgba(10,12,29,.08); }
-.vg-moment-author { display:flex; align-items:center; gap:9px; }
-.vg-moment-author > div { min-width:0; flex:1; }
-.vg-moment-author strong { display:block; color:var(--text); font-size:14px; }
-.vg-moment-author > div span { display:block; margin-top:2px; overflow:hidden; color:var(--text-secondary); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
-.vg-moment-more { flex:none; padding:3px 2px; color:var(--text-secondary); font-size:17px; letter-spacing:2px; }
-.vg-moment-menu { position:absolute; z-index:4; top:47px; right:13px; overflow:hidden; border:1px solid var(--border); border-radius:11px; background:var(--bg-panel); box-shadow:0 8px 26px rgba(0,0,0,.16); }
+/* 动态流：通栏列表 + 极细分隔线（不用卡片盒），头像左置、名字与正文同列 —— 微信的读法 */
+.vg-moment-card { position:relative; display:flex; align-items:flex-start; gap:10px; padding:14px 16px; border-bottom:1px solid rgba(155,139,237,.12); }
+.vg-moment-card:last-of-type { border-bottom:0; }
+.vg-moment-body { min-width:0; flex:1; }
+.vg-moment-name { display:block; color:#8cdef0; font-size:13.5px; font-weight:600; }
+.vg-moment-meta { display:flex; gap:10px; margin-top:7px; color:var(--text-secondary); font-size:11.5px; }
+/* 微信那套：右下角一个「···」气泡，点开才浮出 赞 | 评论 */
+.vg-moment-interact { position:relative; display:flex; justify-content:flex-end; margin-top:2px; }
+.vg-moment-bubble { padding:1px 8px 3px; border-radius:8px; color:var(--text-secondary); background:rgba(155,139,237,.11); font-size:13px; letter-spacing:1px; line-height:1.5; }
+.vg-moment-bubble.is-liked { color:#ff8fa8; background:rgba(255,107,129,.13); }
+.vg-moment-pill { position:absolute; z-index:5; top:0; right:34px; display:flex; overflow:hidden; border:1px solid var(--border); border-radius:9px; background:var(--bg-panel); box-shadow:0 10px 24px rgba(0,0,0,.32); }
+.vg-moment-pill button { padding:7px 14px; color:var(--text); font-size:12.5px; white-space:nowrap; }
+.vg-moment-pill button + button { border-left:1px solid var(--border); }
+.vg-moment-pill button:active { color:#bffcf7; background:rgba(115,246,236,.08); }
+/* 点赞与评论合成一个浅底块（微信也是同一个小灰块），中间一条细线 */
+.vg-moment-thread { margin-top:9px; padding:9px 10px; border-radius:10px; background:rgba(108,92,231,.07); }
+.vg-moment-likes { display:flex; align-items:center; gap:7px; width:100%; color:var(--text-secondary); font-size:11.5px; text-align:left; }
+.vg-moment-like-heart { color:#ff8fa8; font-size:12px; }
+.vg-moment-like-avatars { display:flex; align-items:center; }
+.vg-moment-like-avatars > * { border:1.5px solid var(--bg-panel); }
+.vg-moment-like-avatars > * + * { margin-left:-8px; }
+.vg-moment-likes + .vg-moment-comments { margin-top:8px; padding-top:8px; border-top:1px solid rgba(155,139,237,.14); }
+.vg-moment-menu { position:absolute; z-index:6; top:34px; right:14px; overflow:hidden; border:1px solid var(--border); border-radius:11px; background:var(--bg-panel); box-shadow:0 8px 26px rgba(0,0,0,.16); }
 .vg-moment-menu button { display:block; width:100%; padding:10px 13px; color:var(--text-secondary); font-size:12px; text-align:left; white-space:nowrap; }
 .vg-moment-menu button + button { border-top:1px solid var(--border); color:#ef8888; }
-.vg-moment-text { margin:13px 1px 0; color:var(--text); font-size:15px; line-height:1.75; white-space:pre-wrap; overflow-wrap:anywhere; }
-.vg-moment-media { display:grid; gap:4px; margin-top:11px; overflow:hidden; border-radius:12px; }
+.vg-moment-text { margin:5px 1px 0; color:var(--text); font-size:15px; line-height:1.72; white-space:pre-wrap; overflow-wrap:anywhere; }
+.vg-moment-media { display:grid; gap:4px; margin-top:9px; overflow:hidden; border-radius:12px; }
 .vg-moment-media.count-1 { grid-template-columns:minmax(0,1fr); max-width:76%; }
 .vg-moment-media.count-2, .vg-moment-media.count-4 { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .vg-moment-media.count-3, .vg-moment-media.count-5, .vg-moment-media.count-6, .vg-moment-media.count-7, .vg-moment-media.count-8, .vg-moment-media.count-9 { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .vg-moment-media img { display:block; width:100%; aspect-ratio:1; object-fit:cover; background:rgba(108,92,231,.08); }
 .vg-moment-media.count-1 img { aspect-ratio:auto; max-height:330px; object-fit:contain; }
-.vg-moment-actions { display:flex; gap:18px; margin-top:12px; padding-top:10px; border-top:1px solid rgba(155,139,237,.10); }
-.vg-moment-actions button { color:var(--text-secondary); font-size:12px; }
-.vg-moment-actions button:active { color:#73f6ec; }
-.vg-moment-comments { display:grid; gap:3px; margin-top:9px; padding:9px 10px; border-radius:10px; background:rgba(108,92,231,.06); }
+.vg-moment-comments { display:grid; gap:5px; }
 .vg-moment-comment-row { margin:0; color:var(--text-secondary); font-size:12px; line-height:1.55; text-align:left; }
 .vg-moment-comment-row:active { color:#c9fffb; }
 .vg-moment-comment-row strong { color:#8cdef0; font-weight:500; }
+.vg-moment-more-comments { color:#8cdef0; font-size:11.5px; text-align:left; }
 .vg-moment-comment-box { display:flex; gap:7px; margin-top:9px; }
 .vg-moment-replying { align-self:center; color:#8cdef0; font-size:10px; white-space:nowrap; }
 .vg-moment-comment-box input { min-width:0; flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:10px; color:var(--text); background:var(--bg); font-size:12px; outline:none; }
@@ -228,6 +246,32 @@
 .vg-moment-sheet > p { margin:0 0 12px; color:var(--text-secondary); font-size:12px; line-height:1.6; }
 .vg-moment-audience-sheet .vg-moment-audience { margin-top:4px; }
 .vg-moment-audience-sheet .vg-moment-publish { margin-top:12px; }
+/* 朋友圈设置面板：分组 + 行 + 开关（微信的设置页也是这个形状） */
+.vg-moment-setting-title { margin:16px 0 8px; color:#73f6ec; font-size:10.5px; letter-spacing:.16em; }
+.vg-moment-settings-sheet .vg-moment-setting-title:first-of-type { margin-top:4px; }
+.vg-moment-setting-row { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:11px 12px; border:1px solid rgba(155,139,237,.16); border-radius:12px; background:rgba(108,92,231,.05); text-align:left; }
+.vg-moment-setting-row + .vg-moment-setting-row, .vg-moment-setting-row + .vg-moment-setting-actions { margin-top:7px; }
+.vg-moment-setting-row > span:first-child { min-width:0; color:var(--text); font-size:13px; }
+.vg-moment-setting-row small { display:block; margin-top:3px; color:var(--text-secondary); font-size:11px; }
+.vg-moment-setting-row > i { flex:none; color:var(--text-secondary); font-size:15px; font-style:normal; }
+.vg-moment-setting-buttons { display:flex; flex:none; gap:6px; }
+.vg-moment-setting-buttons button { padding:6px 10px; border:1px solid var(--border); border-radius:9px; color:var(--text-secondary); font-size:11.5px; }
+.vg-moment-setting-buttons button.is-selected { border-color:rgba(115,246,236,.4); color:#73f6ec; background:rgba(115,246,236,.08); }
+.vg-moment-toggle { flex:none; padding:6px 11px; border:1px solid var(--border); border-radius:999px; color:var(--text-secondary); background:rgba(155,139,237,.07); font-size:11.5px; white-space:nowrap; }
+.vg-moment-toggle.is-on { border-color:rgba(115,246,236,.4); color:#73f6ec; background:rgba(115,246,236,.10); }
+.vg-moment-setting-actions { display:flex; gap:8px; margin-top:7px; }
+.vg-moment-setting-actions button { flex:1; padding:10px 0; border:1px solid rgba(155,139,237,.18); border-radius:11px; color:var(--text-secondary); background:rgba(108,92,231,.05); font-size:12px; }
+.vg-moment-setting-actions button:disabled { opacity:.4; }
+.vg-moment-publish.is-danger { background:linear-gradient(120deg,#b4444f,#8a3b96); }
+/* 紧凑密度：压封面、名片与条目间距，让 412×915 首屏能多放一条动态 */
+.vg-moments-page[data-density="compact"] .vg-moments-profile-row { padding:0 14px; }
+.vg-moments-page[data-density="compact"] .vg-moments-cover { height:56px; }
+.vg-moments-page[data-density="compact"] .vg-moments-profile[data-expanded="true"] .vg-moments-cover { height:168px; }
+.vg-moments-page[data-density="compact"] .vg-moments-cover-actions { top:122px; right:10px; }
+.vg-moments-page[data-density="compact"] .vg-moments-inbox { width:calc(100% - 28px); margin:8px 14px 4px; padding:9px 12px; }
+.vg-moments-page[data-density="compact"] .vg-moment-card { padding:11px 14px; }
+.vg-moments-page[data-density="compact"] .vg-moment-text { font-size:14.5px; line-height:1.66; }
+.vg-moments-page[data-density="compact"] .vg-moments-cover-actions button { padding:5px 10px; font-size:11px; }
 .vg-moment-privacy-sheet > p { margin:0 0 12px; color:var(--text-secondary); font-size:12px; line-height:1.6; }
 .vg-moment-notification-list { display:grid; gap:2px; }
 .vg-moment-notification { display:flex; align-items:flex-start; gap:10px; padding:11px 2px; border-bottom:1px solid var(--border); opacity:.76; }
