@@ -2,6 +2,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { momentsRepo, type MomentWithMedia } from '../../db/moments-repo';
+import {
+  AUDIENCE_MODE_LABELS,
+  AUDIENCE_MODES,
+  DEFAULT_AUDIENCE_PREFERENCE,
+  loadAudiencePreference,
+  saveAudiencePreference,
+  type MomentsAudiencePreference,
+} from '../../lib/moments/preferences';
 import type { Moment, MomentNotification, MomentReaction } from '../../db/index';
 import { Avatar } from '../ui/Avatar';
 
@@ -86,6 +94,12 @@ export function MomentsPage() {
   const [likesMomentId, setLikesMomentId] = useState<string | null>(null);
   const [detailMomentId, setDetailMomentId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  // 右上角「⋯」菜单，以及菜单里的两项设置：朋友圈屏蔽 / 默认可见范围
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [audienceSheetOpen, setAudienceSheetOpen] = useState(false);
+  const [audiencePreference, setAudiencePreference] = useState<MomentsAudiencePreference>(DEFAULT_AUDIENCE_PREFERENCE);
+  const [prefDraftMode, setPrefDraftMode] = useState<AudienceMode>('all');
+  const [prefDraftSelected, setPrefDraftSelected] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const actorName = (characterId?: string) => characterId ? contacts.find((c) => c.id === characterId)?.name ?? '角色' : username;
   const actorAvatar = (characterId?: string) => characterId ? contacts.find((c) => c.id === characterId)?.avatar ?? '✦' : avatar;
@@ -133,6 +147,14 @@ export function MomentsPage() {
   }, [userId]);
 
   useEffect(() => {
+    // 换账号要换一套默认可见范围；登出后 userId 为空则回到出厂值。
+    const preference = loadAudiencePreference(userId);
+    setAudiencePreference(preference);
+    setAudience(preference.mode);
+    setSelected(preference.contactIds);
+  }, [userId]);
+
+  useEffect(() => {
     if (!userId) return;
     const timer = window.setInterval(() => {
       void (async () => {
@@ -155,13 +177,52 @@ export function MomentsPage() {
 
   const selectedNames = useMemo(() => contacts.filter((c) => selected.includes(c.id)).map((c) => c.name), [contacts, selected]);
 
+  /** 互动条上最近互动过的角色（去重、按时间倒序），微信朋友圈那行头像的做法 */
+  const recentActorIds = useMemo(() => {
+    const seen = new Set<string>();
+    for (const item of notifications) {
+      if (item.characterId && !seen.has(item.characterId)) seen.add(item.characterId);
+      if (seen.size >= 4) break;
+    }
+    return [...seen];
+  }, [notifications]);
+
+  const openAudienceSheet = () => {
+    setPrefDraftMode(audiencePreference.mode);
+    setPrefDraftSelected(audiencePreference.contactIds);
+    setAudienceSheetOpen(true);
+  };
+
+  const saveAudienceDefault = () => {
+    if (prefDraftMode === 'selected' && prefDraftSelected.length === 0) {
+      setToast('「部分可见」需要至少选一个角色，否则发出去谁也看不到。');
+      return;
+    }
+    if (prefDraftMode === 'excluded' && prefDraftSelected.length === 0) {
+      setToast('「不给谁看」需要至少选一个角色。');
+      return;
+    }
+    const next: MomentsAudiencePreference = {
+      mode: prefDraftMode,
+      contactIds: prefDraftMode === 'selected' || prefDraftMode === 'excluded' ? prefDraftSelected : [],
+    };
+    setAudiencePreference(next);
+    saveAudiencePreference(userId, next);
+    // 立刻生效：下次打开发布面板就是这个范围，不用重进页面。
+    setAudience(next.mode);
+    setSelected(next.contactIds);
+    setAudienceSheetOpen(false);
+    setToast(`新动态默认「${AUDIENCE_MODE_LABELS[next.mode]}」`);
+  };
+
   const closeComposer = () => {
     if (saving) return;
     setComposerOpen(false);
     setText('');
     setImages([]);
-    setSelected([]);
-    setAudience('all');
+    // 收起草稿时回到用户设定的默认可见范围，而不是硬编码的「全部角色」
+    setSelected(audiencePreference.contactIds);
+    setAudience(audiencePreference.mode);
   };
 
   const pickImages = async (files: FileList | null) => {
@@ -266,13 +327,61 @@ export function MomentsPage() {
           <h1>朋友圈</h1>
           <p>把今天留在世界里。</p>
         </div>
-        <div className="vg-moments-header-actions"><button type="button" className="vg-moments-unread" onClick={openNotifications}>{unreadInteractions > 0 ? `${unreadInteractions > 99 ? '99+' : unreadInteractions} 条新互动` : '互动'}</button><button type="button" className="vg-moments-privacy" onClick={() => setContactSheetOpen(true)} aria-label="朋友圈屏蔽设置">◌</button><button type="button" className="vg-moments-camera" onClick={() => setComposerOpen(true)} aria-label="发布动态">＋</button></div>
+        <div className="vg-moments-header-actions">
+          <div className="vg-moments-settings-anchor">
+            <button
+              type="button"
+              className="vg-moments-settings"
+              onClick={() => setHeaderMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={headerMenuOpen}
+              aria-label="朋友圈设置"
+            >
+              ⋯
+            </button>
+            {headerMenuOpen && (
+              <>
+                <button type="button" className="vg-moments-settings-backdrop" aria-label="关闭菜单" onClick={() => setHeaderMenuOpen(false)} />
+                <div className="vg-moments-settings-menu" role="menu">
+                  <button type="button" role="menuitem" onClick={() => { setHeaderMenuOpen(false); setContactSheetOpen(true); }}>朋友圈屏蔽</button>
+                  <button type="button" role="menuitem" onClick={() => { setHeaderMenuOpen(false); openAudienceSheet(); }}>默认可见范围</button>
+                </div>
+              </>
+            )}
+          </div>
+          <button type="button" className="vg-moments-camera" onClick={() => setComposerOpen(true)} aria-label="发布动态">＋</button>
+        </div>
       </header>
 
       <section className="vg-moments-profile">
         <div className="vg-moments-cover" />
         <div className="vg-moments-profile-row"><Avatar avatar={avatar} size="lg" /><div><strong>{username}</strong><span>你的生活，在这里有回声</span></div></div>
       </section>
+
+      {/* 互动入口常驻在名片下、动态流上：有新互动显示条数与最近互动者，没有也留一个能翻历史互动的入口 */}
+      <button type="button" className="vg-moments-inbox" onClick={openNotifications} aria-label="查看互动消息">
+        {recentActorIds.length > 0 ? (
+          <span className="vg-moments-inbox-avatars" aria-hidden="true">
+            {recentActorIds.map((characterId) => <Avatar key={characterId} avatar={actorAvatar(characterId)} size="sm" />)}
+          </span>
+        ) : (
+          <span className="vg-moments-inbox-mark" aria-hidden="true">✦</span>
+        )}
+        <span className="vg-moments-inbox-body">
+          <strong className={unreadInteractions > 0 ? 'is-unread' : ''}>
+            {unreadInteractions > 0 ? `${unreadInteractions > 99 ? '99+' : unreadInteractions} 条新互动` : '互动消息'}
+          </strong>
+          <small>
+            {unreadInteractions > 0
+              ? '看看谁在回应你'
+              : notifications.length > 0
+                ? `最近 ${notifications.length} 条点赞与评论`
+                : '角色的点赞和评论会出现在这里'}
+          </small>
+        </span>
+        {unreadInteractions > 0 && <span className="vg-moments-inbox-dot" aria-hidden="true" />}
+        <span className="vg-moments-inbox-chevron" aria-hidden="true">›</span>
+      </button>
 
       {loading ? <div className="vg-moments-empty">正在整理最近的生活…</div> : rows.length === 0 ? (
         <div className="vg-moments-empty"><span>✦</span><strong>还没有动态</strong><p>发一张照片，或写下此刻正在发生的事。</p><button type="button" onClick={() => setComposerOpen(true)}>写下第一条</button></div>
@@ -307,6 +416,7 @@ export function MomentsPage() {
 
       {previewImage && <div className="vg-moment-image-overlay" onClick={() => setPreviewImage(null)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Escape') setPreviewImage(null); }}><button type="button" onClick={() => setPreviewImage(null)} aria-label="关闭大图">×</button><img src={previewImage} alt="动态图片大图" /></div>}
 
+      {audienceSheetOpen && <div className="vg-moment-sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setAudienceSheetOpen(false); }}><section className="vg-moment-sheet vg-moment-audience-sheet"><header><strong>默认可见范围</strong><button type="button" onClick={() => setAudienceSheetOpen(false)}>取消</button></header><p>新动态默认用这个范围；发布时仍然可以单独改这一条。</p><div className="vg-moment-audience"><span>新动态默认</span><div>{AUDIENCE_MODES.map((mode) => <button type="button" key={mode} className={prefDraftMode === mode ? 'is-selected' : ''} onClick={() => setPrefDraftMode(mode)}>{AUDIENCE_MODE_LABELS[mode]}</button>)}</div>{(prefDraftMode === 'selected' || prefDraftMode === 'excluded') && <div className="vg-moment-contact-picker">{contacts.map((contact) => <label key={contact.id}><input type="checkbox" checked={prefDraftSelected.includes(contact.id)} onChange={(event) => setPrefDraftSelected((current) => event.target.checked ? [...current, contact.id] : current.filter((id) => id !== contact.id))} />{contact.name}</label>)}</div>}{prefDraftSelected.length > 0 && (prefDraftMode === 'selected' || prefDraftMode === 'excluded') && <small>{prefDraftMode === 'selected' ? '可见' : '不可见'}：{contacts.filter((c) => prefDraftSelected.includes(c.id)).map((c) => c.name).join('、')}</small>}</div><button type="button" className="vg-moment-publish" onClick={saveAudienceDefault}>保存默认范围</button></section></div>}
       {contactSheetOpen && <div className="vg-moment-sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setContactSheetOpen(false); }}><section className="vg-moment-sheet vg-moment-privacy-sheet"><header><strong>朋友圈屏蔽</strong><button type="button" onClick={() => setContactSheetOpen(false)}>完成</button></header><p>被屏蔽的角色不会看到新动态，也不会参与未完成的互动。</p>{contacts.length === 0 ? <div className="vg-moments-empty">还没有可设置的角色。</div> : <div className="vg-moment-block-list">{contacts.map((contact) => <label key={contact.id}><span><Avatar avatar={contact.avatar} size="sm" /><b>{contact.name}</b></span><input type="checkbox" checked={blockedIds.includes(contact.id)} onChange={(event) => { const next = event.target.checked ? [...blockedIds, contact.id] : blockedIds.filter((id) => id !== contact.id); setBlockedIds(next); void momentsRepo.block(userId, contact.id, event.target.checked); }} /></label>)}</div>}</section></div>}
 
       {editingMomentId && <div className="vg-moment-sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setEditingMomentId(null); }}><section className="vg-moment-sheet vg-moment-edit-sheet"><header><strong>修改谁可以看</strong><button type="button" onClick={() => setEditingMomentId(null)}>取消</button></header><div className="vg-moment-audience"><span>这条动态的可见范围</span><div>{(['all', 'selected', 'excluded', 'private'] as AudienceMode[]).map((mode) => <button type="button" key={mode} className={editAudience === mode ? 'is-selected' : ''} onClick={() => setEditAudience(mode)}>{mode === 'all' ? '全部角色' : mode === 'selected' ? '部分可见' : mode === 'excluded' ? '不给谁看' : '仅自己'}</button>)}</div>{(editAudience === 'selected' || editAudience === 'excluded') && <div className="vg-moment-contact-picker">{contacts.map((contact) => <label key={contact.id}><input type="checkbox" checked={editSelected.includes(contact.id)} onChange={(event) => setEditSelected((current) => event.target.checked ? [...current, contact.id] : current.filter((id) => id !== contact.id))} />{contact.name}</label>)}</div>}</div><button type="button" className="vg-moment-publish" onClick={() => void saveAudienceEdit()}>保存可见范围</button></section></div>}
