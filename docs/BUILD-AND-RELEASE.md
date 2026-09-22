@@ -177,12 +177,12 @@ $repo = 'wzy6789/VirtuGene-Mobile'
 # ⑤ apksigner 的证书 SHA-256 仍是 ef38a01c…（否则老用户无法覆盖升级）
 ```
 
-第 ④ 步不是多余的：**本仓库当前就存在一个陷阱** ——
-`android/app/build/outputs/apk/release/app-release.apk` 是 v5.1.0 的产物
-（SHA-256 `2ededdbccd383054d8e73c5289eaef766865d3c9e2b72f33fa52626976e36f2b`，
-与已发布的 v5.1.0 资产逐字节相同），而 `build.gradle` 已经是 5.1.1。
-不复用检查直接 `node scripts\gh-release.mjs 5.1.1`，就会把这个 5.1.0 的包发成 v5.1.1，
-用户在 App 里会一直看到"有新版本"但装上去还是 5.1.0。
+第 ④ 步不是多余的：**这个陷阱在 5.1.0 → 5.1.4 每一轮都真实踩到过**。
+`android/app/build/outputs/apk/release/app-release.apk` 不会被改版本号这件事自动作废，
+它一直是"上一次构建"的产物（5.1.0 那轮是 `2ededdbc…`，5.1.4 那轮开工时是 5.1.3 的 `4,084,231 B`）。
+不删产物直接 `node scripts\gh-release.mjs <新版本>`，就会把旧包发成新 tag，
+用户在 App 里会一直看到"有新版本"但装上去还是旧版本。
+**结论：每次发版前先删 `app-release.apk`，发布后必须把线上包下载回来核对包内 versionName。**
 
 ---
 
@@ -196,6 +196,18 @@ $repo = 'wzy6789/VirtuGene-Mobile'
   junction 再删 worktree，否则会连真实 `node_modules` 一起删掉。
 - **本机 `npm` 不一定在 PATH 里**：可以直接调 `node_modules\.bin\*.cmd`，或用 `node` 跑脚本。
 - **别手动把 token 粘进脚本**：统一 `git credential fill`，避免泄露与过期。
+- **给 PATH 加 node 时必须"前置"而不是"重写"**：本机 `git` 在 `E:\Git\cmd\git.exe`，
+  如果你写 `$env:PATH = "…node-v22.16.0-win-x64"`（赋值而不是拼接），
+  `gh-release.mjs` 里 `execSync('git credential fill')` 就会找不到 git，
+  报 `'git' is not recognized…` 然后 `❌ 未获取到 GitHub token`。正确写法：
+  `$env:PATH = "C:\Program Files\Lenovo\AIAgent\mcp\node-v22.16.0-win-x64;$env:PATH"`。
+- **取 token 的兜底姿势**（不改脚本、不把 token 写进任何文件）：
+  ```powershell
+  $cred = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
+  $env:GITHUB_TOKEN = ($cred | Where-Object { $_ -match '^password=' }) -replace '^password=',''
+  node scripts\gh-release.mjs 5.1.4
+  ```
+  脚本优先用 `process.env.GITHUB_TOKEN`，环境变量只在当前这个 pwsh 进程里有效。
 - **不要把 debug 包和 release 包混着发**：现在 release 变体已经会签名，发 `app-debug.apk`
   会让版本线混乱（5.0.4 是 debug，5.0.5 起是 release）。
 - **改 UI/逻辑后要重新 `cap sync`**：只跑 Gradle 不会把新的 `dist/renderer` 打进 APK。

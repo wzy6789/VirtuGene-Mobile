@@ -1,4 +1,4 @@
-# 星域改造验收状态（5.2.0）
+# 星域改造验收状态（5.1.4）
 
 承接上一轮未完成的收尾。这里记录：门槛验收集、修掉的两个接线断点、旧套件分类、版本与打包核对、以及**未完成项**。
 
@@ -78,17 +78,17 @@ runner 等 150 秒后报 TIMEOUT。**不是 hang，也不是产品问题。** �
 
 | 项 | 状态 |
 | --- | --- |
-| `package.json` | 5.2.0 |
-| `src/lib/changelog.ts` | 顶部 5.2.0（5 条：统一播放器 / 世界流式 / 网关星域流式 / 三种结束语义 / 旧世界兼容） |
-| `android/app/build.gradle` | **原为 `versionCode 24` + `versionName "5.1.3"`，与上面两处不一致 → 已修为 `25` + `"5.2.0"`** |
+| `package.json` | 5.1.4 |
+| `src/lib/changelog.ts` | 顶部 5.1.4（5 条：统一播放器 / 世界流式 / 网关星域流式 / 三种结束语义 / 旧世界兼容） |
+| `android/app/build.gradle` | **原为 `versionCode 24` + `versionName "5.1.3"`，与上面两处不一致 → 已修为 `25` + `"5.1.4"`** |
 | 构建产物 | `android/app/build/outputs/apk/release/app-release.apk` |
-| 包内版本 | `versionCode='25' versionName='5.2.0'`（aapt2 实测） |
+| 包内版本 | `versionCode='25' versionName='5.1.4'`（aapt2 实测） |
 | 签名 | `CN=Android Debug`，SHA-256 `ef38a01c…40:16`（自 5.0.4 起同一把 → 可覆盖升级，不会丢本地数据） |
-| 体积 / 哈希 | 4,085,527 B（3.90 MB） / `33415a77723261bbaccc86f98dc8a3c7b8aecf416130e6ed122349e9d2623c59` |
-| 线上最新 release | **v5.1.3（5.2.0 尚未发布）** |
+| 体积 / 哈希 | 4,085,515 B（3.90 MB） / `bcd81ed1d13d05063aaec5296f1acf50650ce57a549c88e69d0bf2a2f502a687` |
+| 线上最新 release | **v5.1.4（2026-09-22 发布）**：资产 `app-release.apk` 4,085,515 B，digest `sha256:bcd81ed1…`，下载回来逐字节一致 |
 
 打包踩坑（已写进 `docs/BUILD-AND-RELEASE.md`）：`scripts/gh-release.mjs` 会**复用已存在的 release APK**，
-而本轮开工时磁盘上那个是 5.1.3 的包（`4,084,231 B`）。不先删除就发布，会把 5.1.3 的包发成 5.2.0，
+而本轮开工时磁盘上那个是 5.1.3 的包（`4,084,231 B`）。不先删除就发布，会把 5.1.3 的包发成 5.1.4，
 用户会一直看到"有新版本"却始终是 5.1.3。**打包前必须先删旧产物**，发布后要拿线上包回来核对包内 versionName。
 
 ---
@@ -102,10 +102,28 @@ runner 等 150 秒后报 TIMEOUT。**不是 hang，也不是产品问题。** �
 3. **网关流式覆盖范围**：已测网关流式端点（10 条断言）与"私聊仍返回整段、不受影响"，
    但"所有账号都能流式"这一产品结论要按实际账号形态再确认。
 4. **7 套旧套件按口径变更退役，需要你认可这个处置**（文件与断言都保留，理由与替代覆盖见上表）。
-5. **5.2.0 未发布**：APK 已构建并核对，但发布前应先过真机验收；要不要发由你定。
+5. **5.1.4 已发布（2026-09-22）**：包内 `versionCode='25' versionName='5.1.4'`、签名证书未变、
+   线上 digest 与本地构建一致、回下载 sha256 一致；真机验收仍未做，功能以线上包为准。
 
 ## 六、本轮另外补掉的一个工程隐患
 
 `.gradle-local/`（1.09 GB）等构建残留目录此前**没有被 gitignore**，一次 `git add -A` 就会把 GB 级目录加进版本库。
 已在 `.gitignore` 补上 `.gradle-local/`、`.gradle-user/`、`.user-home/`、`.android-user/`、
 `.tmp-edge-preview/`、`.tmp-*.png`、`unicode-test*.txt`。
+
+## 七、官网同步（v5.1.4）
+
+版本号从 5.2.0 改回 5.1.4 后，官网 `website/` 与本仓库版本标识已统一：
+
+- 提交 `b71185b`：`website/index.html` 全部 `v5.1.3` → `v5.1.4`（下载按钮 ×2、截图说明、
+  界面区导语、Android 版本标签、release tag 链接）、`website/README.md` 下载入口、
+  `main.js` / `styles.css` 头部注释；`package.json` / `changelog.ts` / `build.gradle` 一并入库。
+- Pages 部署成功（run on `b71185b`），线上核对：`v5.1.4` 出现 8 次、`v5.1.3` 0 次，
+  APK 直链 HEAD 200 且 `Content-Length = 4085515`，站内 19 个静态资源全部 200。
+- 「约 3.9 MB」与线上资产 4,085,515 B 一致。
+
+**已知待办（诚实性）**：官网图库那句"下面每一张都是当前手机端 v5.1.4 的真实界面"，
+但 `world-home.jpg` / `scene.jpg` / `stage.jpg` 三张仍是 5.1.0 时期拍的**星域改造前**版面
+（旧的「此刻卡片 + STORY ORBITS 剧情星域 + 消息/世界/角色/我的 底栏」）。
+重拍要求：按当前构建在 412×915 dsf=2 下重截，导出 824×1830 JPEG q90，
+并同步替换 `website/assets/product/source/*.png`；重拍画面与逐张屏上文字记在本节末尾。
