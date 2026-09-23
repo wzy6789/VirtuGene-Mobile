@@ -130,7 +130,7 @@ await build({
   jsx: 'automatic',
 });
 
-for (const name of ['worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 'character-memory', 'worldG', 'moments']) {
+for (const name of ['worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 'character-memory', 'worldG', 'moments', 'moments-autonomous']) {
   await build({
     ...shared,
     entryPoints: [`scripts/verify/${name}.ts`],
@@ -139,4 +139,4 @@ for (const name of ['worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 
   });
 }
 
-console.log('✅ 验收脚本已打包：phase1 / phase2a / phase2b0 / phase2b1 / phase2b2 / phase2b3 / phase2b4 / phase2b5 / phase2b6 / phase3 / phase3b / phase3c / worldA / worldB / worldC / worldD / worldE / worldF / character-memory / worldG / moments');
+console.log('✅ 验收脚本已打包：phase1 / phase2a / phase2b0 / phase2b1 / phase2b2 / phase2b3 / phase2b4 / phase2b5 / phase2b6 / phase3 / phase3b / phase3c / worldA / worldB / worldC / worldD / worldE / worldF / character-memory / worldG / moments / moments-autonomous');

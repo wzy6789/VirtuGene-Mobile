@@ -7,18 +7,19 @@ import { selectRelevantMemories } from '../chat-context-compiler';
  * 也不写入新的数据库字段。它只作为模型上下文存在，不渲染给用户。
  */
 export function buildHiddenUserProfile(
-  memories: Pick<MemoryItem, 'content' | 'createdAt' | 'pinned'>[],
+  memories: Pick<MemoryItem, 'content' | 'createdAt' | 'pinned' | 'status'>[],
   query = '',
   limit = 6,
 ): string {
-  const unique = new Map<string, Pick<MemoryItem, 'content' | 'createdAt' | 'pinned'>>();
+  const unique = new Map<string, Pick<MemoryItem, 'content' | 'createdAt' | 'pinned' | 'status'>>();
   for (const memory of memories) {
+    if ((memory.status ?? 'active') !== 'active') continue;
     const content = memory.content.trim().replace(/\s+/g, ' ');
     if (!content) continue;
     const key = content.toLocaleLowerCase();
     const existing = unique.get(key);
     if (!existing || (!existing.pinned && memory.pinned)) {
-      unique.set(key, { content: content.slice(0, 180), createdAt: memory.createdAt, pinned: memory.pinned });
+      unique.set(key, { content: content.slice(0, 180), createdAt: memory.createdAt, pinned: memory.pinned, status: memory.status });
     }
   }
 

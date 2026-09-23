@@ -1,6 +1,7 @@
 import { db, type SharedMemory, type WorldVisibility } from './index';
 import { characterIdsOf, characterRef, stableId } from '../lib/world/subjects';
 import { isVisibleToCharacter, isVisibleToEveryCharacter } from '../lib/world/visibility';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 /**
  * 共同记忆仓库：用户与角色**真正共同经历**的重要片段。
@@ -191,6 +192,14 @@ export const sharedMemoryRepo = {
   },
 
   async remove(id: string): Promise<void> {
+    const existing = await db.sharedMemories.get(id);
+    if (existing) await memorySourceTombstoneRepo.record({
+      userId: existing.userId,
+      sourceType: 'sharedMemory',
+      sourceId: existing.id,
+      sourceRevision: existing.updatedAt ?? existing.createdAt,
+      status: 'superseded',
+    });
     await db.sharedMemories.delete(id);
   },
 

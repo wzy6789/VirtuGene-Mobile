@@ -1,4 +1,5 @@
 import { db, type ContinuityThread } from './index';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import {
   removeContinuityThreadFromWorld,
   syncContinuityThreadToWorld,
@@ -335,6 +336,13 @@ export const continuityRepo = {
 
   async remove(id: string): Promise<void> {
     const existing = await db.continuityThreads.get(id);
+    if (existing) await memorySourceTombstoneRepo.record({
+      userId: existing.userId,
+      sourceType: 'continuityThread',
+      sourceId: existing.id,
+      sourceRevision: existing.updatedAt ?? existing.createdAt,
+      status: 'superseded',
+    });
     await db.continuityThreads.delete(id);
     // 用户主动删除：派生事件一并移除，避免世界里留下无法解释的孤儿
     if (existing) await removeThreadFromWorldSafely(existing.userId, [id]);
@@ -342,7 +350,15 @@ export const continuityRepo = {
 
   async deleteByCharacter(characterId: string, userId: string): Promise<void> {
     const all = await db.continuityThreads.where('characterId').equals(characterId).toArray();
-    const ids = all.filter((t) => t.userId === userId).map((t) => t.id);
+    const removed = all.filter((t) => t.userId === userId);
+    const ids = removed.map((t) => t.id);
+    for (const thread of removed) await memorySourceTombstoneRepo.record({
+      userId,
+      sourceType: 'continuityThread',
+      sourceId: thread.id,
+      sourceRevision: thread.updatedAt ?? thread.createdAt,
+      status: 'deleted',
+    });
     if (ids.length) await db.continuityThreads.bulkDelete(ids);
     // 该角色的约定随角色一起消失 ⇒ 派生世界事件也移除
     await removeThreadFromWorldSafely(userId, ids);

@@ -1,5 +1,7 @@
 import Dexie from 'dexie';
 import { db, type Message } from './index';
+import { invalidateUnpinnedMemoriesForMessages } from './memory-repo';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 /** 会话消息分页大小：进入会话时只加载最近 200 条，更早的消息按需加载 */
 export const MESSAGE_PAGE_SIZE = 200;
@@ -65,16 +67,38 @@ export const messageRepo = {
       const session = await db.sessions.get(message.sessionId);
       const group = session?.type === 'group' && session.groupId ? await db.groups.get(session.groupId) : undefined;
       const witnessedBy = group && group.userId === session?.userId ? [...new Set(group.characterIds)] : undefined;
-      return db.messages.add({ ...message, witnessedBy });
+      return db.messages.add({ ...message, revision: message.revision ?? 1, witnessedBy });
     });
   },
 
   async deleteBySession(sessionId: string): Promise<void> {
-    await db.messages.where('sessionId').equals(sessionId).delete();
+    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones], async () => {
+      const session = await db.sessions.get(sessionId);
+      const messages = await db.messages.where('sessionId').equals(sessionId).toArray();
+      if (session) {
+        const ids = messages.map((message) => message.id);
+        await invalidateUnpinnedMemoriesForMessages(session.userId, ids);
+        await invalidateGroupSummarySources(sessionId, ids);
+        for (const message of messages) {
+          await memorySourceTombstoneRepo.record({ userId: session.userId, sourceType: 'message', sourceId: message.id, sourceRevision: message.revision ?? 1, status: 'deleted' });
+        }
+      }
+      await db.messages.where('sessionId').equals(sessionId).delete();
+    });
   },
 
   async deleteById(id: string): Promise<void> {
-    await db.messages.delete(id);
+    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones], async () => {
+      const message = await db.messages.get(id);
+      if (!message) return;
+      const session = await db.sessions.get(message.sessionId);
+      if (session) {
+        await invalidateUnpinnedMemoriesForMessages(session.userId, [id]);
+        await invalidateGroupSummarySources(session.id, [id]);
+        await memorySourceTombstoneRepo.record({ userId: session.userId, sourceType: 'message', sourceId: id, sourceRevision: message.revision ?? 1, status: 'deleted' });
+      }
+      await db.messages.delete(id);
+    });
   },
 
   /** 标记发送失败/成功（微信式重发机制） */
@@ -83,6 +107,33 @@ export const messageRepo = {
   },
 
   async update(id: string, patch: Partial<Message>): Promise<number> {
-    return db.messages.update(id, patch);
+    if (patch.content === undefined) return db.messages.update(id, patch);
+    return db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones], async () => {
+      const current = await db.messages.get(id);
+      if (!current) return 0;
+      if (current.content !== patch.content) {
+        const session = await db.sessions.get(current.sessionId);
+        if (session) {
+          await invalidateUnpinnedMemoriesForMessages(session.userId, [id]);
+          await invalidateGroupSummarySources(session.id, [id]);
+          await memorySourceTombstoneRepo.record({
+            userId: session.userId,
+            sourceType: 'message',
+            sourceId: id,
+            sourceRevision: current.revision ?? 1,
+            status: 'superseded',
+          });
+        }
+        return db.messages.update(id, { ...patch, revision: (current.revision ?? 1) + 1 });
+      }
+      return db.messages.update(id, patch);
+    });
   },
 };
+
+async function invalidateGroupSummarySources(sessionId: string, messageIds: string[]): Promise<void> {
+  const session = await db.sessions.get(sessionId);
+  if (!session?.summary || !session.summarySourceMessageIds?.some((id) => messageIds.includes(id))) return;
+  const { summary: _summary, summaryUpdatedAt: _updatedAt, summarySourceMessageIds: _sourceIds, summarySourceMessageRevisions: _sourceRevisions, summaryWitnessedBy: _witnessedBy, ...rest } = session;
+  await db.sessions.put(rest as typeof session);
+}

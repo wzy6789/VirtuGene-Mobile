@@ -91,6 +91,8 @@ export interface ChatParams {
   forceVision?: boolean;
   /** 单次请求超时；世界舞台可用较短超时快速切换兜底模型 */
   timeoutMs?: number;
+  /** 结构化辅助生成：不注入私聊规则，支持的模型要求 JSON 输出。 */
+  structuredOutput?: boolean;
 }
 
 export interface ChatResult {
@@ -172,7 +174,9 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
     {
       role: 'system',
       content:
-        systemPrompt + '\n\n' + COMPACT_MESSAGING_INSTRUCTION + '\n\n' + REPETITION_GUARD + (retryHint ? `\n\n${retryHint}` : '') + (recovery ? '\n\n本轮请直接给出可显示的正文，不输出思考过程。' : ''),
+        systemPrompt + (params.structuredOutput ? '' : '\n\n' + COMPACT_MESSAGING_INSTRUCTION + '\n\n' + REPETITION_GUARD)
+        + (retryHint ? `\n\n${retryHint}` : '')
+        + (recovery ? (params.structuredOutput ? '\n\n请直接给出完整 JSON，不输出思考过程。' : '\n\n本轮请直接给出可显示的正文，不输出思考过程。') : ''),
     },
     ...history.slice(-12).map((h) => ({ role: h.role, content: buildContent(h.content, h.image) })),
     { role: 'user', content: buildContent(message, image) },
@@ -199,7 +203,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
         ...(params.forceVision ? { forceVision: params.forceVision } : {}),
       });
       return {
-        content: stripRoleplayActions(result.content),
+        content: params.structuredOutput ? result.content : stripRoleplayActions(result.content),
         usage: result.usage,
         modelId: result.modelId ?? model.id,
       };
@@ -217,9 +221,10 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
     disableThinking: recovery,
     maxTokens: useVision ? 1000 : recovery ? 1000 : 900,
     timeoutMs: useVision ? 120_000 : 60_000,
+    jsonMode: params.structuredOutput,
   });
   return {
-    content: stripRoleplayActions(res.content),
+    content: params.structuredOutput ? res.content : stripRoleplayActions(res.content),
     truncated: res.truncated,
     usage: res.usage,
     modelId: model.id,

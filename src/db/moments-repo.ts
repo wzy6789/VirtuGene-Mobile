@@ -1,16 +1,24 @@
-import { db, type Character, type Moment, type MomentContact, type MomentMedia, type MomentNotification, type MomentReaction, type MomentView } from './index';
+import { db, type Character, type CharacterLifeEvent, type Moment, type MomentContact, type MomentMedia, type MomentNotification, type MomentPostPlan, type MomentReaction, type MomentView } from './index';
 import { characterRepo } from './character-repo';
 import { stateRepo } from './state-repo';
 import { sendMessage } from '../lib/ai/deepseek';
 import { hasAiGatewayAccess } from '../lib/ai/gateway';
 import { useAuthStore } from '../store/auth-store';
 import { recallCharacterMemory } from '../lib/character-memory';
-import { historyWindowCutoff } from '../lib/moments/preferences';
+import { historyWindowCutoff, loadMomentsPreferences, type MomentPostFrequency } from '../lib/moments/preferences';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 export type MomentAudience = {
   visibility: Moment['visibility'];
   characterIds?: string[];
 };
+
+type AutonomousPostTrigger = 'opening' | 'background';
+
+function announceMomentsChanged(userId: string): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('virtugene:moments-updated', { detail: { userId } }));
+}
 
 export type MomentWithMedia = { moment: Moment; media: MomentMedia[] };
 
@@ -30,7 +38,8 @@ export function planAutonomousMomentInteraction(momentId: string, character: Pic
   const affinity = Math.max(0, Math.min(0.28, affinityValue / 260));
   const activity = Math.max(0, Math.min(0.12, (character.proactivity ?? 0.5) * 0.12));
   const likeChance = 0.04 + affinity + activity + interest;
-  const commentChance = Math.min(0.48, 0.12 + affinity * 0.7 + activity * 0.75 + interest * 0.8);
+  // 评论比点赞更能让动态区有来有回；是否参与仍由性格、亲近程度和内容兴趣共同决定。
+  const commentChance = Math.min(0.82, 0.32 + affinity * 0.9 + activity * 0.9 + interest * 0.75);
   return {
     like: deterministicUnit(`${momentId}:${character.id}:like`) < likeChance,
     comment: deterministicUnit(`${momentId}:${character.id}:comment`) < commentChance,
@@ -62,21 +71,121 @@ async function generateComment(userId: string, character: Character, moment: Mom
   return result.content.split('---')[0]?.replace(/[\r\n]+/g, ' ').trim().slice(0, 100) || undefined;
 }
 
-async function generateCharacterPost(userId: string, character: Character, source: string): Promise<string | undefined> {
+const LIFE_KINDS = ['routine', 'hobby', 'project', 'social', 'discovery', 'reflection'] as const;
+
+interface GeneratedLifeBeat {
+  kind: CharacterLifeEvent['kind'];
+  title: string;
+  summary: string;
+  continueEventId?: string;
+  completed: boolean;
+  publish: boolean;
+  postText: string;
+}
+
+function parseLifeBeat(content: string): GeneratedLifeBeat | undefined {
+  const start = content.indexOf('{');
+  const end = content.lastIndexOf('}');
+  if (start < 0 || end <= start) return undefined;
+  try {
+    const value = JSON.parse(content.slice(start, end + 1)) as Record<string, unknown>;
+    if (!LIFE_KINDS.includes(value.kind as typeof LIFE_KINDS[number])) return undefined;
+    const title = typeof value.title === 'string' ? value.title.trim().slice(0, 36) : '';
+    const summary = typeof value.summary === 'string' ? value.summary.trim().slice(0, 240) : '';
+    const postText = typeof value.postText === 'string' ? value.postText.replace(/[\r\n]+/g, ' ').trim().slice(0, 140) : '';
+    if (!title || !summary || typeof value.publish !== 'boolean') return undefined;
+    return {
+      kind: value.kind as GeneratedLifeBeat['kind'],
+      title,
+      summary,
+      continueEventId: typeof value.continueEventId === 'string' ? value.continueEventId : undefined,
+      completed: value.completed === true,
+      publish: value.publish,
+      postText,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function mentionsUser(text: string): boolean {
+  return /(用户|主人|你发的|你说的|你上次|等你|想你|给你|咱俩|我们俩|我们之间|和你一起|跟你一起)/.test(text);
+}
+
+function textSimilarity(a: string, b: string): number {
+  const normalize = (value: string) => value.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
+  const left = normalize(a);
+  const right = normalize(b);
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  const grams = (value: string) => new Set(Array.from({ length: Math.max(0, value.length - 1) }, (_, index) => value.slice(index, index + 2)));
+  const x = grams(left);
+  const y = grams(right);
+  if (!x.size || !y.size) return 0;
+  let shared = 0;
+  for (const gram of x) if (y.has(gram)) shared += 1;
+  return (2 * shared) / (x.size + y.size);
+}
+
+function localDayKey(at: number): string {
+  const date = new Date(at);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function localDayStart(at: number): number {
+  const date = new Date(at);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function postInterval(frequency: MomentPostFrequency, proactivity: number): number {
+  const baseHours = frequency === 'active' ? 12 : frequency === 'quiet' ? 48 : 20;
+  const activityFactor = 1.1 - Math.max(0, Math.min(1, proactivity)) * 0.2;
+  return baseHours * activityFactor * 60 * 60 * 1000;
+}
+
+function dailyCharacterPostLimit(frequency: MomentPostFrequency): number {
+  return frequency === 'active' ? 2 : 1;
+}
+
+async function generateCharacterLifeBeat(
+  userId: string,
+  character: Character,
+  priorPublicEvents: CharacterLifeEvent[],
+): Promise<GeneratedLifeBeat | undefined> {
   const auth = useAuthStore.getState();
   if (auth.userId !== userId || (!auth.apiKey && !hasAiGatewayAccess())) return undefined;
-  const audience = (await characterRepo.getByCreator(userId)).map(c => c.id);
-  const recalled = await recallCharacterMemory({userId, characterId: character.id, audience, query: source, sources:['world','moment'], budget:1600});
-  const prompt = `${character.systemPrompt}\n你偶尔会发一条朋友圈。请把刚才这段经历化成一句像你本人会发的生活动态，最多80个汉字，可以有一点情绪或留白，但不要提到“AI”、提示词、系统，也不要泄露用户的私聊、日记、姓名、隐私或未公开信息。不要写动作脚本，不要加引号，不要带标题。`;
+  const publicHistory = priorPublicEvents.slice(0, 6).map((event) => ({ id: event.id, threadId: event.threadId, kind: event.kind, title: event.title, summary: event.summary, occurredAt: event.occurredAt }));
+  const profile = [
+    `角色名：${character.name}`,
+    `角色标签：${(character.tags ?? []).slice(0, 8).join('、') || '没有额外标签'}`,
+    `签名：${character.signature && !mentionsUser(character.signature) ? character.signature : '无'}`,
+    `口头习惯：${character.catchphrase && !mentionsUser(character.catchphrase) ? character.catchphrase : '无'}`,
+    `主动程度：${Math.round(Math.max(0, Math.min(1, character.proactivity ?? 0.5)) * 100)}%`,
+  ].join('\n');
+  const prompt = [
+    '你负责模拟一个持续生活的虚构角色。请生成一件今天发生在角色自己生活里的小事，并判断角色会不会把它发到朋友圈。',
+    '角色生活必须独立于用户：本轮输入没有提供用户的聊天、日记、照片或私密资料，不能凭空提及用户、等待用户、想念用户或围绕用户发帖。也不能冒充真实世界里未经提供的事实。',
+    '内容要贴合标签和签名，像角色自己的生活碎片；可以有喜剧、失败、发现、小进展或没做完的事，不要每次都温柔积极、感悟人生或用问题结尾。通常选择 publish=true，让这段真实生活自然出现在朋友圈；只有确实私密、过于平淡或不适合公开时才选择 false。',
+    '如果延续既有生活线索，只能填下面 publicHistory 里真实存在的 event id；否则 continueEventId 设为 null。只可延续，不可改写既有事实。',
+    '如果 publish=true，postText 写成自然朋友圈正文，1到2句、最多100个汉字，不加标题、标签、动作括号或解释；禁止直接称呼用户。',
+    '仅输出 JSON：{"kind":"routine|hobby|project|social|discovery|reflection","title":"...","summary":"明确发生了什么","continueEventId":null,"completed":false,"publish":true,"postText":"..."}',
+    `\n${profile}`,
+    `\npublicHistory：${JSON.stringify(publicHistory)}`,
+  ].join('\n');
+  // sendMessage 的网关路径附带 character 对象。只传路由必需的模型选择，
+  // 不把完整人设、头像、账号标识等资料额外发给生成端。
+  const routingCharacter = character.model ? { model: character.model } : undefined;
   const result = await sendMessage({
     apiKey: auth.apiKey ?? '',
-    systemPrompt: `${prompt}\n${recalled.text}`,
-    message: `刚才发生的片段：${source.slice(0, 700)}`,
+    systemPrompt: prompt,
+    message: `当前本地时间：${new Date().toLocaleString('zh-CN')}。为角色写下一段独立生活进展；不需要与用户有关。`,
     history: [],
-    character,
-    temperature: 0.82,
+    character: routingCharacter,
+    temperature: 0.9,
+    structuredOutput: true,
   });
-  return result.content.split('---')[0]?.replace(/[\r\n]+/g, ' ').trim().slice(0, 120) || undefined;
+  return parseLifeBeat(result.content);
 }
 
 async function listContactCharacters(userId: string): Promise<Character[]> {
@@ -98,9 +207,92 @@ export async function visibleToCharacter(moment: Moment, characterId: string): P
   return moment.audienceCharacterIds.includes(characterId);
 }
 
+async function chooseCommentReplyCharacter(userId: string, moment: Moment, seed: string): Promise<string | undefined> {
+  const contacts = await listContactCharacters(userId);
+  const eligible = contacts.filter((character) => character.createdBy === userId
+    && moment.audienceCharacterIds.includes(character.id));
+  const scored = await Promise.all(eligible.map(async (character) => {
+    if (!(await visibleToCharacter(moment, character.id))) return undefined;
+    const state = await stateRepo.get(character.id, userId);
+    const score = (state?.affinity ?? 0) + (character.proactivity ?? 0.5) * 20
+      + deterministicUnit(`${seed}:${character.id}`) * 15;
+    return { id: character.id, score };
+  }));
+  return scored.filter((item): item is { id: string; score: number } => Boolean(item))
+    .sort((a, b) => b.score - a.score)[0]?.id;
+}
+
+/** 朋友圈提醒只面向用户：自己的动态互动、以及角色直接回复用户评论。 */
+async function filterUserDirectedNotifications(items: MomentNotification[]): Promise<MomentNotification[]> {
+  if (!items.length) return [];
+  const momentIds = [...new Set(items.map((item) => item.momentId))];
+  const moments = await db.moments.bulkGet(momentIds);
+  const momentById = new Map(moments.filter((item): item is Moment => Boolean(item)).map((item) => [item.id, item]));
+  const replyNotices = items.filter((item) => item.type === 'comment' && item.id.startsWith('moment-notice:')
+    && Boolean(momentById.get(item.momentId)?.authorCharacterId));
+  const reactionIds = [...new Set(replyNotices.map((item) => item.id.slice('moment-notice:'.length)))];
+  const reactions = await db.momentReactions.bulkGet(reactionIds);
+  const reactionById = new Map(reactions.filter((item): item is MomentReaction => Boolean(item)).map((item) => [item.id, item]));
+  const parentIds = [...new Set(reactions.flatMap((item) => item?.replyToId ? [item.replyToId] : []))];
+  const parents = await db.momentReactions.bulkGet(parentIds);
+  const parentById = new Map(parents.filter((item): item is MomentReaction => Boolean(item)).map((item) => [item.id, item]));
+
+  return items.filter((item) => {
+    const moment = momentById.get(item.momentId);
+    if (!moment || moment.userId !== item.userId || moment.deleted) return false;
+    if (!moment.authorCharacterId) return true;
+    const reaction = reactionById.get(item.id.slice('moment-notice:'.length));
+    if (item.type !== 'comment' || !item.id.startsWith('moment-notice:')
+      || !reaction || reaction.userId !== item.userId || reaction.momentId !== moment.id
+      || reaction.type !== 'comment' || reaction.status !== 'active' || !reaction.replyToId) return false;
+    const parent = parentById.get(reaction.replyToId);
+    return Boolean(parent && parent.userId === item.userId && parent.momentId === moment.id
+      && parent.type === 'comment' && parent.status === 'active' && !parent.characterId);
+  });
+}
+
 export const momentsRepo = {
   async contacts(userId: string): Promise<Character[]> {
     return listContactCharacters(userId);
+  },
+
+  async clearForUser(userId: string): Promise<void> {
+    await db.transaction('rw', [db.moments, db.momentMedia, db.momentViews, db.momentReactions, db.momentContacts, db.momentJobs, db.momentNotifications, db.characterLifeEvents, db.momentPostPlans], async () => {
+      await Promise.all([
+        db.moments.where('userId').equals(userId).delete(),
+        db.momentMedia.where('userId').equals(userId).delete(),
+        db.momentViews.where('userId').equals(userId).delete(),
+        db.momentReactions.where('userId').equals(userId).delete(),
+        db.momentContacts.where('userId').equals(userId).delete(),
+        db.momentJobs.where('userId').equals(userId).delete(),
+        db.momentNotifications.where('userId').equals(userId).delete(),
+        db.characterLifeEvents.where('userId').equals(userId).delete(),
+        db.momentPostPlans.where('userId').equals(userId).delete(),
+      ]);
+    });
+  },
+
+  /** 删除好友时一并清理其主动生活、发帖计划及朋友圈身份，避免留下失效引用。 */
+  async deleteCharacterData(userId: string, characterId: string): Promise<void> {
+    const authored = await db.moments.where('userId').equals(userId).filter((item) => item.authorCharacterId === characterId).toArray();
+    const authoredIds = new Set(authored.map((item) => item.id));
+    await db.transaction('rw', [db.moments, db.momentMedia, db.momentViews, db.momentReactions, db.momentContacts, db.momentJobs, db.momentNotifications, db.characterLifeEvents, db.momentPostPlans], async () => {
+      await db.momentJobs.where('userId').equals(userId).modify((job) => {
+        if (job.characterId === characterId || authoredIds.has(job.momentId)) {
+          job.status = 'cancelled';
+          job.leaseUntil = undefined;
+          job.updatedAt = Date.now();
+        }
+      });
+      await db.momentReactions.where('userId').equals(userId).filter((row) => row.characterId === characterId || authoredIds.has(row.momentId)).delete();
+      await db.momentViews.where('userId').equals(userId).filter((row) => row.characterId === characterId || authoredIds.has(row.momentId)).delete();
+      await db.momentNotifications.where('userId').equals(userId).filter((row) => row.characterId === characterId || authoredIds.has(row.momentId)).delete();
+      await db.momentMedia.where('userId').equals(userId).filter((row) => authoredIds.has(row.momentId)).delete();
+      await db.moments.where('userId').equals(userId).filter((row) => row.authorCharacterId === characterId).delete();
+      await db.momentContacts.delete(contactId(userId, characterId));
+      await db.characterLifeEvents.where('[userId+characterId]').equals([userId, characterId]).delete();
+      await db.momentPostPlans.where('[userId+characterId]').equals([userId, characterId]).delete();
+    });
   },
 
   async contactSettings(userId: string): Promise<MomentContact[]> {
@@ -178,52 +370,202 @@ export const momentsRepo = {
     return moment;
   },
 
-  /** 角色偶尔发布一条自己的动态。机会按天固定，避免刷新页面重复抽签。 */
-  async maybeCharacterPost(userId: string, character: Character, source: string, sessionId = ''): Promise<Moment | undefined> {
-    if (character.createdBy !== userId || source.trim().length < 24) return undefined;
-    const now = Date.now();
-    const recent = await db.moments.where('userId').equals(userId).toArray();
-    if (recent.some((item) => item.authorCharacterId === character.id && now - item.createdAt < 72 * 60 * 60 * 1000)) return undefined;
-    if (recent.some((item) => item.authorCharacterId && now - item.createdAt < 24 * 60 * 60 * 1000)) return undefined;
-    const day = Math.floor(now / 86400000);
-    const chance = Math.min(0.2, 0.035 + Math.max(0, Math.min(1, character.proactivity ?? 0.5)) * 0.12);
-    if (deterministicUnit(`moment-post:${character.id}:${day}:${sessionId}`) >= chance) return undefined;
-    const text = await generateCharacterPost(userId, character, source);
-    if (!text) return undefined;
-    const contacts = await listContactCharacters(userId);
-    const audienceIds = contacts.map((item) => item.id);
-    const id = crypto.randomUUID();
-    const moment: Moment = {
-      id,
-      userId,
-      authorCharacterId: character.id,
-      text,
-      visibility: 'all',
-      audienceCharacterIds: audienceIds,
-      visibilityRevision: 1,
-      mediaIds: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    await db.transaction('rw', [db.moments, db.momentJobs], async () => {
-      await db.moments.put(moment);
-      for (const characterId of audienceIds.filter((id) => id !== character.id)) {
-        await db.momentJobs.put({
-          id: `moment-job:${id}:${characterId}`,
-          userId,
-          momentId: id,
-          characterId,
-          type: 'react',
-          status: 'queued',
-          visibilityRevision: 1,
-          attempts: 0,
-          availableAt: now + Math.round(30_000 + deterministicUnit(`${id}:${characterId}:delay`) * 180_000),
-          createdAt: now,
-          updatedAt: now,
+  /** 开屏分阶段调用，每次最多发布一条；后台检查每轮最多一条，并遵守更长的全局间隔。 */
+  async processAutonomousPosts(
+    userId: string,
+    now = Date.now(),
+    options: { trigger?: AutonomousPostTrigger; attemptBudget?: number; onAttempt?: () => void } = {},
+  ): Promise<Moment | undefined> {
+    const trigger = options.trigger ?? 'background';
+    const attemptBudget = Math.max(1, Math.min(4, options.attemptBudget ?? (trigger === 'opening' ? 4 : 1)));
+    const auth = useAuthStore.getState();
+    if (auth.userId !== userId || (!auth.apiKey && !hasAiGatewayAccess())) return undefined;
+    const preferences = loadMomentsPreferences(userId);
+    if (!preferences.autonomousPostsEnabled) return undefined;
+
+    const [contacts, moments, plans] = await Promise.all([
+      listContactCharacters(userId),
+      db.moments.where('userId').equals(userId).toArray(),
+      db.momentPostPlans.where('userId').equals(userId).toArray(),
+    ]);
+    const authoredPosts = moments.filter((item) => !item.deleted && item.authorCharacterId);
+    const todayStart = localDayStart(now);
+    const dailyPosts = authoredPosts.filter((item) => item.createdAt >= todayStart);
+    if (dailyPosts.length >= 5) return undefined;
+    if (trigger !== 'opening' && authoredPosts.some((item) => now - item.createdAt < 90 * 60 * 1000)) return undefined;
+
+    const dayKey = localDayKey(now);
+    const candidates = contacts.flatMap((character) => {
+      if (character.createdBy !== userId) return [];
+      const mode = preferences.contactPostModes[character.id] ?? preferences.postFrequency;
+      const characterDailyPosts = dailyPosts.filter((item) => item.authorCharacterId === character.id);
+      if (characterDailyPosts.length >= dailyCharacterPostLimit(mode)) return [];
+      const slot = characterDailyPosts.length;
+      // Slot 0 保留旧版计划 ID，升级后当天已完成的计划仍然有效；活跃角色的第二个日更位使用独立 ID。
+      const basePlanId = `moment-post-plan:${userId}:${character.id}:${dayKey}`;
+      const planId = slot === 0 ? basePlanId : `${basePlanId}:${slot}`;
+      const plan = plans.find((row) => row.id === planId);
+      if (plan && (plan.status === 'published' || plan.status === 'quiet'
+        || (plan.status === 'running' && (plan.leaseUntil ?? 0) > now)
+        || (plan.status === 'failed' && (plan.attempts >= 2 || plan.availableAt > now)))) return [];
+      const lastPost = authoredPosts.filter((item) => item.authorCharacterId === character.id)
+        .reduce((latest, item) => Math.max(latest, item.createdAt), 0);
+      if (lastPost && now - lastPost < postInterval(mode, character.proactivity ?? 0.5)) return [];
+      return [{ character, planId, mode, slot }];
+    });
+    if (!candidates.length) return undefined;
+
+    const lastPostByCharacter = new Map<string, number>();
+    for (const item of authoredPosts) {
+      if (item.authorCharacterId) lastPostByCharacter.set(item.authorCharacterId, Math.max(lastPostByCharacter.get(item.authorCharacterId) ?? 0, item.createdAt));
+    }
+    candidates.sort((a, b) => {
+      const aInterval = postInterval(a.mode, a.character.proactivity ?? 0.5);
+      const bInterval = postInterval(b.mode, b.character.proactivity ?? 0.5);
+      const aOverdue = (now - (lastPostByCharacter.get(a.character.id) ?? 0)) / aInterval;
+      const bOverdue = (now - (lastPostByCharacter.get(b.character.id) ?? 0)) / bInterval;
+      return bOverdue - aOverdue || deterministicUnit(`${dayKey}:${a.character.id}`) - deterministicUnit(`${dayKey}:${b.character.id}`);
+    });
+
+    const { character, planId, mode, slot } = candidates[0];
+    const claimed = await db.transaction('rw', [db.momentPostPlans, db.moments], async () => {
+      const current = await db.momentPostPlans.get(planId);
+      if (current && (current.status === 'published' || current.status === 'quiet'
+        || (current.status === 'running' && (current.leaseUntil ?? 0) > now)
+        || (current.status === 'failed' && (current.attempts >= 2 || current.availableAt > now)))) return false;
+      if (useAuthStore.getState().userId !== userId) return false;
+      const liveMoments = (await db.moments.where('userId').equals(userId).toArray())
+        .filter((item) => !item.deleted && item.authorCharacterId);
+      const liveDailyPosts = liveMoments.filter((item) => item.createdAt >= todayStart);
+      const livePlans = await db.momentPostPlans.where('userId').equals(userId).toArray();
+      const otherLeases = livePlans.filter((plan) => plan.id !== planId && plan.dayKey === dayKey
+        && plan.status === 'running' && (plan.leaseUntil ?? 0) > now);
+      if (liveDailyPosts.length + otherLeases.length >= 5) return false;
+      const characterPostsToday = liveDailyPosts.filter((item) => item.authorCharacterId === character.id).length;
+      const characterLeases = otherLeases.filter((plan) => plan.characterId === character.id).length;
+      if (characterPostsToday + characterLeases >= dailyCharacterPostLimit(mode)
+        || characterPostsToday + characterLeases !== slot) return false;
+      const row: MomentPostPlan = {
+        id: planId,
+        userId,
+        characterId: character.id,
+        dayKey,
+        status: 'running',
+        attempts: (current?.attempts ?? 0) + 1,
+        availableAt: now,
+        leaseUntil: now + 120_000,
+        createdAt: current?.createdAt ?? now,
+        updatedAt: now,
+      };
+      await db.momentPostPlans.put(row);
+      return true;
+    });
+    if (!claimed) return undefined;
+
+    try {
+      const lifeEvents = await db.characterLifeEvents.where('[userId+characterId]').equals([userId, character.id]).toArray();
+      const priorPublicEvents = lifeEvents.filter((event) => event.visibility === 'shareable')
+        .sort((a, b) => b.occurredAt - a.occurredAt).slice(0, 8);
+      options.onAttempt?.();
+      const beat = await generateCharacterLifeBeat(userId, character, priorPublicEvents);
+      if (!beat || mentionsUser(`${beat.title} ${beat.summary}`) || (beat.publish && (!beat.postText || mentionsUser(beat.postText)))) {
+        throw new Error('moment:life-beat-invalid');
+      }
+      if (useAuthStore.getState().userId !== userId) throw new Error('moment:account-changed');
+      if (!loadMomentsPreferences(userId).autonomousPostsEnabled) throw new Error('moment:posting-disabled');
+
+      const validContinuation = beat.continueEventId
+        ? priorPublicEvents.find((event) => event.id === beat.continueEventId)
+        : undefined;
+      const recentCharacterPosts = authoredPosts.filter((item) => item.authorCharacterId === character.id && now - item.createdAt < 30 * 24 * 60 * 60 * 1000);
+      const repeatsRecentPost = recentCharacterPosts.some((item) => textSimilarity(item.text, beat.postText) >= 0.68);
+      // 不再在模型已决定发布后额外掷一次低概率骰子；频率由计划和每日上限控制。
+      const shouldPublish = beat.publish && !repeatsRecentPost;
+      const eventId = crypto.randomUUID();
+      const event: CharacterLifeEvent = {
+        id: eventId,
+        userId,
+        characterId: character.id,
+        threadId: validContinuation?.threadId ?? crypto.randomUUID(),
+        ...(validContinuation ? { continuesFromId: validContinuation.id } : {}),
+        kind: beat.kind,
+        title: beat.title,
+        summary: beat.summary,
+        visibility: shouldPublish ? 'shareable' : 'private',
+        status: beat.completed ? 'completed' : 'active',
+        occurredAt: now,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      if (!shouldPublish) {
+        await db.transaction('rw', [db.characterLifeEvents, db.momentPostPlans], async () => {
+          const current = await db.momentPostPlans.get(planId);
+          if (!current || current.status !== 'running' || useAuthStore.getState().userId !== userId) throw new Error('moment:plan-lost');
+          await db.characterLifeEvents.put(event);
+          await db.momentPostPlans.update(planId, { status: 'quiet', eventId, leaseUntil: undefined, updatedAt: Date.now() });
+        });
+        return trigger === 'opening' && attemptBudget > 1
+          ? momentsRepo.processAutonomousPosts(userId, now, { ...options, trigger, attemptBudget: attemptBudget - 1 })
+          : undefined;
+      }
+
+      const audienceIds = contacts.map((item) => item.id);
+      const momentId = crypto.randomUUID();
+      const moment: Moment = {
+        id: momentId,
+        userId,
+        authorCharacterId: character.id,
+        originType: 'autonomous',
+        originEventIds: [eventId],
+        lifeThreadId: event.threadId,
+        text: beat.postText,
+        visibility: 'all',
+        audienceCharacterIds: audienceIds,
+        visibilityRevision: 1,
+        mediaIds: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      await db.transaction('rw', [db.characterLifeEvents, db.moments, db.momentJobs, db.momentPostPlans], async () => {
+        const current = await db.momentPostPlans.get(planId);
+        if (!current || current.status !== 'running' || useAuthStore.getState().userId !== userId) throw new Error('moment:plan-lost');
+        await db.characterLifeEvents.put(event);
+        await db.moments.put(moment);
+        for (const readerId of audienceIds.filter((id) => id !== character.id)) {
+          const jobId = `moment-job:${moment.id}:${readerId}`;
+          await db.momentJobs.put({
+            id: jobId,
+            userId,
+            momentId: moment.id,
+            characterId: readerId,
+            type: 'react',
+            status: 'queued',
+            visibilityRevision: 1,
+            attempts: 0,
+            availableAt: now + Math.round(20_000 + deterministicUnit(`${moment.id}:${readerId}:delay`) * 70_000),
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+        await db.momentPostPlans.update(planId, { status: 'published', eventId, momentId, leaseUntil: undefined, updatedAt: Date.now() });
+      });
+      announceMomentsChanged(userId);
+      return moment;
+    } catch {
+      const current = await db.momentPostPlans.get(planId);
+      if (current?.status === 'running') {
+        await db.momentPostPlans.update(planId, {
+          status: 'failed',
+          availableAt: Date.now() + 60 * 60 * 1000,
+          leaseUntil: undefined,
+          updatedAt: Date.now(),
         });
       }
-    });
-    return moment;
+      return trigger === 'opening' && attemptBudget > 1
+        ? momentsRepo.processAutonomousPosts(userId, now, { ...options, trigger, attemptBudget: attemptBudget - 1 })
+        : undefined;
+    }
   },
 
   /** 私聊中明确请求角色点赞；所有分支都返回真实状态，聊天层据此组织回应。 */
@@ -269,7 +611,14 @@ export const momentsRepo = {
           ? allIds.filter((id) => !selected.includes(id))
           : allIds;
     const next: Moment = { ...existing, visibility: audience.visibility, audienceCharacterIds: audienceIds, visibilityRevision: existing.visibilityRevision + 1, updatedAt: Date.now() };
-    await db.transaction('rw', [db.moments, db.momentJobs], async () => {
+    await db.transaction('rw', [db.moments, db.momentJobs, db.memorySourceTombstones], async () => {
+      await memorySourceTombstoneRepo.record({
+        userId,
+        sourceType: 'moment',
+        sourceId: momentId,
+        sourceRevision: existing.visibilityRevision,
+        status: 'withdrawn',
+      });
       await db.moments.put(next);
       await db.momentJobs.where('momentId').equals(momentId).modify((job) => {
         if (job.status === 'queued' || job.status === 'running') {
@@ -292,12 +641,20 @@ export const momentsRepo = {
   async remove(userId: string, momentId: string): Promise<void> {
     const existing = await db.moments.get(momentId);
     if (!existing || existing.userId !== userId) return;
-    await db.transaction('rw', [db.moments, db.momentJobs, db.momentReactions, db.momentMedia, db.momentNotifications], async () => {
+    await db.transaction('rw', [db.moments, db.momentJobs, db.momentReactions, db.momentMedia, db.momentViews, db.momentNotifications, db.memorySourceTombstones], async () => {
+      await memorySourceTombstoneRepo.record({
+        userId,
+        sourceType: 'moment',
+        sourceId: momentId,
+        sourceRevision: existing.visibilityRevision,
+        status: 'deleted',
+      });
       await db.moments.put({ ...existing, deleted: true, visibilityRevision: existing.visibilityRevision + 1, updatedAt: Date.now() });
       await db.momentJobs.where('momentId').equals(momentId).modify((job) => { job.status = 'cancelled'; job.updatedAt = Date.now(); });
       await db.momentReactions.where('momentId').equals(momentId).modify((reaction) => { reaction.status = 'deleted'; reaction.updatedAt = Date.now(); });
       // 图片仍由 momentMedia 单独保存，删除动态后可以安全清掉对应附件。
       await db.momentMedia.where('momentId').equals(momentId).delete();
+      await db.momentViews.where('momentId').equals(momentId).delete();
       await db.momentNotifications.where('momentId').equals(momentId).delete();
     });
   },
@@ -320,7 +677,11 @@ export const momentsRepo = {
     const existing = (await db.momentReactions.where('momentId').equals(momentId).toArray())
       .find((item) => item.userId === userId && item.characterId === undefined && item.type === 'like');
     if (existing) {
-      await db.momentReactions.put({ ...existing, status: existing.status === 'active' ? 'withdrawn' : 'active', updatedAt: Date.now() });
+      const updatedAt = Math.max(Date.now(), existing.updatedAt + 1);
+      if (existing.status === 'active') {
+        await memorySourceTombstoneRepo.record({ userId, sourceType: 'momentReaction', sourceId: existing.id, sourceRevision: existing.updatedAt, status: 'withdrawn' });
+      }
+      await db.momentReactions.put({ ...existing, status: existing.status === 'active' ? 'withdrawn' : 'active', updatedAt });
     } else {
       const now = Date.now();
       await db.momentReactions.put({ id: crypto.randomUUID(), userId, momentId, type: 'like', status: 'active', createdAt: now, updatedAt: now });
@@ -335,7 +696,8 @@ export const momentsRepo = {
     const target = replyToId ? await db.momentReactions.get(replyToId) : undefined;
     const validTarget = target?.userId === userId && target.momentId === momentId && target.status === 'active' && target.type === 'comment' ? target : undefined;
     const row: MomentReaction = { id: crypto.randomUUID(), userId, momentId, type: 'comment', content: body, status: 'active', ...(validTarget ? { replyToId: validTarget.id } : {}), createdAt: now, updatedAt: now };
-    const characterId = validTarget ? validTarget.characterId ?? moment.authorCharacterId : moment.authorCharacterId;
+    const characterId = validTarget?.characterId ?? moment.authorCharacterId
+      ?? await chooseCommentReplyCharacter(userId, moment, row.id);
     const canReply = characterId ? await visibleToCharacter(moment, characterId) : false;
     await db.transaction('rw', [db.momentReactions, db.momentJobs], async () => {
       await db.momentReactions.put(row);
@@ -394,7 +756,10 @@ export const momentsRepo = {
   async deleteOwnComment(userId: string, reactionId: string): Promise<boolean> {
     const row = await db.momentReactions.get(reactionId);
     if (!row || row.userId !== userId || row.characterId || row.type !== 'comment' || row.status !== 'active') return false;
-    await db.momentReactions.update(reactionId, { status: 'deleted', updatedAt: Date.now() });
+    await db.transaction('rw', [db.momentReactions, db.memorySourceTombstones], async () => {
+      await memorySourceTombstoneRepo.record({ userId, sourceType: 'momentReaction', sourceId: row.id, sourceRevision: row.updatedAt, status: 'deleted' });
+      await db.momentReactions.update(reactionId, { status: 'deleted', updatedAt: Date.now() });
+    });
     return true;
   },
 
@@ -404,13 +769,15 @@ export const momentsRepo = {
   },
 
   async unreadNotifications(userId: string): Promise<MomentNotification[]> {
-    return (await db.momentNotifications.where('userId').equals(userId).toArray())
+    const rows = (await db.momentNotifications.where('userId').equals(userId).toArray())
       .filter((item) => !item.read).sort((a, b) => b.createdAt - a.createdAt);
+    return filterUserDirectedNotifications(rows);
   },
 
   async notifications(userId: string, limit = 30): Promise<MomentNotification[]> {
-    return (await db.momentNotifications.where('userId').equals(userId).toArray())
-      .sort((a, b) => b.createdAt - a.createdAt).slice(0, Math.max(1, limit));
+    const rows = (await db.momentNotifications.where('userId').equals(userId).toArray())
+      .sort((a, b) => b.createdAt - a.createdAt);
+    return (await filterUserDirectedNotifications(rows)).slice(0, Math.max(1, limit));
   },
 
   async markNotificationsRead(userId: string): Promise<void> {
@@ -457,7 +824,7 @@ export const momentsRepo = {
         const recentOwnComments = job.type === 'react' && decision.comment
           ? (await db.momentReactions.where('characterId').equals(character.id).toArray()).filter((item) => item.userId === userId && item.type === 'comment' && item.status === 'active' && item.createdAt > now - 86_400_000)
           : [];
-        const shouldComment = job.type === 'reply' || (job.type === 'react' && decision.comment && existingComments.length < 2 && recentOwnComments.length < 2);
+        const shouldComment = job.type === 'reply' || (job.type === 'react' && decision.comment && existingComments.length < 3 && recentOwnComments.length < 4);
         let content: string | undefined;
         if (shouldComment) {
           try { content = await writeComment(userId, character, moment, reply); }
@@ -482,7 +849,9 @@ export const momentsRepo = {
           }
           if (like && !(await db.momentReactions.get(`moment-like:${moment.id}:${character.id}`))) {
             await db.momentReactions.put({ id: `moment-like:${moment.id}:${character.id}`, userId, momentId: moment.id, characterId: character.id, type: 'like', status: 'active', createdAt: at, updatedAt: at });
-            await db.momentNotifications.put({ id: `moment-notice:like:${moment.id}:${character.id}`, userId, momentId: moment.id, characterId: character.id, type: 'like', preview: `${character.name} 点了赞`, read: false, createdAt: at });
+            if (!latest.authorCharacterId) {
+              await db.momentNotifications.put({ id: `moment-notice:like:${moment.id}:${character.id}`, userId, momentId: moment.id, characterId: character.id, type: 'like', preview: `${character.name} 点了赞`, read: false, createdAt: at });
+            }
           }
           if (content) {
             const commentId = job.type === 'reply' ? `moment-comment:${job.replyToId}:${character.id}` : `moment-comment:${moment.id}:${character.id}`;
@@ -492,9 +861,11 @@ export const momentsRepo = {
             const activeRecentComments = job.type === 'react'
               ? (await db.momentReactions.where('characterId').equals(character.id).toArray()).filter((item) => item.userId === userId && item.type === 'comment' && item.status === 'active' && item.createdAt > at - 86_400_000)
               : [];
-            if (!(await db.momentReactions.get(commentId)) && (job.type === 'reply' || (activePostComments.length < 2 && activeRecentComments.length < 2))) {
+            if (!(await db.momentReactions.get(commentId)) && (job.type === 'reply' || (activePostComments.length < 3 && activeRecentComments.length < 4))) {
               await db.momentReactions.put({ id: commentId, userId, momentId: moment.id, characterId: character.id, type: 'comment', content, ...(reply ? { replyToId: reply.id } : {}), status: 'active', createdAt: at, updatedAt: at });
-              await db.momentNotifications.put({ id: `moment-notice:${commentId}`, userId, momentId: moment.id, characterId: character.id, type: 'comment', preview: `${character.name} ${reply ? '回复了你' : authorName ? `评论了${authorName}的动态` : '评论了你的动态'}：${content}`, read: false, createdAt: at });
+              if (!latest.authorCharacterId || reply) {
+                await db.momentNotifications.put({ id: `moment-notice:${commentId}`, userId, momentId: moment.id, characterId: character.id, type: 'comment', preview: `${character.name} ${reply ? '回复了你' : authorName ? `评论了${authorName}的动态` : '评论了你的动态'}：${content}`, read: false, createdAt: at });
+              }
             }
           }
           const retryComment = shouldComment && !content && currentJob.attempts < 2;

@@ -22,7 +22,7 @@
  * 3. **事务队列**（§58）：同一个世界的轮次串行执行，下一轮不会读到半完成状态。
  */
 import type { Character, WorldScene, WorldSceneEntry } from '../../db/index';
-import { worldSceneRepo } from '../../db/world-scene-repo';
+import { sceneEntriesAvailableToAudience, worldSceneRepo } from '../../db/world-scene-repo';
 import { worldTurnRepo } from '../../db/world-turn-repo';
 import { worldFactRepo } from '../../db/world-fact-repo';
 import { continuityRepo } from '../../db/continuity-repo';
@@ -460,7 +460,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       timeLabel: scene.timeLabel,
       // 让解析器知道已有的世界设定，这样"改设定"能带上 replacesFact（§101）
       worldRules: (await worldFactRepo.listByWorld(worldId, { category: 'rule', activeOnly: true, userId })).map((f) => f.content).slice(0, 12),
-      recent: await worldSceneRepo.listRecentEntries(sceneId, 12),
+      recent: sceneEntriesAvailableToAudience(await worldSceneRepo.listRecentEntries(sceneId, 12), scene, scene.characterIds),
       ...(params.call ? { call: params.call } : {}),
     });
     llmCalls += interpreted.llmCalls;
@@ -512,7 +512,10 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     // 回忆类意图：把"相关但很久以前"的事也捞回来（§60 相关性优先于时间）
     let recallBlock = '';
     if (action.intent === 'recall' || /记得|还记得|以前|那次|上次|第一次/.test(text)) {
-      const found = await findRelevantHistory({ userId, worldId, query: action.recallTarget ?? text, limit: 5 });
+      const found = await findRelevantHistory({
+        userId, worldId, query: action.recallTarget ?? text, limit: 5,
+        audienceCharacterIds: ctx.presence,
+      });
       if (found.length) recallBlock = `【用户正在回忆的事（可能在很久以前）】\n${found.map((f) => `- ${f.date} ${f.text}`).join('\n')}`;
     }
 
@@ -687,7 +690,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     // 5.2：把这一拍的节奏与视觉状态写回场景。它们是可压缩的导演状态，
     // 不会污染正文，也不会跨用户共享；下次进入同一地点时会自然延续。
     const stateScene = (await worldSceneRepo.getScene(sceneId)) ?? beatScene;
-    const stateEntries = await worldSceneRepo.listRecentEntries(sceneId, 120);
+    const stateEntries = sceneEntriesAvailableToAudience(await worldSceneRepo.listRecentEntries(sceneId, 120), stateScene, stateScene.characterIds);
     await worldSceneRepo.patchSceneState(sceneId, {
       conversation: updateConversationState(stateScene.state.conversation, text, stateEntries),
       visual: deriveWorldVisualState(stateScene, stateScene.state.visual),
@@ -722,7 +725,11 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         ctx,
         actionText: text,
         // 结算依据**从数据库读回**：守护可能改写过某些行，内存里的副本未必最新
-        transcript: [recallBlock, buildTranscript(await worldSceneRepo.listRecentEntries(sceneId, 400), ctx.nameOf, userEntry.index)].filter(Boolean).join('\n\n'),
+        transcript: [recallBlock, buildTranscript(
+          sceneEntriesAvailableToAudience(await worldSceneRepo.listRecentEntries(sceneId, 400), settledScene ?? scene, ctx.presence),
+          ctx.nameOf,
+          userEntry.index,
+        )].filter(Boolean).join('\n\n'),
         turnId: turn.id,
         ...(params.call ? { call: params.call } : {}),
       });

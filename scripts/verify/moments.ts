@@ -19,8 +19,9 @@
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import { db } from '../../src/db/index';
-import { momentsRepo, visibleToCharacter } from '../../src/db/moments-repo';
+import { momentsRepo, planAutonomousMomentInteraction, visibleToCharacter } from '../../src/db/moments-repo';
 import { characterRepo } from '../../src/db/character-repo';
+import { stateRepo } from '../../src/db/state-repo';
 import { useAuthStore } from '../../src/store/auth-store';
 import { MomentsPage } from '../../src/components/moments/MomentsPage';
 import {
@@ -122,6 +123,7 @@ async function run(): Promise<void> {
   await db.open();
   localStorage.removeItem(PREF_KEY);
   useAuthStore.getState().login(U, USERNAME, 'sk-fake', '');
+  saveMomentsPreferences(U, { ...loadMomentsPreferences(U), autonomousPostsEnabled: false });
 
   const char1 = makeCharacter(C1, '星遥');
   const char2 = makeCharacter(C2, '林间');
@@ -144,32 +146,84 @@ async function run(): Promise<void> {
   await db.momentReactions.put({ id: 'moment-comment:user-2', userId: U, momentId: first.id, type: 'comment', content: '下次记得买。', replyToId: 'moment-comment:user-1', status: 'active', createdAt: now + 4, updatedAt: now + 4 });
   await db.momentReactions.put({ id: `moment-comment:${first.id}:${C2}:reply`, userId: U, momentId: first.id, characterId: C2, type: 'comment', content: '双份牛肉不算奖励，算补偿。', replyToId: 'moment-comment:user-1', status: 'active', createdAt: now + 5, updatedAt: now + 5 });
 
+  // 角色给另一角色的动态点赞、评论只留在动态流；旧通知也不能继续冒充用户的新消息。
+  const roleRolePostId = Array.from({ length: 512 }, (_, index) => `moment-role-role-${index}`)
+    .find((id) => {
+      const decision = planAutonomousMomentInteraction(id, char2, 100, '今晚的云很低。');
+      return decision.like && decision.comment;
+    })!;
+  const roleRolePost: Moment = {
+    id: roleRolePostId, userId: U, text: '今晚的云很低。', visibility: 'all',
+    audienceCharacterIds: [C2], mediaIds: [], authorCharacterId: C1,
+    visibilityRevision: 1, createdAt: now, updatedAt: now,
+  };
+  await db.moments.put(roleRolePost);
+  await db.characterStates.put({ ...(await stateRepo.getOrCreate(C2, U)), affinity: 100 });
+  await db.momentJobs.put({
+    id: 'moment-job:role-role-interaction', userId: U, momentId: roleRolePost.id,
+    characterId: C2, type: 'react', status: 'queued', visibilityRevision: 1,
+    attempts: 0, availableAt: now, createdAt: now, updatedAt: now,
+  });
+  await momentsRepo.processJobs(U, now + 1, async () => '这片云看起来快下雨了。');
+  const roleRoleReactions = await momentsRepo.reactions(roleRolePost.id, U);
+  const roleRoleNotificationCount = await db.momentNotifications.where('momentId').equals(roleRolePost.id).count();
+  check('角色对角色动态的点赞和评论正常落库，但不生成用户提醒',
+    roleRoleReactions.some((item) => item.type === 'like' && item.characterId === C2)
+      && roleRoleReactions.some((item) => item.type === 'comment' && item.characterId === C2)
+      && roleRoleNotificationCount === 0,
+    { reactions: roleRoleReactions.map((item) => item.type), notificationCount: roleRoleNotificationCount });
+  await db.momentNotifications.put({
+    id: `moment-notice:like:${roleRolePost.id}:${C2}`, userId: U, momentId: roleRolePost.id,
+    characterId: C2, type: 'like', preview: '林间点了赞', read: false, createdAt: now + 6,
+  });
+  const roleRoleCommentId = `moment-comment:${roleRolePost.id}:${C2}`;
+  await db.momentNotifications.put({
+    id: `moment-notice:${roleRoleCommentId}`, userId: U, momentId: roleRolePost.id,
+    characterId: C2, type: 'comment', preview: '林间评论了星遥的动态', read: false, createdAt: now + 7,
+  });
+  const visibleNotifications = await momentsRepo.notifications(U);
+  check('旧的角色间点赞和评论提醒也不再显示',
+    !visibleNotifications.some((item) => item.momentId === roleRolePost.id)
+      && (await momentsRepo.unreadNotifications(U)).length === 2,
+    { notices: visibleNotifications.map((item) => item.momentId) });
+
   const pageText = await render();
 
-  // ---------- A. 右上角只剩 ＋ 与 ⋯ ----------
+  // ---------- A. 右上角为设置与发布 ----------
   const headerActions = host?.querySelector('.vg-moments-header-actions') ?? null;
-  const headerButtons = headerActions ? Array.from(headerActions.querySelectorAll('button')).map((b) => (b.textContent ?? '').trim()) : [];
-  check('① 右上角只剩两个按钮（＋ 发布 与 ⋯ 设置）', headerButtons.length === 2 && headerButtons.includes('＋') && headerButtons.includes('⋯'), headerButtons);
+  const headerButtons = headerActions ? Array.from(headerActions.querySelectorAll('button')) : [];
+  check('① 右上角只有设置与发布两个按钮', headerButtons.length === 2
+    && headerButtons.some((button) => button.getAttribute('aria-label') === '朋友圈设置')
+    && headerButtons.some((button) => button.getAttribute('aria-label') === '发布动态'), headerButtons.map((button) => button.getAttribute('aria-label')));
   check('② 旧的「互动」「◌」按钮已从右上角移除',
     headerActions !== null && headerActions.querySelector('.vg-moments-unread') === null && headerActions.querySelector('.vg-moments-privacy') === null,
     headerActions ? headerActions.innerHTML.slice(0, 160) : null);
   const settingsButton = host?.querySelector('.vg-moments-settings') as HTMLButtonElement | null;
-  check('③ ⋯ 按钮声明了菜单语义（aria-haspopup=menu、aria-label=朋友圈设置）',
-    settingsButton?.getAttribute('aria-haspopup') === 'menu' && settingsButton?.getAttribute('aria-label') === '朋友圈设置',
-    { haspopup: settingsButton?.getAttribute('aria-haspopup'), label: settingsButton?.getAttribute('aria-label') });
+  const icon = settingsButton?.querySelector('svg');
+  const iconRect = icon?.getBoundingClientRect();
+  const buttonRect = settingsButton?.getBoundingClientRect();
+  check('③ 设置齿轮处在按钮正中间', Boolean(icon && iconRect && buttonRect
+    && Math.abs(iconRect.left + iconRect.width / 2 - buttonRect.left - buttonRect.width / 2) < 1
+    && Math.abs(iconRect.top + iconRect.height / 2 - buttonRect.top - buttonRect.height / 2) < 1));
 
-  // ---------- A2. 菜单三项 ----------
-  const openedMenu = clickText('⋯');
+  // ---------- A2. 一点即进入全部设置 ----------
+  settingsButton?.click();
   await sleep(200);
-  const menuItems = host ? Array.from(host.querySelectorAll('.vg-moments-settings-menu button')).map((b) => (b.textContent ?? '').trim()) : [];
-  check('④ 点开 ⋯ 后菜单三项：朋友圈设置 / 朋友圈屏蔽 / 默认可见范围',
-    openedMenu && menuItems.join('|') === '朋友圈设置|朋友圈屏蔽|默认可见范围', menuItems);
+  const settingsOverview = (host?.querySelector('.vg-moment-settings-sheet') as HTMLElement | null)?.innerText ?? '';
+  check('④ 点击齿轮直接进入包含全部分类的朋友圈设置', openSheetTitle() === '朋友圈设置'
+    && ['消息与提醒', '好友近况', '谁能看 · 我能看', '发布', '展示'].every((group) => settingsOverview.includes(group)));
+  clickText('完成', host?.querySelector('.vg-moment-settings-sheet') ?? null);
 
   // ---------- B. 互动条：位置 + 常驻 + 未读 ----------
   const inbox = host?.querySelector('.vg-moments-inbox') ?? null;
   const profile = host?.querySelector('.vg-moments-profile') ?? null;
+  const coverBounds = (profile?.querySelector('.vg-moments-cover') as HTMLElement | null)?.getBoundingClientRect();
+  const avatarBounds = (profile?.querySelector('.vg-moments-profile-row > img, .vg-moments-profile-row > span') as HTMLElement | null)?.getBoundingClientRect();
+  check('④a 个人头像完整位于亮色封面内', Boolean(coverBounds && avatarBounds
+    && avatarBounds.top >= coverBounds.top && avatarBounds.bottom <= coverBounds.bottom),
+    { cover: coverBounds && [coverBounds.top, coverBounds.bottom], avatar: avatarBounds && [avatarBounds.top, avatarBounds.bottom] });
   const firstCard = host?.querySelector('.vg-moment-card') ?? null;
-  check('⑤ 互动条常驻存在（.vg-moments-inbox）', inbox !== null);
+  check('⑤ 有未读时显示互动入口（.vg-moments-inbox）', inbox !== null);
   const orderOk = inbox !== null && profile !== null && firstCard !== null
     && (profile.compareDocumentPosition(inbox) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
     && (inbox.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
@@ -179,10 +233,21 @@ async function run(): Promise<void> {
     inboxText.includes('2 条新互动') && (inbox?.querySelector('.vg-moments-inbox-dot') ?? null) !== null, inboxText);
   const inboxAvatars = inbox ? inbox.querySelectorAll('.vg-moments-inbox-avatars > *').length : 0;
   check('⑧ 互动条显示最近互动者头像（去重后 2 个）', inboxAvatars === 2, { inboxAvatars, pageHead: pageText.slice(0, 80) });
+  const firstCardTopBeforeRead = (firstCard as HTMLElement | null)?.getBoundingClientRect().top ?? 0;
+  (inbox as HTMLButtonElement | null)?.click();
+  await sleep(300);
+  const firstCardTopAfterRead = (host?.querySelector('.vg-moment-card') as HTMLElement | null)?.getBoundingClientRect().top ?? 0;
+  check('⑧a 看过互动后入口消失，动态上移，已读记录仍可回看',
+    host?.querySelector('.vg-moments-inbox') === null
+      && (await momentsRepo.unreadNotifications(U)).length === 0
+      && (await momentsRepo.notifications(U)).length === 2
+      && firstCardTopAfterRead < firstCardTopBeforeRead - 10,
+    { firstCardTopBeforeRead, firstCardTopAfterRead });
+  clickText('完成', host?.querySelector('.vg-moment-notification-sheet') ?? null);
 
   // ---------- C. 通栏列表 + ··· 气泡 ----------
-  const card = host?.querySelector('.vg-moment-card') as HTMLElement | null;
-  const cardStyle = card ? getComputedStyle(card) : null;
+  const card = host?.querySelector(`#moment-${first.id}`) as HTMLElement | null;
+  const cardStyle = host?.querySelector('.vg-moment-card') ? getComputedStyle(host.querySelector('.vg-moment-card')!) : null;
   check('⑨ 动态是通栏列表（没有卡片边框/圆角，用分隔线）',
     cardStyle !== null && cardStyle.borderBottomWidth !== '0px' && (cardStyle.borderTopLeftRadius === '0px' || cardStyle.borderTopLeftRadius === ''),
     cardStyle ? { borderBottom: cardStyle.borderBottomWidth, radius: cardStyle.borderTopLeftRadius } : null);
@@ -201,19 +266,18 @@ async function run(): Promise<void> {
   await render();
 
   // ---------- C2. 点赞仍是头像堆叠（用户明确要求保留） ----------
-  const likeBlock = host?.querySelector('.vg-moment-likes') ?? null;
+  const likeBlock = host?.querySelector(`#moment-${first.id} .vg-moment-likes`) ?? null;
   const likeAvatars = likeBlock ? likeBlock.querySelectorAll('.vg-moment-like-avatars > *').length : 0;
   check('⑬ 点赞展示仍是头像堆叠（共 3 个：两位角色 + 我）', likeAvatars === 3, { likeAvatars });
 
   // ---------- D. 设置面板 ----------
-  clickText('⋯');
-  await sleep(180);
-  const openedSettings = clickText('朋友圈设置', host?.querySelector('.vg-moments-settings-menu') ?? host);
+  const openedSettings = Boolean(host?.querySelector('.vg-moments-settings'));
+  (host?.querySelector('.vg-moments-settings') as HTMLButtonElement | null)?.click();
   await sleep(400);
   const settingsText = openSheetTitle() === '朋友圈设置' && host ? (host.querySelector('.vg-moment-settings-sheet') as HTMLElement).innerText.replace(/\s+/g, ' ') : '';
-  const settingGroups = ['消息与提醒', '谁能看 · 我能看', '发布', '展示'];
-  const settingRows = ['互动消息', '新互动红点', '发布后提示', '朋友圈屏蔽', '不看他（她）的朋友圈', '允许角色查看我的历史动态', '默认可见范围', '朋友圈封面', '列表密度'];
-  check('⑭ ⋯ → 朋友圈设置 打面板，四个分组齐全',
+  const settingGroups = ['消息与提醒', '好友近况', '谁能看 · 我能看', '发布', '展示'];
+  const settingRows = ['互动消息', '新互动红点', '发布后提示', '允许好友主动分享', '默认分享节奏', '单独调整好友', '朋友圈屏蔽', '不看他（她）的朋友圈', '允许角色查看我的历史动态', '默认可见范围', '朋友圈封面', '列表密度'];
+  check('⑭ 齿轮直接打开完整朋友圈设置，五个分组齐全',
     openedSettings && openSheetTitle() === '朋友圈设置' && settingGroups.every((group) => settingsText.includes(group)), { openedSettings, title: openSheetTitle(), settingsText: settingsText.slice(0, 160) });
   check('⑮ 设置项齐全（消息/红点/提示/屏蔽/不看/历史/默认范围/封面/密度）',
     settingRows.every((row) => settingsText.includes(row)), settingRows.filter((row) => !settingsText.includes(row)));
@@ -226,6 +290,10 @@ async function run(): Promise<void> {
   check('⑰ 选「紧凑」后页面 data-density=compact 且写进本机偏好',
     densityClicked && page?.getAttribute('data-density') === 'compact' && readPref()?.density === 'compact',
     { densityClicked, density: page?.getAttribute('data-density'), pref: readPref()?.density });
+  const compactCover = (host?.querySelector('.vg-moments-cover') as HTMLElement | null)?.getBoundingClientRect();
+  const compactAvatar = (host?.querySelector('.vg-moments-profile-row > img, .vg-moments-profile-row > span') as HTMLElement | null)?.getBoundingClientRect();
+  check('⑰a 紧凑模式下头像仍完整位于封面内', Boolean(compactCover && compactAvatar
+    && compactAvatar.top >= compactCover.top && compactAvatar.bottom <= compactCover.bottom));
 
   // ---------- E2. 红点开关 ----------
   const badgeToggle = buttonWith('已开启', host?.querySelector('.vg-moment-settings-sheet') ?? null);
@@ -241,15 +309,14 @@ async function run(): Promise<void> {
 
   // ---------- F. 不看他（她）的朋友圈 ----------
   const charPostVisibleBefore = (host?.innerText ?? '').includes('今晚的云压得很低。');
-  clickText('⋯');
-  await sleep(180);
-  clickText('朋友圈设置', host?.querySelector('.vg-moments-settings-menu') ?? host);
+  (host?.querySelector('.vg-moments-settings') as HTMLButtonElement | null)?.click();
   await sleep(350);
   clickText('不看他（她）的朋友圈', host?.querySelector('.vg-moment-settings-sheet') ?? null);
   await sleep(400);
   const mutedSheet = host?.querySelector('.vg-moment-muted-sheet') ?? null;
   const mutedTitleOk = openSheetTitle() === '不看他（她）的朋友圈';
-  const firstMuted = mutedSheet ? (mutedSheet.querySelector('.vg-moment-block-list input[type="checkbox"]') as HTMLInputElement | null) : null;
+  const firstMuted = mutedSheet ? (Array.from(mutedSheet.querySelectorAll('.vg-moment-block-list label'))
+    .find((label) => label.textContent?.includes(char1.name))?.querySelector('input[type="checkbox"]') as HTMLInputElement | null) : null;
   if (firstMuted) firstMuted.click();
   await sleep(400);
   const mutedRows = (await momentsRepo.contactSettings(U)).filter((row) => row.muted).map((row) => row.characterId);
@@ -283,10 +350,10 @@ async function run(): Promise<void> {
   const deleteTitle = openSheetTitle();
   const confirmed = clickText('删除评论', host?.querySelector('.vg-moment-delete-sheet') ?? null);
   await sleep(450);
-  const remaining = (await momentsRepo.reactions(first.id, U)).filter((row) => row.id === 'moment-comment:user-1');
+  const remaining = await db.momentReactions.get('moment-comment:user-1');
   check('㉔ 长按自己的评论弹出删除确认', deleteTitle === '删除这条评论？', { deleteTitle, hasRow: mineRow !== null });
   check('㉕ 确认后自己的评论被软删（status=deleted）',
-    confirmed && remaining.length === 1 && remaining[0].status === 'deleted', { confirmed, status: remaining[0]?.status });
+    confirmed && remaining?.status === 'deleted', { confirmed, status: remaining?.status });
 
   // ---------- H2. 角色评论删不掉 ----------
   const charComment = (await momentsRepo.reactions(first.id, U)).find((row) => row.characterId && row.type === 'comment')!;
@@ -297,7 +364,8 @@ async function run(): Promise<void> {
   const replyText = (await render()).replace(/\s+/g, ' ');
   check('㉗ 用户回复自己的评论不再显示「我 回复 我」',
     !replyText.includes(`${USERNAME} 回复 ${USERNAME}`) && replyText.includes(`${USERNAME}：下次记得买。`), replyText.slice(0, 240));
-  check('㉘ 角色回复用户时仍显示「林间 回复 我」', replyText.includes(`林间 回复 ${USERNAME}`), replyText.slice(0, 240));
+  check('㉘ 被删评论不再作为可见的回复对象',
+    !replyText.includes(`林间 回复 ${USERNAME}`) && replyText.includes('林间：双份牛肉不算奖励'), replyText.slice(0, 320));
 
   // ---------- H4. 长按管理菜单只对自己的动态响应 ----------
   const cards = host ? (Array.from(host.querySelectorAll('.vg-moment-card')) as HTMLElement[]) : [];
@@ -323,16 +391,18 @@ async function run(): Promise<void> {
   const covered = await render();
   const coverEl = host?.querySelector('.vg-moments-cover') as HTMLElement | null;
   const coverApplied = coverEl ? getComputedStyle(coverEl).backgroundImage.includes('data:image/gif') : false;
-  clickText('展开朋友圈封面');
+  (host?.querySelector('[aria-label="展开朋友圈封面"]') as HTMLButtonElement | null)?.click();
   await sleep(250);
   check('㉚ 自定义封面会渲染到封面上（且能展开看到更换入口）',
     coverApplied && clickText('更换封面') && covered.length > 0, { coverApplied });
+  const expandedCover = (host?.querySelector('.vg-moments-cover') as HTMLElement | null)?.getBoundingClientRect();
+  const expandedAvatar = (host?.querySelector('.vg-moments-profile-row > img, .vg-moments-profile-row > span') as HTMLElement | null)?.getBoundingClientRect();
+  check('㉚a 展开封面后头像也保持在封面内', Boolean(expandedCover && expandedAvatar
+    && expandedAvatar.top >= expandedCover.top && expandedAvatar.bottom <= expandedCover.bottom));
   saveMomentsPreferences(U, { ...loadMomentsPreferences(U), cover: '' });
 
   // ---------- J. 清空互动记录 ----------
-  clickText('⋯');
-  await sleep(180);
-  clickText('朋友圈设置', host?.querySelector('.vg-moments-settings-menu') ?? host);
+  (host?.querySelector('.vg-moments-settings') as HTMLButtonElement | null)?.click();
   await sleep(350);
   const cleared = clickText('清空记录', host?.querySelector('.vg-moment-settings-sheet') ?? null);
   await sleep(400);
@@ -371,7 +441,7 @@ async function run(): Promise<void> {
 const report = window.fetch.bind(window);
 run()
   .then(async () => {
-    document.body.textContent = `ok   ${lines.length} assertions (moments IA + settings; real IndexedDB)\n\nALL PASS`;
+    document.body.textContent = `${lines.join('\n')}\n\n${failures ? `${failures} FAILED` : 'ALL PASS'}`;
     await report('/result', { method: 'POST', body: document.body.textContent });
   })
   .catch(async (e) => {

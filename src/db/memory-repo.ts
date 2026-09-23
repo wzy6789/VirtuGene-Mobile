@@ -1,5 +1,6 @@
 import { db, type MemoryItem } from './index';
 import { prepareMemoryMetadata } from '../lib/memory-engine';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 const MAX_MEMORIES_PER_CHAR = 30;
 
@@ -25,34 +26,47 @@ export function normalizeMemoryKey(content: string): string {
 }
 
 async function upsertMemory(memory: MemoryItem): Promise<string> {
-  const key = normalizeMemoryKey(memory.content);
-  if (!key) return memory.id;
-  const existing = (await db.memories.where('characterId').equals(memory.characterId).toArray())
-    .find((item) => item.userId === memory.userId && normalizeMemoryKey(item.content) === key);
+  let candidate = memory;
+  // A deleted/superseded id is never reused. Fresh evidence with identical text
+  // may become a new row, but an old backup must not be able to revive the old id.
+  if (await memorySourceTombstoneRepo.blocksImport({
+    userId: memory.userId,
+    sourceType: 'memory',
+    sourceId: memory.id,
+    sourceRevision: memory.updatedAt ?? memory.createdAt,
+  })) {
+    candidate = { ...memory, id: crypto.randomUUID() };
+  }
+  const key = normalizeMemoryKey(candidate.content);
+  if (!key) return candidate.id;
+  const existing = (await db.memories.where('characterId').equals(candidate.characterId).toArray())
+    .find((item) => item.userId === candidate.userId && (item.status ?? 'active') === 'active' && normalizeMemoryKey(item.content) === key);
   if (!existing) {
-    const metadata = prepareMemoryMetadata(memory.content, {
-      kind: memory.memoryKind,
-      pinned: memory.pinned === true,
-      stability: memory.stability,
-      confidence: memory.confidence,
+    const metadata = prepareMemoryMetadata(candidate.content, {
+      kind: candidate.memoryKind,
+      pinned: candidate.pinned === true,
+      stability: candidate.stability,
+      confidence: candidate.confidence,
     });
-    await db.memories.add({ ...memory, ...metadata, pinned: memory.pinned ?? metadata.pinned });
-    return memory.id;
+    await db.memories.add({ ...metadata, ...candidate, pinned: candidate.pinned ?? metadata.pinned });
+    return candidate.id;
   }
 
   const sourceMessageIds = Array.from(new Set([
     ...(existing.sourceMessageIds ?? []),
-    ...(memory.sourceMessageIds ?? []),
+    ...(candidate.sourceMessageIds ?? []),
   ]));
   await db.memories.update(existing.id, {
-    sourceSessionId: memory.sourceSessionId ?? existing.sourceSessionId,
+    sourceSessionId: candidate.sourceSessionId ?? existing.sourceSessionId,
     sourceMessageIds: sourceMessageIds.length > 0 ? sourceMessageIds : undefined,
-    confidence: Math.max(existing.confidence ?? 0, memory.confidence ?? 0),
-    pinned: existing.pinned === true || memory.pinned === true ? true : undefined,
-    memoryKind: memory.memoryKind ?? existing.memoryKind,
-    stability: memory.stability ?? existing.stability,
-    status: existing.status === 'withdrawn' ? 'withdrawn' : (memory.status ?? existing.status ?? 'active'),
-    lastConfirmedAt: Math.max(existing.lastConfirmedAt ?? 0, memory.lastConfirmedAt ?? 0) || undefined,
+    confidence: Math.max(existing.confidence ?? 0, candidate.confidence ?? 0),
+    pinned: existing.pinned === true || candidate.pinned === true ? true : undefined,
+    memoryKind: candidate.memoryKind ?? existing.memoryKind,
+    importedFromCharacterId: candidate.importedFromCharacterId ?? existing.importedFromCharacterId,
+    importedFromMemoryId: candidate.importedFromMemoryId ?? existing.importedFromMemoryId,
+    stability: candidate.stability ?? existing.stability,
+    status: existing.status === 'withdrawn' ? 'withdrawn' : (candidate.status ?? existing.status ?? 'active'),
+    lastConfirmedAt: Math.max(existing.lastConfirmedAt ?? 0, candidate.lastConfirmedAt ?? 0) || undefined,
     updatedAt: Math.max(Date.now(), existing.updatedAt ?? 0),
   });
   return existing.id;
@@ -74,7 +88,34 @@ async function pruneToLimit(characterId: string, userId: string): Promise<void> 
   const keep = [...protectedItems, ...candidates.slice(-keepNonProtected)];
   const keepIds = new Set(keep.map((memory) => memory.id));
   const excess = all.filter((memory) => !keepIds.has(memory.id));
+  for (const memory of excess) {
+    await memorySourceTombstoneRepo.record({
+      userId,
+      sourceType: 'memory',
+      sourceId: memory.id,
+      sourceRevision: memory.updatedAt ?? memory.createdAt,
+      status: 'deleted',
+    });
+  }
   await db.memories.bulkDelete(excess.map((m) => m.id));
+}
+
+/** 删除或撤回原始消息时，失效由其自动归纳出的非固定记忆；用户明确钉住的事实保留。 */
+export async function invalidateUnpinnedMemoriesForMessages(userId: string, messageIds: string[]): Promise<number> {
+  const ids = new Set(messageIds);
+  if (!ids.size) return 0;
+  const rows = await db.memories.where('userId').equals(userId).toArray();
+  const invalidated = rows.filter((memory) =>
+    !memory.pinned && (memory.status ?? 'active') === 'active' && (memory.sourceMessageIds ?? []).some((id) => ids.has(id)),
+  );
+  if (invalidated.length) {
+    const now = Date.now();
+    await db.memories.bulkPut(invalidated.map((memory) => ({ ...memory, status: 'superseded' as const, updatedAt: now })));
+    for (const memory of invalidated) {
+      await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: memory.id, sourceRevision: now, status: 'superseded' });
+    }
+  }
+  return invalidated.length;
 }
 
 export const memoryRepo = {
@@ -84,7 +125,10 @@ export const memoryRepo = {
       .where('userId')
       .equals(userId)
       .toArray()
-      .then((items) => items.sort((a, b) => b.createdAt - a.createdAt).slice(0, limit));
+      .then((items) => items
+        .filter((item) => (item.status ?? 'active') === 'active')
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, limit));
   },
 
   /**
@@ -112,6 +156,8 @@ export const memoryRepo = {
       content: memory.content,
       // 表示它不是新角色从一段对话中自动提取出的结论。
       type: 'summary' as const,
+      importedFromCharacterId: memory.characterId,
+      importedFromMemoryId: memory.id,
       ...prepareMemoryMetadata(memory.content, { kind: 'summary', pinned: memory.pinned === true, stability: 'stable', confidence: memory.confidence ?? 0.75 }),
       createdAt: now,
       updatedAt: now,
@@ -129,6 +175,15 @@ export const memoryRepo = {
     const all = await db.memories.where('characterId').equals(characterId).toArray();
     return all
       .filter((m) => m.userId === userId)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
+  },
+
+  /** 给运行时用的有效记忆查询；档案页仍可用 getRecentByCharacter 查看已替代记录。 */
+  async getRecentActiveByCharacter(characterId: string, userId: string, limit = 15): Promise<MemoryItem[]> {
+    const all = await db.memories.where('characterId').equals(characterId).toArray();
+    return all
+      .filter((memory) => memory.userId === userId && (memory.status ?? 'active') === 'active')
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit);
   },
@@ -154,18 +209,19 @@ export const memoryRepo = {
     const existing = all.find((memory) =>
       memory.userId === input.userId &&
       memory.type === 'summary' &&
-      memory.sourceSessionId === input.sessionId,
+      memory.sourceSessionId === input.sessionId &&
+      (memory.status ?? 'active') === 'active',
     );
     const now = Date.now();
     if (existing) {
-      const sourceMessageIds = Array.from(new Set([
-        ...(existing.sourceMessageIds ?? []),
-        ...(input.sourceMessageIds ?? []),
-      ])).slice(-240);
+      const sourceMessageIds = Array.from(new Set(input.sourceMessageIds ?? []));
       await db.memories.update(existing.id, {
         content,
+        // 当前压缩是对完整 oldMsgs 范围重算的，替换来源而不是累积旧引用；
+        // 被编辑/删除的旧消息不能继续挂在新摘要上。
         sourceMessageIds: sourceMessageIds.length > 0 ? sourceMessageIds : undefined,
         confidence: Math.max(existing.confidence ?? 0, 0.75),
+        status: 'active',
         updatedAt: now,
       });
       return existing.id;
@@ -214,6 +270,9 @@ export const memoryRepo = {
   },
 
   async setPinned(id: string, pinned: boolean): Promise<void> {
+    const current = await db.memories.get(id);
+    if (!current) return;
+    if (pinned && (current.status ?? 'active') !== 'active') throw new Error('memory:cannot-pin-inactive');
     await db.memories.update(id, {
       pinned: pinned || undefined,
       ...(pinned ? { stability: 'stable' as const, status: 'active' as const } : {}),
@@ -223,11 +282,15 @@ export const memoryRepo = {
 
   /** 用新事实替代旧事实，保留旧记录与来源用于审计，但不再召回。 */
   async supersede(oldId: string, replacementId: string): Promise<void> {
+    const old = await db.memories.get(oldId);
+    if (!old) return;
+    const updatedAt = Date.now();
     await db.memories.update(oldId, {
       status: 'superseded',
       supersededBy: replacementId,
-      updatedAt: Date.now(),
+      updatedAt,
     });
+    await memorySourceTombstoneRepo.record({ userId: old.userId, sourceType: 'memory', sourceId: old.id, sourceRevision: updatedAt, status: 'superseded' });
   },
 
   /** 用户明确纠正事实时，停用最可能的旧事实；普通新记忆不会触发。 */
@@ -262,6 +325,16 @@ export const memoryRepo = {
 
   /** 删除一条记忆（记忆档案里用户主动删除；删除后角色不会再想起来） */
   async deleteById(id: string): Promise<void> {
+    const memory = await db.memories.get(id);
+    if (memory) {
+      await memorySourceTombstoneRepo.record({
+        userId: memory.userId,
+        sourceType: 'memory',
+        sourceId: memory.id,
+        sourceRevision: memory.updatedAt ?? memory.createdAt,
+        status: 'deleted',
+      });
+    }
     await db.memories.delete(id);
   },
 
@@ -269,6 +342,7 @@ export const memoryRepo = {
     const all = await db.memories.where('characterId').equals(characterId).toArray();
     for (const m of all) {
       if (m.userId === userId && m.createdAt < beforeTs) {
+        await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: m.id, sourceRevision: m.updatedAt ?? m.createdAt, status: 'deleted' });
         await db.memories.delete(m.id);
       }
     }
@@ -278,6 +352,7 @@ export const memoryRepo = {
     const all = await db.memories.where('characterId').equals(characterId).toArray();
     for (const m of all) {
       if (m.userId === userId) {
+        await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: m.id, sourceRevision: m.updatedAt ?? m.createdAt, status: 'deleted' });
         await db.memories.delete(m.id);
       }
     }

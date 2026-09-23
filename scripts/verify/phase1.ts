@@ -3,7 +3,7 @@
  *
  * 在真实浏览器 + 真实 IndexedDB 上执行：
  *   1. 用 **4.1.0 的 v15 schema** 建库并写入 4.x 形态数据（模拟老用户）
- *   2. 关闭，再用应用真实的 db（v17）打开 → 触发 Dexie v16/v17 升级与幂等迁移
+ *   2. 关闭，再用应用真实的 db（v24）打开 → 触发连续升级与幂等迁移
  *   3. 跑 12 项断言
  *
  * 运行方式见同目录 README.md。
@@ -145,10 +145,12 @@ async function run() {
   await db.open();
 
   section('基础：版本与表');
-  check('Dexie 版本为 22（世界层与后续升级均已建立）', db.verno === 22, db.verno);
+  check('Dexie 版本为 24（世界层、朋友圈与撤权墓碑均已建立）', db.verno === 24, db.verno);
   const tableNames = db.tables.map((t) => t.name);
   const newTables = ['worlds', 'worldEvents', 'worldScenes', 'worldSceneEntries', 'characterKnowledge', 'sharedMemories', 'relationshipStates', 'relationshipEvents'];
   check('8 张世界层新表已建立', newTables.every((t) => tableNames.includes(t)), tableNames);
+  check('主动朋友圈的生活事件与发帖计划表已建立', ['characterLifeEvents', 'momentPostPlans'].every((t) => tableNames.includes(t)), tableNames);
+  check('来源撤权墓碑表已建立，旧备份无法复活已删除来源', tableNames.includes('memorySourceTombstones'), tableNames);
 
   section('验收 1：旧数据零丢失');
   for (const name of OLD_TABLES) {

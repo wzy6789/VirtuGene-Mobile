@@ -1,4 +1,6 @@
 import { db, type Session } from './index';
+import { invalidateUnpinnedMemoriesForMessages } from './memory-repo';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 export const sessionRepo = {
   /** 该用户全部会话（补记助手等场景需要跨角色收集某天的对话） */
@@ -38,13 +40,38 @@ export const sessionRepo = {
     return db.sessions.update(id, { ...patch, updatedAt: Date.now() });
   },
 
-  async updateSummary(id: string, summary: string): Promise<number> {
-    return db.sessions.update(id, { summary, summaryUpdatedAt: Date.now() });
+  async updateSummary(
+    id: string,
+    summary: string,
+    witnessedBy?: string[],
+    sourceMessageIds?: string[],
+    sourceMessageRevisions?: Record<string, number>,
+  ): Promise<number> {
+    const patch: Partial<Session> = {
+      summary,
+      summaryUpdatedAt: Date.now(),
+      ...(sourceMessageIds ? {
+        summarySourceMessageIds: [...new Set(sourceMessageIds)],
+        summarySourceMessageRevisions: sourceMessageRevisions ?? {},
+      } : {}),
+    };
+    if (witnessedBy) patch.summaryWitnessedBy = [...new Set(witnessedBy)].sort();
+    return db.sessions.update(id, patch);
   },
 
   async deleteById(id: string): Promise<void> {
-    await db.sessions.delete(id);
-    await db.messages.where('sessionId').equals(id).delete();
+    await db.transaction('rw', [db.sessions, db.messages, db.memories, db.memorySourceTombstones], async () => {
+      const session = await db.sessions.get(id);
+      const messages = await db.messages.where('sessionId').equals(id).toArray();
+      if (session) {
+        await invalidateUnpinnedMemoriesForMessages(session.userId, messages.map((message) => message.id));
+        for (const message of messages) {
+          await memorySourceTombstoneRepo.record({ userId: session.userId, sourceType: 'message', sourceId: message.id, sourceRevision: message.revision ?? 1, status: 'deleted' });
+        }
+      }
+      await db.sessions.delete(id);
+      await db.messages.where('sessionId').equals(id).delete();
+    });
   },
 
   async incrementUnread(id: string): Promise<void> {

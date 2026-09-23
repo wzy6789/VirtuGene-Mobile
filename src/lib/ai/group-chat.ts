@@ -12,19 +12,10 @@ export interface GroupMemberBrief {
   id: string;
   name: string;
   persona: string;
-  /** 该成员与用户的共同记忆（单聊记忆摘要）；有值时群聊应自然提及 */
+  /** 当前群全体成员都可知的共同资料；不能放入某一成员的私聊或私密状态。 */
   memory?: string;
-  /** 该成员与用户的最近私聊记录（最新单聊会话最后几条原话）；有值时群聊可自然承接 */
-  privateChat?: string;
-  /** 该成员与用户的灵魂状态（等阶名·好感度·心情；仅 TA 自己知道） */
-  soulState?: string;
-  /** 用户设定的角色间故事关系；成员会据此保持一致的互动立场。 */
-  storyRelations?: string;
-  /**
-   * 该成员与群内其他成员之间真实发生过的共同事件（只读）。
-   * 群聊可以自然地承接这些往事，但绝不允许在群聊里新建或修改它们。
-   */
-  sharedHistory?: string;
+  /** 与这段共享资料对应的准确本地来源，仅供消息溯源，不拼进模型提示词。 */
+  memoryReferences?: { source: 'chat' | 'group' | 'world' | 'moment' | 'todo'; id: string }[];
 }
 
 export interface GroupTurn {
@@ -43,12 +34,9 @@ const GROUP_INSTRUCTION =
   '- 输出 1~3 条即可，最多 3 条；某角色回应后其他角色可补一句，也可以就此打住\n' +
   '- **每条 content 只能是一个人的话**：想让多个角色说话就输出多条 JSON（每条约 1~2 句），**严禁把不同角色的发言写进同一条 content**（content 里不要出现"艾莉：…"这种前缀）\n' +
   '- 群成员的名字不能改，speaker 必须是下面列出的成员之一（用成员原名，不要加称呼/括号/编号）\n' +
-  '- 每个成员都拥有和用户的共同记忆（列在成员信息里）。聊到相关话题时，**相关成员应像老朋友随口一提那样自然带出记忆**（例如用户提过的事、TA 知道的用户喜好）；不要生硬复述，也不要编造记忆里没有的内容\n' +
-  '- 成员的"最近私聊记录"是 TA 刚刚和用户私下聊过的内容（列在成员信息里）。相关成员可以自然承接私聊话题（比如用户私下说过的事，TA 在群里可以接话/回应）；**不要整段复述私聊记录**\n' +
-  '- **私聊是私密的：每个成员只知道 TA 自己的私聊记录，不知道别人的。** 只有某成员自己私下和用户聊过的事，才由 TA 在群里说出来；其他成员不该表现出知道（除非 TA 在群里说了）\n' +
-  '- **灵魂状态（等阶/好感度/心情）同样是私密的**：每个成员只知道 TA 自己的（列在成员信息里），会自然影响 TA 的言行（亲近者更随意、心情差者更闷）；其他成员不该知道别人的灵魂状态\n' +
-  '- 「共同事件」是成员之间真实发生过的事（只读资料）：话题相关时可以像真人一样自然提起，但**不允许在群聊里新编、改写或宣布它们没发生过**\n' +
-  '- 没有记忆的成员不要假装有共同经历\n' +
+  '- 成员资料中若有共享记忆，那些内容已确认当前群全体成员都可知。只在话题相关时自然提起，不要生硬复述，也不要编造记忆里没有的内容\n' +
+  '- 私聊、个人心情、好感度、未共享日记和待办不会提供给群聊模型；任何成员都不能借别人的口吻泄露这些私密资料\n' +
+  '- 没有共享记忆的成员不要假装有共同经历\n' +
   '- 禁止用括号写动作描写（如（笑）（叹气））\n' +
   '输出要求（务必遵守）：\n' +
   '- **只输出 JSON 本身**：不要任何解释、前言、结尾、代码块标记（不要 ```json / ```）\n' +
@@ -105,11 +93,7 @@ async function attemptTurn(
     const membersDesc = params.members
       .map((m) => {
         const mem = m.memory ? `\n　· 可以在当前群里提起的真实记忆：${m.memory}` : '';
-        const priv = m.privateChat ? `\n　· 与用户的最近私聊记录：\n${m.privateChat.split('\n').map((l) => '　　' + l).join('\n')}` : '';
-        const soul = m.soulState ? `\n　· 与用户的灵魂状态（仅 TA 自己知道）：${m.soulState}` : '';
-        const story = m.storyRelations ? `\n　· TA 知道的故事关系：${m.storyRelations}` : '';
-        const past = m.sharedHistory ? `\n　· TA 与群内其他成员之间真实发生过的共同事件（只读）：${m.sharedHistory}` : '';
-        return `${m.name}：${m.persona}${mem}${priv}${soul}${story}${past}`;
+      return `${m.name}：${m.persona}${mem}`;
       })
       .join('\n');
     const rawHistory = params.history.slice(-16).map((h) => ({

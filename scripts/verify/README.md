@@ -2,7 +2,7 @@
 
 在**真实浏览器 + 真实 IndexedDB**（多数套件还加上**真实渲染组件**与**真实业务流程**）上验证 5.0 的每一项声称。
 不是模拟、不是 mock：Phase 1 与 worldE 会先用 **旧的 v15 / v17 schema** 建库写入旧形态数据，
-再用应用真实的 `db`（v19）打开，从而触发 Dexie 真实的升级与幂等迁移。
+再用应用真实的 `db`（v24）打开，从而触发 Dexie 真实的升级与幂等迁移。
 
 ## 运行（推荐：一键全量回归）
 
@@ -21,11 +21,15 @@ node scripts\verify\build.mjs
 # 2) 起一个临时静态服务器（结果打到 stdout，同时按套件落到 .last-result-<suite>.txt）
 node scripts\verify\serve.cjs      # 监听 127.0.0.1:17899
 
-# 3) 一键跑完 17 套（每套一个**全新 user-data-dir**：迁移类套件必须从零开始）
+# 3) 一键跑完 22 套（每套一个**全新 user-data-dir**：迁移类套件必须从零开始）
 powershell -ExecutionPolicy Bypass -File scripts\verify\run-all.ps1
 #    只跑几套： -Suites worldA,worldD
 #    单套手跑：用无头 Chrome 打开 http://127.0.0.1:17899/worldA.html
 ```
+
+朋友圈验收还包括 `moments.html`（既有界面与设置 33 项）和
+`moments-autonomous.html`（主动发帖、并发幂等、私密隔离、账号隔离、清理与无效模型输出 13 项）。
+两套使用真实 IndexedDB；主动发帖套件只把模型 HTTP 边界替换为固定响应。
 
 > `run-all.ps1` 必须保存为 **UTF-8 with BOM**（Windows PowerShell 5.1 否则会把中文注释读成乱码而语法报错）。
 > `serve.cjs` 会把 `.css` 以 `text/css` 返回——否则 Chrome 会拒绝应用样式表，worldD 的布局断言会失去意义。
@@ -36,13 +40,13 @@ powershell -ExecutionPolicy Bypass -File scripts\verify\run-all.ps1
 
 | 套件 | 页面 | 断言数 |
 |---|---|---|
-| Phase 1 数据层升级迁移（v15 → v19） | `index.html` | 81 |
+| Phase 1 数据层升级迁移（v15 → v24） | `index.html` | 83 |
 | Phase 2a 世界入口 + 外壳回归 | `phase2a.html` | 48 |
 | Phase 2b-0 最小闭环（结算 → 世界事件） | `phase2b0.html` | 43 |
 | Phase 2b-1 世界首页接真实内容 | `phase2b1.html` | 32 |
 | Phase 2b-2 收藏为共同记忆（含隐私边界回归） | `phase2b2.html` | 77 |
 | Phase 2b-3 让角色说得出来（共同记忆进入上下文） | `phase2b3.html` | 45 |
-| Phase 2b-4 我的生活三级可见性 + R6 收口（含审核 P1/P2 回归） | `phase2b4.html` | 85 |
+| Phase 2b-4 我的生活三级可见性 + R6 收口（含审核 P1/P2 回归） | `phase2b4.html` | 86 |
 | Phase 2b-5 关系网络可解释化（2B） | `phase2b5.html` | 48 |
 | Phase 2b-6 R7 裁定：关系数值的唯一来源 | `phase2b6.html` | 30 |
 | Phase 3 世界舞台（Scene Director） | `phase3.html` | 72 |
@@ -53,12 +57,23 @@ powershell -ExecutionPolicy Bypass -File scripts\verify\run-all.ps1
 | **Living World C 结算 / 设定 / 时间线 / 关系 / 隐私 / 撤销**（§28–§46 / §100–§103） | `worldC.html` | 57 |
 | **Living World D 世界空间 UI**（§5–§12 / §37 / §66–§70 / §78） | `worldD.html` | 43 |
 | **Living World E 失败恢复 / 解析兼容 / 性能 / 迁移**（§51–§55 / §63 / §104 / §106 / §107） | `worldE.html` | 62 |
-| **合计** | | **895** |
+| **合计** | | **898** |
 
 > 计数口径说明：更早的 2b-0 报告里写的"38 项"与本 README 曾经的"32/44 项"是当时的粗略标签，
 > 与脚本实际打印的行数不一致；此处以**实际打印行数**为准（2b-2 报告 §8 已披露这次更正）。
 > Living World 落地时，Phase 2a / 2b-0 / 2b-1 / 2b-2 / 2b-4 / Phase 3 的部分断言**随 UI 重做而更新**
 > （例如"世界剧场"一级入口按 §77 退出主 UI），逐条差异记在《5.0.0-LIVING-WORLD-FINAL.md》第 21 节。
+
+### Cross-channel character-memory regression
+
+These suites use real IndexedDB and verify scoped recall, listener isolation, revocation, and stale-backup protection. LLM boundaries are replaced by test fixtures; the suites make no network requests.
+
+| Suite | Coverage | Assertions |
+|---|---|---:|
+| `character-memory.html` | private/group chat, Moments, diary, todos, world recall, undo, account boundaries, stale backups | 74 |
+| `worldG.html` | world state and undo regression | 13 |
+| `moments.html` | Moments visibility and interaction | 39 |
+| `moments-autonomous.html` | autonomous posts/comments, isolation and retries | 13 |
 
 ### Living World A–E：公共装置
 

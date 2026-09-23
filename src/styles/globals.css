@@ -139,28 +139,24 @@
 .vg-moments-eyebrow { margin:0 0 5px; color:#73f6ec; font-size:9px; letter-spacing:.22em; }
 .vg-moments-header h1 { margin:0; color:var(--text); font-size:26px; letter-spacing:.1em; }
 .vg-moments-header p:last-child { margin:6px 0 0; color:var(--text-secondary); font-size:12px; }
-.vg-moments-camera { display:grid; place-items:center; width:40px; height:40px; border:1px solid rgba(115,246,236,.26); border-radius:14px; color:#73f6ec; background:rgba(115,246,236,.07); font-size:24px; }
+.vg-moments-camera { display:grid; place-items:center; flex:none; width:40px; height:40px; padding:0; border:1px solid rgba(115,246,236,.26); border-radius:14px; color:#73f6ec; background:rgba(115,246,236,.07); line-height:0; }
+.vg-moments-camera svg { display:block; }
 .vg-moments-header-actions { display:flex; align-items:center; gap:7px; }
-.vg-moments-settings-anchor { position:relative; }
-.vg-moments-settings { display:grid; place-items:center; width:40px; height:40px; padding-bottom:9px; border:1px solid rgba(155,139,237,.23); border-radius:14px; color:var(--text-secondary); background:rgba(155,139,237,.07); font-size:22px; letter-spacing:1px; line-height:1; }
+.vg-moments-settings { display:grid; place-items:center; flex:none; width:40px; height:40px; padding:0; border:1px solid rgba(155,139,237,.23); border-radius:14px; color:#bdb4e9; background:rgba(155,139,237,.07); }
+.vg-moments-settings svg { display:block; }
 .vg-moments-settings:active { background:rgba(155,139,237,.15); }
-.vg-moments-settings-backdrop { position:fixed; z-index:5; inset:0; }
-.vg-moments-settings-menu { position:absolute; z-index:6; top:46px; right:0; min-width:138px; overflow:hidden; border:1px solid var(--border); border-radius:12px; background:var(--bg-panel); box-shadow:0 12px 30px rgba(0,0,0,.28); }
-.vg-moments-settings-menu button { display:block; width:100%; padding:11px 14px; color:var(--text); font-size:12.5px; text-align:left; white-space:nowrap; }
-.vg-moments-settings-menu button + button { border-top:1px solid var(--border); }
-.vg-moments-settings-menu button:active { color:#bffcf7; background:rgba(115,246,236,.08); }
-/* 名片与封面：通栏（微信也是整幅封面 + 头像压在封面上），点封面展开/收起 */
+/* 名片与封面：头像与用户名完整位于亮色封面内，点空白封面展开/收起。 */
 .vg-moments-profile { position:relative; margin:0 0 10px; }
 .vg-moments-cover { position:relative; display:block; width:100%; height:74px; padding:0; border:0; background-color:#1b1733; background-image:radial-gradient(circle at 80% 20%,rgba(115,246,236,.22),transparent 20%),linear-gradient(120deg,#211c45,#142f3e 70%,#16182d); background-position:center; background-size:cover; transition:height .22s ease; }
-/* 展开时封面下缘加一层压暗，头像压在亮部上也读得清 */
+/* 展开时封面下缘加一层压暗，头像和名字保持清晰。 */
 .vg-moments-profile[data-expanded="true"] .vg-moments-cover::after { content:""; position:absolute; right:0; bottom:0; left:0; height:78px; background:linear-gradient(to top,rgba(5,3,12,.78),rgba(5,3,12,0)); pointer-events:none; }
 .vg-moments-profile[data-expanded="true"] .vg-moments-cover { height:196px; }
-.vg-moments-cover-actions { position:absolute; z-index:2; top:150px; right:12px; display:flex; gap:8px; }
+.vg-moments-cover-actions { position:absolute; z-index:2; top:12px; right:12px; display:flex; gap:8px; }
 .vg-moments-cover-actions button { padding:6px 11px; border:1px solid rgba(255,255,255,.22); border-radius:999px; color:#eae6ff; background:rgba(10,8,24,.45); backdrop-filter:blur(6px); font-size:11.5px; }
-.vg-moments-profile-row { position:relative; z-index:1; display:flex; align-items:center; gap:11px; padding:0 16px; }
-.vg-moments-profile-row > img, .vg-moments-profile-row > span { margin-top:-20px; border:3px solid var(--bg-panel); }
-.vg-moments-profile-row strong { display:block; color:var(--text); font-size:15px; }
-.vg-moments-profile-row > div > span { display:block; margin-top:2px; color:var(--text-secondary); font-size:11px; }
+.vg-moments-profile-row { position:absolute; z-index:1; right:0; bottom:0; left:0; display:flex; align-items:center; gap:11px; min-height:74px; padding:8px 16px; background:linear-gradient(to top,rgba(8,9,25,.55),transparent); pointer-events:none; }
+.vg-moments-profile-row > img, .vg-moments-profile-row > span { border:2px solid rgba(11,12,30,.9); box-shadow:0 4px 16px rgba(0,0,0,.22); }
+.vg-moments-profile-row strong { display:block; color:#fff; font-size:15px; }
+.vg-moments-profile-row > div > span { display:block; margin-top:2px; color:rgba(241,246,255,.82); font-size:11px; }
 /* 互动条与动态行共用同一条左边缘（通栏），但用底色把它和内容区分开 */
 .vg-moments-inbox { display:flex; align-items:center; gap:11px; width:100%; margin:10px 0 6px; padding:12px 16px; border:0; border-radius:0; background:rgba(108,92,231,.08); text-align:left; }
 .vg-moments-inbox:active { background:rgba(108,92,231,.09); }
@@ -185,7 +181,8 @@
 .vg-moment-bubble { padding:1px 8px 3px; border-radius:8px; color:var(--text-secondary); background:rgba(155,139,237,.11); font-size:13px; letter-spacing:1px; line-height:1.5; }
 .vg-moment-bubble.is-liked { color:#ff8fa8; background:rgba(255,107,129,.13); }
 .vg-moment-pill { position:absolute; z-index:5; top:-6px; right:34px; display:flex; overflow:hidden; border:1px solid var(--border); border-radius:9px; background:var(--bg-panel); box-shadow:0 10px 24px rgba(0,0,0,.32); }
-.vg-moment-pill button { padding:7px 14px; color:var(--text); font-size:12.5px; white-space:nowrap; }
+.vg-moment-pill button { display:flex; align-items:center; justify-content:center; gap:7px; min-width:76px; padding:8px 12px; color:var(--text); font-size:12.5px; white-space:nowrap; }
+.vg-moment-pill button svg { flex:none; color:#73f6ec; }
 .vg-moment-pill button + button { border-left:1px solid var(--border); }
 .vg-moment-pill button:active { color:#bffcf7; background:rgba(115,246,236,.08); }
 /* 点赞与评论合成一个浅底块（微信也是同一个小灰块），中间一条细线 */
@@ -272,10 +269,10 @@
 .vg-moment-setting-actions button:disabled { opacity:.4; }
 .vg-moment-publish.is-danger { background:linear-gradient(120deg,#b4444f,#8a3b96); }
 /* 紧凑密度：压封面、名片与条目间距，同屏能看到更多内容（实测多给的是第二条的可见高度） */
-.vg-moments-page[data-density="compact"] .vg-moments-profile-row { padding:0 14px; }
-.vg-moments-page[data-density="compact"] .vg-moments-cover { height:56px; }
+.vg-moments-page[data-density="compact"] .vg-moments-profile-row { min-height:68px; padding:6px 14px; }
+.vg-moments-page[data-density="compact"] .vg-moments-cover { height:68px; }
 .vg-moments-page[data-density="compact"] .vg-moments-profile[data-expanded="true"] .vg-moments-cover { height:168px; }
-.vg-moments-page[data-density="compact"] .vg-moments-cover-actions { top:122px; right:10px; }
+.vg-moments-page[data-density="compact"] .vg-moments-cover-actions { top:10px; right:10px; }
 .vg-moments-page[data-density="compact"] .vg-moments-inbox { margin:8px 0 4px; padding:9px 14px; }
 .vg-moments-page[data-density="compact"] .vg-moment-card { padding:11px 14px; }
 .vg-moments-page[data-density="compact"] .vg-moment-text { font-size:14.5px; line-height:1.66; }
@@ -362,6 +359,21 @@
 .vg-living-panel-code { color:#73f6ec; font-size:9px; letter-spacing:.18em; opacity:.78; }
 .vg-living-panel-head h2 { margin-top:4px; color:#e3e0f7; font-size:14px; font-weight:500; letter-spacing:.05em; }
 .vg-living-panel-head > div > p:last-child { margin-top:3px; overflow:hidden; color:#8790b2; font-size:10px; line-height:1.5; text-overflow:ellipsis; white-space:nowrap; }
+.vg-living-echoes { margin-top:10px; }
+.vg-living-echoes .vg-living-locations-head { margin-top:0; }
+.vg-living-echo { display:grid; gap:3px; margin-top:7px; padding:10px 11px; border-left:2px solid rgba(115,246,236,.45); border-radius:0 12px 12px 0; background:linear-gradient(100deg,rgba(115,246,236,.055),rgba(108,92,231,.035)); }
+.vg-living-echo > span { color:#82e8e3; font-size:11px; }
+.vg-living-echo > strong { color:#e7e3f6; font-size:13px; font-weight:500; line-height:1.5; }
+.vg-living-echo > p { color:#a0a6bf; font-size:12px; line-height:1.65; }
+.vg-living-echo > small { color:#898fb0; font-size:11px; }
+.vg-moment-post-contact-settings { margin:7px 0 12px; padding:0 12px 8px; border:1px solid rgba(164,178,232,.1); border-radius:14px; background:rgba(13,17,39,.32); }
+.vg-moment-post-contact-settings > summary { padding:11px 0; color:#b9c1df; font-size:13px; cursor:pointer; }
+.vg-moment-post-contact-settings > p { padding:0 0 10px; color:#8d95b3; font-size:12px; }
+.vg-moment-post-contact { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:44px; border-top:1px solid rgba(164,178,232,.07); }
+.vg-moment-post-contact > span { display:flex; align-items:center; gap:9px; min-width:0; color:#e0e4f5; font-size:13px; }
+.vg-moment-post-contact > span b { overflow:hidden; font-weight:500; text-overflow:ellipsis; white-space:nowrap; }
+.vg-moment-post-contact select { min-height:34px; padding:0 24px 0 10px; border:1px solid rgba(164,178,232,.16); border-radius:10px; color:#dce3fb; background:#151a36; font-size:12px; }
+.vg-moment-thread-link { display:inline-flex; align-items:center; min-height:28px; margin-top:7px; padding:0 10px; border:1px solid rgba(115,246,236,.13); border-radius:999px; color:#9fe9e4; background:rgba(115,246,236,.045); font-size:12px; }
 .vg-living-pulse-button { display:flex; flex:none; align-items:center; gap:5px; min-height:30px; padding:0 9px; border:1px solid rgba(115,246,236,.24); border-radius:10px; color:#bdfbf6; background:rgba(115,246,236,.07); font-size:10px; letter-spacing:.04em; }
 .vg-living-pulse-button span { font-size:15px; line-height:1; }
 .vg-living-pulse-button:disabled { opacity:.45; }

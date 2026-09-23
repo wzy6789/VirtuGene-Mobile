@@ -190,7 +190,7 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
       return;
     }
     let alive = true;
-    void memoryRepo.getRecentByCharacter(characterId, userId, 1).then((items) => {
+    void memoryRepo.getRecentActiveByCharacter(characterId, userId, 1).then((items) => {
       if (alive) setRecentMemory(items[0]?.content ?? null);
     });
     return () => { alive = false; };

@@ -17,7 +17,8 @@ import { notifyLocal, requestNotificationPermission } from './lib/notify';
 import { loadPersistedApiKey } from './lib/api-key-storage';
 import { useGroupStore } from './store/group-store';
 import { momentsRepo } from './db/moments-repo';
-import { isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from './lib/ai/gateway';
+import { hasAiGatewayAccess, isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from './lib/ai/gateway';
+import { loadMomentsPreferences } from './lib/moments/preferences';
 import { UseTimeReminder } from './components/compliance/UseTimeReminder';
 
 // 手账按需加载：首次进入才拉取日记相关代码，加快主聊天页启动
@@ -25,6 +26,8 @@ const DiaryPage = lazy(() => import('./pages/DiaryPage').then((m) => ({ default:
 
 export default function App() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const activeUserId = useAuthStore((s) => s.userId);
+  const apiKey = useAuthStore((s) => s.apiKey);
 
   const theme = useThemeStore((s) => s.theme);
   const activeView = useUIStore((s) => s.activeView);
@@ -169,22 +172,100 @@ export default function App() {
 
   // 角色看动态、点赞和评论在应用前台持续推进；用户离开朋友圈也不会让任务停住。
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || !activeUserId) return;
     let running = false;
-    const check = async () => {
+    let hiddenAt: number | undefined = document.visibilityState === 'hidden' ? Date.now() : undefined;
+    let openingAuthRetries = 0;
+    let openingGenerations = 0;
+    const timers: number[] = [];
+    const openingKey = `virtugene-moments:last-opening:${activeUserId}`;
+    const check = async (trigger: 'opening' | 'background' = 'background') => {
       const userId = useAuthStore.getState().userId;
       if (!userId || running || document.visibilityState !== 'visible') return;
       running = true;
-      try { await momentsRepo.processJobs(userId); }
+      try {
+        if (trigger === 'opening') {
+          if (openingGenerations >= 3) return;
+          // 先让一条新动态尽快落到列表；互动任务在这轮生成结束后继续处理。
+          await momentsRepo.processAutonomousPosts(userId, Date.now(), {
+            trigger,
+            attemptBudget: 3 - openingGenerations,
+            onAttempt: () => { openingGenerations += 1; },
+          });
+          void momentsRepo.processJobs(userId).catch(() => undefined);
+        } else {
+          await momentsRepo.processJobs(userId);
+          await momentsRepo.processAutonomousPosts(userId, Date.now(), { trigger });
+        }
+      }
       catch { /* 下次前台检查会继续处理到期任务。 */ }
       finally { running = false; }
     };
-    const first = window.setTimeout(() => { void check(); }, 15_000);
-    const timer = window.setInterval(() => { void check(); }, 60_000);
-    const onVisible = () => { if (document.visibilityState === 'visible') void check(); };
+
+    const startOpeningPulse = () => {
+      if (useAuthStore.getState().userId !== activeUserId || document.visibilityState !== 'visible') return;
+      const auth = useAuthStore.getState();
+      const preferences = loadMomentsPreferences(activeUserId);
+      if (!preferences.autonomousPostsEnabled) return;
+      if (!auth.apiKey && !hasAiGatewayAccess()) {
+        if (openingAuthRetries < 10) {
+          openingAuthRetries += 1;
+          timers.push(window.setTimeout(startOpeningPulse, 1_500));
+        }
+        return;
+      }
+      openingAuthRetries = 0;
+      if (running) {
+        timers.push(window.setTimeout(startOpeningPulse, 15_000));
+        return;
+      }
+      const now = Date.now();
+      const last = Number(localStorage.getItem(openingKey) ?? 0);
+      if (Number.isFinite(last) && last > 0 && last <= now && now - last < 3 * 60 * 60 * 1000) return;
+      // 先写入本地时间戳，避免快速切页、热重载或重复前台事件重复启动一轮。
+      localStorage.setItem(openingKey, String(now));
+      openingGenerations = 0;
+
+      const runStage = async (stage: 1 | 2) => {
+        if (useAuthStore.getState().userId !== activeUserId) return;
+        if (document.visibilityState !== 'visible' || running) {
+          timers.push(window.setTimeout(() => { void runStage(stage); }, 20_000));
+          return;
+        }
+        const contacts = await momentsRepo.contacts(activeUserId);
+        const minimumContacts = stage === 1 ? 4 : 8;
+        if (contacts.length < minimumContacts) return;
+        await check('opening');
+      };
+
+      // 首条马上生成；有足够多的角色时，再分两次把生活动态带进首页。
+      const secondDelay = 45_000 + Math.random() * 75_000;
+      const thirdDelay = 180_000 + Math.random() * 180_000;
+      timers.push(window.setTimeout(() => { void runStage(1); }, secondDelay));
+      timers.push(window.setTimeout(() => { void runStage(2); }, thirdDelay));
+      void check('opening');
+    };
+
+    const first = window.setTimeout(startOpeningPulse, 2_000);
+    const timer = window.setInterval(() => { void check('background'); }, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+      } else if (hiddenAt) {
+        const awayFor = Date.now() - hiddenAt;
+        hiddenAt = undefined;
+        if (awayFor >= 3 * 60 * 60 * 1000) startOpeningPulse();
+        else if (awayFor >= 5 * 60_000) void check('background');
+      }
+    };
     document.addEventListener('visibilitychange', onVisible);
-    return () => { window.clearTimeout(first); window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
-  }, [isLoggedIn]);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+      timers.forEach((id) => window.clearTimeout(id));
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [isLoggedIn, activeUserId, apiKey]);
 
   const handleCloseUpdateNotes = () => {
     if (updateNotes) {

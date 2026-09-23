@@ -7,6 +7,7 @@ import { memoryRepo } from '../db/memory-repo';
 import { stateRepo } from '../db/state-repo';
 import { continuityRepo } from '../db/continuity-repo';
 import { sharedEventRepo } from '../db/shared-event-repo';
+import { momentsRepo } from '../db/moments-repo';
 import { worldRepo } from '../db/world-repo';
 import { useAuthStore } from './auth-store';
 import { useCharacterStateStore } from './character-state-store';
@@ -580,6 +581,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const userId = useAuthStore.getState().userId ?? '';
     const sessions = await sessionRepo.getByCharacter(id, userId);
     const sessionIds = sessions.map((s) => s.id);
+    await momentsRepo.deleteCharacterData(userId, id);
     if (sessionIds.length > 0) {
       // 删除情绪快照（按会话关联）
       await db.emotionSnapshots.where('sessionId').anyOf(sessionIds).delete();
@@ -686,6 +688,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Delete this user's memories, relationship state, and custom characters
     await db.memories.where('userId').equals(userId).delete();
+    await momentsRepo.clearForUser(userId);
     const states = await db.characterStates.toArray();
     for (const st of states) {
       if (st.userId === userId) {
@@ -700,6 +703,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await sharedEventRepo.clearForUser(userId);
     // 5.0 Living World：世界层全部数据（含世界本身）一并删除
     await worldRepo.clearForUser(userId);
+    // 注销账号是彻底清理；撤回标记也属于该账号的数据，不能遗留在本机。
+    await db.memorySourceTombstones.where('userId').equals(userId).delete();
     await db.users.delete(userId);
 
     set({

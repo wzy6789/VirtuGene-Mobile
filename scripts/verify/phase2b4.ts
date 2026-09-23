@@ -16,9 +16,9 @@
  *  C. 加入共同世界：写 reality 事件 + 按参与者认知
  *  D. 真实两次发送：注入 → 撤回 → 立即不注入
  *  E. R6 收口：旧开关形同不存在；私密/授权给别人/授权给当前角色的三种情况
- *  F. 回收站与彻底删除：软删除不进上下文；恢复后可再进；彻底删除收回认知与事件
+ *  F. 回收站与彻底删除：软删除不进上下文；恢复默认私密；重新授权才可再进；彻底删除收回认知与事件
  *  G. 角色被删除：授权摘掉、认知消失、回到仅自己
- *  H. 世界页：加入共同世界后出现在「最近发生」并标为「你的生活」
+ *  H. 世界页：首页不混入年表记录；明确打开年表后显示真实生活条目和人话标签
  *  I. UI（真实组件）：三级可见性控件与总览的收回入口
  *  J. 成本：每次发送只调 1 次 LLM，全程零网络
  */
@@ -51,6 +51,7 @@ import { useSettingsStore } from '../../src/store/settings-store';
 import { useUIStore } from '../../src/store/ui-store';
 import { ChatWindow } from '../../src/components/chat/ChatWindow';
 import { MobileWorldPage } from '../../src/components/world/MobileWorldPage';
+import { WorldTimelinePage } from '../../src/components/world/WorldTimelinePage';
 import { DiarySharingControl, DiarySharingOverviewModal } from '../../src/components/diary/DiarySharing';
 import type { Character, Diary, Session } from '../../src/db/index';
 
@@ -334,7 +335,7 @@ async function run() {
   }
 
   /* ---------------- F. 回收站与彻底删除 ---------------- */
-  section('F. 回收站：软删除不进上下文；恢复后可再进；彻底删除收回授权');
+  section('F. 回收站：软删除与恢复默认私密；重新授权后可见；彻底删除收回授权');
   {
     await setDiarySharing({ userId: U, diaryId: toldDiary, visibility: 'selected', visibleTo: [C1] });
     await diaryRepo.softDelete(toldDiary);
@@ -343,11 +344,14 @@ async function run() {
     check('② 回收站里的日记不进 prompt（即使授权还在）', !p.includes(TOLD_TEXT));
     await diaryRepo.restore(toldDiary);
     const p2 = await sendAndCapture(host, '我想说件事');
-    check('③ 从回收站恢复后又可以进 prompt', p2.includes(TOLD_TEXT));
+    check('③ 从回收站恢复后默认回到仅自己', (await diaryRepo.getById(toldDiary))?.visibility === 'private' && !p2.includes(TOLD_TEXT));
+    await setDiarySharing({ userId: U, diaryId: toldDiary, visibility: 'selected', visibleTo: [C1] });
+    const p3 = await sendAndCapture(host, '我又把这件事告诉你了');
+    check('④ 用户重新授权后才重新进入 prompt', p3.includes(TOLD_TEXT));
     await diaryRepo.purge(toldDiary);
-    check('④ 彻底删除后认知行被收回', (await knowledgeRepo.getForCharacterEvent(C1, diaryKnowledgeAnchor(toldDiary))) === undefined);
-    const p3 = await sendAndCapture(host, '没事');
-    check('⑤ 彻底删除后不再注入', !p3.includes(TOLD_TEXT));
+    check('⑤ 彻底删除后认知行被收回', (await knowledgeRepo.getForCharacterEvent(C1, diaryKnowledgeAnchor(toldDiary))) === undefined);
+    const p4 = await sendAndCapture(host, '没事');
+    check('⑥ 彻底删除后不再注入', !p4.includes(TOLD_TEXT));
   }
 
   /* ---------------- G. 角色被删除 ---------------- */
@@ -369,20 +373,20 @@ async function run() {
   }
 
   /* ---------------- H. 世界页 ---------------- */
-  section('H. 世界页：加入共同世界后出现在「此刻」详情');
+  section('H. 世界页：主页保持克制，生活记录在明确打开的年表中');
   {
     unmount();
     useUIStore.getState().setMobileTab('world');
     const worldHost = mount(createElement(MobileWorldPage));
     await sleep(800);
     const summaryText = worldHost.innerText;
-    const expand = Array.from(worldHost.querySelectorAll('button')).find((button) => (button.textContent ?? '').includes('看看发生了什么'));
-    expand?.click();
-    await sleep(80);
-    const text = worldHost.innerText;
-    check('① 世界统计行如实反映真实数据（天数 / 角色数 / 共同经历）', /第 \d+ 天/.test(text) && text.includes('共同经历'), text.slice(0, 200));
-    check('② 首屏克制，展开「此刻」后列出真实生活记录', !summaryText.includes(WORLD_TEXT.slice(0, 12)) && text.includes(WORLD_TEXT.slice(0, 12)), text.slice(0, 500));
-    check('③ 类别用人话「你写下的生活」', text.includes('你写下的生活'), text.slice(0, 400));
+    check('① 世界首页不把历史日记记录挤进此刻面板', !summaryText.includes(WORLD_TEXT.slice(0, 12)), summaryText.slice(0, 500));
+    unmount();
+    const timelineHost = mount(createElement(WorldTimelinePage));
+    await sleep(800);
+    const timelineText = timelineHost.innerText;
+    check('② 明确进入年表后能看到真实生活记录', timelineText.includes(WORLD_TEXT.slice(0, 12)), timelineText.slice(0, 500));
+    check('③ 日记类别使用人话标签「你写下的生活」', timelineText.includes('你写下的生活'), timelineText.slice(0, 400));
     unmount();
   }
 

@@ -22,6 +22,7 @@ import { knowledgeRepo } from '../../db/knowledge-repo';
 import { continuityRepo } from '../../db/continuity-repo';
 import { worldFactRepo } from '../../db/world-fact-repo';
 import { relationshipRepo } from '../../db/relationship-repo';
+import { memorySourceTombstoneRepo } from '../../db/memory-source-tombstone-repo';
 import { worldSceneRepo } from '../../db/world-scene-repo';
 import { stateRepo } from '../../db/state-repo';
 import { RELATIONSHIP_FACETS, type CharacterState, type RelationshipFacet } from '../../db/index';
@@ -133,6 +134,17 @@ export async function undoLastTurn(params: { userId: string; worldId: string; tu
   // 1) 世界流正文
   const entryIds = [...turn.entryIds];
   if (entryIds.length > 0) {
+    const entries = await db.worldSceneEntries.bulkGet(entryIds);
+    for (const entry of entries) {
+      if (!entry) continue;
+      await memorySourceTombstoneRepo.record({
+        userId: turn.userId,
+        sourceType: 'worldSceneEntry',
+        sourceId: entry.id,
+        sourceRevision: entry.createdAt,
+        status: 'deleted',
+      });
+    }
     await db.worldSceneEntries.bulkDelete(entryIds);
     result.removedEntries = entryIds.length;
   }

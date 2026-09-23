@@ -1,5 +1,6 @@
 import { db, type WorldFact, type WorldFactCategory } from './index';
 import { stableId } from '../lib/world/subjects';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import { isVisibleToCharacter } from '../lib/world/visibility';
 
 /**
@@ -131,6 +132,14 @@ export const worldFactRepo = {
   },
 
   async remove(id: string): Promise<void> {
+    const existing = await db.worldFacts.get(id);
+    if (existing) await memorySourceTombstoneRepo.record({
+      userId: existing.userId,
+      sourceType: 'worldFact',
+      sourceId: existing.id,
+      sourceRevision: existing.updatedAt ?? existing.createdAt,
+      status: 'deleted',
+    });
     await db.worldFacts.delete(id);
   },
 

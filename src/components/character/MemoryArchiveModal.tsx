@@ -118,8 +118,9 @@ export function MemoryArchiveModal({
                 <p className="text-[12.5px] leading-relaxed text-ink">{memory.content}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-gray-500">
                   <span className="rounded-full bg-life-cyan/10 px-1.5 py-0.5 text-life-cyan">{memoryKindLabel(memory.memoryKind)}</span>
-                  {memory.pinned && <span className="rounded-full bg-gene-purple/15 px-1.5 py-0.5 text-gene-purple">必须记住</span>}
+                  {memory.pinned && (memory.status ?? 'active') === 'active' && <span className="rounded-full bg-gene-purple/15 px-1.5 py-0.5 text-gene-purple">必须记住</span>}
                   {memory.status === 'superseded' && <span className="rounded-full bg-gray-500/15 px-1.5 py-0.5 text-gray-500">已被新信息替代</span>}
+                  {memory.status === 'withdrawn' && <span className="rounded-full bg-gray-500/15 px-1.5 py-0.5 text-gray-500">已撤回，不再召回</span>}
                   <span>{new Date(memory.createdAt).toLocaleDateString('zh-CN')}</span>
                   {sessionTitle && <span>· 来自「{sessionTitle}」</span>}
                   <span>· {hasOrigin ? '有原话依据' : '由对话总结'}</span>
@@ -147,9 +148,11 @@ export function MemoryArchiveModal({
                 <div className="mt-2 flex justify-end">
                   <button
                     onClick={() => void memoryRepo.setPinned(memory.id, !memory.pinned).then(reload)}
-                    className="mr-2 rounded-lg px-2 py-1 text-[10px] text-life-cyan"
+                    disabled={(memory.status ?? 'active') !== 'active' && !memory.pinned}
+                    title={(memory.status ?? 'active') !== 'active' ? '已停用的旧记忆不能重新置顶；需要时请在聊天中重新告诉角色' : undefined}
+                    className="mr-2 rounded-lg px-2 py-1 text-[10px] text-life-cyan disabled:cursor-not-allowed disabled:text-gray-500"
                   >
-                    {memory.pinned ? '取消重点' : '设为必须记住'}
+                    {(memory.status ?? 'active') !== 'active' ? (memory.pinned ? '清除重点' : '已停用') : memory.pinned ? '取消重点' : '设为必须记住'}
                   </button>
                   {confirmId === memory.id ? (
                     <div className="flex items-center gap-2">

@@ -23,6 +23,7 @@ export interface KnowledgeInput {
   isSecret?: boolean;
   secretOwnerId?: string;
   sourceCharacterId?: string;
+  sourceRevision?: number;
   learnedAt?: number;
 }
 
@@ -53,6 +54,9 @@ export const knowledgeRepo = {
         : {}),
       ...(input.sourceCharacterId ?? existing?.sourceCharacterId
         ? { sourceCharacterId: input.sourceCharacterId ?? existing?.sourceCharacterId }
+        : {}),
+      ...(input.sourceRevision ?? existing?.sourceRevision
+        ? { sourceRevision: input.sourceRevision ?? existing?.sourceRevision }
         : {}),
       learnedAt: input.learnedAt ?? existing?.learnedAt ?? now,
       updatedAt: now,
@@ -149,9 +153,12 @@ export const knowledgeRepo = {
    * 这类授权的撤销必须**真的删掉认知行**，否则角色仍会以为 TA 知道。
    * 返回删除的行数。
    */
-  async removeForEvent(eventId: string): Promise<number> {
+  async removeForEvent(eventId: string, userId?: string): Promise<number> {
     if (!eventId) return 0;
-    return db.characterKnowledge.where('eventId').equals(eventId).delete();
+    const rows = await db.characterKnowledge.where('eventId').equals(eventId).toArray();
+    const ids = rows.filter((row) => userId === undefined || row.userId === userId).map((row) => row.id);
+    if (ids.length) await db.characterKnowledge.bulkDelete(ids);
+    return ids.length;
   },
 
   /** 角色被删除：TA 的认知随之消失（认知依附于角色本身） */

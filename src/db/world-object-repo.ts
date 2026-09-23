@@ -61,7 +61,15 @@ export const worldObjectRepo = {
   async listForLocation(worldId: string, locationId: string, userId?: string): Promise<WorldObject[]> {
     const rows = await db.worldObjects.where('[worldId+locationId]').equals([worldId, locationId]).toArray();
     return rows
-      .filter((row) => (userId === undefined || row.userId === userId) && row.state !== 'gone')
+      .filter((row) => (userId === undefined || row.userId === userId) && row.state !== 'gone' && row.state !== 'held')
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  },
+
+  /** 角色世界内的随身物件；旧版 held 记录默认属于当前用户。 */
+  async listCarried(worldId: string, userId: string): Promise<WorldObject[]> {
+    const rows = await db.worldObjects.where('worldId').equals(worldId).toArray();
+    return rows
+      .filter((row) => row.userId === userId && row.state === 'held' && (!row.heldBy || row.heldBy === `u:${userId}`))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   },
 
@@ -78,7 +86,12 @@ export const worldObjectRepo = {
     return next;
   },
 
-  async applyAction(id: string, userId: string, action: 'inspect' | 'take' | 'leave' | 'open'): Promise<WorldObject | undefined> {
+  async applyAction(
+    id: string,
+    userId: string,
+    action: 'inspect' | 'take' | 'leave' | 'open',
+    destination?: { locationId?: string; sceneId?: string },
+  ): Promise<WorldObject | undefined> {
     const row = await this.getById(id, userId);
     if (!row) return undefined;
     const labels: Record<typeof action, string> = {
@@ -90,6 +103,11 @@ export const worldObjectRepo = {
     const next: WorldObject = {
       ...row,
       state: action === 'take' ? 'held' : action === 'leave' ? 'present' : action === 'open' ? 'moved' : row.state,
+      ...(action === 'take' ? { heldBy: `u:${userId}` } : action === 'leave' ? {
+        heldBy: undefined,
+        ...(destination?.locationId ? { locationId: destination.locationId } : {}),
+        ...(destination?.sceneId ? { sceneId: destination.sceneId } : {}),
+      } : {}),
       lastAction: labels[action],
       updatedAt: Date.now(),
     };

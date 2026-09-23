@@ -4,6 +4,7 @@ export function WorldExplorePanel({
   scene,
   locations,
   objects,
+  carriedObjects,
   presence,
   agents,
   characters,
@@ -15,6 +16,7 @@ export function WorldExplorePanel({
   scene: WorldScene;
   locations: WorldLocation[];
   objects: WorldObject[];
+  carriedObjects: WorldObject[];
   presence: WorldPresence[];
   agents: WorldAgentState[];
   characters: Character[];
@@ -37,6 +39,26 @@ export function WorldExplorePanel({
         </div>
         <button type="button" onClick={onClose} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/65 active:scale-95">收起</button>
       </div>
+
+      {carriedObjects.length > 0 && (
+        <section className="mt-4 border-t border-white/8 pt-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-sm font-medium text-white/85">你带着</h3>
+            <span className="text-[11px] text-white/40">{carriedObjects.length} 件</span>
+          </div>
+          <div className="grid gap-2">
+            {carriedObjects.map((object) => (
+              <div key={object.id} className="flex items-center justify-between gap-3 rounded-2xl border border-cyan-100/10 bg-cyan-200/[.035] px-3 py-3">
+                <span className="min-w-0">
+                  <strong className="block truncate text-sm text-white/90">{object.name}</strong>
+                  <span className="mt-0.5 block text-xs leading-5 text-white/50">{object.lastAction ?? object.description}</span>
+                </span>
+                <button type="button" onClick={() => onAct(object, 'leave')} className="shrink-0 rounded-full border border-cyan-100/15 px-3 py-1.5 text-xs text-cyan-100/80 active:scale-95">放在这里</button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="mt-4">
         <div className="mb-2 flex items-center justify-between">

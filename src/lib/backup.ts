@@ -45,11 +45,14 @@ export interface BackupData {
   emotionSnapshots: SyncExportData['emotionSnapshots'];
   characterStates: SyncExportData['characterStates'];
   diaries: SyncExportData['diaries'];
+  groups?: SyncExportData['groups'];
   continuityThreads?: SyncExportData['continuityThreads'];
   sharedStoryEvents?: SyncExportData['sharedStoryEvents'];
   // 5.0 Living World（旧备份包没有这些字段时按空处理）
   worlds?: SyncExportData['worlds'];
   worldEvents?: SyncExportData['worldEvents'];
+  worldFacts?: SyncExportData['worldFacts'];
+  worldTurns?: SyncExportData['worldTurns'];
   worldScenes?: SyncExportData['worldScenes'];
   worldSceneEntries?: SyncExportData['worldSceneEntries'];
   characterKnowledge?: SyncExportData['characterKnowledge'];
@@ -71,12 +74,16 @@ export interface BackupData {
   momentContacts?: SyncExportData['momentContacts'];
   momentJobs?: SyncExportData['momentJobs'];
   momentNotifications?: SyncExportData['momentNotifications'];
+  characterLifeEvents?: SyncExportData['characterLifeEvents'];
+  momentPostPlans?: SyncExportData['momentPostPlans'];
+  sourceTombstones?: SyncExportData['sourceTombstones'];
 }
 
 /** 收集全量数据（含账号表，用于完整备份） */
 export async function collectBackupData(userId: string | null, username: string | null): Promise<BackupData> {
   const base = await collectSyncData(userId, username);
-  const users = await db.users.toArray();
+  const user = userId ? await db.users.get(userId) : undefined;
+  const users = user ? [user] : [];
   return {
     __meta__: { ...base.__meta__, kind: 'backup' },
     users,
@@ -87,10 +94,13 @@ export async function collectBackupData(userId: string | null, username: string 
     emotionSnapshots: base.emotionSnapshots,
     characterStates: base.characterStates,
     diaries: base.diaries,
+    groups: base.groups,
     continuityThreads: base.continuityThreads,
     sharedStoryEvents: base.sharedStoryEvents,
     worlds: base.worlds,
     worldEvents: base.worldEvents,
+    worldFacts: base.worldFacts,
+    worldTurns: base.worldTurns,
     worldScenes: base.worldScenes,
     worldSceneEntries: base.worldSceneEntries,
     characterKnowledge: base.characterKnowledge,
@@ -112,6 +122,9 @@ export async function collectBackupData(userId: string | null, username: string 
     momentContacts: base.momentContacts,
     momentJobs: base.momentJobs,
     momentNotifications: base.momentNotifications,
+    characterLifeEvents: base.characterLifeEvents,
+    momentPostPlans: base.momentPostPlans,
+    sourceTombstones: base.sourceTombstones,
   };
 }
 
@@ -198,10 +211,13 @@ export async function restoreBackup(password: string): Promise<{
       emotionSnapshots: data.emotionSnapshots ?? [],
       characterStates: data.characterStates ?? [],
       diaries: data.diaries ?? [],
+      groups: data.groups ?? [],
       continuityThreads: data.continuityThreads ?? [],
       sharedStoryEvents: data.sharedStoryEvents ?? [],
       worlds: data.worlds ?? [],
       worldEvents: data.worldEvents ?? [],
+      worldFacts: data.worldFacts ?? [],
+      worldTurns: data.worldTurns ?? [],
       worldScenes: data.worldScenes ?? [],
       worldSceneEntries: data.worldSceneEntries ?? [],
       characterKnowledge: data.characterKnowledge ?? [],
@@ -223,6 +239,9 @@ export async function restoreBackup(password: string): Promise<{
       momentContacts: data.momentContacts ?? [],
       momentJobs: data.momentJobs ?? [],
       momentNotifications: data.momentNotifications ?? [],
+      characterLifeEvents: data.characterLifeEvents ?? [],
+      momentPostPlans: data.momentPostPlans ?? [],
+      sourceTombstones: data.sourceTombstones ?? [],
     };
     const r = await importSyncData(syncPayload);
     if (!r.ok) return { ok: false, error: r.error ?? '数据导入失败' };

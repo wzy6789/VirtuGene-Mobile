@@ -17,6 +17,12 @@ import type { Moment } from '../../db';
 export type MomentsAudience = Moment['visibility'];
 export type MomentsDensity = 'comfortable' | 'compact';
 export type MomentsHistoryWindow = 'all' | '3d' | '1m' | '6m';
+export type MomentPostFrequency = 'quiet' | 'natural' | 'active';
+export const MOMENT_POST_FREQUENCY_LABELS: Record<MomentPostFrequency, string> = {
+  quiet: '安静',
+  natural: '自然',
+  active: '活跃',
+};
 
 export interface MomentsAudiencePreference {
   mode: MomentsAudience;
@@ -37,6 +43,11 @@ export interface MomentsPreferences {
   historyWindow: MomentsHistoryWindow;
   /** 发布成功后是否弹一条提示 */
   notifyAfterPublish: boolean;
+  /** 好友可以基于自己的生活事件主动发布动态。 */
+  autonomousPostsEnabled: boolean;
+  /** 默认节奏；单个角色可在 contactPostModes 中覆盖。 */
+  postFrequency: MomentPostFrequency;
+  contactPostModes: Record<string, MomentPostFrequency>;
 }
 
 /** 四种可见范围，顺序与发布面板里的按钮一致 */
@@ -81,6 +92,9 @@ export const DEFAULT_MOMENTS_PREFERENCES: MomentsPreferences = {
   cover: '',
   historyWindow: 'all',
   notifyAfterPublish: true,
+  autonomousPostsEnabled: true,
+  postFrequency: 'natural',
+  contactPostModes: {},
 };
 
 const KEY_PREFIX = 'virtugene-moments:';
@@ -92,6 +106,9 @@ function isAudienceMode(value: unknown): value is MomentsAudience {
 }
 function isHistoryWindow(value: unknown): value is MomentsHistoryWindow {
   return typeof value === 'string' && (HISTORY_WINDOWS as string[]).includes(value);
+}
+function isPostFrequency(value: unknown): value is MomentPostFrequency {
+  return value === 'quiet' || value === 'natural' || value === 'active';
 }
 
 function normalizeAudience(value: unknown): MomentsAudiencePreference {
@@ -127,6 +144,11 @@ export function loadMomentsPreferences(userId: string): MomentsPreferences {
     cover: typeof record.cover === 'string' ? record.cover : DEFAULT_MOMENTS_PREFERENCES.cover,
     historyWindow: isHistoryWindow(record.historyWindow) ? record.historyWindow : DEFAULT_MOMENTS_PREFERENCES.historyWindow,
     notifyAfterPublish: typeof record.notifyAfterPublish === 'boolean' ? record.notifyAfterPublish : DEFAULT_MOMENTS_PREFERENCES.notifyAfterPublish,
+    autonomousPostsEnabled: typeof record.autonomousPostsEnabled === 'boolean' ? record.autonomousPostsEnabled : DEFAULT_MOMENTS_PREFERENCES.autonomousPostsEnabled,
+    postFrequency: isPostFrequency(record.postFrequency) ? record.postFrequency : DEFAULT_MOMENTS_PREFERENCES.postFrequency,
+    contactPostModes: typeof record.contactPostModes === 'object' && record.contactPostModes !== null
+      ? Object.fromEntries(Object.entries(record.contactPostModes as Record<string, unknown>).filter((entry): entry is [string, MomentPostFrequency] => isPostFrequency(entry[1])))
+      : {},
   };
 }
 
@@ -145,6 +167,9 @@ export function saveMomentsPreferences(userId: string, preferences: MomentsPrefe
         cover: preferences.cover,
         historyWindow: preferences.historyWindow,
         notifyAfterPublish: preferences.notifyAfterPublish,
+        autonomousPostsEnabled: preferences.autonomousPostsEnabled,
+        postFrequency: preferences.postFrequency,
+        contactPostModes: preferences.contactPostModes,
       }),
     );
     localStorage.removeItem(LEGACY_AUDIENCE_PREFIX + userId);

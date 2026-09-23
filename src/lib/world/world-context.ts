@@ -24,7 +24,7 @@
 import { db, type Character, type SharedMemory, type WorldEvent, type WorldFact, type WorldObject, type WorldScene, type WorldSceneEntry, type ContinuityThread, type RelationshipState } from '../../db/index';
 import { worldFactRepo } from '../../db/world-fact-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
-import { worldSceneRepo } from '../../db/world-scene-repo';
+import { sceneEntriesAvailableToAudience, worldSceneRepo } from '../../db/world-scene-repo';
 import { knowledgeRepo } from '../../db/knowledge-repo';
 import { continuityRepo } from '../../db/continuity-repo';
 import { relationshipRepo } from '../../db/relationship-repo';
@@ -38,6 +38,7 @@ import { describeFacets, FACET_LABEL } from './relationships';
 import { buildHiddenUserProfile } from './user-profile';
 import { worldObjectRepo } from '../../db/world-object-repo';
 import { todoRepo } from '../../db/todo-repo';
+import { isVisibleToCharacter } from './visibility';
 import type { WorldConversationState, WorldVisualState } from './world-immersion';
 import { deriveWorldVisualState, directorConversationHints, emptyConversationState } from './world-immersion';
 
@@ -65,6 +66,8 @@ export interface CharacterMemory {
   memories: SharedMemory[];
   /** TA 能看到的日记（已过认知闸门） */
   diaries: { id: string; date: string; title: string; content: string }[];
+  /** TA 知道且可提起的非公开世界事件；世界公开事件由导演层统一提供。 */
+  events: WorldEvent[];
   /** TA 亲身参与过、且可以提起的已完成片段 */
   scenes: { id: string; title: string; place: string; summary: string }[];
   /** TA 知道的世界事实（可见性过滤后的设定） */
@@ -130,12 +133,12 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
   const [worldFacts, entries, recentEvents, allThreads, objects] = await Promise.all([
     worldFactRepo.listWorldLevel(worldId, 16, userId),
     worldSceneRepo.listRecentEntries(scene.id, Math.max(20, params.recentLimit ?? 60)),
-    worldEventRepo.getRecent(worldId, 12, userId),
+    worldEventRepo.getRecent(worldId, 30, userId).then((rows) => rows.filter((event) => event.visibility === 'world')),
     continuityRepo.getOpenByUser(userId),
     scene.locationId ? worldObjectRepo.listForLocation(worldId, scene.locationId, userId) : Promise.resolve([]),
   ]);
 
-  const recentEntries = [...entries].reverse();
+  const recentEntries = sceneEntriesAvailableToAudience([...entries].reverse(), scene, presence);
   const openThreads = allThreads.filter((t) => presence.includes(t.characterId));
 
   const perCharacter: Record<string, CharacterMemory> = {};
@@ -145,7 +148,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     const participant = scene.state.participants?.find((p) => p.characterId === characterId);
     const entryMemoryMode = participant?.entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory';
     const carryMemory = entryMemoryMode !== 'present';
-    const [facts, memories, scenes, diaryVisible, threads, relation, userMemories, todos] = await Promise.all([
+    const [facts, memories, scenes, diaryVisible, threads, relation, userMemories, todos, knownRows] = await Promise.all([
       worldFactRepo.listForCharacter(worldId, characterId, 10, userId),
       carryMemory ? selectRecallableSharedMemories({ userId, worldId, characterId, limit: 3 }) : Promise.resolve([]),
       carryMemory ? selectRecallableScenes({ userId, worldId, characterId, limit: 2 }) : Promise.resolve([]),
@@ -155,11 +158,20 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
       carryMemory
         ? db.memories.where('characterId').equals(characterId).toArray().then((rows) => rows
           .filter((row) => row.userId === userId)
+          .filter((row) => (row.status ?? 'active') === 'active')
           .sort((a, b) => b.createdAt - a.createdAt)
           .slice(0, 18))
       : Promise.resolve([]),
       carryMemory ? todoRepo.visibleForCharacter(userId, characterId, 5) : Promise.resolve([]),
+      carryMemory ? knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'partial', limit: 30, userId }) : Promise.resolve([]),
     ]);
+
+    const knownEvents = carryMemory && knownRows.length
+      ? (await worldEventRepo.getByIds(knownRows.filter((row) => row.canMention).map((row) => row.eventId)))
+        .filter((event) => event.userId === userId && event.worldId === worldId && event.visibility !== 'world' && isVisibleToCharacter(event, characterId))
+        .sort((a, b) => b.timestamp - a.timestamp)
+        .slice(0, 6)
+      : [];
 
     // 日记：可见 ∩ 可提起（与私聊完全同一口径，避免"世界页能说、私聊不能说"）
     const mentionable = carryMemory
@@ -171,12 +183,13 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
       .map((d) => ({ id: d.id, date: d.date, title: d.title, content: d.content.slice(0, 400) }));
 
     perCharacter[characterId] = {
-      crossChannelMemory: carryMemory ? (await recallCharacterMemory({ userId, characterId, query: params.userText, audience: presence, sources: ['chat', 'group', 'moment'], budget: 2200 })).text : '',
+      crossChannelMemory: carryMemory ? (await recallCharacterMemory({ userId, characterId, query: params.userText, audience: presence, sources: ['chat', 'group', 'moment', 'todo'], budget: 2200 })).text : '',
       persona: params.characters.find((character) => character.id === characterId)?.systemPrompt,
       characterId,
       name: nameOf(characterId),
       memories: memories.map((m) => m.memory),
       diaries,
+      events: knownEvents,
       scenes: scenes.map((s) => ({
         id: s.scene.id,
         title: s.scene.title,
@@ -281,10 +294,7 @@ export function renderRelationLayer(ctx: WorldContext): string {
 /** L8：还没做完的事 */
 export function renderThreadLayer(ctx: WorldContext): string {
   if (ctx.openThreads.length === 0) return '';
-  return `【还没做完 / 没说清的事】\n${ctx.openThreads
-    .slice(0, 6)
-    .map((t) => `- ${ctx.nameOf(t.characterId)}：${t.title}${t.detail ? `（${t.detail}）` : ''}`)
-    .join('\n')}`;
+  return `【未完事项】\n在场角色各自记得与自己有关的未完事项；具体内容只提供给对应角色，不能由导演替他们泄露。`;
 }
 
 /** L9：最近发生过的事（世界层都知道的） */
@@ -351,6 +361,9 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string): 
   }
   if (memory.memories.length) {
     lines.push(`【你们一起经历过的事（你亲身在场）】\n${memory.memories.map((m) => `- ${m.title}${m.summary ? `：${m.summary}` : ''}`).join('\n')}`);
+  }
+  if (memory.events.length) {
+    lines.push(`【你知道的其他世界记录】\n${memory.events.map((event) => `- ${event.title}${event.summary ? `：${event.summary}` : ''}`).join('\n')}`);
   }
   if (memory.scenes.length) {
     lines.push(`【你参与过的片段】\n${memory.scenes.map((s) => `- ${s.title}（${s.place}）：${s.summary}`).join('\n')}`);

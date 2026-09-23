@@ -68,7 +68,10 @@ export async function findRelevantHistory(params: {
   query: string;
   limit?: number;
   characterId?: string;
+  /** 多人场景只有所有当前听众都可见的记录才可进入公共历史。 */
+  audienceCharacterIds?: string[];
 }): Promise<HistoryHit[]> {
+  if (params.audienceCharacterIds && params.audienceCharacterIds.length === 0) return [];
   const terms = queryTerms(params.query);
   if (terms.length === 0) return [];
   const limit = Math.max(1, params.limit ?? 5);
@@ -81,6 +84,7 @@ export async function findRelevantHistory(params: {
   const hits: HistoryHit[] = [];
   const push = (row: WorldEvent | SharedMemory, kind: HistoryHit['kind']) => {
     if (params.characterId && !isVisibleToCharacter(row, params.characterId)) return;
+    if (params.audienceCharacterIds?.some((id) => !isVisibleToCharacter(row, id))) return;
     const text = kind === 'event'
       ? `${(row as WorldEvent).title}${(row as WorldEvent).summary ? `：${(row as WorldEvent).summary}` : ''}`
       : `${(row as SharedMemory).title}${(row as SharedMemory).summary ? `：${(row as SharedMemory).summary}` : ''}`;

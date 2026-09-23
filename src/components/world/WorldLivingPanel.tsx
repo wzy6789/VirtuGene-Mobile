@@ -51,6 +51,7 @@ export const WorldLivingPanel = memo(function WorldLivingPanel({
     : [];
   const selectedScenes = selectedLocation ? scenes.filter((scene) => scene.locationId === selectedLocation.id || scene.place === selectedLocation.name) : [];
   const selectedEvents = selectedLocation ? events.filter((event) => event.locationId === selectedLocation.id).slice(0, 3) : [];
+  const echoes = events.filter((event) => event.sourceType === 'pulse').slice(0, 2);
 
   return (
     <section className="vg-living-panel" aria-label="世界脉搏">
@@ -65,6 +66,25 @@ export const WorldLivingPanel = memo(function WorldLivingPanel({
           {pulseBusy ? '行走中' : '走一步'}
         </button>
       </header>
+
+      {echoes.length > 0 && (
+        <section className="vg-living-echoes" aria-label="你离开时发生的事">
+          <div className="vg-living-locations-head">
+            <span>你离开时</span>
+            <small>世界留下的真实记录</small>
+          </div>
+          {echoes.map((event) => (
+            <article key={event.id} className="vg-living-echo">
+              <span>{event.locationId ? kernel.locations.find((location) => location.id === event.locationId)?.name ?? '世界中的某处' : '世界中的某处'}</span>
+              <strong>{event.title}</strong>
+              <p>{event.summary}</p>
+              {event.causeEventIds?.length ? <small>{events.find((candidate) => candidate.id === event.causeEventIds?.[0])?.title
+                ? `接着「${events.find((candidate) => candidate.id === event.causeEventIds?.[0])?.title}」发生`
+                : '承接了此前的一段经历'}</small> : null}
+            </article>
+          ))}
+        </section>
+      )}
 
       <div className="vg-living-people" aria-label="角色此刻的状态">
         {characters.length === 0 ? (

@@ -1,5 +1,6 @@
 import { db, type SceneParticipantState, type WorldScene, type WorldSceneEntry, type WorldSceneState } from './index';
 import { worldObjectRepo } from './world-object-repo';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import { deriveWorldVisualState, emptyConversationState } from '../lib/world/world-immersion';
 
 /**
@@ -45,6 +46,29 @@ export function emptySceneState(sceneGoal?: string): WorldSceneState {
     conversation: emptyConversationState(),
     visual,
   };
+}
+
+/**
+ * 给当前听众筛选舞台正文。present 入场者不读取入场前正文；
+ * memory 模式保留旧行为，允许带入场景前情。旧条目没有 witnessedBy 时，
+ * 用 participant.enteredAt 保守判断，不把入场前内容交给 present 角色。
+ */
+export function sceneEntriesAvailableToAudience(
+  entries: WorldSceneEntry[],
+  scene: WorldScene,
+  audience: string[],
+): WorldSceneEntry[] {
+  if (!audience.length) return entries;
+  const participants = new Map((scene.state.participants ?? []).map((item) => [item.characterId, item]));
+  return entries.filter((entry) => audience.every((characterId) => {
+    const participant = participants.get(characterId);
+    if (!participant) return false;
+    // memory mode is an explicit request to inherit this scene's earlier history;
+    // witnessedBy is only a hard gate for present-only arrivals.
+    if (participant.entryMemoryMode !== 'present') return true;
+    if (entry.witnessedBy) return entry.witnessedBy.includes(characterId);
+    return participant.enteredAt == null || entry.createdAt >= participant.enteredAt;
+  }));
 }
 
 export const worldSceneRepo = {
@@ -171,7 +195,12 @@ export const worldSceneRepo = {
       const next: WorldScene = {
         ...existing,
         characterIds: [...existing.characterIds, characterId],
-        state: { ...existing.state, participants: [...existing.state.participants, participant] },
+        state: {
+          ...existing.state,
+          participants: [...existing.state.participants, participant],
+          // 仅带当前状态的角色不能继承之前由旧成员形成的公共对话摘要。
+          ...(options.entryMemoryMode === 'present' ? { conversation: emptyConversationState() } : {}),
+        },
         updatedAt: Date.now(),
       };
       await db.worldScenes.put(next);
@@ -236,6 +265,10 @@ export const worldSceneRepo = {
         kind: entry.kind,
         act: entry.act ?? scene?.state.currentAct ?? 1,
         ...(entry.speakerId ? { speakerId: entry.speakerId } : {}),
+        witnessedBy: (scene?.characterIds ?? []).filter((characterId) => {
+          const participant = scene?.state.participants?.find((item) => item.characterId === characterId);
+          return !participant?.enteredAt || participant.enteredAt <= Date.now();
+        }),
         content: entry.content,
         ...(entry.meta ? { meta: entry.meta } : {}),
         createdAt: Date.now(),
@@ -349,8 +382,15 @@ export const worldSceneRepo = {
   },
 
   async deleteScene(id: string): Promise<void> {
-    await db.transaction('rw', db.worldScenes, db.worldSceneEntries, async () => {
-      await db.worldSceneEntries.where('sceneId').equals(id).delete();
+    const scene = await db.worldScenes.get(id);
+    if (!scene) return;
+    await db.transaction('rw', [db.worldScenes, db.worldSceneEntries, db.memorySourceTombstones], async () => {
+      const entries = await db.worldSceneEntries.where('sceneId').equals(id).toArray();
+      await memorySourceTombstoneRepo.record({ userId: scene.userId, sourceType: 'worldScene', sourceId: id, sourceRevision: scene.updatedAt, status: 'deleted' });
+      for (const entry of entries) {
+        await memorySourceTombstoneRepo.record({ userId: scene.userId, sourceType: 'worldSceneEntry', sourceId: entry.id, sourceRevision: entry.createdAt, status: 'deleted' });
+      }
+      await db.worldSceneEntries.bulkDelete(entries.map((entry) => entry.id));
       await db.worldScenes.delete(id);
     });
     await worldObjectRepo.clearForScene(id);

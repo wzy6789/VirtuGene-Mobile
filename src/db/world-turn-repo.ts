@@ -1,5 +1,6 @@
 import { db, type WorldTurn, type WorldTurnStatus } from './index';
 import type { WorldAction } from '../lib/world/world-actions';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 /**
  * 世界轮次仓库（World Turn，5.0.0 Living World §52 / §53 / §58）
@@ -164,7 +165,10 @@ export const worldTurnRepo = {
       updatedAt: Date.now(),
     };
     delete next.failure;
-    await db.worldTurns.put(next);
+    await db.transaction('rw', [db.worldTurns, db.memorySourceTombstones], async () => {
+      await memorySourceTombstoneRepo.record({ userId: existing.userId, sourceType: 'worldTurn', sourceId: id, sourceRevision: existing.updatedAt, status: 'superseded' });
+      await db.worldTurns.put(next);
+    });
   },
 
   async countByWorld(worldId: string): Promise<number> {

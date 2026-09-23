@@ -142,7 +142,7 @@ export const worldRepo = {
   async clearWorld(worldId: string): Promise<void> {
     await db.transaction(
       'rw',
-      [db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns, db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects],
+      [db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns, db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects, db.memorySourceTombstones],
       async () => {
         await worldEventRepo.clearForWorld(worldId);
         await worldSceneRepo.clearForWorld(worldId);
@@ -206,7 +206,7 @@ export const worldRepo = {
   async clearForUser(userId: string): Promise<void> {
     await db.transaction(
       'rw',
-      [db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns, db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects],
+      [db.worlds, db.worldEvents, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.worldTurns, db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects, db.memorySourceTombstones],
       async () => {
         await worldEventRepo.clearForUser(userId);
         await worldSceneRepo.clearForUser(userId);

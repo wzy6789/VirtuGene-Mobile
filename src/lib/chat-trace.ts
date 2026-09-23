@@ -37,6 +37,8 @@ export interface ContextTraceSources {
   pulseEvents?: TraceMember[];
   /** 朋友圈：角色实际看过、且这一轮真的注入的动态 */
   moments?: TraceMember[];
+  /** 用户明确分享给角色的待办 */
+  todos?: (TraceMember & { occurrenceId?: string })[];
   crossChannelReferences?: BuiltContextTrace['crossChannelReferences'];
   now?: number;
 }
@@ -63,6 +65,10 @@ export function buildContextTrace(sources: ContextTraceSources): BuiltContextTra
   const sceneIds = included.has('scene') ? (sources.scenes ?? []).map((s) => s.id) : [];
   const pulseEventIds = included.has('world-pulse') ? (sources.pulseEvents ?? []).map((e) => e.id) : [];
   const momentIds = included.has('moments') ? (sources.moments ?? []).map((m) => m.id) : [];
+  const todoIds = included.has('todo') ? (sources.todos ?? []).map((todo) => todo.id) : [];
+  const todoOccurrenceIds = included.has('todo')
+    ? (sources.todos ?? []).flatMap((todo) => todo.occurrenceId ? [todo.occurrenceId] : [])
+    : [];
 
   return {
     ...(included.has('cross-channel-memory') && sources.crossChannelReferences?.length ? { crossChannelReferences: sources.crossChannelReferences } : {}),
@@ -74,6 +80,8 @@ export function buildContextTrace(sources: ContextTraceSources): BuiltContextTra
     ...(sceneIds.length > 0 ? { sceneIds } : {}),
     ...(pulseEventIds.length > 0 ? { pulseEventIds } : {}),
     ...(momentIds.length > 0 ? { momentIds } : {}),
+    ...(todoIds.length > 0 ? { todoIds: [...new Set(todoIds)] } : {}),
+    ...(todoOccurrenceIds.length > 0 ? { todoOccurrenceIds: [...new Set(todoOccurrenceIds)] } : {}),
     at: sources.now ?? Date.now(),
   };
 }
@@ -90,5 +98,6 @@ export function hasTraceContent(trace: BuiltContextTrace): boolean {
     (trace.sceneIds?.length ?? 0) > 0 ||
     (trace.pulseEventIds?.length ?? 0) > 0
     || (trace.momentIds?.length ?? 0) > 0
+    || (trace.todoIds?.length ?? 0) > 0
   );
 }

@@ -170,6 +170,7 @@ async function buildPulsePrompt(params: {
   locations: Awaited<ReturnType<typeof worldLocationRepo.listForWorld>>;
   presences: Awaited<ReturnType<typeof worldAgentRepo.listPresences>>;
   agents: Awaited<ReturnType<typeof worldAgentRepo.listStates>>;
+  publicEvents: WorldEvent[];
 }> {
   const [world, locations, presences, agents, facts, scenes, events] = await Promise.all([
     db.worlds.get(params.worldId),
@@ -180,12 +181,17 @@ async function buildPulsePrompt(params: {
     worldSceneRepo.listScenes(params.worldId, { status: 'active', limit: 12, userId: params.userId }),
     worldEventRepo.getRecent(params.worldId, 12, params.userId),
   ]);
+  // The pulse planner sees the shared world, never private or selected-only
+  // event summaries. Full character prompts are reserved for that character's
+  // own acting call and must not be mixed into a multi-character planner prompt.
+  const publicEvents = events.filter((event) => event.visibility === 'world');
   const locationLines = locations.map((location) => `${location.id} | ${location.name}${location.description ? ` | ${location.description}` : ''}`);
   const presenceLines = params.characters.map((character) => {
     const presence = presences.find((row) => row.characterId === character.id);
     const agent = agents.find((row) => row.characterId === character.id);
     const place = locations.find((location) => location.id === presence?.locationId)?.name ?? '尚未进入地点';
-    return `${character.id} | ${character.name} | 当前地点：${place} | 自主性：${agent?.autonomy ?? 'normal'} | 目标：${agent?.currentGoal ?? '暂无'} | 下一步：${agent?.nextIntent ?? '暂无'} | 人设：${character.systemPrompt.slice(0, 500)}`;
+    const publicTraits = [...character.tags, character.signature].filter(Boolean).join('、');
+    return `${character.id} | ${character.name} | 当前地点：${place} | 自主性：${agent?.autonomy ?? 'normal'} | 公开目标：${agent?.currentGoal ?? '暂无'} | 下一步：${agent?.nextIntent ?? '暂无'} | 外显特征：${publicTraits || '依照角色平时的表现行动'}`;
   });
   const system = [
     '你是 VirtuGene Living World 的世界编排器。你只提出角色在离线时间里可能采取的少量行动，不代替用户做决定。',
@@ -197,8 +203,8 @@ async function buildPulsePrompt(params: {
     `世界设定：\n${facts.map((fact) => `- ${fact.content}`).join('\n') || '暂无额外设定'}`,
     `正在进行的世界：\n${scenes.map((scene) => `- ${scene.title} @ ${scene.place}`).join('\n') || '无'}`,
   ].join('\n\n');
-  const user = `世界时间从 ${new Date(params.fromWorldTime).toLocaleString('zh-CN')} 走到 ${new Date(params.toWorldTime).toLocaleString('zh-CN')}（约 ${formatHours(params.fromWorldTime, params.toWorldTime)}）。\n最近发生：\n${events.map((event) => `- ${event.title}：${event.summary}`).join('\n') || '暂无记录'}\n请只返回值得记入世界年表的行动，普通等待就返回 wait。`;
-  return { system, user, locations, presences, agents };
+  const user = `世界时间从 ${new Date(params.fromWorldTime).toLocaleString('zh-CN')} 走到 ${new Date(params.toWorldTime).toLocaleString('zh-CN')}（约 ${formatHours(params.fromWorldTime, params.toWorldTime)}）。\n最近公开发生：\n${publicEvents.map((event) => `- ${event.title}：${event.summary}`).join('\n') || '暂无公开记录'}\n请只返回值得记入世界年表的行动，普通等待就返回 wait。`;
+  return { system, user, locations, presences, agents, publicEvents };
 }
 
 async function commitActions(params: {
@@ -207,6 +213,7 @@ async function commitActions(params: {
   characters: Character[];
   locations: Awaited<ReturnType<typeof worldLocationRepo.listForWorld>>;
   presences: Awaited<ReturnType<typeof worldAgentRepo.listPresences>>;
+  publicEvents: WorldEvent[];
 }): Promise<string[]> {
   const nameOf = new Map(params.characters.map((character) => [character.id, character.name]));
   const locationOf = new Map(params.locations.map((location) => [location.id, location]));
@@ -217,10 +224,9 @@ async function commitActions(params: {
       const locationId = action.locationId ?? currentLocation.get(action.characterId);
       const characterName = nameOf.get(action.characterId) ?? '某位角色';
       const locationName = locationOf.get(locationId ?? '')?.name ?? '某处';
-      const participantIds = action.kind === 'interaction'
+      let participantIds = action.kind === 'interaction'
         ? [...new Set(action.participantIds ?? [])]
         : [action.characterId];
-      const participantNames = participantIds.map((id) => nameOf.get(id) ?? '某位角色');
       if (locationId && action.kind !== 'wait') {
         await worldAgentRepo.moveCharacter({
           userId: params.pulse.userId,
@@ -233,6 +239,17 @@ async function commitActions(params: {
         });
         currentLocation.set(action.characterId, locationId);
       }
+      // A character arriving at a place can be noticed by people already there.
+      // The planner cannot grant knowledge to characters who were not present.
+      if (action.kind === 'move' && locationId) {
+        participantIds = [...new Set([
+          action.characterId,
+          ...[...currentLocation.entries()]
+            .filter(([characterId, current]) => current === locationId && characterId !== action.characterId)
+            .map(([characterId]) => characterId),
+        ])];
+      }
+      const participantNames = participantIds.map((id) => nameOf.get(id) ?? '某位角色');
       const statePatch: Parameters<typeof worldAgentRepo.updateState>[2] = {
         ...(action.currentGoal ? { currentGoal: action.currentGoal } : {}),
         ...(action.nextIntent ? { nextIntent: action.nextIntent } : {}),
@@ -242,6 +259,9 @@ async function commitActions(params: {
       await worldAgentRepo.updateState(params.pulse.worldId, action.characterId, statePatch);
       if (action.kind === 'wait') continue;
       const sourceId = `${params.pulse.id}:${index}`;
+      const sharedCause = params.publicEvents.find((event) =>
+        participantIds.every((characterId) => event.participants.includes(characterRef(characterId))),
+      );
       const result = await worldEventRepo.createIfAbsent({
         userId: params.pulse.userId,
         worldId: params.pulse.worldId,
@@ -255,9 +275,12 @@ async function commitActions(params: {
         sourceType: 'pulse',
         sourceId,
         locationId,
-        visibility: 'world',
+        // The event is visible to the user in the timeline, but only its
+        // participants gain character knowledge.
+        visibility: 'selected',
+        visibleTo: participantIds,
         resolved: true,
-        causeEventIds: [],
+        ...(sharedCause ? { causeEventIds: [sharedCause.id] } : {}),
         tags: ['世界脉冲', action.kind === 'move' ? '位置变化' : '自主行动'],
         meta: { pulseId: params.pulse.id, actionKind: action.kind },
       });
@@ -327,7 +350,7 @@ export async function runWorldPulse(params: {
     const parsed = parseActions(response.content ?? '', new Set(params.characters.map((character) => character.id)), new Set(prompt.locations.map((location) => location.id)));
     const autonomous = validateAutonomy(parsed.actions, prompt.agents);
     const placed = validatePlacement(autonomous.actions, prompt.presences);
-    const eventIds = await commitActions({ pulse, actions: placed.actions, characters: params.characters, locations: prompt.locations, presences: prompt.presences });
+    const eventIds = await commitActions({ pulse, actions: placed.actions, characters: params.characters, locations: prompt.locations, presences: prompt.presences, publicEvents: prompt.publicEvents });
     await completeWorldPulse(pulse.id, eventIds, eventIds.length
       ? `世界时间前进了 ${formatHours(pulse.fromWorldTime, pulse.toWorldTime)}，留下 ${eventIds.length} 条可追溯行动。`
       : `世界时间前进了 ${formatHours(pulse.fromWorldTime, pulse.toWorldTime)}，角色暂时没有留下新的行动。`);

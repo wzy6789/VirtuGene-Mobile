@@ -111,6 +111,7 @@ export function WorldCanvas() {
   const [exploreOpen, setExploreOpen] = useState(false);
   const [locations, setLocations] = useState<WorldLocation[]>([]);
   const [objects, setObjects] = useState<WorldObject[]>([]);
+  const [carriedObjects, setCarriedObjects] = useState<WorldObject[]>([]);
   const [worldPresence, setWorldPresence] = useState<WorldPresence[]>([]);
   const [agents, setAgents] = useState<WorldAgentState[]>([]);
 
@@ -225,6 +226,7 @@ export function WorldCanvas() {
     if (!scene || !userId) {
       setLocations([]);
       setObjects([]);
+      setCarriedObjects([]);
       setWorldPresence([]);
       setAgents([]);
       return;
@@ -237,15 +239,17 @@ export function WorldCanvas() {
         if (alive && scene.locationId !== location.id) {
           setScene((current) => current?.id === scene.id ? { ...current, locationId: location.id } : current);
         }
-        const [nextLocations, nextObjects, nextPresence, nextAgents] = await Promise.all([
+        const [nextLocations, nextObjects, nextCarriedObjects, nextPresence, nextAgents] = await Promise.all([
           worldLocationRepo.listForWorld(scene.worldId, userId),
           worldObjectRepo.listForLocation(scene.worldId, location.id, userId),
+          worldObjectRepo.listCarried(scene.worldId, userId),
           worldAgentRepo.listAtLocation(scene.worldId, location.id, userId),
           worldAgentRepo.listStates(scene.worldId, userId),
         ]);
         if (alive) {
           setLocations(nextLocations);
           setObjects(nextObjects);
+          setCarriedObjects(nextCarriedObjects);
           setWorldPresence(nextPresence);
           setAgents(nextAgents);
         }
@@ -253,6 +257,7 @@ export function WorldCanvas() {
         if (alive) {
           setLocations([]);
           setObjects([]);
+          setCarriedObjects([]);
           setWorldPresence([]);
           setAgents([]);
         }
@@ -588,13 +593,23 @@ export function WorldCanvas() {
 
   const actObject = useCallback(async (object: WorldObject, action: 'take' | 'leave' | 'open') => {
     if (!userId) return;
-    const updated = await worldObjectRepo.applyAction(object.id, userId, action);
+    const updated = await worldObjectRepo.applyAction(object.id, userId, action, action === 'leave' && scene
+      ? { locationId: scene.locationId, sceneId: scene.id }
+      : undefined);
     if (!updated) return;
-    setObjects((current) => current.map((item) => item.id === updated.id ? updated : item));
+    if (action === 'take') {
+      setObjects((current) => current.filter((item) => item.id !== updated.id));
+      setCarriedObjects((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
+    } else if (action === 'leave') {
+      setCarriedObjects((current) => current.filter((item) => item.id !== updated.id));
+      setObjects((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
+    } else {
+      setObjects((current) => current.map((item) => item.id === updated.id ? updated : item));
+    }
     setExploreOpen(false);
     const actionText = action === 'take' ? '把它带走' : action === 'leave' ? '把它放回这里' : '打开它';
     await send(`我${actionText}：“${object.name}”`, 'control');
-  }, [send, userId]);
+  }, [scene, send, userId]);
 
   const moveToLocation = useCallback(async (location: WorldLocation) => {
     if (!scene || !userId) return;
@@ -644,6 +659,7 @@ export function WorldCanvas() {
           scene={scene}
           locations={locations}
           objects={objects}
+          carriedObjects={carriedObjects}
           presence={worldPresence}
           agents={agents}
           characters={characters}

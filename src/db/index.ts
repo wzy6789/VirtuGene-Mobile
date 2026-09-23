@@ -225,6 +225,8 @@ export interface WorldObject {
   description: string;
   kind: 'prop' | 'note' | 'door' | 'device';
   state: 'present' | 'held' | 'moved' | 'gone';
+  /** 物件被带走时的持有者；旧数据没有此字段时按当前用户持有兼容。 */
+  heldBy?: string;
   lastAction?: string;
   sourceType: 'scene' | 'user' | 'settlement';
   sourceId?: string;
@@ -395,6 +397,8 @@ export interface WorldScene {
 export interface WorldSceneEntry {
   id: string;
   sceneId: string;
+  /** 写入当刻在场的角色快照；晚入场且选择“此刻状态”的角色不能读取旧正文。 */
+  witnessedBy?: string[];
   /** 场景内顺序（从 0 递增；配合 [sceneId+index] 复合索引分页） */
   index: number;
   /**
@@ -439,6 +443,8 @@ export interface CharacterKnowledge {
   secretOwnerId?: string;
   /** 从谁那里得知（角色 id；亲身经历则为空） */
   sourceCharacterId?: string;
+  /** 来源为可撤权的日记时，记录授予认知时的日记版本，防止旧备份复活授权。 */
+  sourceRevision?: number;
   learnedAt: number;
   updatedAt: number;
 }
@@ -719,6 +725,12 @@ export interface Session {
   conversation?: ChatConversationState;
   /** 摘要覆盖到的时间点（早于该时间戳的消息均已纳入摘要） */
   summaryUpdatedAt?: number;
+  /** 群摘要覆盖的完整成员快照；不匹配时禁止注入该摘要。 */
+  summaryWitnessedBy?: string[];
+  /** 摘要据以生成的群消息来源；删除其中任一原消息时摘要必须失效。 */
+  summarySourceMessageIds?: string[];
+  /** 摘要引用的消息版本；备份恢复时用来阻止旧消息版本连带复活旧摘要。 */
+  summarySourceMessageRevisions?: Record<string, number>;
   /** 本会话选择的叙事时段；只影响模型营造的氛围，不改变消息 createdAt。 */
   sceneTimeOfDay?: 'morning' | 'afternoon' | 'dusk' | 'night' | 'late-night';
   /** 本会话的叙事场域；只影响模型营造的氛围，不改变消息时间。 */
@@ -747,6 +759,8 @@ export interface Message {
   /** 群消息产生时的听众快照；旧消息无快照时不推断谁听过。 */
   witnessedBy?: string[];
   id: string;
+  /** 内容版本；编辑会递增，旧备份不能覆盖新内容。 */
+  revision?: number;
   sessionId: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -788,7 +802,12 @@ export interface Message {
     pulseEventIds?: string[];
     /** 朋友圈（moments.id）：角色实际看过且本轮真的注入的动态 */
     momentIds?: string[];
-    crossChannelReferences?: { source: 'chat' | 'group' | 'world' | 'moment'; id: string }[];
+    /** 待办（todo.id）与发生实例（todoOccurrences.id）：本轮真正注入的内容 */
+    todoIds?: string[];
+    todoOccurrenceIds?: string[];
+    /** 群摘要的会话快照版本；详细来源仍由本地 Session 保存，避免每条回复复制长列表。 */
+    groupSummary?: { sessionId: string; updatedAt: number };
+    crossChannelReferences?: { source: 'chat' | 'group' | 'world' | 'moment' | 'todo'; id: string }[];
     /** 记录时间 */
     at: number;
   };
@@ -807,6 +826,9 @@ export interface MemoryItem {
   sourceSessionId?: string;
   /** 这条记忆来自哪些消息（真实消息 id；未知时为空，绝不靠文本相似度猜测） */
   sourceMessageIds?: string[];
+  /** 用户在创建角色时主动导入的背景；新角色知道这是用户分享的资料，不会冒称亲历。 */
+  importedFromCharacterId?: string;
+  importedFromMemoryId?: string;
   /** 提取置信度 0~1（有消息依据时更高） */
   confidence?: number;
   /** 记忆的语义层：事实、偏好、共同经历、约定、角色生活或压缩摘要。 */
@@ -824,6 +846,21 @@ export interface MemoryItem {
   updatedAt?: number;
 }
 
+/**
+ * 仅存来源 id、版本和撤回状态；不保留私密正文。
+ * 用于让旧备份/迟到同步不能把已删除、撤权或纠正的内容重新写活。
+ */
+export interface MemorySourceTombstone {
+  id: string;
+  userId: string;
+  sourceType: 'memory' | 'message' | 'diary' | 'moment' | 'momentReaction' | 'todo' | 'todoOccurrence' | 'worldEvent' | 'sharedMemory' | 'worldFact' | 'worldScene' | 'worldSceneEntry' | 'worldTurn' | 'continuityThread' | 'relationshipEvent';
+  sourceId: string;
+  /** 被撤销的最高来源版本；更高版本代表用户后来重新授权或编辑。 */
+  sourceRevision: number;
+  status: 'withdrawn' | 'deleted' | 'superseded';
+  updatedAt: number;
+}
+
 /** 朋友圈式动态的可见范围。规则与角色互动完全由 moments-repo 统一裁定。 */
 export type MomentVisibility = 'all' | 'private' | 'selected' | 'excluded';
 
@@ -832,6 +869,11 @@ export interface Moment {
   userId: string;
   /** 角色代用户发布的动态；为空时表示用户本人发布。 */
   authorCharacterId?: string;
+  /** 角色主动发布内容的来源，旧动态不带此字段。 */
+  originType?: 'user' | 'autonomous' | 'chat' | 'world';
+  /** 角色生活事件及其持续线索，用于跨动态追踪同一件事。 */
+  originEventIds?: string[];
+  lifeThreadId?: string;
   text: string;
   visibility: MomentVisibility;
   /** selected / excluded 使用的角色 id 快照；发布后新增角色不会自动看到旧动态。 */
@@ -839,6 +881,39 @@ export interface Moment {
   visibilityRevision: number;
   mediaIds: string[];
   deleted?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 角色自己的生活片段。个人事件只归作者本人所有，发布后才允许进入朋友圈可见层。 */
+export interface CharacterLifeEvent {
+  id: string;
+  userId: string;
+  characterId: string;
+  threadId: string;
+  continuesFromId?: string;
+  kind: 'routine' | 'hobby' | 'project' | 'social' | 'discovery' | 'reflection';
+  title: string;
+  summary: string;
+  visibility: 'private' | 'shareable';
+  status: 'active' | 'completed';
+  occurredAt: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 主动发帖计划按日和角色发帖位记录；用租约和状态保证前台多处触发时不会重复生成。 */
+export interface MomentPostPlan {
+  id: string;
+  userId: string;
+  characterId: string;
+  dayKey: string;
+  status: 'running' | 'published' | 'quiet' | 'failed';
+  attempts: number;
+  availableAt: number;
+  leaseUntil?: number;
+  eventId?: string;
+  momentId?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -974,6 +1049,8 @@ export interface Diary {
   visibleTo?: string[];
   /** 本条日记授权进入世界层后对应的 WorldEvent.id（未授权为空） */
   worldEventId?: string;
+  /** 可分享内容的修订号；更新正文/标题/日期后递增，派生引用必须同步。 */
+  revision?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -1081,6 +1158,9 @@ export class VirtuGeneDB extends Dexie {
   momentContacts!: Table<MomentContact, string>;
   momentJobs!: Table<MomentJob, string>;
   momentNotifications!: Table<MomentNotification, string>;
+  characterLifeEvents!: Table<CharacterLifeEvent, string>;
+  momentPostPlans!: Table<MomentPostPlan, string>;
+  memorySourceTombstones!: Table<MemorySourceTombstone, string>;
 
   constructor() {
     super('virtugene');
@@ -1348,6 +1428,15 @@ export class VirtuGeneDB extends Dexie {
       momentContacts: 'id,userId,characterId,[userId+characterId],blocked,updatedAt',
       momentJobs: 'id,userId,momentId,characterId,[momentId+characterId],status,[userId+availableAt],availableAt,updatedAt',
       momentNotifications: 'id,userId,momentId,createdAt,[userId+createdAt],read',
+    });
+    // v23：角色拥有独立生活事件与主动发帖计划；旧朋友圈记录保持原样。
+    this.version(23).stores({
+      characterLifeEvents: 'id,userId,characterId,threadId,[userId+characterId],[userId+characterId+createdAt],status,updatedAt',
+      momentPostPlans: 'id,userId,characterId,dayKey,[userId+characterId],status,[userId+availableAt],availableAt,updatedAt',
+    });
+    // v24：仅含来源 id / 版本 / 状态的撤回墓碑，阻止旧备份复活隐私资料。
+    this.version(24).stores({
+      memorySourceTombstones: 'id,userId,sourceType,sourceId,[userId+sourceType+sourceId],updatedAt',
     });
   }
 }

@@ -1,5 +1,6 @@
 import { db, type RelationshipEvent, type RelationshipFacet, type RelationshipState, RELATIONSHIP_FACETS } from './index';
 import { characterRef, stableId, subjectPair, subjectPairKey } from '../lib/world/subjects';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 /**
  * 关系仓库：**当前状态**与**变化历史**严格分开。
@@ -235,6 +236,14 @@ export const relationshipRepo = {
   },
 
   async removeEvent(eventId: string): Promise<void> {
+    const existing = await db.relationshipEvents.get(eventId);
+    if (existing) await memorySourceTombstoneRepo.record({
+      userId: existing.userId,
+      sourceType: 'relationshipEvent',
+      sourceId: existing.id,
+      sourceRevision: existing.createdAt,
+      status: 'superseded',
+    });
     await db.relationshipEvents.delete(eventId);
   },
 

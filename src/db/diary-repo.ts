@@ -10,13 +10,6 @@ export interface DiaryInput {
   mood: number;
   tags: string[];
   characterId?: string;
-  /**
-   * 5.0 可见性：不传时**一律 private**（§24：私人内容默认只有用户自己知道）。
-   * Phase 2b-4 起旧的全局开关 `diarySharedWithCharacters` 已被**彻底删除**：
-   * 新建时没有默认选项，第三方授权只能通过"告诉某角色 / 加入共同世界"逐条完成。
-   */
-  visibility?: Diary['visibility'];
-  visibleTo?: string[];
 }
 
 export const diaryRepo = {
@@ -97,8 +90,9 @@ export const diaryRepo = {
       tags: input.tags ?? [],
       ...(input.characterId ? { characterId: input.characterId } : {}),
       // 默认 private：只有用户自己知道；要进世界必须显式授权
-      visibility: input.visibility ?? 'private',
-      visibleTo: input.visibleTo ?? [],
+      visibility: 'private',
+      visibleTo: [],
+      revision: 1,
       createdAt: now,
       updatedAt: now,
     };
@@ -107,25 +101,54 @@ export const diaryRepo = {
   },
 
   async update(id: string, patch: Partial<Omit<Diary, 'id' | 'userId' | 'createdAt'>>): Promise<number> {
+    if ('visibility' in patch || 'visibleTo' in patch || 'worldEventId' in patch || 'deletedAt' in patch || 'revision' in patch) {
+      throw new Error('diary:update-sharing-through-setDiarySharing');
+    }
     // 剔除 undefined（避免 Dexie 对 undefined 值的行为差异；null 则原样保存）
     const clean: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(patch)) {
       if (v !== undefined) clean[k] = v;
     }
-    return db.diaries.update(id, { ...clean, updatedAt: Date.now() } as Partial<Diary>);
+    const changedSharedContent = ['title', 'content', 'date'].some((key) => key in clean);
+    return db.transaction('rw', [db.diaries, db.worldEvents], async () => {
+      const current = await db.diaries.get(id);
+      if (!current) return 0;
+      const updated: Diary = {
+        ...current,
+        ...clean,
+        ...(changedSharedContent ? { revision: (current.revision ?? 1) + 1 } : {}),
+        updatedAt: Date.now(),
+      } as Diary;
+      await db.diaries.put(updated);
+      if (changedSharedContent && updated.visibility === 'world' && !updated.deletedAt) {
+        const linked = await db.worldEvents.where('sourceId').equals(id).toArray();
+        const events = linked.filter((event) => event.userId === updated.userId && event.sourceType === 'diary');
+        if (events.length) {
+          await db.worldEvents.bulkPut(events.map((event) => ({
+            ...event,
+            title: updated.title.trim() || '一页没有标题的日记',
+            summary: updated.content.trim().slice(0, 200),
+            timestamp: new Date(updated.date + 'T12:00:00').getTime() || updated.createdAt,
+            meta: { ...(event.meta ?? {}), diaryId: updated.id, diaryDate: updated.date, diaryRevision: updated.revision ?? 1 },
+            updatedAt: Date.now(),
+          })));
+        }
+      }
+      return 1;
+    });
   },
 
   /** 软删除：移入回收站（可恢复） */
   async softDelete(id: string): Promise<void> {
-    await db.diaries.update(id, { deletedAt: Date.now(), updatedAt: Date.now() });
+    const diary = await db.diaries.get(id);
+    if (diary) await clearDiarySharing(diary.userId, id, { deletedAt: Date.now() });
   },
 
   /** 从回收站恢复：必须真正删掉 deletedAt 字段（update 会剔除 undefined，需先取出再写回） */
   async restore(id: string): Promise<void> {
     const d = await db.diaries.get(id);
     if (!d) return;
-    const { deletedAt: _gone, ...rest } = d as Diary & { deletedAt?: number };
-    await db.diaries.put({ ...rest, updatedAt: Date.now() } as Diary);
+    await clearDiarySharing(d.userId, id);
   },
 
   /**
@@ -135,16 +158,15 @@ export const diaryRepo = {
    */
   async purge(id: string): Promise<void> {
     const diary = await db.diaries.get(id);
-    await db.diaries.delete(id);
-    if (diary) await clearDiarySharing(diary.userId, id);
+    if (diary) await clearDiarySharing(diary.userId, id, { purge: true });
+    else await db.diaries.delete(id);
   },
 
   /** 清理回收站中超过 7 天的日记（幂等）；授权同样一并收回 */
   async purgeExpired(userId: string): Promise<void> {
     const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
     const trash = await db.diaries.where('userId').equals(userId).filter((d) => !!d.deletedAt && d.deletedAt! < cutoff).toArray();
-    await db.diaries.bulkDelete(trash.map((d) => d.id));
-    for (const d of trash) await clearDiarySharing(userId, d.id);
+    for (const d of trash) await clearDiarySharing(userId, d.id, { purge: true });
   },
 
   /**
@@ -182,7 +204,7 @@ export const diaryRepo = {
   },
 
   async deleteById(id: string): Promise<void> {
-    await db.diaries.delete(id);
+    await this.purge(id);
   },
 
   async countByUser(userId: string): Promise<number> {

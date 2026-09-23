@@ -136,7 +136,10 @@ export function buildMemoryContext(memories: MemoryItem[]): string {
   const lines = memories.map((memory) => {
     const label = memoryKindLabel(memory.memoryKind);
     const certainty = (memory.confidence ?? 0.6) < 0.55 ? '（可能不准确，谨慎提及）' : '';
-    return `- [${label}] ${memory.content.slice(0, 220)}${certainty}`;
+    const imported = memory.importedFromMemoryId
+      ? '[用户创建你时主动分享的背景；不代表你亲历] '
+      : `[${label}] `;
+    return `- ${imported}${memory.content.slice(0, 220)}${certainty}`;
   });
-  return `\n\n[用户画像与关系记忆（仅供你参考，不向用户展示）]\n${lines.join('\n')}\n这些内容只作为背景。当前用户的说法、角色人设和边界优先；除非用户主动问起，不要逐条复述，也不要把不确定内容说成事实。`;
+  return `\n\n[用户画像与关系记忆（仅供你参考，不向用户展示）]\n${lines.join('\n')}\n这些内容只作为背景。标记为“用户主动分享”的内容是你后来听用户讲到的资料，不是你与用户共同经历过的回忆。当前用户的说法、角色人设和边界优先；除非用户主动问起，不要逐条复述，也不要把不确定内容说成事实。`;
 }

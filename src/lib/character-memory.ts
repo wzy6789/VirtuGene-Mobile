@@ -3,8 +3,10 @@ import { messageRepo } from '../db/message-repo';
 import { selectRecallableSharedMemories } from './world/recall';
 import { selectRecallableScenes, selectLiveSceneMoments } from './world/scene-recall';
 import { rankConversationMemories } from './memory-engine';
+import { todoRepo } from '../db/todo-repo';
+import { historyWindowCutoff } from './moments/preferences';
 
-export type MemorySource = 'chat' | 'group' | 'world' | 'moment';
+export type MemorySource = 'chat' | 'group' | 'world' | 'moment' | 'todo';
 export interface MemoryReference { source: MemorySource; id: string; text: string; at: number; pinned?: boolean }
 export interface CharacterMemoryRequest {
   userId: string;
@@ -17,6 +19,8 @@ export interface CharacterMemoryRequest {
   worldId?: string;
   excludeSceneId?: string;
   budget?: number;
+  /** 私密角色生活仅可进入一对一私聊；舞台、群聊及公开评论保持关闭。 */
+  includePrivateCharacterLifeEvents?: boolean;
   excludeReferences?: { source: MemorySource; id: string }[];
 }
 
@@ -33,12 +37,18 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<{ text: s
   const audience = [...new Set([p.characterId, ...(p.audience ?? [])])];
   const audienceRows = await db.characters.bulkGet(audience);
   if (audienceRows.some(c => !c || c.createdBy !== p.userId)) return empty;
-  const sources = new Set(p.sources ?? ['chat', 'group', 'world', 'moment']);
+  const sources = new Set(p.sources ?? ['chat', 'group', 'world', 'moment', 'todo']);
   const items: MemoryReference[] = [];
   if (sources.has('chat') && audience.length === 1) {
     const rows = await db.memories.where('characterId').equals(p.characterId).filter(m => m.userId === p.userId).toArray();
     for (const m of rankConversationMemories(rows, p.query ?? '', new Set(), 6)) {
-      items.push({ source: 'chat', id: m.id, text: m.content, at: m.createdAt, pinned: m.pinned });
+      items.push({
+        source: 'chat',
+        id: m.id,
+        text: m.importedFromMemoryId ? `用户创建你时主动分享的背景（不是你亲历）：${m.content}` : m.content,
+        at: m.createdAt,
+        pinned: m.pinned,
+      });
     }
     const sessions = await db.sessions.where('[characterId+userId]').equals([p.characterId, p.userId]).filter(s => s.type !== 'group' && s.id !== p.excludeSessionId).toArray();
     const latest = sessions.sort((a,b) => b.updatedAt-a.updatedAt)[0];
@@ -87,22 +97,66 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<{ text: s
   if (sources.has('moment')) {
     // 动态权限独立于世界权限；不依赖生成模块，避免记忆层与朋友圈生成形成循环。
     const contacts = await db.momentContacts.where('userId').equals(p.userId).toArray();
+    // 主动生活片段只归创建它的角色自己回忆；其他角色必须通过看见朋友圈或共同事件获得知识。
+    // 角色自己的生活只进入该角色的一对一私聊；群聊/多人场景的提示词会被所有发言人共用。
+    if (audience.length === 1) {
+      const ownLifeEvents = await db.characterLifeEvents.where('[userId+characterId]').equals([p.userId, p.characterId]).toArray();
+      for (const event of ownLifeEvents
+        .filter((item) => item.visibility === 'shareable' || p.includePrivateCharacterLifeEvents === true)
+        .sort((a, b) => b.occurredAt - a.occurredAt).slice(0, 8)) {
+        items.push({ source: 'moment', id: event.id, at: event.occurredAt, text: `你自己的近况「${event.title}」：${event.summary}${event.visibility === 'private' ? '（只属于你自己的记忆）' : ''}` });
+      }
+    }
     if (!contacts.some(c => audience.includes(c.characterId) && c.blocked)) {
-      const views = await db.momentViews.where('[userId+characterId]').equals([p.userId, p.characterId]).toArray();
+      const viewRows = await Promise.all(audience.map(async (id) => ({
+        characterId: id,
+        momentIds: new Set((await db.momentViews.where('[userId+characterId]').equals([p.userId, id]).toArray()).map((view) => view.momentId)),
+      })));
+      const viewedBy = new Map(viewRows.map((row) => [row.characterId, row.momentIds]));
       const explicit = /朋友圈|动态|照片|评论|点赞/.test(p.query ?? '');
-      const moments = await db.moments.where('userId').equals(p.userId).filter(m => !m.deleted && m.visibility !== 'private' && audience.every(id => m.audienceCharacterIds.includes(id))).toArray();
+      const cutoff = historyWindowCutoff(p.userId);
+      const moments = await db.moments.where('userId').equals(p.userId).filter(m =>
+        !m.deleted && m.visibility !== 'private' && (cutoff <= 0 || m.createdAt >= cutoff)
+        && audience.every(id => m.audienceCharacterIds.includes(id)),
+      ).toArray();
       for (const m of moments.sort((a,b) => b.createdAt-a.createdAt).slice(0, 30)) {
-        if (!explicit && m.authorCharacterId !== p.characterId && !views.some(v => v.momentId === m.id)) continue;
+        const wasViewed = viewedBy.get(p.characterId)?.has(m.id) ?? false;
+        const audienceAllViewed = audience.every((id) => viewedBy.get(id)?.has(m.id));
+        if (audience.length > 1 && !audienceAllViewed && !(explicit && m.audienceCharacterIds && audience.every(id => m.audienceCharacterIds.includes(id)))) continue;
+        if (!explicit && !wasViewed && !(audience.length === 1 && m.authorCharacterId === p.characterId)) continue;
         const author = m.authorCharacterId ? (await db.characters.get(m.authorCharacterId))?.name ?? '角色' : '用户';
-        items.push({ source: 'moment', id: m.id, at: m.createdAt, text: `${author}的动态：${m.text || '无配文'}${m.mediaIds.length ? '（配图内容未知）' : ''}` });
+        const knowledgeBasis = wasViewed || m.authorCharacterId === p.characterId
+          ? '你之前看过或亲自发过'
+          : '用户刚提到、你现在可以查看（不代表你之前看过）';
+        items.push({ source: 'moment', id: m.id, at: m.createdAt, text: `${knowledgeBasis}的动态：${author}：${m.text || '无配文'}${m.mediaIds.length ? '（配图内容未知）' : ''}` });
         const reactions = await db.momentReactions.where('momentId').equals(m.id).filter(r => r.userId === p.userId && r.status === 'active').toArray();
         for (const r of reactions.sort((a,b) => b.createdAt-a.createdAt).slice(0, 8)) {
+          if (audience.length > 1 && !audienceAllViewed) continue;
+          // 发帖人知道自己发过动态，不等于自动知道别人给它点了赞或评论；
+          // 只有确实浏览过，或本轮明确追问动态时才读取互动。
+          if (audience.length === 1 && !wasViewed && !explicit) continue;
           const who = r.characterId ? (await db.characters.get(r.characterId))?.name ?? '角色' : '用户';
           const parent = r.replyToId ? reactions.find(x => x.id === r.replyToId) : undefined;
           const target = parent ? (parent.characterId ? (await db.characters.get(parent.characterId))?.name ?? '角色' : '用户') : author;
-          items.push({ source: 'moment', id: r.id, at: r.createdAt, text: `在${author}的动态「${m.text.slice(0, 50)}」下，${who}${r.type === 'like' ? '点了赞' : `回复${target}：${r.content ?? ''}`}` });
+          const reactionBasis = audienceAllViewed
+            ? knowledgeBasis
+            : '用户刚问起，你现在查看这条可见动态后看到';
+          items.push({ source: 'moment', id: r.id, at: r.createdAt, text: `${reactionBasis}这条动态下，${who}${r.type === 'like' ? '点了赞' : `回复${target}：${r.content ?? ''}`}` });
         }
       }
+    }
+  }
+  if (sources.has('todo')) {
+    // 只回忆被明确分享给本轮全部听众、且仍存在的已完成实例；未来/未完成项由提醒上下文单独注入。
+    const completed = await todoRepo.completedVisibleForAudience(p.userId, audience, 8);
+    for (const item of completed) {
+      const when = item.occurrence?.dueDate ?? new Date(item.completedAt).toISOString().slice(0, 10);
+      items.push({
+        source: 'todo',
+        id: item.occurrence?.id ?? item.todo.id,
+        at: item.completedAt,
+        text: `用户明确分享给你的事项「${item.todo.title}」已在 ${when} 完成${item.todo.note ? `（${item.todo.note.slice(0, 100)}）` : ''}；这是已完成记录，不要继续提醒。`,
+      });
     }
   }
   const excluded = new Set((p.excludeReferences ?? []).map(r => `${r.source}:${r.id}`));

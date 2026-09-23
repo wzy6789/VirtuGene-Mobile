@@ -1,5 +1,6 @@
 import { db, type Todo, type TodoOccurrence, type TodoRecurrence, type TodoReminder } from './index';
 import { cancelTodoNotification, scheduleTodoNotification, todoNotificationId } from '../lib/notify';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 export type TodoWithOccurrence = { todo: Todo; occurrence: TodoOccurrence };
 
@@ -110,22 +111,32 @@ export const todoRepo = {
   async update(userId: string, id: string, patch: Partial<Todo>): Promise<Todo> {
     const current = await this.get(userId, id);
     if (!current) throw new Error('todo:not-found');
-    const todo = { ...current, ...patch, id, userId, updatedAt: Date.now() };
-    await db.todos.put(todo);
+    const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
+    const todo = { ...current, ...patch, id, userId, updatedAt };
+    await db.transaction('rw', [db.todos, db.memorySourceTombstones], async () => {
+      if (patch.status === 'cancelled' && current.status !== 'cancelled') {
+        await memorySourceTombstoneRepo.record({ userId, sourceType: 'todo', sourceId: id, sourceRevision: current.updatedAt, status: 'withdrawn' });
+      } else if (patch.status === 'deleted' && current.status !== 'deleted') {
+        await memorySourceTombstoneRepo.record({ userId, sourceType: 'todo', sourceId: id, sourceRevision: current.updatedAt, status: 'deleted' });
+      }
+      await db.todos.put(todo);
+    });
     return todo;
   },
   async complete(userId: string, todoId: string, date: string): Promise<void> {
     const todo = await this.get(userId, todoId);
     if (!todo) return;
     const row = await ensureOccurrence(todo, date);
-    await db.todoOccurrences.update(row.id, { status: 'completed', completedAt: Date.now(), updatedAt: Date.now() });
+    const now = Math.max(Date.now(), row.updatedAt + 1);
+    await db.todoOccurrences.update(row.id, { status: 'completed', completedAt: now, updatedAt: now });
     if (todo.recurrence.kind === 'none') await this.update(userId, todoId, { status: 'completed', completedAt: Date.now() });
   },
   async reopen(userId: string, todoId: string, date: string): Promise<void> {
     const todo = await this.get(userId, todoId);
     if (!todo) return;
     const row = await ensureOccurrence(todo, date);
-    await db.todoOccurrences.update(row.id, { status: 'todo', completedAt: undefined, updatedAt: Date.now() });
+    const now = Math.max(Date.now(), row.updatedAt + 1);
+    await db.todoOccurrences.update(row.id, { status: 'todo', completedAt: undefined, updatedAt: now });
     if (todo.recurrence.kind === 'none') await this.update(userId, todoId, { status: 'todo', completedAt: undefined });
   },
   async remove(userId: string, id: string): Promise<void> {
@@ -137,9 +148,40 @@ export const todoRepo = {
     await db.todoReminders.where('todoId').equals(id).filter((item) => item.userId === userId).modify({ status: 'cancelled', updatedAt: Date.now() });
   },
   async visibleForCharacter(userId: string, characterId: string, limit = 5): Promise<Todo[]> {
+    return (await this.visibleOccurrencesForCharacter(userId, characterId, limit)).map(({ todo }) => todo);
+  },
+  async visibleOccurrencesForCharacter(userId: string, characterId: string, limit = 5): Promise<TodoWithOccurrence[]> {
     const today = localDateKey();
-    const rows = await this.list(userId, today, addLocalDays(today, 30), false);
-    return rows.filter(({ todo, occurrence }) => todo.visibility === 'selected' && todo.visibleTo?.includes(characterId) && occurrence.status === 'todo').map(({ todo }) => todo).slice(0, limit);
+    const rows = await this.list(userId, today, addLocalDays(today, 30), true);
+    const seen = new Set<string>();
+    return rows.filter(({ todo, occurrence }) => {
+      if (todo.visibility !== 'selected' || !todo.visibleTo?.includes(characterId) || occurrence.status !== 'todo' || seen.has(todo.id)) return false;
+      seen.add(todo.id);
+      return true;
+    }).slice(0, limit);
+  },
+  async completedVisibleForAudience(userId: string, audienceIds: string[], limit = 8): Promise<{ todo: Todo; occurrence?: TodoOccurrence; completedAt: number }[]> {
+    const audience = [...new Set(audienceIds)];
+    if (!audience.length) return [];
+    const todos = (await db.todos.where('userId').equals(userId).toArray()).filter((todo) =>
+      todo.visibility === 'selected' && audience.every((id) => todo.visibleTo?.includes(id)) && todo.status !== 'deleted' && todo.status !== 'cancelled',
+    );
+    if (!todos.length) return [];
+    const todoById = new Map(todos.map((todo) => [todo.id, todo]));
+    const cutoff = Date.now() - 90 * 86400000;
+    const occurrences = await db.todoOccurrences.where('todoId').anyOf(todos.map((todo) => todo.id)).toArray();
+    const results: { todo: Todo; occurrence?: TodoOccurrence; completedAt: number }[] = occurrences
+      .filter((occurrence) => occurrence.userId === userId && occurrence.status === 'completed' && (occurrence.completedAt ?? 0) >= cutoff)
+      .flatMap((occurrence) => {
+        const todo = todoById.get(occurrence.todoId);
+        return todo ? [{ todo, occurrence, completedAt: occurrence.completedAt ?? occurrence.updatedAt }] : [];
+      });
+    for (const todo of todos) {
+      if (todo.status === 'completed' && todo.completedAt && todo.completedAt >= cutoff && !occurrences.some((occurrence) => occurrence.todoId === todo.id && occurrence.status === 'completed')) {
+        results.push({ todo, completedAt: todo.completedAt });
+      }
+    }
+    return results.sort((a, b) => b.completedAt - a.completedAt).slice(0, Math.max(0, limit));
   },
   async reminders(userId: string, todoId?: string): Promise<TodoReminder[]> {
     return db.todoReminders.where('userId').equals(userId).filter((r) => !todoId || r.todoId === todoId).toArray();

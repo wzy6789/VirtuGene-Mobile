@@ -18,6 +18,7 @@ import { db, type Diary, type WorldVisibility } from '../../db/index';
 import { worldRepo } from '../../db/world-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { knowledgeRepo } from '../../db/knowledge-repo';
+import { memorySourceTombstoneRepo } from '../../db/memory-source-tombstone-repo';
 import { characterRef, derivedWorldEventId, userRef } from './subjects';
 
 /** 日记授权认知的锚点前缀（与普通世界事件 id 不会撞名） */
@@ -65,73 +66,123 @@ function normalize(visibility: WorldVisibility, visibleTo: string[]): { visibili
  * 会同步三件事：日记行本身 / 授权认知 / 世界事件（仅 world 时存在）。
  */
 export async function setDiarySharing(input: SetDiarySharingInput): Promise<SetDiarySharingResult> {
-  const diary = await db.diaries.get(input.diaryId);
-  if (!diary || diary.userId !== input.userId) throw new Error('diary-visibility: 日记不存在或不属于该用户');
-
+  const initial = await db.diaries.get(input.diaryId);
+  if (!initial || initial.userId !== input.userId || initial.deletedAt) throw new Error('diary-visibility: 日记不存在、已删除或不属于该用户');
   const world = await worldRepo.ensureDefaultWorld(input.userId);
-  const anchor = diaryKnowledgeAnchor(diary.id);
-  const eventId = derivedDiaryWorldEventId(input.userId, world.id, diary.id);
-  const { visibility, visibleTo } = normalize(input.visibility, [...new Set(input.visibleTo ?? [])]);
-
-  // 目标认知集合：selected=被选中的角色；world=参与者（用户 + 该条日记关联的角色）；private=空
-  const participantIds = diary.characterId ? [diary.characterId] : [];
-  const shouldKnow = visibility === 'selected' ? visibleTo : visibility === 'world' ? participantIds : [];
-
-  // 先收回：把当前锚点上的所有认知删掉，再按新规则重授（简单、无残留）
-  const revoked = await knowledgeRepo.removeForEvent(anchor);
-  const granted: string[] = [];
-  for (const characterId of shouldKnow) {
-    await knowledgeRepo.upsert({
+  return db.transaction('rw', [db.diaries, db.characterKnowledge, db.worldEvents, db.characters, db.memorySourceTombstones], async () => {
+    const diary = await db.diaries.get(input.diaryId);
+    if (!diary || diary.userId !== input.userId || diary.deletedAt) throw new Error('diary-visibility: 日记不存在、已删除或不属于该用户');
+    const anchor = diaryKnowledgeAnchor(diary.id);
+    const eventId = derivedDiaryWorldEventId(input.userId, world.id, diary.id);
+    const { visibility, visibleTo } = normalize(input.visibility, [...new Set(input.visibleTo ?? [])]);
+    const previousRevision = diary.revision ?? 1;
+    const nextRevision = previousRevision + 1;
+    await memorySourceTombstoneRepo.record({
       userId: input.userId,
-      worldId: world.id,
-      characterId,
-      eventId: anchor,
-      knowledgeLevel: 'full',
-      canMention: true,
-    });
-    granted.push(characterId);
-  }
-
-  let worldEventId: string | undefined;
-  if (visibility === 'world') {
-    const participants = [userRef(input.userId), ...participantIds.map(characterRef)];
-    await worldEventRepo.create({
-      userId: input.userId,
-      worldId: world.id,
-      type: 'reality',
-      title: diary.title.trim() || '一页没有标题的日记',
-      summary: diary.content.trim().slice(0, 200),
-      participants,
-      timestamp: new Date(`${diary.date}T12:00:00`).getTime() || diary.createdAt,
-      importance: 0.6,
       sourceType: 'diary',
       sourceId: diary.id,
-      visibility: 'world',
-      resolved: true,
-      tags: ['你写下的生活'],
-      meta: { diaryId: diary.id, diaryDate: diary.date },
+      sourceRevision: previousRevision,
+      status: 'withdrawn',
     });
-    worldEventId = eventId;
-  } else {
-    // 降级（world → selected/private）或本来就是 private/selected：确保世界层没有残留
-    await worldEventRepo.remove(eventId);
-  }
+    const selected = await db.characters.bulkGet(visibleTo);
+    if (selected.some((character) => !character || character.createdBy !== input.userId)) {
+      throw new Error('diary-visibility: 授权对象无效');
+    }
 
-  // 写回日记行：worldEventId 必须**真的删掉**（而不是留一个 undefined），
-  // 与 diary-repo.restore 同一套做法，避免 Dexie 里留下"半开"的字段
-  const next: Diary = { ...diary, visibility, visibleTo, updatedAt: Date.now() };
-  if (worldEventId) next.worldEventId = worldEventId;
-  else delete (next as { worldEventId?: string }).worldEventId;
-  await db.diaries.put(next);
+    // 目标认知集合：selected=被选中的角色；world=参与者（用户 + 该条日记关联的角色）；private=空
+    const participantIds = diary.characterId ? [diary.characterId] : [];
+    const shouldKnow = visibility === 'selected' ? visibleTo : visibility === 'world' ? participantIds : [];
 
-  return { visibility, visibleTo, ...(worldEventId ? { worldEventId } : {}), granted, revoked };
+    // 先收回：把当前锚点上的所有认知删掉，再按新规则重授（简单、无残留）
+    const revoked = await knowledgeRepo.removeForEvent(anchor, input.userId);
+    const granted: string[] = [];
+    for (const characterId of shouldKnow) {
+      await knowledgeRepo.upsert({
+        userId: input.userId,
+        worldId: world.id,
+        characterId,
+        eventId: anchor,
+        knowledgeLevel: 'full',
+        canMention: true,
+        sourceRevision: nextRevision,
+      });
+      granted.push(characterId);
+    }
+
+    let worldEventId: string | undefined;
+    if (visibility === 'world') {
+      const participants = [userRef(input.userId), ...participantIds.map(characterRef)];
+      await worldEventRepo.create({
+        userId: input.userId,
+        worldId: world.id,
+        type: 'reality',
+        title: diary.title.trim() || '一页没有标题的日记',
+        summary: diary.content.trim().slice(0, 200),
+        participants,
+        timestamp: new Date(`${diary.date}T12:00:00`).getTime() || diary.createdAt,
+        importance: 0.6,
+        sourceType: 'diary',
+        sourceId: diary.id,
+        visibility: 'world',
+        resolved: true,
+        tags: ['你写下的生活'],
+        meta: { diaryId: diary.id, diaryDate: diary.date, diaryRevision: nextRevision },
+      });
+      worldEventId = eventId;
+    } else {
+      // 降级（world → selected/private）或本来就是 private/selected：确保世界层没有残留
+      await worldEventRepo.remove(eventId);
+    }
+
+    // 写回日记行：worldEventId 必须**真的删掉**（而不是留一个 undefined），
+    // 与 diary-repo.restore 同一套做法，避免 Dexie 里留下"半开"的字段
+    const next: Diary = { ...diary, visibility, visibleTo, revision: nextRevision, updatedAt: Date.now() };
+    if (worldEventId) next.worldEventId = worldEventId;
+    else delete (next as { worldEventId?: string }).worldEventId;
+    await db.diaries.put(next);
+
+    return { visibility, visibleTo, ...(worldEventId ? { worldEventId } : {}), granted, revoked };
+  });
 }
 
 /** 日记被彻底删除（清空回收站 / 角色删除清理）时，收回认知并移除派生事件 */
-export async function clearDiarySharing(userId: string, diaryId: string): Promise<void> {
-  const world = await worldRepo.ensureDefaultWorld(userId);
-  await knowledgeRepo.removeForEvent(diaryKnowledgeAnchor(diaryId));
-  await worldEventRepo.remove(derivedDiaryWorldEventId(userId, world.id, diaryId));
+export async function clearDiarySharing(
+  userId: string,
+  diaryId: string,
+  options: { deletedAt?: number; purge?: boolean } = {},
+): Promise<void> {
+  await db.transaction('rw', [db.diaries, db.characterKnowledge, db.worldEvents, db.memorySourceTombstones], async () => {
+    const diary = await db.diaries.get(diaryId);
+    if (diary && diary.userId !== userId) return;
+    if (diary && diary.userId === userId) {
+      await memorySourceTombstoneRepo.record({
+        userId,
+        sourceType: 'diary',
+        sourceId: diary.id,
+        sourceRevision: options.purge ? (diary.revision ?? 1) + 1 : (diary.revision ?? 1),
+        status: options.purge ? 'deleted' : 'withdrawn',
+      });
+    }
+    await knowledgeRepo.removeForEvent(diaryKnowledgeAnchor(diaryId), userId);
+    const events = await db.worldEvents.where('sourceId').equals(diaryId).toArray();
+    const eventIds = events.filter((event) => event.userId === userId && event.sourceType === 'diary').map((event) => event.id);
+    if (eventIds.length) await db.worldEvents.bulkDelete(eventIds);
+    if (!diary || diary.userId !== userId || options.purge) {
+      if (diary?.userId === userId) await db.diaries.delete(diaryId);
+      return;
+    }
+    const next: Diary = {
+      ...diary,
+      visibility: 'private',
+      visibleTo: [],
+      revision: (diary.revision ?? 1) + 1,
+      updatedAt: Date.now(),
+    };
+    delete (next as { worldEventId?: string }).worldEventId;
+    if (options.deletedAt !== undefined) next.deletedAt = options.deletedAt;
+    else delete (next as Diary & { deletedAt?: number }).deletedAt;
+    await db.diaries.put(next);
+  });
 }
 
 /**

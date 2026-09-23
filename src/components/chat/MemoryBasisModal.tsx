@@ -75,8 +75,9 @@ export function MemoryBasisModal({
   const missingSharedMemory = (trace?.sharedMemoryIds?.length ?? 0) - sharedMemories.length;
   const missingScene = (trace?.sceneIds?.length ?? 0) - scenes.length;
   const missingPulseEvent = (trace?.pulseEventIds?.length ?? 0) - pulseEvents.length;
+  const todoReferenceCount = Math.max(trace?.todoIds?.length ?? 0, trace?.todoOccurrenceIds?.length ?? 0);
   const empty =
-    memories.length === 0 && threads.length === 0 && events.length === 0 && sharedMemories.length === 0 && scenes.length === 0 && pulseEvents.length === 0 && !trace?.crossChannelReferences?.length;
+    memories.length === 0 && threads.length === 0 && events.length === 0 && sharedMemories.length === 0 && scenes.length === 0 && pulseEvents.length === 0 && !(trace?.todoIds?.length) && !(trace?.todoOccurrenceIds?.length) && !trace?.groupSummary && !trace?.crossChannelReferences?.length;
 
   return (
     <Modal open={open} onClose={onClose} title="这条回复的记忆依据" width="max-w-md">
@@ -89,7 +90,19 @@ export function MemoryBasisModal({
         {!!trace?.crossChannelReferences?.length && (
           <section className="text-xs leading-6 text-sub">
             <h3 className="font-semibold text-ink">跨场景记忆</h3>
-            <p>本轮参考了 {trace.crossChannelReferences.filter(r => r.source === 'group').length} 条群聊记录、{trace.crossChannelReferences.filter(r => r.source === 'moment').length} 条动态或互动记录。这里保留来源标识，不复制已删除的正文。</p>
+            <p>本轮参考了 {trace.crossChannelReferences.filter(r => r.source === 'group').length} 条群聊记录、{trace.crossChannelReferences.filter(r => r.source === 'moment').length} 条动态或互动记录、{trace.crossChannelReferences.filter(r => r.source === 'todo').length + todoReferenceCount} 条已分享待办经历。这里保留来源标识，不复制已删除的正文。</p>
+          </section>
+        )}
+        {!!trace?.groupSummary && (
+          <section className="text-xs leading-6 text-sub">
+            <h3 className="font-semibold text-ink">群聊历史摘要</h3>
+            <p>本轮使用了该群截至 {new Date(trace.groupSummary.updatedAt).toLocaleString('zh-CN')} 的摘要。原始消息删除后，这份摘要会同步失效。</p>
+          </section>
+        )}
+        {!!todoReferenceCount && (
+          <section className="text-xs leading-6 text-sub">
+            <h3 className="font-semibold text-ink">已分享待办</h3>
+            <p>本轮实际参考了 {todoReferenceCount} 条用户明确分享的待办/完成记录。</p>
           </section>
         )}
 

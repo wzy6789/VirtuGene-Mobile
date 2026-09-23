@@ -9,12 +9,14 @@ import {
   DEFAULT_MOMENTS_PREFERENCES,
   HISTORY_WINDOWS,
   HISTORY_WINDOW_LABELS,
+  MOMENT_POST_FREQUENCY_LABELS,
   loadMomentsPreferences,
   saveMomentsPreferences,
   type MomentsAudiencePreference,
   type MomentsDensity,
   type MomentsHistoryWindow,
   type MomentsPreferences,
+  type MomentPostFrequency,
 } from '../../lib/moments/preferences';
 import type { Moment, MomentNotification, MomentReaction } from '../../db/index';
 import { Avatar } from '../ui/Avatar';
@@ -100,8 +102,7 @@ export function MomentsPage() {
   const [likesMomentId, setLikesMomentId] = useState<string | null>(null);
   const [detailMomentId, setDetailMomentId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  // 右上角「⋯」菜单，以及菜单里的两项设置：朋友圈屏蔽 / 默认可见范围
-  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  // 右上角设置入口直接打开总设置；细项在同一面板内查找。
   const [audienceSheetOpen, setAudienceSheetOpen] = useState(false);
   const [preferences, setPreferences] = useState<MomentsPreferences>(DEFAULT_MOMENTS_PREFERENCES);
   const [prefDraftMode, setPrefDraftMode] = useState<AudienceMode>('all');
@@ -132,9 +133,9 @@ export function MomentsPage() {
     setDetailMomentId(momentId);
   };
 
-  const load = async () => {
+  const load = async (showSpinner = true) => {
     if (!userId) return;
-    setLoading(true);
+    if (showSpinner) setLoading(true);
     try {
       const [nextRows, nextContacts, settings] = await Promise.all([momentsRepo.list(userId), momentsRepo.contacts(userId), momentsRepo.contactSettings(userId)]);
       if (useAuthStore.getState().userId !== userId) return;
@@ -158,7 +159,7 @@ export function MomentsPage() {
       const pairs = await Promise.all(refreshed.map(async ({ moment }) => [moment.id, await momentsRepo.reactions(moment.id, userId)] as const));
       setReactionMap(Object.fromEntries(pairs));
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
   };
 
@@ -168,6 +169,16 @@ export function MomentsPage() {
     setNotifications([]);
     setUnreadInteractions(0);
     if (userId) void load();
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const onMomentsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string }>).detail;
+      if (detail?.userId === userId) void load(false);
+    };
+    window.addEventListener('virtugene:moments-updated', onMomentsUpdated);
+    return () => window.removeEventListener('virtugene:moments-updated', onMomentsUpdated);
   }, [userId]);
 
   useEffect(() => {
@@ -461,29 +472,15 @@ export function MomentsPage() {
           <p>把今天留在世界里。</p>
         </div>
         <div className="vg-moments-header-actions">
-          <div className="vg-moments-settings-anchor">
-            <button
-              type="button"
-              className="vg-moments-settings"
-              onClick={() => setHeaderMenuOpen((open) => !open)}
-              aria-haspopup="menu"
-              aria-expanded={headerMenuOpen}
-              aria-label="朋友圈设置"
-            >
-              ⋯
-            </button>
-            {headerMenuOpen && (
-              <>
-                <button type="button" className="vg-moments-settings-backdrop" aria-label="关闭菜单" onClick={() => setHeaderMenuOpen(false)} />
-                <div className="vg-moments-settings-menu" role="menu">
-                  <button type="button" role="menuitem" onClick={() => { setHeaderMenuOpen(false); setSettingsOpen(true); }}>朋友圈设置</button>
-                  <button type="button" role="menuitem" onClick={() => { setHeaderMenuOpen(false); setContactSheetOpen(true); }}>朋友圈屏蔽</button>
-                  <button type="button" role="menuitem" onClick={() => { setHeaderMenuOpen(false); openAudienceSheet(); }}>默认可见范围</button>
-                </div>
-              </>
-            )}
-          </div>
-          <button type="button" className="vg-moments-camera" onClick={() => setComposerOpen(true)} aria-label="发布动态">＋</button>
+          <button type="button" className="vg-moments-settings" onClick={() => setSettingsOpen(true)} aria-label="朋友圈设置">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9.7 2.7h4.6l.6 2.3c.5.2 1 .5 1.4.8l2.3-.7 2.3 4-1.7 1.6a8 8 0 0 1 0 2.6l1.7 1.6-2.3 4-2.3-.7c-.4.3-.9.6-1.4.8l-.6 2.3H9.7l-.6-2.3c-.5-.2-1-.5-1.4-.8l-2.3.7-2.3-4 1.7-1.6a8 8 0 0 1 0-2.6L3.1 9.1l2.3-4 2.3.7c.4-.3.9-.6 1.4-.8l.6-2.3Z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </button>
+          <button type="button" className="vg-moments-camera" onClick={() => setComposerOpen(true)} aria-label="发布动态">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
         </div>
       </header>
 
@@ -506,8 +503,8 @@ export function MomentsPage() {
         <input ref={coverRef} type="file" accept="image/*" hidden onChange={(event) => { void pickCover(event.target.files); event.currentTarget.value = ''; }} />
       </section>
 
-      {/* 互动入口常驻在名片下、动态流上：有新互动显示条数与最近互动者，没有也留一个能翻历史互动的入口 */}
-      <button type="button" className="vg-moments-inbox" onClick={openNotifications} aria-label="查看互动消息">
+      {/* 只在有未读互动时占用动态流位置；看过后收起，历史仍可从设置查看。 */}
+      {unreadInteractions > 0 && <button type="button" className="vg-moments-inbox" onClick={openNotifications} aria-label="查看互动消息">
         {recentActorIds.length > 0 ? (
           <span className="vg-moments-inbox-avatars" aria-hidden="true">
             {recentActorIds.map((characterId) => <Avatar key={characterId} avatar={actorAvatar(characterId)} size="sm" />)}
@@ -516,20 +513,12 @@ export function MomentsPage() {
           <span className="vg-moments-inbox-mark" aria-hidden="true">✦</span>
         )}
         <span className="vg-moments-inbox-body">
-          <strong className={unreadInteractions > 0 ? 'is-unread' : ''}>
-            {unreadInteractions > 0 ? `${unreadInteractions > 99 ? '99+' : unreadInteractions} 条新互动` : '互动消息'}
-          </strong>
-          <small>
-            {unreadInteractions > 0
-              ? '看看谁在回应你'
-              : notifications.length > 0
-                ? `最近 ${notifications.length} 条点赞与评论`
-                : '角色的点赞和评论会出现在这里'}
-          </small>
+          <strong className="is-unread">{unreadInteractions > 99 ? '99+' : unreadInteractions} 条新互动</strong>
+          <small>看看谁在回应你</small>
         </span>
         {preferences.showUnreadBadge && unreadInteractions > 0 && <span className="vg-moments-inbox-dot" aria-hidden="true" />}
         <span className="vg-moments-inbox-chevron" aria-hidden="true">›</span>
-      </button>
+      </button>}
 
       {loading ? <div className="vg-moments-empty">正在整理最近的生活…</div> : visibleRows.length === 0 ? (
         <div className="vg-moments-empty"><span>✦</span><strong>还没有动态</strong><p>发一张照片，或写下此刻正在发生的事。</p><button type="button" onClick={() => setComposerOpen(true)}>写下第一条</button></div>
@@ -559,6 +548,13 @@ export function MomentsPage() {
               {moment.text && <p className="vg-moment-text">{moment.text}</p>}
               {media.length > 0 && <div className={`vg-moment-media count-${Math.min(media.length, 9)}`}>{media.map((image) => <button type="button" key={image.id} onClick={() => setPreviewImage(image.dataUrl)} aria-label="查看动态图片"><img src={image.dataUrl} alt="动态图片" loading="lazy" /></button>)}</div>}
               <div className="vg-moment-meta"><span>{timeLabel(moment.createdAt)}</span><span>{moment.authorCharacterId ? '角色动态' : audienceLabel(moment)}</span></div>
+              {moment.lifeThreadId && visibleRows.some((row) => row.moment.lifeThreadId === moment.lifeThreadId && row.moment.createdAt > moment.createdAt) && (
+                  <button type="button" className="vg-moment-thread-link" onClick={() => {
+                    const next = visibleRows.filter((row) => row.moment.lifeThreadId === moment.lifeThreadId && row.moment.createdAt > moment.createdAt)
+                      .sort((a, b) => a.moment.createdAt - b.moment.createdAt)[0];
+                    if (next) document.getElementById(`moment-${next.moment.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }}>这件事还有后续</button>
+                )}
 
               {openMenu === moment.id && own && (
                 <>
@@ -580,15 +576,21 @@ export function MomentsPage() {
                 </button>
                 {pillOpen && (
                   <div className="vg-moment-pill" role="menu">
-                    <button type="button" role="menuitem" onClick={() => { void toggleUserLike(moment.id); setInteractMomentId(null); }}>{liked ? '取消赞' : '赞'}</button>
-                    <button type="button" role="menuitem" onClick={() => { setCommenting(moment.id); setReplyingTo(null); setInteractMomentId(null); }}>评论</button>
+                    <button type="button" role="menuitem" aria-label={liked ? '取消点赞' : '点赞'} onClick={() => { void toggleUserLike(moment.id); setInteractMomentId(null); }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 10v11H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3Zm0 0 4-7a3 3 0 0 1 2.8 3L13 10h5a2 2 0 0 1 2 2l-1.5 7a2 2 0 0 1-2 1.7H7" /></svg>
+                      <span>{liked ? '取消赞' : '赞'}</span>
+                    </button>
+                    <button type="button" role="menuitem" aria-label="评论" onClick={() => { setCommenting(moment.id); setReplyingTo(null); setInteractMomentId(null); }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 8.8 8.8 0 0 1-3.5-.7L4 20l1.5-3.5A7.2 7.2 0 0 1 4 11.5 7.5 7.5 0 0 1 12 4a7.5 7.5 0 0 1 8 7.5Z" /><path d="M8 12h.01M12 12h.01M16 12h.01" /></svg>
+                      <span>评论</span>
+                    </button>
                   </div>
                 )}
               </div>
 
               {(likes.length > 0 || comments.length > 0) && (
                 <div className="vg-moment-thread">
-                  {likes.length > 0 && <button type="button" className="vg-moment-likes" onClick={() => setLikesMomentId(moment.id)} aria-label={`查看全部 ${likes.length} 条点赞`}><span className="vg-moment-like-heart">♥</span><span className="vg-moment-like-avatars">{likes.slice(0, 6).map((like) => <Avatar key={like.id} avatar={actorAvatar(like.characterId)} size="sm" />)}</span><span>共 {likes.length} 人赞</span></button>}
+                  {likes.length > 0 && <button type="button" className="vg-moment-likes" onClick={() => setLikesMomentId(moment.id)} aria-label="查看点赞记录"><span className="vg-moment-like-heart" aria-hidden="true">♥</span><span className="vg-moment-like-avatars">{likes.slice(0, 6).map((like) => <Avatar key={like.id} avatar={actorAvatar(like.characterId)} size="sm" />)}</span></button>}
                   {comments.length > 0 && <div className="vg-moment-comments">{comments.slice(0, 4).map((comment) => { const target = comments.find((item) => item.id === comment.replyToId); const targetName = replyTargetName(comment, target); const mine = !comment.characterId; return <button type="button" className={`vg-moment-comment-row ${mine ? 'is-mine' : ''}`} key={comment.id} onClick={() => { setCommenting(moment.id); setReplyingTo(comment); }} onContextMenu={(event) => { if (!mine) return; event.preventDefault(); setDeleteComment({ momentId: moment.id, reactionId: comment.id }); }} onTouchStart={() => startCommentLongPress(moment.id, comment.id, mine)} onTouchEnd={cancelCommentLongPress} onTouchMove={cancelCommentLongPress}><strong>{actorName(comment.characterId)}</strong>{targetName && <> 回复 <strong>{targetName}</strong></>}：{comment.content}</button>; })}{comments.length > 4 && <button type="button" className="vg-moment-more-comments" onClick={() => setDetailMomentId(moment.id)}>查看全部 {comments.length} 条评论</button>}</div>}
                 </div>
               )}
@@ -619,6 +621,23 @@ export function MomentsPage() {
         <div className="vg-moment-setting-row is-static"><span>新互动红点<small>关掉后互动条与世界入口都不再提示未读</small></span><button type="button" role="switch" aria-checked={preferences.showUnreadBadge} className={`vg-moment-toggle ${preferences.showUnreadBadge ? 'is-on' : ''}`} onClick={() => applyPreferences({ showUnreadBadge: !preferences.showUnreadBadge })}>{preferences.showUnreadBadge ? '已开启' : '已关闭'}</button></div>
         <div className="vg-moment-setting-row is-static"><span>发布后提示<small>发布成功时弹一条说明</small></span><button type="button" role="switch" aria-checked={preferences.notifyAfterPublish} className={`vg-moment-toggle ${preferences.notifyAfterPublish ? 'is-on' : ''}`} onClick={() => applyPreferences({ notifyAfterPublish: !preferences.notifyAfterPublish })}>{preferences.notifyAfterPublish ? '已开启' : '已关闭'}</button></div>
         <div className="vg-moment-setting-actions"><button type="button" disabled={unreadInteractions === 0} onClick={() => void markAllRead()}>全部已读</button><button type="button" disabled={notifications.length === 0} onClick={() => void clearNotifications()}>清空记录</button></div>
+
+        <p className="vg-moment-setting-title">好友近况</p>
+        <div className="vg-moment-setting-row is-static"><span>允许好友主动分享<small>他们会聊自己的生活，也可以选择安静</small></span><button type="button" role="switch" aria-checked={preferences.autonomousPostsEnabled} className={`vg-moment-toggle ${preferences.autonomousPostsEnabled ? 'is-on' : ''}`} onClick={() => applyPreferences({ autonomousPostsEnabled: !preferences.autonomousPostsEnabled })}>{preferences.autonomousPostsEnabled ? '已开启' : '已关闭'}</button></div>
+        <div className="vg-moment-setting-row is-static"><span>默认分享节奏<small>打开软件时优先更新；活跃约半天、自然约一天、安静约两天</small></span><span className="vg-moment-setting-buttons">{(['quiet', 'natural', 'active'] as MomentPostFrequency[]).map((mode) => <button type="button" key={mode} className={preferences.postFrequency === mode ? 'is-selected' : ''} onClick={() => applyPreferences({ postFrequency: mode })}>{MOMENT_POST_FREQUENCY_LABELS[mode]}</button>)}</span></div>
+        <details className="vg-moment-post-contact-settings">
+          <summary>单独调整好友</summary>
+          {contacts.length === 0 ? <p>还没有可设置的角色。</p> : contacts.map((contact) => {
+            const mode = preferences.contactPostModes[contact.id] ?? preferences.postFrequency;
+            return <div className="vg-moment-post-contact" key={contact.id}><span><Avatar avatar={contact.avatar} size="sm" /><b>{contact.name}</b></span><select aria-label={`${contact.name}的分享节奏`} value={mode} onChange={(event) => {
+              const selectedMode = event.target.value as MomentPostFrequency;
+              const nextModes = { ...preferences.contactPostModes };
+              if (selectedMode === preferences.postFrequency) delete nextModes[contact.id];
+              else nextModes[contact.id] = selectedMode;
+              applyPreferences({ contactPostModes: nextModes });
+            }}>{(['quiet', 'natural', 'active'] as MomentPostFrequency[]).map((item) => <option value={item} key={item}>{MOMENT_POST_FREQUENCY_LABELS[item]}</option>)}</select></div>;
+          })}
+        </details>
 
         <p className="vg-moment-setting-title">谁能看 · 我能看</p>
         <button type="button" className="vg-moment-setting-row" onClick={() => { setSettingsOpen(false); setContactSheetOpen(true); }}><span>朋友圈屏蔽<small>{blockedIds.length > 0 ? `已屏蔽 ${blockedIds.length} 位角色` : '不让他（她）看我的朋友圈'}</small></span><i aria-hidden="true">›</i></button>

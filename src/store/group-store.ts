@@ -9,8 +9,6 @@ import { recallCharacterMemory } from '../lib/character-memory';
 import { useAuthStore } from './auth-store';
 import { useNotificationStore } from './notification-store';
 import { stateRepo } from '../db/state-repo';
-import { sharedEventRepo } from '../db/shared-event-repo';
-import { getRelationLevel } from '../lib/affinity';
 import { ipc } from '../lib/ipc-client';
 import { notifyLocal } from '../lib/notify';
 import { IS_MOBILE } from '../lib/platform';
@@ -86,59 +84,47 @@ async function getOrCreateGroupSession(groupId: string, userId: string): Promise
   return session;
 }
 
-/** 构建群聊上下文：成员人设（含单聊记忆 + 最近私聊原话） */
+function witnessedByAll(message: Message, memberIds: string[]): boolean {
+  return memberIds.length > 0 && memberIds.every((id) => message.witnessedBy?.includes(id));
+}
+
+function groupSummaryFor(session: Session | undefined, memberIds: string[]): string | undefined {
+  if (!session?.summary || !session.summaryWitnessedBy) return undefined;
+  const current = [...new Set(memberIds)].sort();
+  const summarized = [...new Set(session.summaryWitnessedBy)].sort();
+  return current.length === summarized.length && current.every((id, index) => id === summarized[index])
+    ? session.summary
+    : undefined;
+}
+
+function groupPromptTrace(briefs: GroupMemberBrief[], session: Session | undefined, memberIds: string[], sessionId: string): Message['contextTrace'] | undefined {
+  const references = [...new Map(briefs.flatMap((brief) => brief.memoryReferences ?? []).map((reference) => [`${reference.source}:${reference.id}`, reference])).values()];
+  const summary = groupSummaryFor(session, memberIds) && session?.summaryUpdatedAt
+    ? { sessionId, updatedAt: session.summaryUpdatedAt }
+    : undefined;
+  if (!references.length && !summary) return undefined;
+  return {
+    ...(references.length ? { crossChannelReferences: references } : {}),
+    ...(summary ? { groupSummary: summary } : {}),
+    at: Date.now(),
+  };
+}
+
+/** 构建群聊上下文：成员人设（含经当前全体成员见证的跨场景记忆） */
 async function buildBriefs(group: Group, userId: string, query = ''): Promise<GroupMemberBrief[]> {
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
     (c): c is NonNullable<typeof c> => !!c,
   );
   return Promise.all(
     members.map(async (c) => {
-      const recalled = await recallCharacterMemory({ userId, characterId: c.id, query, audience: group.characterIds, sources: ['world', 'moment'], budget: 1800 });
+      const recalled = await recallCharacterMemory({ userId, characterId: c.id, query, audience: group.characterIds, sources: ['world', 'moment', 'todo'], budget: 1800 });
       const memText = recalled.text;
-      let soulState: string | undefined;
-      let storyRelations: string | undefined;
-      let sharedHistory: string | undefined;
-      try {
-        const st = await stateRepo.getOrCreate(c.id, userId);
-        const lvl = getRelationLevel(st.affinity);
-        const name = (st.tierNames && st.tierNames[lvl.level.name]) || lvl.level.name;
-        soulState = `${name} · 好感度 ${Math.round(st.affinity)} · 心情 ${Math.round(st.mood)}/100`;
-        storyRelations = (st.storyRelations ?? [])
-          .map((link) => {
-            const target = members.find((member) => member.id === link.targetCharacterId);
-            return target ? `与${target.name}是「${link.label}」${link.description ? `（${link.description}）` : ''}` : '';
-          })
-          .filter(Boolean)
-          .slice(0, 4)
-          .join('；') || undefined;
-      } catch {
-        /* 灵魂状态取不到不影响群聊 */
-      }
-      // 人物共同事件：群聊里只能"读到"，不能新建/修改（数据只由用户在关系详情里维护）
-      try {
-        const events = await sharedEventRepo.getRecentByCharacter(c.id, userId, 6);
-        sharedHistory = events
-          .map((event) => {
-            const otherId = event.characterIds.find((id) => id !== c.id);
-            const other = members.find((member) => member.id === otherId);
-            if (!other) return '';
-            const mine = event.viewpoints?.[c.id];
-            return `与${other.name}${event.type}：${event.title}${mine ? `（你的感受：${mine}）` : ''}`;
-          })
-          .filter(Boolean)
-          .slice(0, 3)
-          .join('；') || undefined;
-      } catch {
-        /* 共同事件取不到不影响群聊 */
-      }
       return {
         id: c.id,
         name: c.name,
         persona: c.signature || c.systemPrompt.slice(0, 60),
         memory: memText || undefined,
-        soulState,
-        storyRelations,
-        sharedHistory,
+        memoryReferences: recalled.references.map(({ source, id }) => ({ source, id })),
       };
     }),
   );
@@ -155,21 +141,35 @@ function parseAtNames(text: string, members: { id: string; name: string }[]): st
 /** 长会话滚动摘要：早期对话压缩成摘要存到会话（与单聊一致，best-effort） */
 async function maybeSummarizeGroup(sessionId: string, apiKey: string): Promise<void> {
   try {
+    const sessionData = await sessionRepo.getById(sessionId);
+    if (!sessionData?.groupId) return;
+    const group = await groupRepo.getById(sessionData.groupId);
+    if (!group || group.userId !== sessionData.userId || group.characterIds.length < 2) return;
+    const members = [...new Set(group.characterIds)];
     const msgs = await messageRepo.getBySession(sessionId);
     if (msgs.length <= SUMMARY_WINDOW) return;
-    const oldMsgs = msgs.slice(0, msgs.length - SUMMARY_WINDOW);
-    const sessionData = await sessionRepo.getById(sessionId);
-    const lastCovered = sessionData?.summaryUpdatedAt ?? 0;
+    const oldMsgs = msgs.slice(0, msgs.length - SUMMARY_WINDOW).filter((message) => witnessedByAll(message, members));
+    const previousSummary = groupSummaryFor(sessionData, members);
+    const lastCovered = previousSummary ? sessionData.summaryUpdatedAt ?? 0 : 0;
     const uncovered = oldMsgs.filter((m) => m.createdAt > lastCovered);
     if (uncovered.length < SUMMARY_REGENERATE_THRESHOLD) return;
-    const history = oldMsgs.slice(-80).map((m) => ({ role: m.role, content: m.content.slice(0, 1200) }));
+    const historyMessages = oldMsgs.slice(-80);
+    const history = historyMessages.map((m) => ({ role: m.role, content: (m.senderId ? '群成员：' : '') + m.content.slice(0, 1200) }));
     const result = await ipc.context.summarize({
       apiKey,
       history,
-      previousSummary: sessionData?.summary?.slice(0, 2_500),
+      previousSummary: previousSummary?.slice(0, 2_500),
     });
     if (result.summary) {
-      await sessionRepo.updateSummary(sessionId, result.summary);
+      const sourceMessageIds = [...new Set([
+        ...(previousSummary ? sessionData.summarySourceMessageIds ?? [] : []),
+        ...historyMessages.map((message) => message.id),
+      ])];
+      const sourceMessageRevisions = Object.fromEntries([
+        ...(previousSummary ? Object.entries(sessionData.summarySourceMessageRevisions ?? {}) : []),
+        ...historyMessages.map((message) => [message.id, message.revision ?? 1] as const),
+      ]);
+      await sessionRepo.updateSummary(sessionId, result.summary, members, sourceMessageIds, sourceMessageRevisions);
     }
   } catch {
     /* 摘要失败是 best-effort */
@@ -180,10 +180,18 @@ async function maybeSummarizeGroup(sessionId: string, apiKey: string): Promise<v
 async function maybeExtractGroupMemories(sessionId: string, memberIds: string[], apiKey: string): Promise<void> {
   try {
     const userId = useAuthStore.getState().userId ?? '';
-    const msgs = await messageRepo.getBySession(sessionId);
+    const members = [...new Set(memberIds)];
+    if (!userId || members.length < 2) return;
+    const msgs = (await messageRepo.getBySession(sessionId)).filter((message) => witnessedByAll(message, members));
     const userCount = msgs.filter((m) => m.role === 'user').length;
     if (userCount < 6 || userCount % 6 !== 0) return;
-    const history = msgs.slice(-18).map((m) => ({ role: m.role, content: m.content.slice(0, 1200) }));
+    const sourceMessages = msgs.slice(-18);
+    const history = await Promise.all(sourceMessages.map(async (m) => ({
+      role: m.role,
+      content: m.role === 'user'
+        ? '用户：' + m.content.slice(0, 1200)
+        : ((await characterRepo.getById(m.senderId ?? ''))?.name ?? '群成员') + '：' + m.content.slice(0, 1200),
+    })));
     const result = await extractMemories({ apiKey, history });
     if (!result.memories || result.memories.length === 0) return;
     for (const charId of memberIds) {
@@ -204,6 +212,10 @@ async function maybeExtractGroupMemories(sessionId: string, memberIds: string[],
               type: 'auto' as const,
               ...prepareMemoryMetadata(content, { confidence: 0.75 }),
               createdAt: now + i,
+              sourceSessionId: sessionId,
+              sourceMessageIds: sourceMessages.map((message) => message.id),
+              confidence: 0.75,
+              updatedAt: now + i,
           })),
         );
       }
@@ -220,7 +232,7 @@ async function generateProactiveTurn(
   apiKey: string,
   userId: string,
   mode: 'proactive' | 'banter' = 'proactive',
-): Promise<{ turns: GroupTurn[]; error?: string }> {
+): Promise<{ turns: GroupTurn[]; error?: string; contextTrace?: Message['contextTrace'] }> {
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
     (c): c is NonNullable<typeof c> => !!c,
   );
@@ -228,23 +240,24 @@ async function generateProactiveTurn(
   if (members.length < 2) return { turns: [], error: '群成员不足' };
   const briefs = await buildBriefs(group, userId);
   const all = await messageRepo.getPage(sessionId, { limit: 20 });
-  const history = all
+  const history = all.filter((message) => witnessedByAll(message, group.characterIds))
     .map((m) => ({
       senderName: m.senderId ? members.find((c) => c.id === m.senderId)?.name : undefined,
       role: m.role as 'user' | 'assistant',
       content: m.content || (m.image ? '[图片]' : ''),
     }));
   const session = await sessionRepo.getById(sessionId);
-  return generateGroupTurn({
+  const generated = await generateGroupTurn({
     apiKey,
     groupName: group.name,
     members: briefs,
     history,
     mode,
-    summary: session?.summary,
+    summary: groupSummaryFor(session, group.characterIds),
     // banter（成员间闲聊）更省：最多 2 条
     maxTurns: mode === 'banter' ? 2 : undefined,
   });
+  return { ...generated, contextTrace: groupPromptTrace(briefs, session, group.characterIds, sessionId) };
 }
 
 export const useGroupStore = create<GroupState>((set, get) => ({
@@ -351,7 +364,8 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         return;
       }
       const briefs = await buildBriefs(group, userId, trimmed);
-      const history = (await messageRepo.getPage(sessionId, { limit: 20 }))
+      const history = (await messageRepo.getPage(sessionId, { limit: 40 }))
+        .filter((message) => witnessedByAll(message, group.characterIds))
         .slice(-17, -1)
         .map((m) => ({
           senderName: m.senderId ? members.find((c) => c.id === m.senderId)?.name : undefined,
@@ -370,13 +384,14 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         userMessage: trimmed,
         atMembers,
         image: opts?.image,
-        summary: sessionData?.summary,
+        summary: groupSummaryFor(sessionData, group.characterIds),
         // 热闹模式：一轮最多 5 条（默认 3，省 token）
         maxTurns: group.lively ? 5 : 3,
       });
 
       // 落库群回复序列
       const now = Date.now();
+      const contextTrace = groupPromptTrace(briefs, sessionData, group.characterIds, sessionId);
       const msgs: Message[] = turns.map((t, i) => ({
         id: crypto.randomUUID(),
         sessionId,
@@ -385,6 +400,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         senderId: t.senderId,
         createdAt: now + i,
         isProactive: false,
+        ...(contextTrace ? { contextTrace } : {}),
       }));
       for (const msg of msgs) {
         await messageRepo.create(msg);
@@ -423,7 +439,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
 
       const group = await groupRepo.getById(currentGroup.id);
       if (!group) return;
-      const { turns, error } = await generateProactiveTurn(group, currentSessionId, apiKey, userId);
+      const { turns, error, contextTrace } = await generateProactiveTurn(group, currentSessionId, apiKey, userId);
 
       const now2 = Date.now();
       const msgs: Message[] = turns.map((t, i) => ({
@@ -434,6 +450,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         senderId: t.senderId,
         createdAt: now2 + i,
         isProactive: true,
+        ...(contextTrace ? { contextTrace } : {}),
       }));
       for (const msg of msgs) {
         await messageRepo.create(msg);
@@ -487,7 +504,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       }
       if (!best) return;
 
-      const { turns, error } = await generateProactiveTurn(best.group, best.sessionId, apiKey, userId);
+      const { turns, error, contextTrace } = await generateProactiveTurn(best.group, best.sessionId, apiKey, userId);
       if (turns.length === 0) {
         console.warn('[group-chat] 后台主动发言失败:', error);
         return;
@@ -501,6 +518,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         senderId: t.senderId,
         createdAt: now2 + i,
         isProactive: true,
+        ...(contextTrace ? { contextTrace } : {}),
       }));
       for (const msg of msgs) {
         await messageRepo.create(msg);
@@ -551,7 +569,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       }
       if (!best) return;
 
-      const { turns, error } = await generateProactiveTurn(best.group, best.sessionId, apiKey, userId, 'banter');
+      const { turns, error, contextTrace } = await generateProactiveTurn(best.group, best.sessionId, apiKey, userId, 'banter');
       if (turns.length === 0) {
         console.warn('[group-chat] 群聊自运转失败:', error);
         return;
@@ -565,6 +583,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         senderId: t.senderId,
         createdAt: now2 + i,
         isProactive: true,
+        ...(contextTrace ? { contextTrace } : {}),
       }));
       for (const msg of msgs) {
         await messageRepo.create(msg);
@@ -614,15 +633,23 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       const m = msgs.find((x) => x.id === messageId);
       if (!m || !m.content) return;
       const now = Date.now();
+      const speakerName = m.role === 'user' ? '用户' : (await characterRepo.getById(m.senderId ?? ''))?.name ?? '群成员';
+      const rememberedContent = `${speakerName}在群里说过：${m.content}`.slice(0, 240);
       for (const charId of currentGroup.characterIds) {
+        // 显式记住也不能把角色没有见过的旧群消息补成“共同经历”。
+        if (!m.witnessedBy?.includes(charId)) continue;
         await memoryRepo.create({
           id: crypto.randomUUID(),
           characterId: charId,
           userId,
-          content: m.content.slice(0, 200),
+          content: rememberedContent,
           type: 'auto',
-          ...prepareMemoryMetadata(m.content.slice(0, 200), { kind: 'episode', pinned: true, stability: 'stable', confidence: 1 }),
+          ...prepareMemoryMetadata(rememberedContent, { kind: 'episode', pinned: true, stability: 'stable', confidence: 1 }),
           createdAt: now,
+          sourceSessionId: currentSessionId,
+          sourceMessageIds: [m.id],
+          confidence: 1,
+          updatedAt: now,
         });
       }
     } catch {

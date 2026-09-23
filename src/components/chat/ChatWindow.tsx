@@ -627,7 +627,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     if (userMsg.image) {
       try {
         const shareText = text.trim();
-        const recent = await memoryRepo.getRecentByCharacter(character.id, userId, 5);
+        const recent = await memoryRepo.getRecentActiveByCharacter(character.id, userId, 5);
         const dupKey = shareText ? `分享：${shareText}` : '分享照片';
         if (!recent.some((m) => m.content.includes(dupKey))) {
           const shareAt = Date.now();
@@ -856,10 +856,21 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     // 现实待办默认私密；只有用户在待办详情中明确告诉这个角色的事项才会进入当前私聊。
     // 这是本地按角色过滤，绝不把整个平台或其他角色的待办带进提示词。
     let todoContext = '';
+    let injectedTodos: { id: string; occurrenceId?: string }[] = [];
     try {
-      const visibleTodos = await todoRepo.visibleForCharacter(userId, character.id, 4);
-      if (visibleTodos.length > 0) {
-        todoContext = `\n\n[用户明确告诉你的待办（仅供自然接话，不要像提醒机器人一样逐条盘问）]\n${visibleTodos.map((todo) => `- ${todo.title}${todo.dueDate ? `（${dateLabel(todo.dueDate)}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note.slice(0, 80)}` : ''}`).join('\n')}`;
+      const visibleTodos = await todoRepo.visibleOccurrencesForCharacter(userId, character.id, 4);
+      const completedTodos = await todoRepo.completedVisibleForAudience(userId, [character.id], 4);
+      injectedTodos = [
+        ...visibleTodos.map(({ todo, occurrence }) => ({ id: todo.id, occurrenceId: occurrence.id })),
+        ...completedTodos.map(({ todo, occurrence }) => ({ id: todo.id, ...(occurrence ? { occurrenceId: occurrence.id } : {}) })),
+      ];
+      const activeText = visibleTodos.map(({ todo, occurrence }) => `- ${todo.title}${todo.dueDate && occurrence.dueDate !== '9999-12-31' ? `（${dateLabel(occurrence.dueDate)}${occurrence.dueTime ? ` ${occurrence.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note.slice(0, 80)}` : ''}`);
+      const completedText = completedTodos.map(({ todo, occurrence, completedAt }) => `- 已完成：${todo.title}（${occurrence?.dueDate ?? new Date(completedAt).toISOString().slice(0, 10)}；不要继续提醒）`);
+      if (activeText.length || completedText.length) {
+        todoContext = `\n\n[用户明确告诉你的待办与完成记录；只在相关时自然提及]\n${[
+          ...(activeText.length ? ['尚未完成：', ...activeText] : []),
+          ...(completedText.length ? ['已经完成：', ...completedText] : []),
+        ].join('\n')}`;
       }
     } catch {
       /* 待办读取失败不影响聊天 */
@@ -918,7 +929,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
 
     // 用户的时代/社会背景：角色从对话里主动适配用户所述的时代与生活语境
     const crossChannelMemory = await recallCharacterMemory({
-      userId, characterId: character.id, query: text, sources: ['group', 'moment'], budget: 2200,
+      userId, characterId: character.id, query: text, sources: ['group', 'moment'], budget: 2200, includePrivateCharacterLifeEvents: true,
       excludeReferences: [
         ...recalledMoments.map(({ moment }) => ({ source: 'moment' as const, id: moment.id })),
         ...(/群|朋友圈|动态|评论|点赞|记得|之前|上次/.test(text) ? [] : allMsgs.slice(-6).flatMap(m => m.contextTrace?.crossChannelReferences ?? [])),
@@ -969,6 +980,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     // 规则与 4.x 完全一致（预算不足被截断的区块一律不记录），已抽成纯函数便于验收覆盖。
     const contextTrace = buildContextTrace({
       crossChannelReferences: crossChannelMemory.references.map(({ source, id }) => ({ source, id })),
+      todos: injectedTodos,
       compiled,
       memories,
       recalledMemoryId,
@@ -1131,10 +1143,6 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
             })();
           }
         }
-        // 角色偶尔把这段经历写成自己的朋友圈。概率、冷却与隐私过滤都在仓库层处理，
-        // 这里不阻塞当前回复，也不把每轮聊天变成额外动态。
-        // 角色发动态只读取自己的公开回复摘要，不把用户原话或私聊原文送进朋友圈生成器。
-        void momentsRepo.maybeCharacterPost(userId, character, result.content, sessionId).catch(() => undefined);
         // 记录本轮对话的轻量节奏状态：不存原文，只保存话题标签、用户偏好和
         // 最近使用过的回复动作，下一轮继续保持连贯。
         const nextConversationState = updateChatConversationState(
@@ -1236,7 +1244,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         protectedMemories,
       });
       if (result.summary) {
-        await sessionRepo.updateSummary(sessionId, result.summary);
+        const sourceMessageIds = oldMsgs.map((message) => message.id);
+        const sourceMessageRevisions = Object.fromEntries(oldMsgs.map((message) => [message.id, message.revision ?? 1]));
+        await sessionRepo.updateSummary(sessionId, result.summary, undefined, sourceMessageIds, sourceMessageRevisions);
         if (character && userId) {
           await memoryRepo.upsertSessionSummary({
             characterId: character.id,
@@ -1245,7 +1255,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
             content: result.summary,
             // The summary is a compressed view of this range; the raw messages
             // remain in Dexie so the final turns and provenance are never lost.
-            sourceMessageIds: oldMsgs.map((message) => message.id),
+            sourceMessageIds,
           });
         }
       }

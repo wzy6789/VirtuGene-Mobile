@@ -14,7 +14,7 @@
  *   `continuityThreads`（带 sourceSceneId）、参与者认知
  */
 import { db, type WorldScene, type WorldSceneEntry } from '../../db/index';
-import { worldSceneRepo } from '../../db/world-scene-repo';
+import { sceneEntriesAvailableToAudience, worldSceneRepo } from '../../db/world-scene-repo';
 import { worldLocationRepo } from '../../db/world-location-repo';
 import { worldObjectRepo } from '../../db/world-object-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
@@ -59,10 +59,14 @@ async function buildMembers(scene: WorldScene, userId: string, query = ''): Prom
     const carryMemory = (participant?.entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory') !== 'present';
     // 角色**只能知道**自己参与过的事件：用认知边界过滤（§62）
     const recalled = carryMemory ? await recallCharacterMemory({ userId, characterId, query, audience: scene.characterIds, worldId: scene.worldId, excludeSceneId: scene.id }) : { text: '' };
-    const userMemories = carryMemory
+    // Scene Director sees every member in one request. Per-character history, goals and secrets
+    // cannot be isolated inside that shared prompt, so only inject them in a single-actor scene.
+    const privateContextIsIsolated = scene.characterIds.length === 1;
+    const userMemories = carryMemory && privateContextIsIsolated
       ? await db.memories.where('characterId').equals(characterId).toArray()
         .then((rows) => rows
           .filter((row) => row.userId === userId)
+          .filter((row) => (row.status ?? 'active') === 'active')
           .sort((a, b) => b.createdAt - a.createdAt)
           .slice(0, 18))
       : [];
@@ -71,9 +75,9 @@ async function buildMembers(scene: WorldScene, userId: string, query = ''): Prom
       characterId,
       name: character.name,
       persona: (character.systemPrompt ?? '').slice(0, 600),
-      ...(participant?.goals?.length ? { goal: participant.goals.join('；') } : {}),
+      ...(privateContextIsIsolated && participant?.goals?.length ? { goal: participant.goals.join('；') } : {}),
       ...(recalled.text ? { knows: recalled.text } : {}),
-      ...(participant?.secrets?.length ? { secret: participant.secrets.join('；') } : {}),
+      ...(privateContextIsIsolated && participant?.secrets?.length ? { secret: participant.secrets.join('；') } : {}),
       ...(userProfile ? { userProfile } : {}),
     });
   }
@@ -233,7 +237,7 @@ export async function runSceneTurn(params: {
   if (scene.status === 'draft') await worldSceneRepo.setSceneStatus(params.sceneId, 'active');
 
   // 2) 一次调用出多条
-  const history = await worldSceneRepo.listRecentEntries(params.sceneId, 200);
+  const history = sceneEntriesAvailableToAudience(await worldSceneRepo.listRecentEntries(params.sceneId, 200), scene, scene.characterIds);
   const members = await buildMembers(scene, params.userId, params.userAction);
   const directorParams: SceneDirectorParams = {
     apiKey: params.apiKey,
@@ -349,7 +353,7 @@ export async function finishSceneAndSettle(params: {
   // 并且可能覆盖那次真实的结算结果（验收 C⑳ 抓到的真实缺陷）
   if (scene.status === 'finished') return { ...empty, error: '这场戏已经结束了' };
 
-  const entries = await worldSceneRepo.listRecentEntries(params.sceneId, 400);
+  const entries = sceneEntriesAvailableToAudience(await worldSceneRepo.listRecentEntries(params.sceneId, 400), scene, scene.characterIds);
   const characters = await Promise.all(scene.characterIds.map((id) => characterRepo.getById(id)));
   const names = scene.characterIds.map((id) => ({ characterId: id, name: characters.find((c) => c?.id === id)?.name ?? '某人' }));
   const nameOf = (id: string) => names.find((n) => n.characterId === id)?.name ?? '某人';

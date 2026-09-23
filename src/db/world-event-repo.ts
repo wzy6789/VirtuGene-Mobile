@@ -1,6 +1,7 @@
 import { db, type WorldEvent, type WorldEventType, type WorldVisibility } from './index';
 import { characterRef, derivedWorldEventId } from '../lib/world/subjects';
 import { isVisibleToCharacter } from '../lib/world/visibility';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 /**
  * 世界事件仓库（年表 / 最近发生 / Life Trace 的唯一数据源）。
@@ -185,6 +186,14 @@ export const worldEventRepo = {
   },
 
   async remove(id: string): Promise<void> {
+    const existing = await db.worldEvents.get(id);
+    if (existing) await memorySourceTombstoneRepo.record({
+      userId: existing.userId,
+      sourceType: 'worldEvent',
+      sourceId: existing.id,
+      sourceRevision: existing.updatedAt ?? existing.createdAt,
+      status: 'superseded',
+    });
     await db.worldEvents.delete(id);
   },
 
