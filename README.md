@@ -1,6 +1,6 @@
 # VirtuGene 手机版工作区
 
-代码主仓库：[Gitee / VirtuGene](https://gitee.com/wang-zhiyi6789/virtu-gene)。Android 新版通过 Gitee Release 发布，应用内更新读取 Gitee 的最新发行版及 APK 附件。
+代码主仓库：[GitHub / VirtuGene-Mobile](https://github.com/wzy6789/VirtuGene-Mobile)。Android 新版通过 GitHub Releases 发布，应用内更新读取 GitHub 的最新发行版及 APK 附件。
 
 本目录是 **VirtuGene 手机版（Capacitor Android）的独立工作区**，与 `F:\VirtuGene`（电脑版 Electron）**完全隔离、互不影响**：
 

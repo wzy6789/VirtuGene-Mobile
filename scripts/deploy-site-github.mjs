@@ -10,7 +10,7 @@
  * 而 Node 的 fetch 走 IPv4 是通的，所以这里改用 Git Data API（blob → tree → commit → ref）。
  *
  * ## 注意
- * - **代码主仓库在 Gitee**；GitHub 这边只承担官网静态托管，所以本脚本**只动 `website/**`**，
+ * - **代码主仓库在 GitHub**；本脚本只同步 `website/**`，应用代码通过正常 Git 提交推送，
  *   不会把 `src/`、`android/`、`docs/` 同步过去（那边的代码会停在最后一次全量推送的版本）。
  * - 只更新与远端不一致的文件（按 git blob 哈希比较），不会制造无意义的提交；
  *   远端存在而本地已删的文件会被删除。
@@ -119,8 +119,8 @@ const newTree = await gh(`/repos/${OWNER}/${REPO}/git/trees`, {
 const message = [
   `site: 官网内容同步（应用版本 ${version}）`,
   '',
-  '代码主仓库在 gitee.com/wang-zhiyi6789/virtu-gene；这个提交只更新 website/**，',
-  '让 GitHub Pages 上的静态站点与 Gitee 渠道保持一致。',
+  '官网内容与 VirtuGene-Mobile GitHub 仓库保持一致。',
+  '此提交只更新 website/**。',
 ].join('\n');
 const newCommit = await gh(`/repos/${OWNER}/${REPO}/git/commits`, {
   method: 'POST',
