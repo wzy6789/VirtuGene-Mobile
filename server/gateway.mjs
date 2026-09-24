@@ -252,7 +252,7 @@ function auxMessages(operation, payload) {
     memory: '从对话中提取值得长期记住的用户事实。只记录用户明确说过或能直接确定的内容，不能把角色猜测当事实；注意时间范围和用户对旧事实的纠正。只输出 JSON 数组，例如 ["用户喜欢咖啡"]；没有就输出 []。',
     emotion: '分析 assistant 消息里的角色状态，只输出 JSON 对象：{"dimensions":{"valence":5,"arousal":5,"intimacy":5,"engagement":5,"expressiveness":5,"stability":5},"dominantEmotion":"","summary":""}。每个分数 1 到 10。',
     'context-settle': '同时提取用户长期事实并分析对话状态。memory 只收录用户明确说过的事实、偏好、约定和计划；如果用户纠正旧信息，只保留新说法，不要补猜测。只输出 JSON 对象：{"memories":[],"dimensions":{"valence":5,"arousal":5,"intimacy":5,"engagement":5,"expressiveness":5,"stability":5},"dominantEmotion":"","userEmotion":"","summary":""}。',
-    'context-summary': '把新增对话与之前的压缩摘要合并成 3 到 6 句中文摘要。优先保留用户明确要求记住的事情、确认过的事实、重要约定和未完成事项；不要凭空补充，不要机械重复。只输出 JSON 对象：{"summary":""}。',
+    'context-summary': '你是 VirtuGene 的长期对话档案管理员。把本次新增对话与之前摘要合并成精简但可检索的中文连续性记录，最多 8 行、约 1800 字。必须保留用户明确要求记住的事实、稳定偏好、重要经历与更正（更正覆盖旧说法）、共同经历的具体细节和结果、尚未完成的约定与计划、角色明确说过的自身近况或承诺、关系变化及最近话题落点。保留姓名、时间、对象和结果；没有内容的类别省略；不要猜测，也不要把已解决的话题记为未解决。只输出 JSON 对象：{"summary":""}。',
     diary: '完成日记辅助任务。根据 mode 输出 JSON：普通模式为 {"text":""}；auto、compile、combine、recall 为 {"title":"","content":"","tags":[]}；persona 为 {"persona":{"keywords":[],"topics":[],"emotion":"","summary":""}}。不要输出 Markdown。',
   };
   const operationPrompt = prompts[operation] || prompts.diary;
@@ -271,7 +271,7 @@ async function aux(operation, payload) {
   const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: DEFAULT_MODEL, messages: auxMessages(operation, payload), temperature: 0.3, max_tokens: operation === 'diary' ? 900 : operation === 'context-summary' ? 900 : 600, response_format: { type: 'json_object' } }),
+    body: JSON.stringify({ model: DEFAULT_MODEL, messages: auxMessages(operation, payload), temperature: 0.3, max_tokens: operation === 'diary' ? 900 : operation === 'context-summary' ? 1_600 : 600, response_format: { type: 'json_object' } }),
     signal: AbortSignal.timeout(45_000),
   });
   if (!response.ok) {

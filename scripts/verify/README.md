@@ -2,7 +2,7 @@
 
 在**真实浏览器 + 真实 IndexedDB**（多数套件还加上**真实渲染组件**与**真实业务流程**）上验证 5.0 的每一项声称。
 不是模拟、不是 mock：Phase 1 与 worldE 会先用 **旧的 v15 / v17 schema** 建库写入旧形态数据，
-再用应用真实的 `db`（v24）打开，从而触发 Dexie 真实的升级与幂等迁移。
+再用应用真实的 `db`（v25）打开，从而触发 Dexie 真实的升级与幂等迁移。
 
 ## 运行（推荐：一键全量回归）
 
@@ -40,7 +40,7 @@ powershell -ExecutionPolicy Bypass -File scripts\verify\run-all.ps1
 
 | 套件 | 页面 | 断言数 |
 |---|---|---|
-| Phase 1 数据层升级迁移（v15 → v24） | `index.html` | 83 |
+| Phase 1 数据层升级迁移（v15 → v25） | `index.html` | 83 |
 | Phase 2a 世界入口 + 外壳回归 | `phase2a.html` | 48 |
 | Phase 2b-0 最小闭环（结算 → 世界事件） | `phase2b0.html` | 43 |
 | Phase 2b-1 世界首页接真实内容 | `phase2b1.html` | 32 |
@@ -70,7 +70,7 @@ These suites use real IndexedDB and verify scoped recall, listener isolation, re
 
 | Suite | Coverage | Assertions |
 |---|---|---:|
-| `character-memory.html` | private/group chat, Moments, diary, todos, world recall, undo, account boundaries, stale backups | 74 |
+| `character-memory.html` | private/group chat, Moments, diary, todos, world recall, durable extraction, source revision/revocation, undo, account boundaries, stale backups | 98 |
 | `worldG.html` | world state and undo regression | 13 |
 | `moments.html` | Moments visibility and interaction | 39 |
 | `moments-autonomous.html` | autonomous posts/comments, isolation and retries | 13 |

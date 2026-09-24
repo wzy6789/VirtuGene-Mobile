@@ -90,7 +90,7 @@ export function MemoryBasisModal({
         {!!trace?.crossChannelReferences?.length && (
           <section className="text-xs leading-6 text-sub">
             <h3 className="font-semibold text-ink">跨场景记忆</h3>
-            <p>本轮参考了 {trace.crossChannelReferences.filter(r => r.source === 'group').length} 条群聊记录、{trace.crossChannelReferences.filter(r => r.source === 'moment').length} 条动态或互动记录、{trace.crossChannelReferences.filter(r => r.source === 'todo').length + todoReferenceCount} 条已分享待办经历。这里保留来源标识，不复制已删除的正文。</p>
+            <p>本轮参考了 {trace.crossChannelReferences.filter(r => r.source === 'group').length} 条群聊记录、{trace.crossChannelReferences.filter(r => r.source === 'moment').length} 条动态或互动、{trace.crossChannelReferences.filter(r => r.source === 'diary').length} 篇已授权日记、{trace.crossChannelReferences.filter(r => r.source === 'world').length} 条星域经历，以及 {trace.crossChannelReferences.filter(r => r.source === 'todo').length + todoReferenceCount} 条已分享待办经历。这里保留来源标识，不复制已删除的正文。</p>
           </section>
         )}
         {!!trace?.groupSummary && (

@@ -721,6 +721,12 @@ export interface Session {
   modelAsked?: boolean;
   /** 长会话滚动摘要（早期对话的压缩文本，超出保留窗口后生成） */
   summary?: string;
+  /** 最近一次完整结算已覆盖的用户消息数量；失败时不推进，后续发送可补结算。 */
+  lastSettledUserMessageCount?: number;
+  /** 群聊记忆提取成功覆盖的、全体当时成员都见过的用户消息数。 */
+  lastGroupMemoryUserMessageCount?: number;
+  /** 群聊记忆检查点对应的成员快照；成员变动后会重新按新听众边界处理。 */
+  groupMemoryWitnessedBy?: string[];
   /** 私聊连续注意力：当前话题、用户交流偏好与最近回复动作（仅本用户本会话）。 */
   conversation?: ChatConversationState;
   /** 摘要覆盖到的时间点（早于该时间戳的消息均已纳入摘要） */
@@ -731,6 +737,10 @@ export interface Session {
   summarySourceMessageIds?: string[];
   /** 摘要引用的消息版本；备份恢复时用来阻止旧消息版本连带复活旧摘要。 */
   summarySourceMessageRevisions?: Record<string, number>;
+  /** 每条来源消息已被压缩的字符偏移；长消息分段总结时防止跳过后半段。 */
+  summarySourceMessageOffsets?: Record<string, number>;
+  /** 摘要失败重试节流；不代表已覆盖来源消息。 */
+  summaryAttemptedAt?: number;
   /** 本会话选择的叙事时段；只影响模型营造的氛围，不改变消息 createdAt。 */
   sceneTimeOfDay?: 'morning' | 'afternoon' | 'dusk' | 'night' | 'late-night';
   /** 本会话的叙事场域；只影响模型营造的氛围，不改变消息时间。 */
@@ -807,7 +817,7 @@ export interface Message {
     todoOccurrenceIds?: string[];
     /** 群摘要的会话快照版本；详细来源仍由本地 Session 保存，避免每条回复复制长列表。 */
     groupSummary?: { sessionId: string; updatedAt: number };
-    crossChannelReferences?: { source: 'chat' | 'group' | 'world' | 'moment' | 'todo'; id: string }[];
+    crossChannelReferences?: { source: 'chat' | 'group' | 'world' | 'moment' | 'todo' | 'diary'; id: string }[];
     /** 记录时间 */
     at: number;
   };
@@ -826,6 +836,10 @@ export interface MemoryItem {
   sourceSessionId?: string;
   /** 这条记忆来自哪些消息（真实消息 id；未知时为空，绝不靠文本相似度猜测） */
   sourceMessageIds?: string[];
+  /** Per-message evidence revision and source segment for invalidation and audit. */
+  sourceMessageRevisions?: Record<string, number>;
+  sourceMessageOffsets?: Record<string, number>;
+  sourceMessageEndOffsets?: Record<string, number>;
   /** 用户在创建角色时主动导入的背景；新角色知道这是用户分享的资料，不会冒称亲历。 */
   importedFromCharacterId?: string;
   importedFromMemoryId?: string;
@@ -844,6 +858,94 @@ export interface MemoryItem {
   /** 用户确认事实的时间；不等同于创建时间。 */
   lastConfirmedAt?: number;
   updatedAt?: number;
+}
+
+/** Account-level fact identity. The original message/event remains the source of truth. */
+export interface MemoryClaim {
+  id: string;
+  userId: string;
+  subjectType: 'user' | 'character' | 'relationship' | 'event' | 'world';
+  subjectId: string;
+  predicate: string;
+  value: string;
+  canonicalKey: string;
+  memoryKind: NonNullable<MemoryItem['memoryKind']>;
+  stability: NonNullable<MemoryItem['stability']>;
+  status: 'active' | 'disputed' | 'superseded' | 'withdrawn' | 'archived';
+  confidence: number;
+  importance: number;
+  pinned?: boolean;
+  validFrom?: number;
+  validUntil?: number;
+  supersededBy?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type MemoryEvidenceSource =
+  | 'chat' | 'group' | 'moment' | 'momentReaction' | 'diary' | 'todo'
+  | 'todoOccurrence' | 'worldEvent' | 'sharedMemory' | 'worldScene'
+  | 'worldSceneEntry' | 'continuityThread' | 'relationshipEvent' | 'legacy';
+
+/** Provenance only: never duplicates private source text. */
+export interface MemoryEvidence {
+  id: string;
+  userId: string;
+  claimId: string;
+  sourceType: MemoryEvidenceSource;
+  sourceId: string;
+  sourceRevision: number;
+  sourceOffset?: number;
+  sourceEndOffset?: number;
+  observedAt: number;
+  confidence: number;
+  withdrawnAt?: number;
+  excerptHash?: string;
+}
+
+/** Which character knows a claim, why, and whether they may mention it. */
+export interface MemoryKnowledge {
+  id: string;
+  userId: string;
+  claimId: string;
+  characterId: string;
+  knowledgeLevel: 'hint' | 'partial' | 'full';
+  canMention: boolean;
+  learnedAt: number;
+  sourceType: MemoryEvidenceSource;
+  sourceId: string;
+  revokedAt?: number;
+}
+
+export interface MemoryJob {
+  id: string;
+  userId: string;
+  sessionId?: string;
+  characterIds: string[];
+  sourceType: MemoryEvidenceSource;
+  sourceIds: string[];
+  sourceRevisions?: Record<string, number>;
+  sourceOffsets?: Record<string, number>;
+  sourceEndOffsets?: Record<string, number>;
+  task: 'extract' | 'reconcile' | 'revoke' | 'reindex';
+  status: 'queued' | 'running' | 'retry' | 'done' | 'failed' | 'cancelled';
+  attempts: number;
+  availableAt: number;
+  leaseUntil?: number;
+  payload?: unknown;
+  lastError?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MemoryUsage {
+  id: string;
+  userId: string;
+  characterId: string;
+  claimId: string;
+  messageId?: string;
+  stage: 'retrieved' | 'injected' | 'spoken' | 'confirmed' | 'corrected';
+  at: number;
 }
 
 /**
@@ -1161,6 +1263,11 @@ export class VirtuGeneDB extends Dexie {
   characterLifeEvents!: Table<CharacterLifeEvent, string>;
   momentPostPlans!: Table<MomentPostPlan, string>;
   memorySourceTombstones!: Table<MemorySourceTombstone, string>;
+  memoryClaims!: Table<MemoryClaim, string>;
+  memoryEvidence!: Table<MemoryEvidence, string>;
+  memoryKnowledge!: Table<MemoryKnowledge, string>;
+  memoryJobs!: Table<MemoryJob, string>;
+  memoryUsage!: Table<MemoryUsage, string>;
 
   constructor() {
     super('virtugene');
@@ -1437,6 +1544,97 @@ export class VirtuGeneDB extends Dexie {
     // v24：仅含来源 id / 版本 / 状态的撤回墓碑，阻止旧备份复活隐私资料。
     this.version(24).stores({
       memorySourceTombstones: 'id,userId,sourceType,sourceId,[userId+sourceType+sourceId],updatedAt',
+    });
+    // v25: unified memory ledger. Existing memory rows remain intact and are
+    // mirrored into claim/evidence/knowledge tables so an interrupted upgrade
+    // can never replace or discard the user's established archive.
+    this.version(25).stores({
+      memoryClaims: 'id,userId,subjectId,predicate,status,[userId+canonicalKey],[userId+subjectId],[userId+status],updatedAt',
+      memoryEvidence: 'id,userId,claimId,sourceType,sourceId,[userId+claimId],[userId+sourceType+sourceId]',
+      memoryKnowledge: 'id,userId,claimId,characterId,[userId+claimId],[userId+characterId],[userId+claimId+characterId],revokedAt',
+      memoryJobs: 'id,userId,sessionId,task,status,availableAt,[userId+status+availableAt],updatedAt',
+      memoryUsage: 'id,userId,characterId,claimId,messageId,stage,at,[userId+characterId+claimId],[userId+messageId]',
+    }).upgrade(async (tx) => {
+      const memories = await tx.table('memories').toArray() as MemoryItem[];
+      const sessions = await tx.table('sessions').toArray() as Session[];
+      const sessionTypes = new Map(sessions.map((session) => [session.id, session.type]));
+      const claims = tx.table('memoryClaims');
+      const evidence = tx.table('memoryEvidence');
+      const knowledge = tx.table('memoryKnowledge');
+      const claimIds = new Map<string, string>();
+      const normalize = (value: string) => value.normalize('NFKC').toLocaleLowerCase().replace(/[\s\u3000，。！？、,.!?;；:："“”‘’（）()【】[\]{}]/g, '').slice(0, 240);
+
+      for (const memory of memories) {
+        const now = memory.updatedAt ?? memory.createdAt;
+        const kind = memory.memoryKind ?? 'fact';
+        const canonicalKey = `${kind}:${normalize(memory.content)}`;
+        const key = `${memory.userId}\u0000${canonicalKey}`;
+        let claimId = claimIds.get(key);
+        if (!claimId) {
+          claimId = crypto.randomUUID();
+          claimIds.set(key, claimId);
+          await claims.put({
+            id: claimId,
+            userId: memory.userId,
+            subjectType: 'user',
+            subjectId: memory.userId,
+            predicate: kind,
+            value: memory.content,
+            canonicalKey,
+            memoryKind: kind,
+            stability: memory.stability ?? (memory.pinned ? 'stable' : 'temporary'),
+            status: memory.status === 'withdrawn' ? 'withdrawn' : memory.status === 'superseded' ? 'superseded' : 'active',
+            confidence: memory.confidence ?? 0.6,
+            importance: memory.pinned ? 1 : 0.5,
+            ...(memory.pinned ? { pinned: true } : {}),
+            createdAt: memory.createdAt,
+            updatedAt: now,
+          } satisfies MemoryClaim);
+        } else {
+          const prior = await claims.get(claimId);
+          if (prior) await claims.update(claimId, {
+            confidence: Math.max(prior.confidence, memory.confidence ?? 0.6),
+            importance: Math.max(prior.importance, memory.pinned ? 1 : 0.5),
+            ...(memory.pinned ? { pinned: true } : {}),
+            updatedAt: Math.max(prior.updatedAt, now),
+          });
+        }
+
+        const sourceType: MemoryEvidenceSource = memory.importedFromMemoryId
+          ? 'legacy'
+          : sessionTypes.get(memory.sourceSessionId ?? '') === 'group' ? 'group' : memory.sourceMessageIds?.length ? 'chat' : 'legacy';
+        const sourceIds = memory.importedFromMemoryId
+          ? [memory.importedFromMemoryId]
+          : memory.sourceMessageIds?.length ? memory.sourceMessageIds : [memory.id];
+        for (const sourceId of sourceIds) {
+          const evidenceId = `legacy:${memory.id}:${sourceId}`;
+          await evidence.put({
+            id: evidenceId,
+            userId: memory.userId,
+            claimId,
+            sourceType,
+            sourceId,
+            sourceRevision: 1,
+            observedAt: memory.createdAt,
+            confidence: memory.confidence ?? 0.6,
+          } satisfies MemoryEvidence);
+        }
+
+        const knowledgeId = `${claimId}:${memory.characterId}`;
+        const priorKnowledge = await knowledge.get(knowledgeId) as MemoryKnowledge | undefined;
+        await knowledge.put({
+          id: knowledgeId,
+          userId: memory.userId,
+          claimId,
+          characterId: memory.characterId,
+          knowledgeLevel: 'full',
+          canMention: memory.status !== 'withdrawn' && memory.status !== 'superseded',
+          learnedAt: Math.min(priorKnowledge?.learnedAt ?? memory.createdAt, memory.createdAt),
+          sourceType,
+          sourceId: sourceIds[0] ?? memory.id,
+          ...(priorKnowledge?.revokedAt ? { revokedAt: priorKnowledge.revokedAt } : {}),
+        } satisfies MemoryKnowledge);
+      }
     });
   }
 }

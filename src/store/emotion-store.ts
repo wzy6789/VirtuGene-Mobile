@@ -3,6 +3,7 @@ import { useAuthStore } from './auth-store';
 import { useChatStore } from './chat-store';
 import { useCharacterStateStore } from './character-state-store';
 import { messageRepo } from '../db/message-repo';
+import { sessionRepo } from '../db/session-repo';
 import { memoryRepo } from '../db/memory-repo';
 import { emotionRepo } from '../db/emotion-repo';
 import { stateRepo } from '../db/state-repo';
@@ -303,6 +304,10 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
         snapshots,
       });
     }
+    // 只有结算全流程成功后才推进检查点。请求失败或中途写入失败会留待下一轮补做。
+    await sessionRepo.update(sessionId, {
+      lastSettledUserMessageCount: msgs.filter((message) => message.role === 'user').length,
+    });
     // 结算成功 → 轻提示，让自动分析不再静默
     set({ settleNotice: '情绪图谱已更新' });
   },

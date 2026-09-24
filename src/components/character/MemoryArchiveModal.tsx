@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Character, MemoryItem } from '../../db/index';
+import type { Character, MemoryClaim, MemoryEvidence, MemoryItem } from '../../db/index';
+import { db } from '../../db/index';
 import { memoryRepo } from '../../db/memory-repo';
+import { memoryLedgerRepo } from '../../db/memory-ledger-repo';
 import { sessionRepo } from '../../db/session-repo';
 import { messageRepo } from '../../db/message-repo';
 import { Modal } from '../ui/Modal';
@@ -24,6 +26,8 @@ export function MemoryArchiveModal({
   userId: string;
 }) {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [crossClaims, setCrossClaims] = useState<{ claim: MemoryClaim; sources: MemoryEvidence[] }[]>([]);
+  const [jobStatus, setJobStatus] = useState({ pending: 0, failed: 0 });
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -36,6 +40,21 @@ export function MemoryArchiveModal({
     try {
       const list = await memoryRepo.getRecentByCharacter(character.id, userId, 60);
       setMemories(list);
+      const [claims, processing] = await Promise.all([
+        memoryLedgerRepo.claimsKnownBy(userId, character.id),
+        memoryLedgerRepo.jobStatusForCharacter(userId, character.id),
+      ]);
+      setJobStatus(processing);
+      const existingContent = new Set(list.filter((memory) => (memory.status ?? 'active') === 'active').map((memory) => memory.content.normalize('NFKC').replace(/\s+/g, '').toLocaleLowerCase()));
+      const cross: { claim: MemoryClaim; sources: MemoryEvidence[] }[] = [];
+      for (const claim of claims) {
+        const key = claim.value.normalize('NFKC').replace(/\s+/g, '').toLocaleLowerCase();
+        if (existingContent.has(key)) continue;
+        const sources = await db.memoryEvidence.where('[userId+claimId]').equals([userId, claim.id]).toArray();
+        const crossSources = sources.filter((source) => !source.withdrawnAt && source.sourceType !== 'chat' && source.sourceType !== 'group' && source.sourceType !== 'legacy');
+        if (crossSources.length) cross.push({ claim, sources: crossSources });
+      }
+      setCrossClaims(cross.slice(0, 30));
       const sessionIds = Array.from(new Set(list.map((m) => m.sourceSessionId).filter((id): id is string => !!id)));
       const titles: Record<string, string> = {};
       for (const id of sessionIds) {
@@ -82,7 +101,7 @@ export function MemoryArchiveModal({
 
         {loading && <p className="py-8 text-center text-xs text-gray-500">正在读取记忆…</p>}
 
-        {!loading && memories.length === 0 && (
+        {!loading && memories.length === 0 && crossClaims.length === 0 && (
           <div className="py-10 text-center text-xs text-gray-500">
             还没有记忆。<br />聊到你的偏好、经历或计划时，它们会慢慢沉淀在这里。
           </div>
@@ -173,7 +192,57 @@ export function MemoryArchiveModal({
             );
           })}
         </ul>
+
+        {!loading && (jobStatus.pending > 0 || jobStatus.failed > 0) && (
+          <div className="mt-4 rounded-xl border border-life-cyan/15 bg-life-cyan/[0.04] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-gray-500">
+                {jobStatus.pending > 0 ? `还有 ${jobStatus.pending} 条对话记忆正在整理` : '对话记忆整理已完成'}
+                {jobStatus.failed > 0 ? `，${jobStatus.failed} 条需要重试` : ''}
+              </p>
+              {jobStatus.failed > 0 && (
+                <button onClick={() => void memoryLedgerRepo.retryFailedJobs(userId, character.id).then(reload)} className="shrink-0 rounded-lg px-2 py-1 text-[10px] text-life-cyan">
+                  重新处理
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!loading && crossClaims.length > 0 && (
+          <section className="mt-5 border-t border-line/70 pt-4">
+            <div className="mb-2 flex items-end justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-medium text-ink">跨场景知情</h3>
+                <p className="mt-0.5 text-[10px] text-gray-500">仅列出这位角色曾被允许看到并实际召回过的内容</p>
+              </div>
+              <span className="text-[10px] text-gray-500">{crossClaims.length} 条</span>
+            </div>
+            <ul className="space-y-2">
+              {crossClaims.map(({ claim, sources }) => (
+                <li key={claim.id} className="rounded-xl border border-line/70 bg-surface/50 px-3 py-2.5">
+                  <p className="text-[12px] leading-relaxed text-ink">{claim.value}</p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-gray-500">
+                    {[...new Set(sources.map((source) => source.sourceType))].map((source) => (
+                      <span key={source} className="rounded-full bg-life-cyan/10 px-1.5 py-0.5 text-life-cyan">{sourceLabel(source)}</span>
+                    ))}
+                    <span>{sources.length} 个来源</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </Modal>
   );
+}
+
+function sourceLabel(source: MemoryEvidence['sourceType']): string {
+  const labels: Record<MemoryEvidence['sourceType'], string> = {
+    chat: '私聊', group: '群聊', moment: '朋友圈', momentReaction: '评论互动', diary: '日记', todo: '待办',
+    todoOccurrence: '待办记录', worldEvent: '世界事件', sharedMemory: '共同经历', worldScene: '星域', worldSceneEntry: '星域片段',
+    continuityThread: '约定', relationshipEvent: '关系变化', legacy: '旧记忆',
+  };
+  return labels[source];
 }

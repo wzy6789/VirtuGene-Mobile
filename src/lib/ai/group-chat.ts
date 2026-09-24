@@ -15,7 +15,7 @@ export interface GroupMemberBrief {
   /** 当前群全体成员都可知的共同资料；不能放入某一成员的私聊或私密状态。 */
   memory?: string;
   /** 与这段共享资料对应的准确本地来源，仅供消息溯源，不拼进模型提示词。 */
-  memoryReferences?: { source: 'chat' | 'group' | 'world' | 'moment' | 'todo'; id: string }[];
+  memoryReferences?: { source: 'chat' | 'group' | 'world' | 'moment' | 'todo' | 'diary'; id: string }[];
 }
 
 export interface GroupTurn {

@@ -8,13 +8,14 @@ import { gatewayAux, hasAiGatewayAccess } from './gateway';
  */
 const SUMMARY_PROMPT =
   'Merge any previous compressed summary with the new dialogue. Preserve explicit user requests to remember, confirmed facts, promises, and unfinished items; do not invent or repeat stale details.\n' +
-  '你是 VirtuGene 的对话档案管理员。请将以下一段早期对话压缩成一段 3-6 句的中文摘要。\n' +
+  '你是 VirtuGene 的对话档案管理员。请把早期对话整理成精简但可检索的中文连续性记录，最多 8 行、约 1800 字。\n' +
   '保留要点：\n' +
-  '- 用户的关键偏好与事实（喜欢什么、做什么工作、有什么经历）\n' +
-  '- 你们之间发生过的重要事件与对话主题\n' +
-  '- 尚未完成的约定或承诺（用户答应过什么、你想追问什么）\n' +
-  '- 关系进展与氛围变化\n' +
-  '不要添加摘要之外的新信息，不要用列表，直接输出一段连贯的话。';
+  '- 用户明确要求记住的事实、稳定偏好、重要经历与更正（更正覆盖旧说法）\n' +
+  '- 共同经历的关键事情、具体细节与结论，不要只写泛泛主题\n' +
+  '- 尚未完成的约定、计划、悬而未决的话题及由谁提出\n' +
+  '- 角色明确说过的自身近况或承诺（只记录原对话有依据的内容）\n' +
+  '- 关系变化与最近的话题落点，避免把已解决的旧话题写成仍未解决\n' +
+  '按类别用短行记录；没有内容的类别省略。保留姓名、时间、对象、结果等细节。不要猜测，不要重复已被更正的旧事实。';
 
 export interface SummarizeParams {
   apiKey: string;
@@ -27,6 +28,8 @@ export interface SummarizeParams {
 export interface SummarizeResult {
   summary?: string;
   error?: string;
+  /** false 表示本地摘录兜底，不能据此推进会话摘要的覆盖游标。 */
+  complete?: boolean;
 }
 
 /**
@@ -73,7 +76,7 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
   ];
 
   if (!apiKey.trim()) {
-    if (!hasAiGatewayAccess()) return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
+    if (!hasAiGatewayAccess()) return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
     return summarizeViaGateway(history, previousSummary, protectedMemories);
   }
 
@@ -89,7 +92,7 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
         body: JSON.stringify({
           model: 'deepseek-v4-flash',
           messages,
-          max_tokens: 700,
+          max_tokens: 1_600,
           temperature: 0.3,
         }),
       },
@@ -101,30 +104,32 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
       if (response.status === 402) return { error: 'billing:insufficient' };
       if (response.status === 429) return { error: 'rate:limited' };
       if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary, protectedMemories);
-      return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
+      return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
     }
 
     const data = await response.json();
     const text: string = data.choices?.[0]?.message?.content ?? '';
-    const summary = text.trim().slice(0, 900);
-    if (summary.length > 0) return { summary };
+    const summary = text.trim();
+    if (summary.length > 2_400) return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
+    if (summary.length > 0) return { summary, complete: true };
     if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary, protectedMemories);
-    return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
+    return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
   } catch {
     if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary, protectedMemories);
-    return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
+    return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
   }
 }
 
 async function summarizeViaGateway(history: { role: string; content: string }[], previousSummary = '', protectedMemories: string[] = []): Promise<SummarizeResult> {
   try {
     const result = await gatewayAux<{ summary?: unknown }>('context-summary', { history, previousSummary, protectedMemories });
-    const summary = typeof result?.summary === 'string' ? result.summary.trim().slice(0, 900) : '';
-    return summary ? { summary } : { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
+    const summary = typeof result?.summary === 'string' ? result.summary.trim() : '';
+    if (summary.length > 2_400) return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
+    return summary ? { summary, complete: true } : { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
   } catch {
     // Compression is background work. If the auxiliary provider is unavailable,
     // keep a local extractive record instead of blocking the chat or replacing a
     // valid previous summary with an error.
-    return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories) };
+    return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
   }
 }

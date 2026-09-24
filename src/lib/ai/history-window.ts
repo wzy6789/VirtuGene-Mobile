@@ -7,7 +7,7 @@
  * recent context while preserving the array indexes used by evidence fields.
  */
 export const MAX_AUXILIARY_MESSAGES = 48;
-export const MAX_AUXILIARY_MESSAGE_CHARS = 900;
+export const MAX_AUXILIARY_MESSAGE_CHARS = 1_200;
 export const MAX_AUXILIARY_TOTAL_CHARS = 30_000;
 
 export function boundAuxiliaryHistory<T extends { role: string; content: string }>(history: T[]): T[] {

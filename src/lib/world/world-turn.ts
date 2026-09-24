@@ -35,6 +35,7 @@ import { narrateWorldBeat, shouldNarrate } from './world-narrator';
 import { applyGuard, guardWorldBeat } from './world-consistency';
 import { settleWorldTurn, type SettleTurnResult } from './world-settlement';
 import { findRelevantHistory } from './world-recall';
+import { recallHistoricalPrivateChat } from '../character-history-recall';
 import { upsertWorldFactWithReconcile } from './world-facts';
 import { undoLastTurn, type UndoResult } from './world-undo';
 import type { WorldLlmCaller } from './world-ai-client';
@@ -511,12 +512,42 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
 
     // 回忆类意图：把"相关但很久以前"的事也捞回来（§60 相关性优先于时间）
     let recallBlock = '';
-    if (action.intent === 'recall' || /记得|还记得|以前|那次|上次|第一次/.test(text)) {
-      const found = await findRelevantHistory({
-        userId, worldId, query: action.recallTarget ?? text, limit: 5,
-        audienceCharacterIds: ctx.presence,
-      });
-      if (found.length) recallBlock = `【用户正在回忆的事（可能在很久以前）】\n${found.map((f) => `- ${f.date} ${f.text}`).join('\n')}`;
+    if (action.intent === 'recall' || /记得|还记得|以前|那次|上次|第一次|之前提到|之前说|刚才说|答应|说好了|你说过|那件事/.test(text)) {
+      const query = action.recallTarget ?? text;
+      // 给导演的内容只包含全体在场者均知道、可提起的共同旧事；每个 Actor
+      // 另外按自己的认知边界召回，因此私聊告知 A 的事不会泄露给 B。
+      const sharedHits = await findRelevantHistory({ userId, worldId, query, limit: 5, audienceCharacterIds: ctx.presence });
+      const [actorHits, actorChatHits] = await Promise.all([
+        ctx.presence.length > 1
+          ? Promise.resolve(ctx.presence.map((characterId) => [characterId, sharedHits] as const))
+          : Promise.all(ctx.presence.map(async (characterId) => [characterId, await findRelevantHistory({
+            userId, worldId, query, limit: 5, characterId,
+          })] as const)),
+        ctx.presence.length > 1
+          ? Promise.resolve([])
+          : Promise.all(ctx.presence.map(async (characterId) => [characterId, await recallHistoricalPrivateChat({
+            userId, characterId, query, limit: 3,
+          })] as const)),
+      ]);
+      const chatHitsByCharacter = new Map(actorChatHits);
+      ctx = {
+        ...ctx,
+        recalledHistory: sharedHits.map(({ date, text: hitText }) => ({ date, text: hitText })),
+        perCharacter: {
+          ...ctx.perCharacter,
+          ...Object.fromEntries(actorHits.map(([characterId, hits]) => [characterId, {
+            ...ctx.perCharacter[characterId],
+            historicalRecall: [
+              ...hits.map(({ date, text: hitText }) => ({ date, text: hitText })),
+              ...(chatHitsByCharacter.get(characterId) ?? []).map((hit) => ({
+                date: new Date(hit.createdAt).toLocaleDateString('zh-CN'),
+                text: `你们私聊时${hit.role === 'user' ? '用户' : '你'}曾说：“${hit.content}”`,
+              })),
+            ],
+          }])),
+        },
+      };
+      if (sharedHits.length) recallBlock = `【用户正在回忆的共同经历】\n${sharedHits.map((hit) => `- ${hit.date} ${hit.text}`).join('\n')}`;
     }
 
     // ---- 5) 导演（Stage C，1 次调用）

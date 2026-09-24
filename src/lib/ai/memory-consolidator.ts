@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from './http';
+import { gatewayChat, hasAiGatewayAccess } from './gateway';
 
 const MEMORY_EXTRACTION_PROMPT =
   '你是一个记忆提取系统。从以下对话中提取关于用户的**关键事实**和**重要信息**。\n\n' +
@@ -26,6 +27,39 @@ export interface ConsolidateResult {
 
 export async function extractMemories(params: ConsolidateParams): Promise<ConsolidateResult> {
   const { apiKey, history } = params;
+  const userMessage = '请从以下对话中提取用户的关键信息：';
+  const viaGateway = async (): Promise<ConsolidateResult> => {
+    const result = await gatewayChat({
+      apiKey: '', systemPrompt: MEMORY_EXTRACTION_PROMPT,
+      message: `${userMessage}\n\n${history.map((m) => `${m.role}: ${m.content}`).join('\n')}`,
+      history: [], temperature: 0.3,
+    });
+    return parse(result.content);
+  };
+  const parse = (text: string): ConsolidateResult => {
+    try {
+      const parsed = JSON.parse(text);
+      const arr = Array.isArray(parsed) ? parsed : (parsed.memories ?? []);
+      const memories = arr.filter((m: unknown) => typeof m === 'string' && m.length > 0).slice(0, 20);
+      return { memories };
+    } catch {
+      const match = text.match(/\[([\s\S]*?)\]/);
+      if (match) {
+        try {
+          return { memories: JSON.parse(match[0]).filter((m: unknown) => typeof m === 'string' && m.length > 0).slice(0, 20) };
+        } catch { /* retryable parse failure below */ }
+      }
+      return { error: 'parse:error' };
+    }
+  };
+  if (!apiKey.trim()) {
+    if (!hasAiGatewayAccess()) return { error: 'auth:invalid_key' };
+    try {
+      return await viaGateway();
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'server:error' };
+    }
+  }
 
   const messages = [
     { role: 'system', content: MEMORY_EXTRACTION_PROMPT },
@@ -52,6 +86,9 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
     );
 
     if (!response.ok) {
+      if (hasAiGatewayAccess()) {
+        try { return await viaGateway(); } catch { /* report the original BYOK failure */ }
+      }
       if (response.status === 401) return { error: 'auth:invalid_key' };
       if (response.status === 402) return { error: 'billing:insufficient' };
       if (response.status === 429) return { error: 'rate:limited' };
@@ -61,27 +98,17 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
     const data = await response.json();
     const choice = data.choices?.[0];
     const text: string = choice?.message?.content ?? '';
-
-    // Parse JSON from response
-    try {
-      const parsed = JSON.parse(text);
-      const arr = Array.isArray(parsed) ? parsed : (parsed.memories ?? []);
-      // Filter to valid strings, max ~20 to avoid bloat
-      const memories = arr.filter((m: unknown) => typeof m === 'string' && m.length > 0).slice(0, 20);
-      return { memories };
-    } catch {
-      // Try to extract array from text if JSON parse failed
-      const match = text.match(/\[([\s\S]*?)\]/);
-      if (match) {
-        try {
-          const memories = JSON.parse(match[0]).filter((m: unknown) => typeof m === 'string' && m.length > 0).slice(0, 20);
-          return { memories };
-        } catch {}
-      }
-      console.warn('[memory-consolidator] JSON parse failed');
-      return { memories: [] };
+    const parsed = parse(text);
+    if (parsed.error === 'parse:error' && hasAiGatewayAccess()) {
+      try { return await viaGateway(); } catch { /* preserve the original parse failure; the caller can retry */ }
     }
+    return parsed;
   } catch {
+    if (hasAiGatewayAccess()) {
+      try {
+        return await viaGateway();
+      } catch { /* caller will retry using its durable cursor */ }
+    }
     return { error: 'server:error' };
   }
 }

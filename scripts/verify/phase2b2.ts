@@ -29,6 +29,7 @@ import { worldEventRepo } from '../../src/db/world-event-repo';
 import { knowledgeRepo } from '../../src/db/knowledge-repo';
 import { worldRepo } from '../../src/db/world-repo';
 import { diaryRepo } from '../../src/db/diary-repo';
+import { setDiarySharing } from '../../src/lib/world/diary-visibility';
 import { collectMessageAsSharedMemory, MEMORY_SOURCE_TYPE } from '../../src/lib/world/world-writer';
 import { splitForMemory } from '../../src/lib/world/world-picks';
 import { derivedWorldEventId, stableId, characterRef, userRef } from '../../src/lib/world/subjects';
@@ -469,12 +470,12 @@ async function run() {
     });
     const sharedDiary = await diaryRepo.create({
       userId: U, date: '2026-09-11', title: '愿意告诉星遥的一页', content: '今天想让你知道。', mood: 4, tags: [],
-      visibility: 'selected', visibleTo: [C1],
     });
+    const diarySharing = await setDiarySharing({ userId: U, diaryId: sharedDiary, visibility: 'selected', visibleTo: [C1] });
     const visibleDiaries = await diaryRepo.listVisibleFor(C1, U, 50);
     check('⑧ 日记同样过闸门：private 不返回、selected 命中才返回（正面控制）',
       visibleDiaries.every((d) => d.id !== privateDiary) && visibleDiaries.some((d) => d.id === sharedDiary),
-      visibleDiaries.map((d) => d.title));
+      { visible: visibleDiaries.map((d) => d.title), sharing: diarySharing, stored: await diaryRepo.getById(sharedDiary) });
   }
 
   /* ---------------- 清理 ---------------- */

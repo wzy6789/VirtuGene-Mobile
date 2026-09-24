@@ -59,6 +59,8 @@ export interface WorldContextParams {
 
 export interface CharacterMemory {
   crossChannelMemory?: string;
+  /** 用户明确回忆旧事时，为该角色单独检索且通过认知闸门的历史。 */
+  historicalRecall?: { date: string; text: string }[];
   persona?: string;
   characterId: string;
   name: string;
@@ -98,6 +100,8 @@ export interface WorldContext {
   recentEntries: WorldSceneEntry[];
   /** L9 最近世界事件 */
   recentEvents: WorldEvent[];
+  /** 仅含所有在场角色都知道、都可提起的旧事，供导演规划使用。 */
+  recalledHistory?: { date: string; text: string }[];
   /** 当前地点留下的可观察物件；它们是世界状态，不是聊天记忆。 */
   objects: WorldObject[];
   /** L8 与在场角色相关的未完成的事 */
@@ -128,6 +132,9 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     throw new Error('world-context:scene-owner-mismatch');
   }
   const presence = presenceOf(scene, params.presence);
+  // In a shared scene every spoken line is heard by all present characters.
+  // A private actor prompt is not a privacy boundary: the actor may repeat it.
+  const sharedAudience = presence.length > 1;
   const nameOf = (id: string) => params.characters.find((c) => c.id === id)?.name ?? '某人';
 
   const [worldFacts, entries, recentEvents, allThreads, objects] = await Promise.all([
@@ -150,20 +157,22 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     const carryMemory = entryMemoryMode !== 'present';
     const [facts, memories, scenes, diaryVisible, threads, relation, userMemories, todos, knownRows] = await Promise.all([
       worldFactRepo.listForCharacter(worldId, characterId, 10, userId),
-      carryMemory ? selectRecallableSharedMemories({ userId, worldId, characterId, limit: 3 }) : Promise.resolve([]),
-      carryMemory ? selectRecallableScenes({ userId, worldId, characterId, limit: 2 }) : Promise.resolve([]),
-      carryMemory ? diaryRepo.listVisibleFor(characterId, userId, 20) : Promise.resolve([]),
-      carryMemory ? Promise.resolve(openThreads.filter((t) => t.characterId === characterId)) : Promise.resolve([]),
-      relationshipRepo.getStateFor(userRef(userId), characterRef(characterId), worldId),
-      carryMemory
+      carryMemory && !sharedAudience ? selectRecallableSharedMemories({ userId, worldId, characterId, limit: 3 }) : Promise.resolve([]),
+      carryMemory && !sharedAudience ? selectRecallableScenes({ userId, worldId, characterId, limit: 2 }) : Promise.resolve([]),
+      carryMemory && !sharedAudience ? diaryRepo.listVisibleFor(characterId, userId, 20) : Promise.resolve([]),
+      carryMemory && !sharedAudience ? Promise.resolve(openThreads.filter((t) => t.characterId === characterId)) : Promise.resolve([]),
+      sharedAudience ? Promise.resolve(undefined) : relationshipRepo.getStateFor(userRef(userId), characterRef(characterId), worldId),
+      carryMemory && !sharedAudience
         ? db.memories.where('characterId').equals(characterId).toArray().then((rows) => rows
           .filter((row) => row.userId === userId)
           .filter((row) => (row.status ?? 'active') === 'active')
           .sort((a, b) => b.createdAt - a.createdAt)
-          .slice(0, 18))
+          // 让 buildHiddenUserProfile 从完整候选集中按相关性挑选；固定取最近 18 条
+          // 会让很重要但较早的用户事实在星域里永久消失。
+          )
       : Promise.resolve([]),
-      carryMemory ? todoRepo.visibleForCharacter(userId, characterId, 5) : Promise.resolve([]),
-      carryMemory ? knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'partial', limit: 30, userId }) : Promise.resolve([]),
+      carryMemory && !sharedAudience ? todoRepo.visibleForCharacter(userId, characterId, 5) : Promise.resolve([]),
+      carryMemory && !sharedAudience ? knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'partial', limit: 30, userId }) : Promise.resolve([]),
     ]);
 
     const knownEvents = carryMemory && knownRows.length
@@ -174,7 +183,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
       : [];
 
     // 日记：可见 ∩ 可提起（与私聊完全同一口径，避免"世界页能说、私聊不能说"）
-    const mentionable = carryMemory
+    const mentionable = carryMemory && !sharedAudience
       ? await listMentionableDiaryIds(userId, worldId, characterId)
       : new Set<string>();
     const diaries = diaryVisible
@@ -183,7 +192,13 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
       .map((d) => ({ id: d.id, date: d.date, title: d.title, content: d.content.slice(0, 400) }));
 
     perCharacter[characterId] = {
-      crossChannelMemory: carryMemory ? (await recallCharacterMemory({ userId, characterId, query: params.userText, audience: presence, sources: ['chat', 'group', 'moment', 'todo'], budget: 2200 })).text : '',
+      crossChannelMemory: carryMemory ? (await recallCharacterMemory({
+        userId, characterId, query: params.userText, audience: presence,
+        // In a shared scene, world memories pass the existing all-listeners
+        // knowledge/visibility gate; private one-to-one chat never does.
+        sources: sharedAudience ? ['group', 'moment', 'todo', 'world', 'diary'] : ['chat', 'group', 'moment', 'todo', 'diary'],
+        worldId, excludeSceneId: scene.id, budget: 2200,
+      })).text : '',
       persona: params.characters.find((character) => character.id === characterId)?.systemPrompt,
       characterId,
       name: nameOf(characterId),
@@ -196,10 +211,10 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
         place: s.scene.place,
         summary: s.event.summary || s.scene.title,
       })),
-      facts,
+      facts: sharedAudience ? facts.filter((fact) => fact.visibility === 'world') : facts,
       ...(relation && relation.userId === userId ? { userRelation: relation } : {}),
       threads,
-      ...(carryMemory ? { userProfile: buildHiddenUserProfile(userMemories, params.userText) } : {}),
+      ...(carryMemory && !sharedAudience ? { userProfile: buildHiddenUserProfile(userMemories, params.userText) } : {}),
       todos: todos.map((todo) => ({ title: todo.title, ...(todo.dueDate ? { dueDate: todo.dueDate } : {}), ...(todo.dueTime ? { dueTime: todo.dueTime } : {}), ...(todo.note ? { note: todo.note.slice(0, 120) } : {}) })),
     };
 
@@ -306,6 +321,11 @@ export function renderEventLayer(ctx: WorldContext): string {
     .join('\n')}`;
 }
 
+function renderRecalledHistory(ctx: WorldContext): string {
+  if (!ctx.recalledHistory?.length) return '';
+  return `【用户正在回忆的共同旧事】\n${ctx.recalledHistory.map((hit) => `- ${hit.date} ${hit.text}`).join('\n')}\n这只是可核对的历史线索；只沿着用户问到的内容回应，不要把别的旧话题强行带回来。`;
+}
+
 /** L1.5：让角色知道地点里确实存在什么，以及哪些东西已经被改变。 */
 export function renderObjectLayer(ctx: WorldContext): string {
   if (ctx.objects.length === 0) return '';
@@ -326,6 +346,7 @@ export function renderWorldBrief(ctx: WorldContext, recentLimit = 16): string {
     renderRelationLayer(ctx),
     renderThreadLayer(ctx),
     renderEventLayer(ctx),
+    renderRecalledHistory(ctx),
     renderObjectLayer(ctx),
     renderRecentLayer(ctx, recentLimit),
     directorConversationHints(ctx.conversation),
@@ -379,6 +400,9 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string): 
   }
   if (memory.userProfile) lines.push(memory.userProfile);
   if (memory.crossChannelMemory) lines.push(memory.crossChannelMemory);
+  if (memory.historicalRecall?.length) {
+    lines.push(`【你确实知道、而用户正在回忆的旧事】\n${memory.historicalRecall.map((hit) => `- ${hit.date} ${hit.text}`).join('\n')}\n只回应与用户当前问题有关的线索，不要转回无关旧话题。`);
+  }
   return lines.join('\n');
 }
 
@@ -386,7 +410,11 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string): 
 export function renderGuardContext(ctx: WorldContext): string {
   const lines: string[] = [];
   if (ctx.secrets.length) {
-    lines.push(`【秘密（只有当事人知道，其他人不可以知道）】\n${ctx.secrets.map((s) => `- ${ctx.nameOf(s.ownerCharacterId)} 的：${s.title}`).join('\n')}`);
+    // The guard is another model call. In a shared scene it must not receive
+    // titles that no actor was permitted to use in spoken output.
+    lines.push(ctx.presence.length > 1
+      ? '【隐私边界】当前场景存在只属于个别角色的旧事；它们未提供给在场角色，不得猜测或补写。'
+      : `【秘密（只有当事人知道，其他人不可以知道）】\n${ctx.secrets.map((s) => `- ${ctx.nameOf(s.ownerCharacterId)} 的：${s.title}`).join('\n')}`);
   }
   const facts = ctx.worldFacts.map((f) => `- [${f.category}] ${f.content}`);
   if (facts.length) lines.push(`【世界设定】\n${facts.join('\n')}`);

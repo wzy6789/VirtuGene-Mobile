@@ -277,7 +277,7 @@ export async function applyWorldSettlement(params: {
 
   await db.transaction(
     'rw',
-    [db.worldEvents, db.sharedMemories, db.characterKnowledge, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.continuityThreads],
+    [db.worldEvents, db.sharedMemories, db.characterKnowledge, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.continuityThreads, db.memorySourceTombstones],
     async () => {
       // 1) 世界事件（每个事件一条，id 由 userId+worldId+sourceType+sourceId 确定性生成 ⇒ 幂等）
       for (let i = 0; i < proposal.worldEvents.length; i += 1) {

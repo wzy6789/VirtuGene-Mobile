@@ -113,11 +113,27 @@ export const todoRepo = {
     if (!current) throw new Error('todo:not-found');
     const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
     const todo = { ...current, ...patch, id, userId, updatedAt };
-    await db.transaction('rw', [db.todos, db.memorySourceTombstones], async () => {
+    const sharingChanged = ('visibility' in patch && patch.visibility !== current.visibility)
+      || ('visibleTo' in patch && JSON.stringify([...(patch.visibleTo ?? [])].sort()) !== JSON.stringify([...(current.visibleTo ?? [])].sort()));
+    const todoContentChanged = ['title', 'note', 'dueDate', 'dueTime'].some((key) => key in patch && patch[key as keyof Todo] !== current[key as keyof Todo]);
+    await db.transaction('rw', [db.todos, db.todoOccurrences, db.memorySourceTombstones], async () => {
       if (patch.status === 'cancelled' && current.status !== 'cancelled') {
         await memorySourceTombstoneRepo.record({ userId, sourceType: 'todo', sourceId: id, sourceRevision: current.updatedAt, status: 'withdrawn' });
       } else if (patch.status === 'deleted' && current.status !== 'deleted') {
         await memorySourceTombstoneRepo.record({ userId, sourceType: 'todo', sourceId: id, sourceRevision: current.updatedAt, status: 'deleted' });
+      }
+      if (sharingChanged || todoContentChanged || (patch.status === 'cancelled' && current.status !== 'cancelled') || (patch.status === 'deleted' && current.status !== 'deleted')) {
+        const occurrences = await db.todoOccurrences.where('todoId').equals(id).filter((row) => row.userId === userId).toArray();
+        for (const occurrence of occurrences) {
+          await memorySourceTombstoneRepo.record({
+            userId,
+            sourceType: 'todoOccurrence',
+            sourceId: occurrence.id,
+            sourceRevision: occurrence.updatedAt,
+            status: patch.status === 'deleted' ? 'deleted' : sharingChanged ? 'withdrawn' : 'superseded',
+          });
+          if (sharingChanged || todoContentChanged) await db.todoOccurrences.update(occurrence.id, { updatedAt: Math.max(updatedAt, occurrence.updatedAt + 1) });
+        }
       }
       await db.todos.put(todo);
     });
@@ -160,7 +176,7 @@ export const todoRepo = {
       return true;
     }).slice(0, limit);
   },
-  async completedVisibleForAudience(userId: string, audienceIds: string[], limit = 8): Promise<{ todo: Todo; occurrence?: TodoOccurrence; completedAt: number }[]> {
+  async completedVisibleForAudience(userId: string, audienceIds: string[], limit = 8, includeOlderHistory = false): Promise<{ todo: Todo; occurrence?: TodoOccurrence; completedAt: number }[]> {
     const audience = [...new Set(audienceIds)];
     if (!audience.length) return [];
     const todos = (await db.todos.where('userId').equals(userId).toArray()).filter((todo) =>
@@ -171,13 +187,13 @@ export const todoRepo = {
     const cutoff = Date.now() - 90 * 86400000;
     const occurrences = await db.todoOccurrences.where('todoId').anyOf(todos.map((todo) => todo.id)).toArray();
     const results: { todo: Todo; occurrence?: TodoOccurrence; completedAt: number }[] = occurrences
-      .filter((occurrence) => occurrence.userId === userId && occurrence.status === 'completed' && (occurrence.completedAt ?? 0) >= cutoff)
+      .filter((occurrence) => occurrence.userId === userId && occurrence.status === 'completed' && (includeOlderHistory || (occurrence.completedAt ?? 0) >= cutoff))
       .flatMap((occurrence) => {
         const todo = todoById.get(occurrence.todoId);
         return todo ? [{ todo, occurrence, completedAt: occurrence.completedAt ?? occurrence.updatedAt }] : [];
       });
     for (const todo of todos) {
-      if (todo.status === 'completed' && todo.completedAt && todo.completedAt >= cutoff && !occurrences.some((occurrence) => occurrence.todoId === todo.id && occurrence.status === 'completed')) {
+      if (todo.status === 'completed' && todo.completedAt && (includeOlderHistory || todo.completedAt >= cutoff) && !occurrences.some((occurrence) => occurrence.todoId === todo.id && occurrence.status === 'completed')) {
         results.push({ todo, completedAt: todo.completedAt });
       }
     }

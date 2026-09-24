@@ -182,7 +182,17 @@ export const worldEventRepo = {
   ): Promise<void> {
     const existing = await db.worldEvents.get(id);
     if (!existing) return;
-    await db.worldEvents.put({ ...existing, ...patch, updatedAt: Date.now() });
+    const changedKnowledge = ['title', 'summary', 'visibility', 'visibleTo'].some((key) => key in patch && patch[key as keyof typeof patch] !== existing[key as keyof WorldEvent]);
+    await db.transaction('rw', [db.worldEvents, db.memorySourceTombstones], async () => {
+      if (changedKnowledge) await memorySourceTombstoneRepo.record({
+        userId: existing.userId,
+        sourceType: 'worldEvent',
+        sourceId: existing.id,
+        sourceRevision: existing.updatedAt,
+        status: 'superseded',
+      });
+      await db.worldEvents.put({ ...existing, ...patch, updatedAt: Math.max(Date.now(), existing.updatedAt + 1) });
+    });
   },
 
   async remove(id: string): Promise<void> {
@@ -198,11 +208,19 @@ export const worldEventRepo = {
   },
 
   async clearForWorld(worldId: string): Promise<void> {
-    await db.worldEvents.where('worldId').equals(worldId).delete();
+    await db.transaction('rw', [db.worldEvents, db.memorySourceTombstones], async () => {
+      const rows = await db.worldEvents.where('worldId').equals(worldId).toArray();
+      for (const row of rows) await memorySourceTombstoneRepo.record({ userId: row.userId, sourceType: 'worldEvent', sourceId: row.id, sourceRevision: row.updatedAt, status: 'deleted' });
+      await db.worldEvents.where('worldId').equals(worldId).delete();
+    });
   },
 
   async clearForUser(userId: string): Promise<void> {
-    await db.worldEvents.where('userId').equals(userId).delete();
+    await db.transaction('rw', [db.worldEvents, db.memorySourceTombstones], async () => {
+      const rows = await db.worldEvents.where('userId').equals(userId).toArray();
+      for (const row of rows) await memorySourceTombstoneRepo.record({ userId, sourceType: 'worldEvent', sourceId: row.id, sourceRevision: row.updatedAt, status: 'deleted' });
+      await db.worldEvents.where('userId').equals(userId).delete();
+    });
   },
 
   /**

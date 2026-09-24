@@ -20,6 +20,7 @@ import { momentsRepo } from './db/moments-repo';
 import { hasAiGatewayAccess, isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from './lib/ai/gateway';
 import { loadMomentsPreferences } from './lib/moments/preferences';
 import { UseTimeReminder } from './components/compliance/UseTimeReminder';
+import { processMemoryJobs } from './lib/memory-jobs';
 
 // 手账按需加载：首次进入才拉取日记相关代码，加快主聊天页启动
 const DiaryPage = lazy(() => import('./pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
@@ -77,6 +78,28 @@ export default function App() {
   useEffect(() => {
     setGatewayAccessToken(gatewayAccessToken);
   }, [gatewayAccessToken]);
+
+  // Durable memory extraction resumes after relaunch and while the app is open.
+  // Jobs contain source ids and witness snapshots, never copied private text.
+  useEffect(() => {
+    if (!isLoggedIn || !activeUserId) return;
+    let busy = false;
+    const run = async () => {
+      if (busy || document.visibilityState !== 'visible') return;
+      busy = true;
+      try { await processMemoryJobs(activeUserId, apiKey, 2); }
+      finally { busy = false; }
+    };
+    const initial = window.setTimeout(() => { void run(); }, 5_000);
+    const timer = window.setInterval(() => { void run(); }, 45_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') void run(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [isLoggedIn, activeUserId, apiKey, gatewayAccessToken]);
 
   // Splash 淡出过渡：ready 后先淡出再卸载
   useEffect(() => {

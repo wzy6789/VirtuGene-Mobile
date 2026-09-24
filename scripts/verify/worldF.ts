@@ -132,12 +132,15 @@ async function run() {
   {
     const sceneCId = await worldSceneRepo.createScene({
       userId: U, worldId: world.id, title: '重试隔离', place: '测试地点', timeLabel: '夜晚', mood: '安静', characterIds: [C1, C2],
+      participants: [C1, C2].map((characterId) => ({
+        characterId, entryMemoryMode: 'memory' as const, goals: [], knowsEventIds: [], secrets: [],
+      })),
     });
     const sceneC = (await worldSceneRepo.getScene(sceneCId))!;
     // 超过旧的 400 条窗口后，仍要读到最新发言，重试也必须找到本轮条目。
     await db.worldSceneEntries.bulkPut(Array.from({ length: 430 }, (_, index) => ({
       id: `worldF-long-${index}`, sceneId: sceneC.id, index,
-      kind: 'narration' as const, act: 1, content: `旧记录 ${index}`, createdAt: Date.now() - 430 + index,
+      kind: 'narration' as const, act: 1, witnessedBy: [C1, C2], content: `旧记录 ${index}`, createdAt: Date.now() - 430 + index,
     })));
     const recent = await worldSceneRepo.listRecentEntries(sceneC.id, 12);
     check('⓪ 长世界取最近 12 条，而不是最早 12 条', recent[0]?.content === '旧记录 418' && recent.at(-1)?.content === '旧记录 429');

@@ -14,10 +14,13 @@ import type { SharedMemory, WorldEvent } from '../../db/index';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { isVisibleToCharacter } from './visibility';
+import { knowledgeRepo } from '../../db/knowledge-repo';
 
 export interface HistoryHit {
   /** 人话日期（用于"那是很久以前"这种自然表达） */
   date: string;
+  /** 原始时间戳，用于调用方记录准确的记忆来源时间。 */
+  timestamp: number;
   text: string;
   kind: 'event' | 'memory';
   id: string;
@@ -77,21 +80,57 @@ export async function findRelevantHistory(params: {
   const limit = Math.max(1, params.limit ?? 5);
 
   const [events, memories] = await Promise.all([
-    worldEventRepo.getRecent(params.worldId, 200, params.userId),
-    sharedMemoryRepo.listByWorld(params.worldId, 200, params.userId),
+    // Explicit recall is rare and the repositories already read the world's
+    // rows before slicing. A recency cap here permanently hides an older
+    // event even when the user's query exactly names it.
+    worldEventRepo.listTimeline(params.worldId, { limit: Number.MAX_SAFE_INTEGER, userId: params.userId }),
+    sharedMemoryRepo.listByWorld(params.worldId, Number.MAX_SAFE_INTEGER, params.userId),
   ]);
+
+  // 已指定角色时，受限事件必须同时满足「可见」与「角色确实知道且可提起」。
+  // world 可见事件属于公开世界知识；private 永远不会越过可见性闸门。
+  const characterIds = [...new Set([
+    ...(params.characterId ? [params.characterId] : []),
+    ...(params.audienceCharacterIds ?? []),
+  ])];
+  const mentionableByCharacter = new Map<string, Set<string>>();
+  await Promise.all(characterIds.map(async (characterId) => {
+    const known = await knowledgeRepo.listKnownBy(characterId, params.worldId, {
+      minLevel: 'full', limit: Number.MAX_SAFE_INTEGER, userId: params.userId,
+    });
+    mentionableByCharacter.set(characterId, new Set(known
+      .filter((row) => row.canMention && row.knowledgeLevel === 'full')
+      .map((row) => row.eventId)));
+  }));
+  const audienceCanMentionEvent = (event: WorldEvent) => characterIds.every((characterId) =>
+    isVisibleToCharacter(event, characterId)
+    && (event.visibility === 'world' || mentionableByCharacter.get(characterId)?.has(event.id) === true),
+  );
+  const allowedMemoryIdsByCharacter = new Map<string, Set<string>>();
+  for (const characterId of characterIds) {
+    const ids = new Set<string>();
+    for (const event of events) {
+      if (event.type === 'shared_memory' && event.memoryIds.length > 0 && audienceCanMentionSingle(event, characterId, mentionableByCharacter)) {
+        for (const id of event.memoryIds) ids.add(id);
+      }
+    }
+    allowedMemoryIdsByCharacter.set(characterId, ids);
+  }
 
   const hits: HistoryHit[] = [];
   const push = (row: WorldEvent | SharedMemory, kind: HistoryHit['kind']) => {
     if (params.characterId && !isVisibleToCharacter(row, params.characterId)) return;
     if (params.audienceCharacterIds?.some((id) => !isVisibleToCharacter(row, id))) return;
+    if (kind === 'event' && characterIds.length > 0 && !audienceCanMentionEvent(row as WorldEvent)) return;
+    if (kind === 'memory' && characterIds.some((id) => !isVisibleToCharacter(row, id)
+      || (row.visibility !== 'world' && !allowedMemoryIdsByCharacter.get(id)?.has(row.id)))) return;
     const text = kind === 'event'
       ? `${(row as WorldEvent).title}${(row as WorldEvent).summary ? `：${(row as WorldEvent).summary}` : ''}`
       : `${(row as SharedMemory).title}${(row as SharedMemory).summary ? `：${(row as SharedMemory).summary}` : ''}`;
     const score = hitCount(text, terms) * 2 + (row.importance ?? 0.5);
     if (score < 2) return;
     const ts = kind === 'event' ? (row as WorldEvent).timestamp : (row as SharedMemory).createdAt;
-    hits.push({ date: formatDate(ts), text, kind, id: row.id, score });
+    hits.push({ date: formatDate(ts), timestamp: ts, text, kind, id: row.id, score });
   };
 
   for (const event of events) push(event, 'event');
@@ -100,4 +139,13 @@ export async function findRelevantHistory(params: {
   return hits
     .sort((a, b) => b.score - a.score || (a.date < b.date ? 1 : -1))
     .slice(0, limit);
+}
+
+function audienceCanMentionSingle(
+  event: WorldEvent,
+  characterId: string,
+  mentionableByCharacter: Map<string, Set<string>>,
+): boolean {
+  return isVisibleToCharacter(event, characterId)
+    && (event.visibility === 'world' || mentionableByCharacter.get(characterId)?.has(event.id) === true);
 }

@@ -103,10 +103,14 @@ export function rankConversationMemories(
       const content = normalized(memory.content);
       const matches = terms.reduce((count, term) => count + (content.includes(term) ? 1 : 0), 0);
       const explicitlyMentioned = explicitMentioned(memory, query);
-      const recentlyMentioned = recentlyMentionedIds.has(memory.id) && !explicitlyMentioned;
+      // 近期用过的普通记忆进入冷却；用户明确钉住的事实仍可被召回，
+      // 否则“记住这件事”会因刚刚提过而从候选中消失。
+      const recentlyMentioned = recentlyMentionedIds.has(memory.id) && !explicitlyMentioned && !memory.pinned;
       const kindBoost = memory.memoryKind === 'promise' ? 1.2 : memory.memoryKind === 'relationship' ? 0.8 : 0;
       const score =
-        (memory.pinned ? 12 : 0) +
+        // Pinning protects storage, but must not fill every prompt slot with
+        // unrelated facts when the user asks about a specific older topic.
+        (memory.pinned ? 2 : 0) +
         (explicitlyMentioned ? 9 : 0) +
         matches * 2.8 +
         ageScore(memory, now) * 1.1 +
@@ -117,6 +121,8 @@ export function rankConversationMemories(
         (memories.length - index) / Math.max(1, memories.length) / 100;
       return { memory, score, explicitlyMentioned };
     })
+    // 先做冷却过滤再排名，避免 top-N 全被冷却项占住、过滤后召回列表变空。
+    .filter((item) => !recentlyMentionedIds.has(item.memory.id) || item.explicitlyMentioned || item.memory.pinned)
     .sort((a, b) => b.score - a.score);
 
   const seen = new Set<string>();

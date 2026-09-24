@@ -2,6 +2,7 @@ import Dexie from 'dexie';
 import { db, type Message } from './index';
 import { invalidateUnpinnedMemoriesForMessages } from './memory-repo';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
+import { memoryLedgerRepo } from './memory-ledger-repo';
 
 /** 会话消息分页大小：进入会话时只加载最近 200 条，更早的消息按需加载 */
 export const MESSAGE_PAGE_SIZE = 200;
@@ -35,6 +36,10 @@ export const messageRepo = {
     return db.messages.where('sessionId').equals(sessionId).count();
   },
 
+  async countUserBySession(sessionId: string): Promise<number> {
+    return db.messages.where('sessionId').equals(sessionId).filter((message) => message.role === 'user').count();
+  },
+
   /** 按 id 取消息（记忆溯源"看当时说的话"用） */
   async getById(id: string): Promise<Message | undefined> {
     return db.messages.get(id);
@@ -63,16 +68,22 @@ export const messageRepo = {
   },
 
   async create(message: Message): Promise<string> {
-    return db.transaction('rw', db.messages, db.sessions, db.groups, async () => {
+    return db.transaction('rw', db.messages, db.sessions, db.groups, db.memoryJobs, async () => {
       const session = await db.sessions.get(message.sessionId);
       const group = session?.type === 'group' && session.groupId ? await db.groups.get(session.groupId) : undefined;
       const witnessedBy = group && group.userId === session?.userId ? [...new Set(group.characterIds)] : undefined;
-      return db.messages.add({ ...message, revision: message.revision ?? 1, witnessedBy });
+      const stored = { ...message, revision: message.revision ?? 1, witnessedBy };
+      await db.messages.add(stored);
+      if (session && stored.role === 'user' && stored.content.trim()) {
+        const characterIds = [...new Set(witnessedBy?.length ? witnessedBy : [session.characterId])];
+        await queueMemoryExtraction(stored, session.userId, characterIds, session.type === 'group' ? 'group' : 'chat');
+      }
+      return stored.id;
     });
   },
 
   async deleteBySession(sessionId: string): Promise<void> {
-    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones], async () => {
+    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs], async () => {
       const session = await db.sessions.get(sessionId);
       const messages = await db.messages.where('sessionId').equals(sessionId).toArray();
       if (session) {
@@ -82,13 +93,15 @@ export const messageRepo = {
         for (const message of messages) {
           await memorySourceTombstoneRepo.record({ userId: session.userId, sourceType: 'message', sourceId: message.id, sourceRevision: message.revision ?? 1, status: 'deleted' });
         }
+        const messageIdSet = new Set(messages.map((message) => message.id));
+        await db.memoryJobs.where('userId').equals(session.userId).filter((job) => job.sourceIds.some((sourceId) => messageIdSet.has(sourceId)) && job.status !== 'done').modify({ status: 'cancelled', leaseUntil: undefined, updatedAt: Date.now() });
       }
       await db.messages.where('sessionId').equals(sessionId).delete();
     });
   },
 
   async deleteById(id: string): Promise<void> {
-    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones], async () => {
+    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs], async () => {
       const message = await db.messages.get(id);
       if (!message) return;
       const session = await db.sessions.get(message.sessionId);
@@ -96,6 +109,7 @@ export const messageRepo = {
         await invalidateUnpinnedMemoriesForMessages(session.userId, [id]);
         await invalidateGroupSummarySources(session.id, [id]);
         await memorySourceTombstoneRepo.record({ userId: session.userId, sourceType: 'message', sourceId: id, sourceRevision: message.revision ?? 1, status: 'deleted' });
+        await db.memoryJobs.where('userId').equals(session.userId).filter((job) => job.sourceIds.includes(id) && job.status !== 'done').modify({ status: 'cancelled', leaseUntil: undefined, updatedAt: Date.now() });
       }
       await db.messages.delete(id);
     });
@@ -103,12 +117,22 @@ export const messageRepo = {
 
   /** 标记发送失败/成功（微信式重发机制） */
   async markFailed(id: string, failed = true): Promise<number> {
-    return db.messages.update(id, { failed });
+    const count = await db.messages.update(id, { failed });
+    if (!failed) {
+      const message = await db.messages.get(id);
+      const session = message ? await db.sessions.get(message.sessionId) : undefined;
+      if (message?.role === 'user' && session) {
+        const group = session.type === 'group' && session.groupId ? await db.groups.get(session.groupId) : undefined;
+        const audience = group?.userId === session.userId ? [...new Set(group.characterIds)] : [session.characterId];
+        await queueMemoryExtraction(message, session.userId, audience, session.type === 'group' ? 'group' : 'chat');
+      }
+    }
+    return count;
   },
 
   async update(id: string, patch: Partial<Message>): Promise<number> {
     if (patch.content === undefined) return db.messages.update(id, patch);
-    return db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones], async () => {
+    return db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.groups], async () => {
       const current = await db.messages.get(id);
       if (!current) return 0;
       if (current.content !== patch.content) {
@@ -123,17 +147,63 @@ export const messageRepo = {
             sourceRevision: current.revision ?? 1,
             status: 'superseded',
           });
+          await db.memoryJobs.where('userId').equals(session.userId).filter((job) => job.sourceIds.includes(id) && job.status !== 'done').modify({ status: 'cancelled', leaseUntil: undefined, updatedAt: Date.now() });
         }
-        return db.messages.update(id, { ...patch, revision: (current.revision ?? 1) + 1 });
+        const next = { ...current, ...patch, revision: (current.revision ?? 1) + 1 };
+        const count = await db.messages.update(id, { ...patch, revision: next.revision });
+        if (session && current.role === 'user' && next.content.trim()) {
+          await db.memoryJobs.where('userId').equals(session.userId).filter((job) => job.sourceIds.includes(id) && job.status !== 'done').modify({ status: 'cancelled', leaseUntil: undefined, updatedAt: Date.now() });
+          const group = session.type === 'group' && session.groupId ? await db.groups.get(session.groupId) : undefined;
+          const audience = group?.userId === session.userId ? [...new Set(group.characterIds)] : [session.characterId];
+          await queueMemoryExtraction(next, session.userId, audience, session.type === 'group' ? 'group' : 'chat');
+        }
+        return count;
       }
       return db.messages.update(id, patch);
     });
   },
 };
 
+function splitRanges(text: string, maxChars = 6_000): [number, number][] {
+  const ranges: [number, number][] = [];
+  for (let start = 0; start < text.length; start += maxChars) {
+    let end = Math.min(text.length, start + maxChars);
+    if (end < text.length && end > start && /[\uD800-\uDBFF]/.test(text[end - 1] ?? '') && /[\uDC00-\uDFFF]/.test(text[end] ?? '')) end -= 1;
+    if (end <= start) end = Math.min(text.length, start + maxChars + 1);
+    ranges.push([start, end]);
+    start = end - maxChars;
+  }
+  return ranges;
+}
+
+async function queueMemoryExtraction(
+  message: Message,
+  userId: string,
+  characterIds: string[],
+  sourceType: 'chat' | 'group',
+): Promise<void> {
+  const content = message.content.trim();
+  const audience = [...new Set(characterIds.filter(Boolean))];
+  if (!content || !audience.length) return;
+  const ranges = splitRanges(content);
+  for (const [start, end] of ranges) {
+    await memoryLedgerRepo.enqueue({
+      userId,
+      sessionId: message.sessionId,
+      characterIds: audience,
+      sourceType,
+      sourceIds: [message.id],
+      sourceRevisions: { [message.id]: message.revision ?? 1 },
+      sourceOffsets: { [message.id]: start },
+      sourceEndOffsets: { [message.id]: end },
+      task: 'extract',
+    });
+  }
+}
+
 async function invalidateGroupSummarySources(sessionId: string, messageIds: string[]): Promise<void> {
   const session = await db.sessions.get(sessionId);
   if (!session?.summary || !session.summarySourceMessageIds?.some((id) => messageIds.includes(id))) return;
-  const { summary: _summary, summaryUpdatedAt: _updatedAt, summarySourceMessageIds: _sourceIds, summarySourceMessageRevisions: _sourceRevisions, summaryWitnessedBy: _witnessedBy, ...rest } = session;
+  const { summary: _summary, summaryUpdatedAt: _updatedAt, summarySourceMessageIds: _sourceIds, summarySourceMessageRevisions: _sourceRevisions, summarySourceMessageOffsets: _sourceOffsets, summaryWitnessedBy: _witnessedBy, ...rest } = session;
   await db.sessions.put(rest as typeof session);
 }

@@ -1,6 +1,7 @@
 import { db, type Diary } from './index';
 import { isVisibleToCharacter } from '../lib/world/visibility';
 import { clearDiarySharing } from '../lib/world/diary-visibility';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 export interface DiaryInput {
   userId: string;
@@ -110,9 +111,18 @@ export const diaryRepo = {
       if (v !== undefined) clean[k] = v;
     }
     const changedSharedContent = ['title', 'content', 'date'].some((key) => key in clean);
-    return db.transaction('rw', [db.diaries, db.worldEvents], async () => {
+    return db.transaction('rw', [db.diaries, db.worldEvents, db.memorySourceTombstones], async () => {
       const current = await db.diaries.get(id);
       if (!current) return 0;
+      if (changedSharedContent) {
+        await memorySourceTombstoneRepo.record({
+          userId: current.userId,
+          sourceType: 'diary',
+          sourceId: current.id,
+          sourceRevision: current.revision ?? 1,
+          status: 'superseded',
+        });
+      }
       const updated: Diary = {
         ...current,
         ...clean,

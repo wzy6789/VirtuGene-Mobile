@@ -36,6 +36,11 @@ export const sessionRepo = {
     return db.sessions.update(id, { updatedAt: Date.now() });
   },
 
+  async markSummaryAttempt(id: string, attemptedAt = Date.now()): Promise<number> {
+    // 不改会话 updatedAt：失败的后台摘要不能伪装成用户最近聊过。
+    return db.sessions.update(id, { summaryAttemptedAt: attemptedAt });
+  },
+
   async update(id: string, patch: Partial<Session>): Promise<number> {
     return db.sessions.update(id, { ...patch, updatedAt: Date.now() });
   },
@@ -46,13 +51,16 @@ export const sessionRepo = {
     witnessedBy?: string[],
     sourceMessageIds?: string[],
     sourceMessageRevisions?: Record<string, number>,
+    sourceMessageOffsets?: Record<string, number>,
   ): Promise<number> {
     const patch: Partial<Session> = {
       summary,
       summaryUpdatedAt: Date.now(),
+      summaryAttemptedAt: undefined,
       ...(sourceMessageIds ? {
         summarySourceMessageIds: [...new Set(sourceMessageIds)],
         summarySourceMessageRevisions: sourceMessageRevisions ?? {},
+        summarySourceMessageOffsets: sourceMessageOffsets ?? {},
       } : {}),
     };
     if (witnessedBy) patch.summaryWitnessedBy = [...new Set(witnessedBy)].sort();

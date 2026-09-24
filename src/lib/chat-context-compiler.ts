@@ -98,10 +98,9 @@ export function selectRelevantMemories<T extends { content: string; createdAt: n
       const ageDays = Math.max(0, (now - (memory.updatedAt ?? memory.createdAt)) / 86_400_000);
       const recency = Math.max(0, 1 - ageDays / 365);
       const confidence = Math.max(0, Math.min(1, memory.confidence ?? 0.6));
-      // Explicitly remembered items are a hard preference. They stay eligible even
-      // when the current turn has no matching keyword; relevance must never make a
-      // user-requested fact disappear from the small prompt budget.
-      const pinnedBoost = memory.pinned === true ? 1000 : 0;
+      // Pinning keeps a fact durable in storage, but a wall of unrelated pins
+      // must not hide the older fact the user is explicitly asking about.
+      const pinnedBoost = memory.pinned === true ? 2 : 0;
       return { memory, score: pinnedBoost + matches * 4 + recency * 0.8 + confidence * 0.6 + (memories.length - index) / Math.max(1, memories.length) / 10 };
     })
     .sort((a, b) => b.score - a.score)

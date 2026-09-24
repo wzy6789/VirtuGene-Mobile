@@ -188,7 +188,17 @@ export const sharedMemoryRepo = {
   ): Promise<void> {
     const existing = await db.sharedMemories.get(id);
     if (!existing) return;
-    await db.sharedMemories.put({ ...existing, ...patch, updatedAt: Date.now() });
+    const changedKnowledge = ['title', 'summary', 'visibility', 'visibleTo'].some((key) => key in patch && patch[key as keyof typeof patch] !== existing[key as keyof SharedMemory]);
+    await db.transaction('rw', [db.sharedMemories, db.memorySourceTombstones], async () => {
+      if (changedKnowledge) await memorySourceTombstoneRepo.record({
+        userId: existing.userId,
+        sourceType: 'sharedMemory',
+        sourceId: existing.id,
+        sourceRevision: existing.updatedAt,
+        status: 'superseded',
+      });
+      await db.sharedMemories.put({ ...existing, ...patch, updatedAt: Math.max(Date.now(), existing.updatedAt + 1) });
+    });
   },
 
   async remove(id: string): Promise<void> {
@@ -204,11 +214,19 @@ export const sharedMemoryRepo = {
   },
 
   async clearForWorld(worldId: string): Promise<void> {
-    await db.sharedMemories.where('worldId').equals(worldId).delete();
+    await db.transaction('rw', [db.sharedMemories, db.memorySourceTombstones], async () => {
+      const rows = await db.sharedMemories.where('worldId').equals(worldId).toArray();
+      for (const row of rows) await memorySourceTombstoneRepo.record({ userId: row.userId, sourceType: 'sharedMemory', sourceId: row.id, sourceRevision: row.updatedAt, status: 'deleted' });
+      await db.sharedMemories.where('worldId').equals(worldId).delete();
+    });
   },
 
   async clearForUser(userId: string): Promise<void> {
-    await db.sharedMemories.where('userId').equals(userId).delete();
+    await db.transaction('rw', [db.sharedMemories, db.memorySourceTombstones], async () => {
+      const rows = await db.sharedMemories.where('userId').equals(userId).toArray();
+      for (const row of rows) await memorySourceTombstoneRepo.record({ userId, sourceType: 'sharedMemory', sourceId: row.id, sourceRevision: row.updatedAt, status: 'deleted' });
+      await db.sharedMemories.where('userId').equals(userId).delete();
+    });
   },
 
   /** 角色被删除：保留这段记忆（事情真的发生过），只把 TA 从参与者与可见名单里摘掉 */

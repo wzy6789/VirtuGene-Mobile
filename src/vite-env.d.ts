@@ -142,7 +142,7 @@ interface VirtuGeneAPI {
       history: { role: string; content: string }[];
       previousSummary?: string;
       protectedMemories?: string[];
-    }) => Promise<{ summary?: string; error?: string }>;
+    }) => Promise<{ summary?: string; error?: string; complete?: boolean }>;
   };
   diary: {
     assist: (params: {

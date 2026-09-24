@@ -131,13 +131,15 @@ async function run() {
     const iso = await buildWorldContext({ userId: U, worldId, scene: (await worldSceneRepo.getScene(scene.id))!, characters });
     const c1ctx = renderCharacterContext(iso, C1);
     const c2ctx = renderCharacterContext(iso, C2);
-    check('① 古月娜的私有上下文里有这件事', c1ctx.includes(memoryTitle), c1ctx.slice(0, 200));
+    check('① 多人场景里古月娜的旧私密记忆不进入可说出的上下文', !c1ctx.includes(memoryTitle), c1ctx.slice(0, 200));
     check('② 星遥的私有上下文里**完全没有**这件事（结构隔离，不是"嘱咐别说"）',
       !c2ctx.includes(memoryTitle) && !c2ctx.includes('雨里'), c2ctx.slice(0, 200));
     check('③ 世界层（含全部世界设定）也不含这条私有记忆的正文泄漏',
       !renderWorldLayer(iso).includes('只有古月娜知道'), renderWorldLayer(iso).slice(0, 160));
     check('④ 秘密会被列入"守护者可见"清单（用于一致性检查）',
       iso.secrets.some((s) => s.title === memoryTitle), iso.secrets);
+    const oneToOne = await buildWorldContext({ userId: U, worldId, scene: (await worldSceneRepo.getScene(scene.id))!, characters, presence:[C1] });
+    check('⑤ 单人场景仍能唤起古月娜自己知道的旧事', renderCharacterContext(oneToOne,C1).includes(memoryTitle));
   }
 
   /* ================= S. 多角色互动（§24 / §25 / §40 / §98） ================= */
@@ -179,8 +181,8 @@ async function run() {
       auto1Prompt.includes('没有。') || auto1Prompt.includes('你最近是不是有心事'), auto1Prompt.slice(0, 80));
     const actor1Prompt = JSON.stringify(llm.seen[seenStart + 2]);
     const auto2Prompt = JSON.stringify(llm.seen[seenStart + 5]);
-    check('⑤ 互动之后隔离依然成立：知道的人（古月娜）上下文里有，不知道的人（星遥）**完全没有**',
-      actor1Prompt.includes(memoryTitle) && !actor2Prompt.includes(memoryTitle) && !auto2Prompt.includes(memoryTitle),
+    check('⑤ 多人互动双方及后续自动拍都没有单方私密内容',
+      !actor1Prompt.includes(memoryTitle) && !actor2Prompt.includes(memoryTitle) && !auto2Prompt.includes(memoryTitle),
       { knows: actor1Prompt.includes(memoryTitle), star1: actor2Prompt.includes(memoryTitle), star2: auto2Prompt.includes(memoryTitle) });
 
     // 中断：shouldInterrupt 为真时立刻停

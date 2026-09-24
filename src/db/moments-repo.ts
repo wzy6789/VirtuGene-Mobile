@@ -611,12 +611,20 @@ export const momentsRepo = {
           ? allIds.filter((id) => !selected.includes(id))
           : allIds;
     const next: Moment = { ...existing, visibility: audience.visibility, audienceCharacterIds: audienceIds, visibilityRevision: existing.visibilityRevision + 1, updatedAt: Date.now() };
-    await db.transaction('rw', [db.moments, db.momentJobs, db.memorySourceTombstones], async () => {
+    await db.transaction('rw', [db.moments, db.momentJobs, db.momentReactions, db.memorySourceTombstones], async () => {
       await memorySourceTombstoneRepo.record({
         userId,
         sourceType: 'moment',
         sourceId: momentId,
         sourceRevision: existing.visibilityRevision,
+        status: 'withdrawn',
+      });
+      const oldReactions = await db.momentReactions.where('momentId').equals(momentId).filter((reaction) => reaction.userId === userId && reaction.status === 'active').toArray();
+      for (const reaction of oldReactions) await memorySourceTombstoneRepo.record({
+        userId,
+        sourceType: 'momentReaction',
+        sourceId: reaction.id,
+        sourceRevision: reaction.updatedAt,
         status: 'withdrawn',
       });
       await db.moments.put(next);
@@ -647,6 +655,14 @@ export const momentsRepo = {
         sourceType: 'moment',
         sourceId: momentId,
         sourceRevision: existing.visibilityRevision,
+        status: 'deleted',
+      });
+      const oldReactions = await db.momentReactions.where('momentId').equals(momentId).filter((reaction) => reaction.userId === userId).toArray();
+      for (const reaction of oldReactions) await memorySourceTombstoneRepo.record({
+        userId,
+        sourceType: 'momentReaction',
+        sourceId: reaction.id,
+        sourceRevision: reaction.updatedAt,
         status: 'deleted',
       });
       await db.moments.put({ ...existing, deleted: true, visibilityRevision: existing.visibilityRevision + 1, updatedAt: Date.now() });

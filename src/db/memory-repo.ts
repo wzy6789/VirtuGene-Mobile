@@ -1,19 +1,7 @@
 import { db, type MemoryItem } from './index';
 import { prepareMemoryMetadata } from '../lib/memory-engine';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
-
-const MAX_MEMORIES_PER_CHAR = 30;
-
-function isProtectedMemory(memory: MemoryItem): boolean {
-  if ((memory.status ?? 'active') !== 'active') return false;
-  // pinned is the explicit marker. The confidence/source fallback keeps older
-  // manually remembered records safe after upgrading from pre-pinned versions.
-  return memory.pinned === true || (
-    memory.type === 'auto' &&
-    (memory.confidence ?? 0) >= 1 &&
-    (memory.sourceMessageIds?.length ?? 0) > 0
-  );
-}
+import { memoryLedgerRepo } from './memory-ledger-repo';
 
 /** 用于记忆去重的稳定键：忽略大小写、空白和常见标点，但不做模糊匹配。 */
 export function normalizeMemoryKey(content: string): string {
@@ -56,9 +44,15 @@ async function upsertMemory(memory: MemoryItem): Promise<string> {
     ...(existing.sourceMessageIds ?? []),
     ...(candidate.sourceMessageIds ?? []),
   ]));
+  const sourceMessageRevisions = { ...(existing.sourceMessageRevisions ?? {}), ...(candidate.sourceMessageRevisions ?? {}) };
+  const sourceMessageOffsets = { ...(existing.sourceMessageOffsets ?? {}), ...(candidate.sourceMessageOffsets ?? {}) };
+  const sourceMessageEndOffsets = { ...(existing.sourceMessageEndOffsets ?? {}), ...(candidate.sourceMessageEndOffsets ?? {}) };
   await db.memories.update(existing.id, {
     sourceSessionId: candidate.sourceSessionId ?? existing.sourceSessionId,
     sourceMessageIds: sourceMessageIds.length > 0 ? sourceMessageIds : undefined,
+    sourceMessageRevisions: Object.keys(sourceMessageRevisions).length ? sourceMessageRevisions : undefined,
+    sourceMessageOffsets: Object.keys(sourceMessageOffsets).length ? sourceMessageOffsets : undefined,
+    sourceMessageEndOffsets: Object.keys(sourceMessageEndOffsets).length ? sourceMessageEndOffsets : undefined,
     confidence: Math.max(existing.confidence ?? 0, candidate.confidence ?? 0),
     pinned: existing.pinned === true || candidate.pinned === true ? true : undefined,
     memoryKind: candidate.memoryKind ?? existing.memoryKind,
@@ -70,34 +64,6 @@ async function upsertMemory(memory: MemoryItem): Promise<string> {
     updatedAt: Math.max(Date.now(), existing.updatedAt ?? 0),
   });
   return existing.id;
-}
-
-/**
- * 把某个角色 + 用户的记忆修剪到上限，保留最新的 N 条（按 createdAt，同刻按 id 稳定排序）。
- * 只读「当前实际存在的条数」再算要删多少，因此无论一次写入多少条、
- * 或写入前已经超过上限，最终条数都精确等于 MAX_MEMORIES_PER_CHAR。
- */
-async function pruneToLimit(characterId: string, userId: string): Promise<void> {
-  const all = (await db.memories.where('characterId').equals(characterId).toArray())
-    .filter((m) => m.userId === userId)
-    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-  if (all.length <= MAX_MEMORIES_PER_CHAR) return;
-  const protectedItems = all.filter(isProtectedMemory);
-  const candidates = all.filter((memory) => !isProtectedMemory(memory));
-  const keepNonProtected = Math.max(0, MAX_MEMORIES_PER_CHAR - protectedItems.length);
-  const keep = [...protectedItems, ...candidates.slice(-keepNonProtected)];
-  const keepIds = new Set(keep.map((memory) => memory.id));
-  const excess = all.filter((memory) => !keepIds.has(memory.id));
-  for (const memory of excess) {
-    await memorySourceTombstoneRepo.record({
-      userId,
-      sourceType: 'memory',
-      sourceId: memory.id,
-      sourceRevision: memory.updatedAt ?? memory.createdAt,
-      status: 'deleted',
-    });
-  }
-  await db.memories.bulkDelete(excess.map((m) => m.id));
 }
 
 /** 删除或撤回原始消息时，失效由其自动归纳出的非固定记忆；用户明确钉住的事实保留。 */
@@ -189,9 +155,11 @@ export const memoryRepo = {
   },
 
   async create(memory: MemoryItem): Promise<string> {
+    // 记忆不能因数量上限被物理删除。召回时按相关性与上下文预算裁剪，
+    // 原始消息仍可溯源，用户主动删除则走 deleteById 的明确撤回路径。
     const id = await upsertMemory(memory);
-    // 单条写入同样受上限约束，避免「记住」「教记忆」「发图分享」把条数顶超
-    await pruneToLimit(memory.characterId, memory.userId);
+    const stored = await db.memories.get(id);
+    if (stored) await memoryLedgerRepo.syncMemoryItem(stored);
     return id;
   },
 
@@ -203,7 +171,7 @@ export const memoryRepo = {
     content: string;
     sourceMessageIds?: string[];
   }): Promise<string> {
-    const content = input.content.trim().slice(0, 900);
+    const content = input.content.trim().slice(0, 2_400);
     if (!content) return '';
     const all = await db.memories.where('characterId').equals(input.characterId).toArray();
     const existing = all.find((memory) =>
@@ -224,10 +192,12 @@ export const memoryRepo = {
         status: 'active',
         updatedAt: now,
       });
+      const stored = await db.memories.get(existing.id);
+      if (stored) await memoryLedgerRepo.syncMemoryItem(stored);
       return existing.id;
     }
     const id = crypto.randomUUID();
-    await db.memories.add({
+    const summary: MemoryItem = {
       id,
       characterId: input.characterId,
       userId: input.userId,
@@ -239,8 +209,9 @@ export const memoryRepo = {
       sourceMessageIds: input.sourceMessageIds,
       confidence: 0.75,
       updatedAt: now,
-    });
-    await pruneToLimit(input.characterId, input.userId);
+    };
+    await db.memories.add(summary);
+    await memoryLedgerRepo.syncMemoryItem(summary);
     return id;
   },
 
@@ -291,6 +262,8 @@ export const memoryRepo = {
       updatedAt,
     });
     await memorySourceTombstoneRepo.record({ userId: old.userId, sourceType: 'memory', sourceId: old.id, sourceRevision: updatedAt, status: 'superseded' });
+    const updated = await db.memories.get(oldId);
+    if (updated) await memoryLedgerRepo.syncMemoryItem(updated);
   },
 
   /** 用户明确纠正事实时，停用最可能的旧事实；普通新记忆不会触发。 */
@@ -307,18 +280,13 @@ export const memoryRepo = {
 
   async createMany(memories: MemoryItem[]): Promise<string[]> {
     if (memories.length === 0) return [];
-    // 先全部写入，再按 (characterId+userId) 分组修剪：
-    // 旧实现是「每插一条前删一条」，一批写 20 条时最多只能删掉 1 条，条数会涨到上限 + 批量 - 1。
+    // 先全部写入，再按角色与账号隔离去重；保留长期证据，召回阶段再控制上下文大小。
     const ids: string[] = [];
     for (const m of memories) {
-      ids.push(await upsertMemory(m));
-    }
-    const touched = new Map<string, { characterId: string; userId: string }>();
-    for (const m of memories) {
-      touched.set(`${m.characterId}|${m.userId}`, { characterId: m.characterId, userId: m.userId });
-    }
-    for (const { characterId, userId } of touched.values()) {
-      await pruneToLimit(characterId, userId);
+      const id = await upsertMemory(m);
+      ids.push(id);
+      const stored = await db.memories.get(id);
+      if (stored) await memoryLedgerRepo.syncMemoryItem(stored);
     }
     return ids;
   },
@@ -327,6 +295,7 @@ export const memoryRepo = {
   async deleteById(id: string): Promise<void> {
     const memory = await db.memories.get(id);
     if (memory) {
+      await memoryLedgerRepo.forgetMemoryItem(memory);
       await memorySourceTombstoneRepo.record({
         userId: memory.userId,
         sourceType: 'memory',

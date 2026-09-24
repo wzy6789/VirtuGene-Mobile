@@ -79,7 +79,16 @@ const fetchStacks: string[] = [];
 const realFetch = window.fetch.bind(window);
 window.fetch = ((...args: Parameters<typeof fetch>) => {
   netCalls += 1;
-  fetchStacks.push(`${String(args[0])} ← ${(new Error('fetch').stack ?? '').split('\n').slice(1, 4).join(' | ')}`);
+  const stack = new Error('fetch').stack ?? '';
+  fetchStacks.push(`${String(args[0])} ← ${stack.split('\n').slice(1, 4).join(' | ')}`);
+  // ChatWindow also runs the durable memory worker after a reply. Keep its
+  // model boundary local to this test and return an empty extraction result.
+  if (/extractMemories/.test(stack)) {
+    return Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: '[]' } }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+  }
   return Promise.reject(new Error('harness: 不该联网'));
 }) as typeof fetch;
 
@@ -456,16 +465,16 @@ async function run() {
     check('② 日记闸门（可见性 + 认知）本身零网络请求', netCalls === n0, netCalls - n0);
 
     /**
-     * 关于"全程零网络"：4.x 在**用户消息累计到一定条数**时会做一次上下文整合
+     * 关于网络归因：4.x 在**用户消息累计到一定条数**时会做一次上下文整合
      * （`webApi.context.settle` → `consolidateContext`），它走自己的 `fetchWithTimeout`，
      * 与本阶段无关，但在被 patched 的 fetch 下会被记到。
      * 因此这里按**调用栈归因**，而不是笼统断言"一次都没有"：
-     * 只要没有任何一次请求来自本阶段新增的代码路径（日记 / 召回 / 可见性），结论就成立。
+     * 新的记忆队列也会运行固定响应的 extractMemories 测试边界；它与日记可见性闸门分开计数。
      */
     const fromNewCode = fetchStacks.filter((s) => /diary|recall|visibility/i.test(s));
-    check('③ 没有一次网络请求来自本阶段新增的代码路径', fromNewCode.length === 0, fromNewCode);
-    check('④ 出现的网络请求全部来自 4.x 既有路径（上下文整合 / 声线分配），已被如实归因',
-      fetchStacks.every((s) => /consolidateContext|assignVoice/.test(s)), fetchStacks);
+    check('③ 没有网络请求来自日记可见性 / 召回路径', fromNewCode.length === 0, fromNewCode);
+    check('④ 请求来自既有上下文整合 / 声线分配或固定响应的记忆提取桩',
+      fetchStacks.every((s) => /consolidateContext|assignVoice|extractMemories/.test(s)), fetchStacks);
   }
 
   /* ---------------- K. 审核发现的两个未覆盖问题（回归） ---------------- */

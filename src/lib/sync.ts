@@ -200,7 +200,8 @@ async function removeStaleSessionSummary(session: Session, userId: string): Prom
   }
   if (!stale) return session;
   const { summary: _summary, summaryUpdatedAt: _summaryUpdatedAt, summarySourceMessageIds: _sourceIds,
-    summarySourceMessageRevisions: _sourceRevisions, summaryWitnessedBy: _witnessedBy, ...rest } = session;
+    summarySourceMessageRevisions: _sourceRevisions, summarySourceMessageOffsets: _sourceOffsets,
+    summaryWitnessedBy: _witnessedBy, ...rest } = session;
   return rest as Session;
 }
 

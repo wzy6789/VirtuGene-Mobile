@@ -15,6 +15,8 @@ import { IS_MOBILE } from '../lib/platform';
 import { generateGroupTurn, type GroupMemberBrief, type GroupTurn } from '../lib/ai/group-chat';
 import { extractMemories } from '../lib/ai/memory-consolidator';
 import { prepareMemoryMetadata } from '../lib/memory-engine';
+import { buildSummaryBatch, findUncoveredSummaryMessages } from '../lib/ai/summary-batches';
+import { boundAuxiliaryHistory } from '../lib/ai/history-window';
 
 /** 主动发言触发：距上一条消息超过该时长（且在群聊页停留时）触发一次 */
 const PROACTIVE_AFTER_MS = 5 * 60_000;
@@ -30,6 +32,7 @@ const BANTER_DAILY_MAX = 3;
 const SUMMARY_WINDOW = 36;
 /** 摘要增量重建阈值：新增未覆盖消息数达到该值才重新生成 */
 const SUMMARY_REGENERATE_THRESHOLD = 12;
+const groupMemoryInFlight = new Set<string>();
 
 interface GroupState {
   groups: Group[];
@@ -143,6 +146,7 @@ async function maybeSummarizeGroup(sessionId: string, apiKey: string): Promise<v
   try {
     const sessionData = await sessionRepo.getById(sessionId);
     if (!sessionData?.groupId) return;
+    if (sessionData.summaryAttemptedAt && Date.now() - sessionData.summaryAttemptedAt < 60_000) return;
     const group = await groupRepo.getById(sessionData.groupId);
     if (!group || group.userId !== sessionData.userId || group.characterIds.length < 2) return;
     const members = [...new Set(group.characterIds)];
@@ -151,25 +155,50 @@ async function maybeSummarizeGroup(sessionId: string, apiKey: string): Promise<v
     const oldMsgs = msgs.slice(0, msgs.length - SUMMARY_WINDOW).filter((message) => witnessedByAll(message, members));
     const previousSummary = groupSummaryFor(sessionData, members);
     const lastCovered = previousSummary ? sessionData.summaryUpdatedAt ?? 0 : 0;
-    const uncovered = oldMsgs.filter((m) => m.createdAt > lastCovered);
-    if (uncovered.length < SUMMARY_REGENERATE_THRESHOLD) return;
-    const historyMessages = oldMsgs.slice(-80);
-    const history = historyMessages.map((m) => ({ role: m.role, content: (m.senderId ? '群成员：' : '') + m.content.slice(0, 1200) }));
+    const priorSourceIds = previousSummary ? sessionData.summarySourceMessageIds ?? [] : [];
+    const legacyCovered = previousSummary && priorSourceIds.length === 0
+      ? oldMsgs.filter((message) => message.createdAt <= lastCovered)
+      : [];
+    const cursor = {
+      sourceMessageIds: [...priorSourceIds, ...legacyCovered.map((message) => message.id)],
+      sourceMessageRevisions: {
+        ...(previousSummary ? sessionData.summarySourceMessageRevisions ?? {} : {}),
+        ...Object.fromEntries(legacyCovered.map((message) => [message.id, message.revision ?? 1])),
+      },
+      sourceMessageOffsets: {
+        ...(previousSummary ? sessionData.summarySourceMessageOffsets ?? {} : {}),
+        ...Object.fromEntries(legacyCovered.map((message) => [message.id, Math.min(message.content.length, 1_200)])),
+      },
+    };
+    const uncovered = findUncoveredSummaryMessages(oldMsgs, cursor);
+    if (uncovered.length < SUMMARY_REGENERATE_THRESHOLD && !uncovered.some((message) => message.content.length > 1_200)) return;
+    // 单次只发送 12 个 1200 字片段，给旧摘要留出网关 20k 请求上限空间；
+    // 超长群消息按字符偏移分批，不能因被截断而误标为已总结。
+    const segments = buildSummaryBatch(uncovered, cursor);
+    if (segments.length === 0) return;
+    const history = segments.map(({ message, content }) => ({ role: message.role, content: (message.senderId ? '群成员：' : '') + content }));
+    await sessionRepo.markSummaryAttempt(sessionId);
     const result = await ipc.context.summarize({
       apiKey,
       history,
       previousSummary: previousSummary?.slice(0, 2_500),
     });
-    if (result.summary) {
+    if (result.summary && result.complete === true) {
       const sourceMessageIds = [...new Set([
-        ...(previousSummary ? sessionData.summarySourceMessageIds ?? [] : []),
-        ...historyMessages.map((message) => message.id),
+        ...priorSourceIds,
+        ...legacyCovered.map((message) => message.id),
+        ...segments.map(({ message }) => message.id),
       ])];
       const sourceMessageRevisions = Object.fromEntries([
         ...(previousSummary ? Object.entries(sessionData.summarySourceMessageRevisions ?? {}) : []),
-        ...historyMessages.map((message) => [message.id, message.revision ?? 1] as const),
+        ...legacyCovered.map((message) => [message.id, message.revision ?? 1] as const),
+        ...segments.map(({ message }) => [message.id, message.revision ?? 1] as const),
       ]);
-      await sessionRepo.updateSummary(sessionId, result.summary, members, sourceMessageIds, sourceMessageRevisions);
+      const sourceMessageOffsets = {
+        ...cursor.sourceMessageOffsets,
+        ...Object.fromEntries(segments.map(({ message, endOffset }) => [message.id, endOffset])),
+      };
+      await sessionRepo.updateSummary(sessionId, result.summary, members, sourceMessageIds, sourceMessageRevisions, sourceMessageOffsets);
     }
   } catch {
     /* 摘要失败是 best-effort */
@@ -178,50 +207,85 @@ async function maybeSummarizeGroup(sessionId: string, apiKey: string): Promise<v
 
 /** 群聊记忆双向：把群里聊到的用户关键事实沉淀为每个成员的记忆（每 3 条用户消息触发一次） */
 async function maybeExtractGroupMemories(sessionId: string, memberIds: string[], apiKey: string): Promise<void> {
+  if (groupMemoryInFlight.has(sessionId)) return;
+  groupMemoryInFlight.add(sessionId);
   try {
     const userId = useAuthStore.getState().userId ?? '';
     const members = [...new Set(memberIds)];
     if (!userId || members.length < 2) return;
-    const msgs = (await messageRepo.getBySession(sessionId)).filter((message) => witnessedByAll(message, members));
+    const session = await sessionRepo.getById(sessionId);
+    if (!session || session.userId !== userId || session.type !== 'group') return;
+    const msgs = (await messageRepo.getBySession(sessionId)).filter((message) => !message.failed && witnessedByAll(message, members));
     const userCount = msgs.filter((m) => m.role === 'user').length;
-    if (userCount < 6 || userCount % 6 !== 0) return;
-    const sourceMessages = msgs.slice(-18);
-    const history = await Promise.all(sourceMessages.map(async (m) => ({
+    if (userCount < 6) return;
+    // Migration-safe bootstrap: existing groups get one recent backfill; later
+    // calls resume from a durable checkpoint. An unsuccessful request never
+    // advances the cursor, so the next group turn retries it.
+    const currentAudience = [...members].sort();
+    const previousAudience = [...(session.groupMemoryWitnessedBy ?? [])].sort();
+    const checkpoint = previousAudience.length > 0 && previousAudience.join('|') === currentAudience.join('|')
+      ? session.lastGroupMemoryUserMessageCount ?? 0
+      : 0;
+    if (userCount - checkpoint < 6) return;
+    const allUsers = msgs.filter((message) => message.role === 'user');
+    const batchUsers = allUsers.slice(checkpoint, checkpoint + 6);
+    const firstIndex = msgs.findIndex((message) => message.id === batchUsers[0]?.id);
+    const sixthIndex = msgs.findIndex((message) => message.id === batchUsers[batchUsers.length - 1]?.id);
+    if (firstIndex < 0 || sixthIndex < 0) return;
+    const priorContext = msgs.slice(Math.max(0, firstIndex - 6), firstIndex);
+    let endIndex = sixthIndex + 1;
+    while (endIndex < msgs.length && msgs[endIndex].role !== 'user') endIndex += 1;
+    // Every pending user message is processed in order; the cursor advances by
+    // exactly six only after a successful extraction and write.
+    const sourceMessages = [...priorContext, ...msgs.slice(firstIndex, endIndex)];
+    const history = boundAuxiliaryHistory(await Promise.all(sourceMessages.map(async (m) => ({
       role: m.role,
       content: m.role === 'user'
         ? '用户：' + m.content.slice(0, 1200)
         : ((await characterRepo.getById(m.senderId ?? ''))?.name ?? '群成员') + '：' + m.content.slice(0, 1200),
-    })));
+    }))));
     const result = await extractMemories({ apiKey, history });
-    if (!result.memories || result.memories.length === 0) return;
-    for (const charId of memberIds) {
-      const existing = await memoryRepo.getByCharacter(charId, userId);
-      const existingContents = new Set(existing.map((m) => m.content.trim()));
-      const fresh = result.memories
-        .map((c) => c.trim())
-        .filter((c) => c.length > 0 && !existingContents.has(c))
-        .slice(0, 10);
-      if (fresh.length > 0) {
-        const now = Date.now();
-        await memoryRepo.createMany(
-          fresh.map((content, i) => ({
+    if (result.error) return;
+    if (result.memories && result.memories.length > 0) {
+      for (const charId of memberIds) {
+        const existing = await memoryRepo.getByCharacter(charId, userId);
+        const existingContents = new Set(existing.filter((m) => (m.status ?? 'active') === 'active').map((m) => m.content.trim()));
+        const fresh = result.memories
+          .map((c) => c.trim())
+          .filter((c) => c.length > 0 && !existingContents.has(c))
+          .slice(0, 10);
+        if (fresh.length > 0) {
+          const now = Date.now();
+          const rows = fresh.map((content, i) => ({
             id: crypto.randomUUID(),
             characterId: charId,
             userId,
-              content,
-              type: 'auto' as const,
-              ...prepareMemoryMetadata(content, { confidence: 0.75 }),
-              createdAt: now + i,
-              sourceSessionId: sessionId,
-              sourceMessageIds: sourceMessages.map((message) => message.id),
-              confidence: 0.75,
-              updatedAt: now + i,
-          })),
-        );
+            content,
+            type: 'auto' as const,
+            ...prepareMemoryMetadata(content, { confidence: 0.75 }),
+            createdAt: now + i,
+            sourceSessionId: sessionId,
+            sourceMessageIds: sourceMessages.map((message) => message.id),
+            confidence: 0.75,
+            updatedAt: now + i,
+          }));
+          const ids = await memoryRepo.createMany(rows);
+          for (const row of rows) {
+            const id = ids[rows.indexOf(row)];
+            await memoryRepo.supersedeLikelyCorrections(charId, userId, { ...row, id });
+          }
+        }
       }
     }
+    // Empty extraction is a successful result; errors above remain retryable.
+    await sessionRepo.update(sessionId, {
+      lastGroupMemoryUserMessageCount: checkpoint + batchUsers.length,
+      groupMemoryWitnessedBy: currentAudience,
+    });
   } catch {
     /* 记忆提取失败不影响群聊 */
+  } finally {
+    groupMemoryInFlight.delete(sessionId);
   }
 }
 
@@ -414,8 +478,10 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       }
 
       // 后台增强（不影响主流程）：长会话摘要 + 群聊记忆沉淀（只写给现存成员）
-      void maybeSummarizeGroup(sessionId, apiKey);
-      void maybeExtractGroupMemories(sessionId, members.map((c) => c.id), apiKey);
+      // Serialize background language-model work for this turn. Concurrent
+      // summary + memory extraction competed for quota and both could fail.
+      void maybeSummarizeGroup(sessionId, apiKey)
+        .finally(() => maybeExtractGroupMemories(sessionId, members.map((c) => c.id), apiKey));
     } catch (err) {
       console.warn('[group-chat] 异常:', err);
       set({ groupSending: false, groupError: '基因链接中断，请重试' });

@@ -25,4 +25,6 @@ const timer=setTimeout(()=>complete('FAIL browser timeout'),45000);
 const result=await done;
 clearTimeout(timer);browser.kill();server.close();
 console.log(result || 'FAIL browser produced no report');
-if (!result.startsWith('PASS')) process.exitCode=1;
+// The browser suite reports `ok N assertions ... ALL PASS`; accept its actual
+// contract instead of requiring a `PASS` prefix that the page never emits.
+if (!result.includes('ALL PASS') || /\b\d+ FAILED\b/.test(result)) process.exitCode=1;

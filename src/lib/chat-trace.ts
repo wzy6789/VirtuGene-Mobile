@@ -40,6 +40,8 @@ export interface ContextTraceSources {
   /** 用户明确分享给角色的待办 */
   todos?: (TraceMember & { occurrenceId?: string })[];
   crossChannelReferences?: BuiltContextTrace['crossChannelReferences'];
+  /** 当前问题召回的旧私聊原文；只在 historical-chat 完整进入提示词时记录。 */
+  historicalChatReferences?: { id: string }[];
   now?: number;
 }
 
@@ -71,7 +73,13 @@ export function buildContextTrace(sources: ContextTraceSources): BuiltContextTra
     : [];
 
   return {
-    ...(included.has('cross-channel-memory') && sources.crossChannelReferences?.length ? { crossChannelReferences: sources.crossChannelReferences } : {}),
+    ...(() => {
+      const references = [
+        ...(included.has('cross-channel-memory') ? sources.crossChannelReferences ?? [] : []),
+        ...(included.has('historical-chat') ? (sources.historicalChatReferences ?? []).map(({ id }) => ({ source: 'chat' as const, id })) : []),
+      ];
+      return references.length ? { crossChannelReferences: [...new Map(references.map((ref) => [`${ref.source}:${ref.id}`, ref])).values()] } : {};
+    })(),
     ...(memoryIds.size > 0 ? { memoryIds: [...memoryIds] } : {}),
     ...(continuityThreadIds.length > 0 ? { continuityThreadIds } : {}),
     ...(sharedEventIds.length > 0 ? { sharedEventIds } : {}),
