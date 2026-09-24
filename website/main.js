@@ -855,6 +855,25 @@
     });
   }
 
+  /* Android 下载地址随 Gitee 最新发行版更新；没有 APK 时保留已发布的历史链接。 */
+  function initAndroidRelease() {
+    var api = 'https://gitee.com/api/v5/repos/wang-zhiyi6789/virtu-gene/releases/latest';
+    fetch(api).then(function (res) {
+      if (!res.ok) throw new Error('Release unavailable');
+      return res.json();
+    }).then(function (release) {
+      var assets = Array.isArray(release.assets) ? release.assets : [];
+      var apk = assets.find(function (item) { return /\.apk$/i.test(item.name || ''); });
+      if (!apk || !/^https:\/\//i.test(apk.browser_download_url || '')) return;
+      var links = document.querySelectorAll('[data-android-download]');
+      links.forEach(function (link) { link.href = apk.browser_download_url; });
+      var version = document.getElementById('android-version');
+      if (version && release.tag_name) version.textContent = release.tag_name;
+      var releaseLink = document.getElementById('android-release-link');
+      if (releaseLink) releaseLink.href = 'https://gitee.com/wang-zhiyi6789/virtu-gene/releases/tag/' + encodeURIComponent(release.tag_name);
+    }).catch(function () { /* 网络不可用时仍可下载已发布的历史版本。 */ });
+  }
+
   /* ======================================================================
      15. 图片查看（左右切换 / 下滑关闭）
      ====================================================================== */
@@ -1055,6 +1074,7 @@
     initMemoryDemo,
     initNavMenu,
     initDownloadToast,
+    initAndroidRelease,
     initLightbox,
     initScrollerWarmup,
     initAmbient,

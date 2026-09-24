@@ -107,7 +107,7 @@ npx serve website
 
 下载入口只指向真实存在的发布资产，版本号分别核对，不假定两个平台版本一致：
 
-- Android 当前网页链接仍指向已发布的 GitHub v5.2.0 历史安装包；Gitee 的首个 APK 发布并完成匿名下载测试后，改为 Gitee 附件地址。
+- Android 当前网页链接默认指向已发布的 GitHub v5.2.0 历史安装包；页面加载时会查询 Gitee 最新发行版，只有其中确有 APK 附件才自动改为 Gitee 下载地址。
 - Windows 属于另一个仓库，目前网页链接仍指向它的 GitHub v2.1.0 历史安装包。迁移 Windows 发布渠道需在电脑版仓库另做。
 
 新版 Android 发版使用 `GITEE_TOKEN` 环境变量与 `node scripts/gitee-release.mjs <版本号>`；脚本要求 release APK 已构建且版本与 `package.json` 相同。更新下载入口时要核对发行版附件是否真的可匿名下载——标签存在不代表安装包存在。
