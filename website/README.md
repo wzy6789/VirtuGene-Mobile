@@ -1,7 +1,6 @@
 # VirtuGene 官网
 
-官网是不依赖构建工具的静态页面，部署目录为 `website/`，可直接发布到 GitHub Pages 或任何静态服务器。
-站点部署在**子路径** `/VirtuGene-Mobile/` 下，因此所有资源引用必须保持相对路径（`./assets/...`），不要改成 `/assets/...`。
+官网是不依赖构建工具的静态页面，部署目录为 `website/`，可以发布到独立静态服务器。旧站仍位于 GitHub Pages，切换托管前请保持资源相对路径（`./assets/...`）。Gitee Pages 当前不可用，代码迁至 Gitee 不等于官网自动迁移。
 
 ## 页面结构（7 个章节）
 
@@ -15,7 +14,7 @@
 | 5 | 世界 `#world` | 为什么它不只是聊天？ | 星环 / 轨道 / 星云 + 三个界面切换 |
 | 6 | 界面 `#gallery` | 产品真的存在吗？ | 8 张真实界面（点击可放大） |
 | 7 | 下载 `#download` | 怎样开始使用？ | Android 与 Windows 下载入口 |
-| — | 页脚 | — | 隐私说明、使用条款、GitHub |
+| — | 页脚 | — | 隐私说明、使用条款、Gitee |
 
 主题是一句话：**“时间留下痕迹，角色因此变得不同。”**
 品牌主张保持：**“让数字灵魂 / 拥有时间。”**
@@ -103,14 +102,14 @@ npx serve website
 
 ## 发布说明
 
-推送 `website/` 到 `main` 后，`.github/workflows/deploy-pages.yml` 会自动部署到 GitHub Pages
-（子路径 `/VirtuGene-Mobile/`）。
+网站需要独立托管后才会更新；向 Gitee 推送 `website/` 不会自动更新旧 GitHub Pages 站点。
+部署到新域名前，先核对域名解析、站点 HTTPS 和页面中的 canonical/OG 地址。
 
 下载入口只指向真实存在的发布资产，版本号分别核对，不假定两个平台版本一致：
 
-- Android：`https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v5.2.0/app-release.apk`
-- Windows：`https://github.com/wzy6789/virtugene/releases/download/v2.1.0/VirtuGene-Setup-2.1.0-win.exe`
+- Android 当前网页链接仍指向已发布的 GitHub v5.2.0 历史安装包；Gitee 的首个 APK 发布并完成匿名下载测试后，改为 Gitee 附件地址。
+- Windows 属于另一个仓库，目前网页链接仍指向它的 GitHub v2.1.0 历史安装包。迁移 Windows 发布渠道需在电脑版仓库另做。
 
-更新下载入口时请同时核对 `releases/tag` 页面与资产是否真的存在——标签存在不代表安装包存在。
+新版 Android 发版使用 `GITEE_TOKEN` 环境变量与 `node scripts/gitee-release.mjs <版本号>`；脚本要求 release APK 已构建且版本与 `package.json` 相同。更新下载入口时要核对发行版附件是否真的可匿名下载——标签存在不代表安装包存在。
 
 公开发布前，请确认角色图片拥有公开展示授权。
