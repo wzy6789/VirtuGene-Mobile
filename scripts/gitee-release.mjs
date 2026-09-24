@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** 发布已构建并验收的 Android release APK 到 Gitee。 */
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -9,12 +10,25 @@ const REPO = 'wang-zhiyi6789/virtu-gene';
 const API = `https://gitee.com/api/v5/repos/${REPO}`;
 const APK_PATH = resolve(ROOT, 'android/app/build/outputs/apk/release/app-release.apk');
 const version = process.argv[2]?.replace(/^v/i, '');
-const token = process.env.GITEE_TOKEN;
+const token = process.env.GITEE_TOKEN || readStoredToken();
+
+function readStoredToken() {
+  try {
+    const credentials = execFileSync('git', ['-c', 'credential.interactive=never', 'credential', 'fill'], {
+      input: 'protocol=https\nhost=gitee.com\nusername=wang-zhiyi6789\n\n',
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+    return credentials.match(/^password=(.+)$/m)?.[1]?.trim();
+  } catch {
+    return null;
+  }
+}
 
 if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
   throw new Error('用法: node scripts/gitee-release.mjs 5.2.1');
 }
-if (!token) throw new Error('请先在本机环境变量 GITEE_TOKEN 中设置 Gitee 私人令牌');
+if (!token) throw new Error('请先把 Gitee 私人令牌存入本机 Git 凭据管理器，或设置 GITEE_TOKEN');
 const packageVersion = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).version;
 if (version !== packageVersion) throw new Error(`版本不一致：参数 ${version}，package.json ${packageVersion}`);
 if (!statSync(APK_PATH, { throwIfNoEntry: false })) throw new Error(`找不到 release APK：${APK_PATH}`);
