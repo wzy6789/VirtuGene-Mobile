@@ -27,23 +27,30 @@
 
 ## 线上核对（都已实测通过）
 
-- `/releases/latest` → `tag_name = v5.2.1`，`id = 1164960`；
-- **`attach_files` 在发行版对象里是空的**（Gitee 的固定行为），改查
-  `/releases/1164960/attach_files` → 1 个附件，`size = 4,115,671 B`，
-  `browser_download_url = …/releases/download/v5.2.1/app-release.apk`；
-- 匿名下载该直链 → 逐字节等于本地构建产物（SHA-256 一致），`aapt2 dump badging` 线上包
-  仍是 `versionCode 28 / versionName 5.2.1`；
-- 固定路径 `https://gitee.com/<repo>/releases/download/v5.2.1/app-release.apk` 匿名返回 HTTP 200。
+- `/releases/latest` → `tag_name = v5.2.1`，`id = 1164960`，`assets` 有 3 项：
+  `app-release.apk`（真附件）与 Gitee 自动生成的 `v5.2.1.zip` / `v5.2.1.tar.gz`（源码包）；
+- 取包时按 `.apk` 过滤即可拿到
+  `https://gitee.com/wang-zhiyi6789/virtu-gene/releases/download/v5.2.1/app-release.apk`；
+  另有 `/releases/1164960/attach_files` 接口与固定下载路径作为兜底（都已实测可用）；
+- 该直链匿名下载 → 4,115,671 B，逐字节等于本地构建产物（SHA-256 一致），
+  `aapt2 dump badging` 线上包仍是 `versionCode 28 / versionName 5.2.1`；
+- 注意 `assets[].size` 在 API 里是空的，体积要用 HEAD 的 `content-length` 或下载后量。
 
-## 前端取包口径（新增代码必须照此实现）
+> 更正记录：最初把"发行版 JSON 里没有 `attach_files` 字段"误读成了"附件为空、要单独查接口"，
+> 因此一度认为官网原来读 `assets` 的写法取不到包。实测证明**原写法本来就是对的**
+> （`assets` 里就有 `app-release.apk`，只要按 `.apk` 过滤）。现在两处都保留了三步兜底，
+> 属于稳健性增强，不是修 bug。
 
-Gitee 的发行版对象里 `attach_files` **永远是空的**，只读它的调用方会拿不到 APK。正确顺序：
+## 前端取包口径
 
-1. 读发行版对象里的 `attach_files` / `assets`（有就用）；
+Gitee 的发行版 JSON 里附件在 **`assets`** 数组（含 `app-release.apk` 与自动生成的源码压缩包），
+取包时**必须按 `.apk` 过滤**；`assets[].size` 是空的，别用它核对体积。稳健顺序：
+
+1. 读发行版对象里的 `assets`（其次 `attach_files`，若存在），按 `.apk` 过滤；
 2. 否则查 `/releases/{id}/attach_files`（匿名可读）；
 3. 再否则用固定路径 `/releases/download/{tag}/app-release.apk`。
 
-手机端 `src/lib/mobile-update.ts` 与官网 `website/main.js` 都已按这三步实现。
+手机端 `src/lib/mobile-update.ts` 与官网 `website/main.js` 都按这个顺序实现。
 
 ## 未完成 / 待办
 

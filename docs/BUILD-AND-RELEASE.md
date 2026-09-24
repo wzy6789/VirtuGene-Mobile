@@ -188,17 +188,27 @@ $repo = 'wang-zhiyi6789/virtu-gene'
 # ⑤ apksigner 的证书 SHA-256 仍是 ef38a01c…（否则老用户无法覆盖升级）
 ```
 
-**第 ② 步是 Gitee 特有的坑**：`GET /repos/{owner}/{repo}/releases/latest` 返回的
-`attach_files` 数组**永远是空的**（`/releases/tags/<tag>` 也一样），附件只能通过
-`GET /repos/{owner}/{repo}/releases/{id}/attach_files` 拿到，或者直接用固定路径：
+**第 ② 步的 Gitee 口径（写错过一次，这里记准）**：`GET /repos/{owner}/{repo}/releases/latest`
+返回的 JSON 里**没有 `attach_files` 字段**，附件在 **`assets`** 数组里，而且 Gitee 会自动塞进
+两个源码包：
 
-```
-https://gitee.com/<owner>/<repo>/releases/download/<tag>/app-release.apk
+```json
+{"id":1164960,"tag_name":"v5.2.1","assets":[
+  {"name":"app-release.apk",  "browser_download_url":"…/releases/download/v5.2.1/app-release.apk"},
+  {"name":"v5.2.1.zip",       "browser_download_url":"…/archive/refs/tags/v5.2.1.zip"},
+  {"name":"v5.2.1.tar.gz",    "browser_download_url":"…/archive/refs/tags/v5.2.1.tar.gz"}]}
 ```
 
-手机端 `src/lib/mobile-update.ts` 已经按"先读发行版对象 → 再查附件接口"的顺序兜底；
-官网 `website/main.js` 同样做了三步兜底（发行版对象 → 附件接口 → 固定路径）。
-**新增任何读取发行版的地方，都要按这个顺序写，否则会出现"发行版明明发了，前端却取不到 APK"。**
+三个要点：
+
+1. **必须按 `.apk` 过滤**，否则会取到 zip / tar.gz（旧版本脚本就是这么写的，所以它一直是对的；
+   曾误判成"要读 attach_files"，实际那个字段根本不存在）。
+2. `assets[].size` 在 API 里是**空的**，不能用它核对体积 —— 要 HEAD 看 `content-length` 或下载回来量。
+3. 另外两条同样可用的途径（作为兜底）：`GET /releases/{id}/attach_files` 接口，
+   以及固定路径 `https://gitee.com/<owner>/<repo>/releases/download/<tag>/app-release.apk`。
+
+手机端 `src/lib/mobile-update.ts` 与官网 `website/main.js` 都按"先读发行版对象（assets 优先，
+按 `.apk` 过滤）→ 再查附件接口 → 最后退回固定路径"的顺序实现，任一步成功即可。
 
 第 ④ 步也不是多余的：`android/app/build/outputs/apk/release/app-release.apk` 不会被改版本号
 这件事自动作废，它一直是"上一次构建"的产物。发布脚本自己会重建，所以走脚本是安全的；

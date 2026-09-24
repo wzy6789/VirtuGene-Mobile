@@ -888,8 +888,9 @@
     }).then(function (release) {
       if (!release || !release.tag_name) throw new Error('No release yet');
       var tag = release.tag_name;
-      // Gitee 的发行版对象里 attach_files 常年为空，附件要单独查；两处都试，最后退回固定下载路径。
-      var inline = pickGiteeApk(release.attach_files) || pickGiteeApk(release.assets);
+      // Gitee 的发行版对象里附件在 assets（app-release.apk + 自动生成的源码 zip/tar.gz，
+      // 所以必须按 .apk 过滤）；附件接口与固定下载路径作为兜底，与手机端取法一致。
+      var inline = pickGiteeApk(release.assets) || pickGiteeApk(release.attach_files);
       if (inline) { apply(tag, inline); return null; }
       if (!release.id) { apply(tag, giteeApkUrl(tag)); return null; }
       return fetch(api + '/releases/' + release.id + '/attach_files').then(function (res) {
