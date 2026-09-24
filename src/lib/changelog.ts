@@ -6,6 +6,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '5.2.2',
+    date: '2026-09-24',
+    notes: [
+      'Android 新版本与应用内更新重新回到 GitHub Releases，不再使用 Gitee 渠道。',
+      '更新检查与下载恢复「国内镜像优先、官方兜底」的策略，尽量避开直连 GitHub 的慢速。',
+    ],
+  },
+  {
     version: '5.2.1',
     date: '2026-09-24',
     notes: [

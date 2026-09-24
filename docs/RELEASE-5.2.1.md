@@ -1,6 +1,10 @@
-# VirtuGene Mobile 5.2.1（首个 Gitee 发布）
+# VirtuGene Mobile 5.2.1（Gitee 发布，渠道已于 5.2.2 废弃）
 
-发布渠道：**Gitee 发行版**（本次起 Android 安装包与应用内更新不再走 GitHub）。
+> 注意：这是唯一一版走 Gitee 的发布。当天晚些时候已迁回 GitHub Releases
+> （原因见 `docs/BUILD-AND-RELEASE.md` 第 9 节：Gitee 匿名 API 限流会让应用内「检查更新」静默失效）。
+> 下面记的是当时的核对结果，留作历史。
+
+发布渠道：**Gitee 发行版**（当时切换，已在 5.2.2 迁回 GitHub）。
 发布日期：2026-09-24。
 
 ## 这一版包含什么

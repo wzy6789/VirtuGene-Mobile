@@ -1,28 +1,29 @@
-/** 手机端自动更新：读取 Gitee Release，并交给系统下载器安装 APK。 */
-import { APP_VERSION, GITEE_API } from './update-config';
+/**
+ * 手机端自动更新（GitHub Releases + 国内镜像加速）。
+ *
+ * 流程：
+ *   1. 启动时 check()：请求 GitHub API 拿最新 release 版本号 + APK 下载地址
+ *   2. 有新版本（且比当前版本新）→ 返回更新信息，UI 提示用户
+ *   3. 用户点「立即更新」→ openDownload()：用系统下载器打开镜像下载链接
+ *      （WebView 打开下载链接 → Android 系统下载器接管 → 用户点通知栏安装）
+ *
+ * 优点：零原生插件依赖、无需额外权限、国内走镜像加速。
+ * 缺点：下载走系统下载器，用户需点一下通知栏完成安装（个人使用完全可接受）。
+ */
+import { GITHUB_API, DOWNLOAD_MIRRORS, APP_VERSION } from './update-config';
 
 export interface UpdateInfo {
+  /** 最新版本号（如 2.0.3） */
   version: string;
+  /** 官方 APK 下载地址 */
   apkUrl: string;
+  /** release 备注 */
   notes: string;
+  /** 是否有比当前更新的版本 */
   hasUpdate: boolean;
 }
 
-interface ReleaseAsset {
-  name?: string;
-  browser_download_url?: string;
-  browserDownloadUrl?: string;
-}
-
-interface GiteeRelease {
-  id?: number;
-  tag_name?: string;
-  body?: string;
-  assets?: ReleaseAsset[];
-  attach_files?: ReleaseAsset[];
-}
-
-/** 版本号比较：'2.0.10' > '2.0.9'。 */
+/** 版本号比较：'2.0.10' > '2.0.9' */
 export function compareVersions(a: string, b: string): number {
   const pa = a.replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
   const pb = b.replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
@@ -36,49 +37,67 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-function pickApkUrl(assets: ReleaseAsset[] | undefined): string | null {
-  const apk = assets?.find((asset) => asset.name?.toLowerCase().endsWith('.apk'));
-  const url = apk?.browser_download_url ?? apk?.browserDownloadUrl;
-  return url && /^https:\/\//i.test(url) ? url : null;
+/** 从 GitHub release 里挑 APK 下载链接（取 release 资产里的 .apk 文件，兜底 release body 里的直链） */
+function pickApkUrl(release: {
+  tag_name?: string;
+  assets?: { name?: string; browser_download_url?: string }[];
+  body?: string;
+}): string | null {
+  if (release.assets) {
+    const apk = release.assets.find((a) => a.name?.toLowerCase().endsWith('.apk'));
+    if (apk?.browser_download_url) return apk.browser_download_url;
+  }
+  const m = release.body?.match(/https:\/\/[^\s]+\.apk/i);
+  return m ? m[0] : null;
 }
 
-async function fetchReleaseAssets(release: GiteeRelease): Promise<string | null> {
-  // Gitee 可能把附件放在 attach_files，也可能需要单独读取附件接口。
-  const inline = pickApkUrl(release.attach_files) ?? pickApkUrl(release.assets);
-  if (inline || !release.id) return inline;
-  const res = await fetch(`${GITEE_API}/releases/${release.id}/attach_files`, {
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) return null;
-  return pickApkUrl(await res.json() as ReleaseAsset[]);
-}
-
-/** 没有可下载 APK 的 Release 不会被误报为可更新。 */
+/** 检查更新：请求 GitHub API（走代理时由外部配置决定；这里直接 fetch） */
 export async function checkUpdate(): Promise<UpdateInfo | null> {
   try {
-    const res = await fetch(`${GITEE_API}/releases/latest`, {
+    const res = await fetch(GITHUB_API, {
+      headers: { Accept: 'application/vnd.github+json' },
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return null;
-    const release = await res.json() as GiteeRelease;
-    const version = release.tag_name?.replace(/^v/i, '');
-    if (!version || !/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(version)) return null;
-    const apkUrl = await fetchReleaseAssets(release);
-    if (!apkUrl) return null;
+    const release = await res.json();
+    const latest = (release.tag_name ?? '').replace(/^v/i, '');
+    const apkUrl = pickApkUrl(release);
+    if (!latest || !apkUrl) return null;
     return {
-      version,
+      version: latest,
       apkUrl,
       notes: release.body ?? '',
-      hasUpdate: compareVersions(version, APP_VERSION) > 0,
+      hasUpdate: compareVersions(latest, APP_VERSION) > 0,
     };
   } catch {
     return null;
   }
 }
 
-/** Gitee 附件直接交给系统下载器；不再套用 GitHub 专用镜像。 */
+/**
+ * 用系统下载器打开 APK：并行测速所有镜像，选最快可用的打开。
+ * - 同时发 HEAD 请求到各镜像，记录耗时，取成功且最快的地址
+ * - 5 秒总超时：超时未选出就用官方地址兜底
+ * - 返回实际采用的下载地址（便于提示用户）
+ */
 export async function openApkDownload(apkUrl: string): Promise<string | null> {
-  if (!/^https:\/\//i.test(apkUrl)) return null;
-  window.open(apkUrl, '_system');
-  return apkUrl;
+  const candidates = DOWNLOAD_MIRRORS.map((fn) => fn(apkUrl));
+  const results = await Promise.all(
+    candidates.map(async (url) => {
+      const start = Date.now();
+      try {
+        const probe = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+        const ok = probe.ok || probe.status === 200;
+        return { url, ok, ms: Date.now() - start };
+      } catch {
+        return { url, ok: false, ms: Date.now() - start };
+      }
+    }),
+  );
+  // 选最快可用的；若无可用（可能全部超时），退回官方地址
+  const fastest = results.filter((r) => r.ok).sort((a, b) => a.ms - b.ms)[0];
+  const chosen = fastest?.url ?? apkUrl;
+  // 交给系统下载器（WebView 打开会触发 Android 下载）
+  window.open(chosen, '_system');
+  return chosen;
 }

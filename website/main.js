@@ -855,54 +855,6 @@
     });
   }
 
-  /* Android 下载地址随 Gitee 最新发行版更新；查不到时退回固定下载路径，不指向 GitHub。 */
-  function giteeApkUrl(tag) {
-    return 'https://gitee.com/wang-zhiyi6789/virtu-gene/releases/download/' + encodeURIComponent(tag) + '/app-release.apk';
-  }
-  function pickGiteeApk(list) {
-    var items = Array.isArray(list) ? list : [];
-    for (var i = 0; i < items.length; i += 1) {
-      var item = items[i];
-      if (!/\.apk$/i.test(item.name || item.title || '')) continue;
-      var url = item.browser_download_url || item.browserDownloadUrl;
-      if (url && /^https:\/\//i.test(url)) return url;
-    }
-    return null;
-  }
-  function initAndroidRelease() {
-    var repo = 'wang-zhiyi6789/virtu-gene';
-    var api = 'https://gitee.com/api/v5/repos/' + repo;
-    function apply(tag, url) {
-      if (!tag) return;
-      document.querySelectorAll('[data-android-download]').forEach(function (link) {
-        if (url) link.href = url;
-      });
-      var version = document.getElementById('android-version');
-      if (version) version.textContent = tag;
-      var releaseLink = document.getElementById('android-release-link');
-      if (releaseLink) releaseLink.href = 'https://gitee.com/' + repo + '/releases/tag/' + encodeURIComponent(tag);
-    }
-    fetch(api + '/releases/latest').then(function (res) {
-      if (!res.ok) throw new Error('Release unavailable');
-      return res.json();
-    }).then(function (release) {
-      if (!release || !release.tag_name) throw new Error('No release yet');
-      var tag = release.tag_name;
-      // Gitee 的发行版对象里附件在 assets（app-release.apk + 自动生成的源码 zip/tar.gz，
-      // 所以必须按 .apk 过滤）；附件接口与固定下载路径作为兜底，与手机端取法一致。
-      var inline = pickGiteeApk(release.assets) || pickGiteeApk(release.attach_files);
-      if (inline) { apply(tag, inline); return null; }
-      if (!release.id) { apply(tag, giteeApkUrl(tag)); return null; }
-      return fetch(api + '/releases/' + release.id + '/attach_files').then(function (res) {
-        return res.ok ? res.json() : null;
-      }).then(function (files) {
-        apply(tag, pickGiteeApk(files) || giteeApkUrl(tag));
-      }).catch(function () {
-        apply(tag, giteeApkUrl(tag));
-      });
-    }).catch(function () { /* 网络不可用时仍可用页面里写死的下载地址。 */ });
-  }
-
   /* ======================================================================
      15. 图片查看（左右切换 / 下滑关闭）
      ====================================================================== */
@@ -1103,7 +1055,6 @@
     initMemoryDemo,
     initNavMenu,
     initDownloadToast,
-    initAndroidRelease,
     initLightbox,
     initScrollerWarmup,
     initAmbient,

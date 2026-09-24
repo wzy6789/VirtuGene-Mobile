@@ -1,6 +1,6 @@
 {
   "name": "virtugene-mobile",
-  "version": "5.2.1",
+  "version": "5.2.2",
   "type": "module",
   "description": "VirtuGene 手机版（Capacitor Android）— Unlock Your Digital Soul",
   "author": "VirtuGene",
@@ -18,7 +18,7 @@
     "verify:gateway-stream": "node scripts/verify/gateway-stream.mjs",
     "desktop:preview": "node scripts/desktop-preview.mjs",
     "design:sync": "node scripts/design-preview.mjs",
-    "release": "node scripts/gitee-release.mjs"
+    "release": "node scripts/gh-release.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
