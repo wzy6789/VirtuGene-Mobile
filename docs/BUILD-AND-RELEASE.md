@@ -237,9 +237,13 @@ $repo = 'wang-zhiyi6789/virtu-gene'
 - **不要把 debug 包和 release 包混着发**：现在 release 变体已经会签名，发 `app-debug.apk`
   会让版本线混乱（5.0.4 是 debug，5.0.5 起是 release）。
 - **改 UI/逻辑后要重新 `cap sync`**：只跑 Gradle 不会把新的 `dist/renderer` 打进 APK。
-- **官网托管尚未迁移**：`website/` 仍是纯静态页，旧站还在 GitHub Pages（已停止自动部署），
-  Gitee Pages 当前不可用；换托管前保持资源相对路径（`./assets/...`），
-  并同步改 `website/index.html` 里的 `canonical` / `og:url` / `og:image` 绝对地址。
+- **官网托管现状**：`website/` 是纯静态页，当前托管在 **GitHub Pages**
+  （`https://wzy6789.github.io/VirtuGene-Mobile/`，地址不变），代码主仓库仍在 Gitee。
+  部署由推送 `website/**` 到 GitHub 仓库默认分支触发；本机 git 通道到 GitHub 不通
+  （HTTPS 握手被切、SSH key 未授权），所以用 `node scripts/deploy-site-github.mjs`
+  走 Git Data API 提交（只更新 `website/**`，见 `website/README.md`）。
+  换成别的静态托管时保持资源相对路径，并同步改 `index.html` 的
+  `canonical` / `og:url` / `og:image` 绝对地址。
 
 ---
 

@@ -102,8 +102,24 @@ npx serve website
 
 ## 发布说明
 
-网站需要独立托管后才会更新；向 Gitee 推送 `website/` 不会自动更新旧 GitHub Pages 站点。
-部署到新域名前，先核对域名解析、站点 HTTPS 和页面中的 canonical/OG 地址。
+**当前托管：GitHub Pages**（`https://wzy6789.github.io/VirtuGene-Mobile/`，地址不变）。
+代码主仓库在 Gitee，GitHub 这边只承担官网静态托管，所以：
+
+- 部署是推送 `website/**` 到 GitHub 仓库默认分支触发的（`.github/workflows/deploy-pages.yml`），
+  但**本机 git 通道到 GitHub 不通**（HTTPS 握手被切、SSH key 未授权），因此日常用脚本走 Git Data API：
+
+  ```powershell
+  $cred = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
+  $env:GITHUB_TOKEN = ($cred | Where-Object { $_ -match '^password=' }) -replace '^password=',''
+  node scripts\deploy-site-github.mjs
+  ```
+
+  脚本只更新与远端不一致的 `website/**` 文件（按 git blob 哈希比较），提交后自动触发 Pages 部署。
+  若要恢复常规 `git push`，需要把本机公钥加到 GitHub（或在能连通的网络里推）。
+
+- 站点仍是纯静态页，随时可以整体搬到别的静态托管：保持资源相对路径（`./assets/...`）即可，
+  换域名时记得同步改 `index.html` 里的 `canonical` / `og:url` / `og:image` 绝对地址。
+  Gitee Pages 当前不可用，所以没有跟着代码仓库一起迁。
 
 下载入口只指向真实存在的发布资产，版本号分别核对，不假定两个平台版本一致：
 
