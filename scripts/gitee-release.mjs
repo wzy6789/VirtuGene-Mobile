@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** 发布已构建并验收的 Android release APK 到 Gitee。 */
+/** 从当前源码构建并发布 Android release APK 到 Gitee。 */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
@@ -31,12 +31,38 @@ if (!version || !/^\d+\.\d+\.\d+$/.test(version)) {
 if (!token) throw new Error('请先把 Gitee 私人令牌存入本机 Git 凭据管理器，或设置 GITEE_TOKEN');
 const packageVersion = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).version;
 if (version !== packageVersion) throw new Error(`版本不一致：参数 ${version}，package.json ${packageVersion}`);
-if (!statSync(APK_PATH, { throwIfNoEntry: false })) throw new Error(`找不到 release APK：${APK_PATH}`);
+const gradleFile = readFileSync(resolve(ROOT, 'android/app/build.gradle'), 'utf8');
+if (!gradleFile.includes(`versionName "${version}"`)) {
+  throw new Error(`android/app/build.gradle 的 versionName 与 ${version} 不一致`);
+}
 
 const tag = `v${version}`;
 const existing = await fetch(`${API}/releases/tags/${tag}`);
-if (existing.ok) throw new Error(`${tag} 已存在；版本不可覆盖，请递增版本重新发布`);
-if (existing.status !== 404) throw new Error(`检查发行版失败：HTTP ${existing.status}`);
+const existingRelease = existing.ok ? await existing.json() : null;
+// Gitee 对「只有 Git 标签、尚无发行版」会返回 HTTP 200 + JSON null。
+if (!existing.ok && existing.status !== 404) throw new Error(`检查发行版失败：HTTP ${existing.status}`);
+if (existingRelease?.assets?.some((asset) => /\.apk$/i.test(asset.name ?? ''))) {
+  throw new Error(`${tag} 已有 APK；版本不可覆盖，请递增版本重新发布`);
+}
+
+console.log(`构建 Android ${tag}...`);
+execFileSync(process.execPath, [resolve(ROOT, 'node_modules/vite/bin/vite.js'), 'build'], {
+  cwd: ROOT,
+  stdio: 'inherit',
+});
+execFileSync(process.execPath, [resolve(ROOT, 'node_modules/@capacitor/cli/bin/capacitor'), 'sync', 'android'], {
+  cwd: ROOT,
+  stdio: 'inherit',
+});
+const gradleEnv = { ...process.env };
+delete gradleEnv.GRADLE_USER_HOME;
+const gradleArgs = process.env.VIRTUGENE_GRADLE_ONLINE === '1' ? '' : ' --offline';
+execFileSync('cmd.exe', ['/d', '/s', '/c', `gradlew.bat assembleRelease${gradleArgs}`], {
+  cwd: resolve(ROOT, 'android'),
+  env: gradleEnv,
+  stdio: 'inherit',
+});
+if (!statSync(APK_PATH, { throwIfNoEntry: false })) throw new Error(`构建后找不到 APK：${APK_PATH}`);
 
 const apk = readFileSync(APK_PATH);
 const sha256 = createHash('sha256').update(apk).digest('hex');
@@ -46,20 +72,23 @@ const body = [
   'SHA-256 (app-release.apk):',
   sha256,
 ].join('\n');
-const releaseForm = new URLSearchParams({
-  access_token: token,
-  tag_name: tag,
-  name: `VirtuGene ${tag}`,
-  body,
-  target_commitish: 'main',
-});
-const created = await fetch(`${API}/releases`, {
-  method: 'POST',
-  body: releaseForm,
-});
-const release = await created.json();
-if (!created.ok || !release.id) {
-  throw new Error(`创建 Gitee 发行版失败：HTTP ${created.status} ${JSON.stringify(release).slice(0, 300)}`);
+let release = existingRelease;
+if (!release?.id) {
+  const releaseForm = new URLSearchParams({
+    access_token: token,
+    tag_name: tag,
+    name: `VirtuGene ${tag}`,
+    body,
+    target_commitish: 'main',
+  });
+  const created = await fetch(`${API}/releases`, {
+    method: 'POST',
+    body: releaseForm,
+  });
+  release = await created.json();
+  if (!created.ok || !release?.id) {
+    throw new Error(`创建 Gitee 发行版失败：HTTP ${created.status} ${JSON.stringify(release).slice(0, 300)}`);
+  }
 }
 
 const uploadForm = new FormData();

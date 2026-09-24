@@ -110,6 +110,6 @@ npx serve website
 - Android 当前网页链接默认指向已发布的 GitHub v5.2.0 历史安装包；页面加载时会查询 Gitee 最新发行版，只有其中确有 APK 附件才自动改为 Gitee 下载地址。
 - Windows 属于另一个仓库，目前网页链接仍指向它的 GitHub v2.1.0 历史安装包。迁移 Windows 发布渠道需在电脑版仓库另做。
 
-新版 Android 发版使用本机 Git Credential Manager 中保存的 Gitee 私人令牌（首次可运行 `scripts/save-gitee-token.ps1`），再运行 `node scripts/gitee-release.mjs <版本号>`；也可临时设置 `GITEE_TOKEN` 环境变量。脚本要求 release APK 已构建且版本与 `package.json` 相同。更新下载入口时要核对发行版附件是否真的可匿名下载——标签存在不代表安装包存在。
+新版 Android 发版使用本机 Git Credential Manager 中保存的 Gitee 私人令牌（首次可运行 `scripts/save-gitee-token.ps1`），再运行 `node scripts/gitee-release.mjs <版本号>`；也可临时设置 `GITEE_TOKEN` 环境变量。脚本会核对版本、使用本地 Vite/Capacitor 构建 Android 签名 APK，并上传 Gitee 附件。更新下载入口时要核对发行版附件是否真的可匿名下载——标签存在不代表安装包存在。
 
 公开发布前，请确认角色图片拥有公开展示授权。
