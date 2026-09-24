@@ -855,23 +855,51 @@
     });
   }
 
-  /* Android 下载地址随 Gitee 最新发行版更新；没有 APK 时保留已发布的历史链接。 */
+  /* Android 下载地址随 Gitee 最新发行版更新；查不到时退回固定下载路径，不指向 GitHub。 */
+  function giteeApkUrl(tag) {
+    return 'https://gitee.com/wang-zhiyi6789/virtu-gene/releases/download/' + encodeURIComponent(tag) + '/app-release.apk';
+  }
+  function pickGiteeApk(list) {
+    var items = Array.isArray(list) ? list : [];
+    for (var i = 0; i < items.length; i += 1) {
+      var item = items[i];
+      if (!/\.apk$/i.test(item.name || item.title || '')) continue;
+      var url = item.browser_download_url || item.browserDownloadUrl;
+      if (url && /^https:\/\//i.test(url)) return url;
+    }
+    return null;
+  }
   function initAndroidRelease() {
-    var api = 'https://gitee.com/api/v5/repos/wang-zhiyi6789/virtu-gene/releases/latest';
-    fetch(api).then(function (res) {
+    var repo = 'wang-zhiyi6789/virtu-gene';
+    var api = 'https://gitee.com/api/v5/repos/' + repo;
+    function apply(tag, url) {
+      if (!tag) return;
+      document.querySelectorAll('[data-android-download]').forEach(function (link) {
+        if (url) link.href = url;
+      });
+      var version = document.getElementById('android-version');
+      if (version) version.textContent = tag;
+      var releaseLink = document.getElementById('android-release-link');
+      if (releaseLink) releaseLink.href = 'https://gitee.com/' + repo + '/releases/tag/' + encodeURIComponent(tag);
+    }
+    fetch(api + '/releases/latest').then(function (res) {
       if (!res.ok) throw new Error('Release unavailable');
       return res.json();
     }).then(function (release) {
-      var assets = Array.isArray(release.assets) ? release.assets : [];
-      var apk = assets.find(function (item) { return /\.apk$/i.test(item.name || ''); });
-      if (!apk || !/^https:\/\//i.test(apk.browser_download_url || '')) return;
-      var links = document.querySelectorAll('[data-android-download]');
-      links.forEach(function (link) { link.href = apk.browser_download_url; });
-      var version = document.getElementById('android-version');
-      if (version && release.tag_name) version.textContent = release.tag_name;
-      var releaseLink = document.getElementById('android-release-link');
-      if (releaseLink) releaseLink.href = 'https://gitee.com/wang-zhiyi6789/virtu-gene/releases/tag/' + encodeURIComponent(release.tag_name);
-    }).catch(function () { /* 网络不可用时仍可下载已发布的历史版本。 */ });
+      if (!release || !release.tag_name) throw new Error('No release yet');
+      var tag = release.tag_name;
+      // Gitee 的发行版对象里 attach_files 常年为空，附件要单独查；两处都试，最后退回固定下载路径。
+      var inline = pickGiteeApk(release.attach_files) || pickGiteeApk(release.assets);
+      if (inline) { apply(tag, inline); return null; }
+      if (!release.id) { apply(tag, giteeApkUrl(tag)); return null; }
+      return fetch(api + '/releases/' + release.id + '/attach_files').then(function (res) {
+        return res.ok ? res.json() : null;
+      }).then(function (files) {
+        apply(tag, pickGiteeApk(files) || giteeApkUrl(tag));
+      }).catch(function () {
+        apply(tag, giteeApkUrl(tag));
+      });
+    }).catch(function () { /* 网络不可用时仍可用页面里写死的下载地址。 */ });
   }
 
   /* ======================================================================

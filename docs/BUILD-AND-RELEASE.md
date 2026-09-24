@@ -1,17 +1,22 @@
-# 打包与发布方法（VirtuGene-Mobile Android）
+# 打包与发布方法（VirtuGene-Mobile Android · Gitee 渠道）
 
 给负责打包的人 / AI 助手看的操作手册。全部命令都在 **PowerShell** 下、在项目根目录执行。
-本项目另外有一份技能说明 `dsi-publish-virtugene-mobile`（构建 → 改版本 → `git credential fill` 取 token → 发 GitHub Releases），本文档是它的落地细节版，并补上 Windows 上 Gradle 缓存锁冲突的排查方法。
+
+> **2026-09 起发布渠道已从 GitHub 迁到 Gitee**：代码主仓库 `gitee.com/wang-zhiyi6789/virtu-gene`，
+> Android 安装包与应用内更新都走 Gitee 发行版。旧的 `scripts/gh-release.mjs`、`gh-upload-apk.mjs`
+> 已删除；GitHub 上的历史 Release 仅作存档，官网只剩 Windows 端还指向那里。
 
 ---
 
 ## 0. 一句话方法
 
 ```
-先删旧产物 → cap sync → gradlew assembleRelease（离线）→ 核对包内版本与签名 → 再发 Release
+改 4 处版本号 → node scripts\gitee-release.mjs <版本> → 把线上附件下回来对版本、签名与 SHA-256
 ```
 
-发布脚本会**复用已存在的 release APK**，所以"先删旧产物"不是可选项。
+发布脚本**自己会重新构建**（vite build → cap sync → `gradlew assembleRelease`），所以不存在
+"复用了上一次的旧 APK"这种坑；但它要求 `package.json`、`android/app/build.gradle` 的版本号
+都已经改成目标版本，否则直接报错退出。
 
 ---
 
@@ -20,20 +25,23 @@
 | 项目 | 期望值 | 缺失时的报错 |
 | --- | --- | --- |
 | Node | `C:\Program Files\Lenovo\AIAgent\mcp\node-v22.16.0-win-x64`（在 PATH 里） | `vite`/`cap` 找不到 |
-| JDK | `D:\Java\jdk-21`（`JAVA_HOME`） | `Unsupported class file major version` |
+| JDK | `D:\Java\jdk-21`（`JAVA_HOME`，本机已设为用户级变量） | `Unsupported class file major version` |
 | Gradle 缓存 | `%USERPROFILE%\.gradle`（已预热：wrapper 发行包 + `caches\8.14.3`） | 卡在下载 / 移动缓存被拒 |
 | Android SDK | `C:\Users\34568\AppData\Local\Android\Sdk` | `SDK location not found` |
 | `android\local.properties` | `sdk.dir=C\:\\Users\\34568\\AppData\\Local\\Android\\Sdk` | 同上（**gitignore 文件，新 worktree 里没有**） |
 | build-tools | `...\build-tools\36.0.0\aapt2.exe`、`apksigner.bat` | 无法核对版本/签名 |
 | 签名密钥 | `%USERPROFILE%\.android\debug.keystore`（alias `androiddebugkey`） | release 变体不签名 |
+| Gitee 私人令牌 | 存在本机 Git Credential Manager：`protocol=https, host=gitee.com, username=wang-zhiyi6789` | `请先把 Gitee 私人令牌存入本机 Git 凭据管理器` |
 
 已内置在仓库里、不需要额外配置的：`android/app/build.gradle` 的 `signingConfigs.release`
-（用上面那把密钥库、路径从 `~` 推导），`scripts/gh-release.mjs`（发布），
-`package.json` 的 `mobile:sync` / `mobile:release` / `release`。
+（用上面那把密钥库、路径从 `~` 推导），`scripts/gitee-release.mjs`（发布），
+`scripts/save-gitee-token.ps1`（存令牌），`package.json` 的 `mobile:sync` / `mobile:release` / `release`。
+
+首次配置令牌：`pwsh -File scripts\save-gitee-token.ps1`（输入不回显，也不写进仓库）。
 
 ---
 
-## 2. 打包命令
+## 2. 打包命令（手动打包时用；发布脚本会自己做一遍）
 
 ```powershell
 # 0) 只在当前终端设好环境；不要设 GRADLE_USER_HOME，留空即用 %USERPROFILE%\.gradle
@@ -41,14 +49,11 @@ $env:PATH = "C:\Program Files\Lenovo\AIAgent\mcp\node-v22.16.0-win-x64;$env:PATH
 $env:JAVA_HOME = "D:\Java\jdk-21"
 Set-Location F:\VirtuGene-Mobile
 
-# 1) 关键：先删掉旧的 release 产物（否则发布脚本会复用它）
-Remove-Item android\app\build\outputs\apk\release\app-release.apk -Force -ErrorAction SilentlyContinue
-
-# 2) 前端构建 + 同步到 Android 工程
+# 1) 前端构建 + 同步到 Android 工程
 npm run mobile:sync
 #    等价于：node_modules\.bin\vite.cmd build  然后  node_modules\.bin\cap.cmd sync android
 
-# 3) Android release 构建（先停守护进程，再离线构建）
+# 2) Android release 构建（先停守护进程，再离线构建）
 Push-Location android
 .\gradlew.bat --stop
 .\gradlew.bat assembleRelease --offline --console=plain
@@ -58,7 +63,8 @@ Pop-Location
 产物：`android\app\build\outputs\apk\release\app-release.apk`（约 3.9 MB）
 
 为什么加 `--offline`：本机 `%USERPROFILE%\.gradle\wrapper\dists` 已有 gradle-8.14.3，
-离线可避免网络抖动，也避免 Gradle 去碰不该碰的目录。
+离线可避免网络抖动，也避免 Gradle 去碰不该碰的目录。发布脚本默认也走 `--offline`
+（需要联网时设 `VIRTUGENE_GRADLE_ONLINE=1`）。
 
 ### 构建后必须核对（不核对就等于没打包）
 
@@ -68,7 +74,7 @@ $apk = "android\app\build\outputs\apk\release\app-release.apk"
 
 # ① 包内版本号必须等于这次要发的版本
 & "$bt\aapt2.exe" dump badging $apk | Select-String '^package'
-#   期望：versionCode='22' versionName='5.1.1'
+#   期望（5.2.1）：versionCode='28' versionName='5.2.1'
 
 # ② 签名证书必须还是老用户装的那一把（变了就无法覆盖升级，用户得先卸载 → 本地数据全丢）
 & "$bt\apksigner.bat" verify --print-certs $apk | Select-String 'SHA-256 digest'
@@ -97,7 +103,7 @@ Get-FileHash $apk -Algorithm SHA256
    指到 `%TEMP%`、网盘/OneDrive 同步目录、随容器销毁的目录、或沙箱允许写范围之外的路径时，
    Gradle 走到"把临时 workspace 移动成正式缓存"这一步就会被系统拒绝。
    **处置**：`Remove-Item Env:\GRADLE_USER_HOME`（或显式设为 `$env:USERPROFILE\.gradle`）后重跑。
-   这一条最常命中"前端已成功、Android 编译器移动缓存被拒"的组合。
+   发布脚本里已经显式删掉了这个变量，所以走脚本不会踩到。
 
 2. **两个构建同时用一份缓存。** 比如一边 `assembleDebug` 一边 `assembleRelease`，
    或者上一次构建被 Ctrl+C 中断后 daemon 还活着。
@@ -141,48 +147,62 @@ Get-FileHash $apk -Algorithm SHA256
 
 | 文件 | 改什么 |
 | --- | --- |
-| `package.json` | `"version": "5.1.1"` |
-| `android/app/build.gradle` | `versionCode` **必须 +1**（22），`versionName` 同步 |
+| `package.json` | `"version": "5.2.1"`（发布脚本拿它做校验） |
+| `package-lock.json` | 顶部两处 `"version"` 同步（否则 `npm ci` 会觉得不一致） |
+| `android/app/build.gradle` | `versionCode` **必须 +1**（当前 28），`versionName` 同步 |
 | `src/lib/changelog.ts` | 顶部加一条 `{ version, date, notes }`，用户在 App 内看得到 |
-| `src/lib/update-config.ts` | 保持裸标识符 `__APP_VERSION__`（**不能加引号**，否则 Vite 不替换，热更新失效） |
 
 `__APP_VERSION__` 由 `vite.config.ts` 的 define 注入，值来自 `package.json` 的 version，
-所以改完 `package.json` 后必须**重新 `npm run mobile:sync`**，不能只重跑 Gradle。
+所以在 `src/lib/update-config.ts` 里必须保持**裸标识符**（不能写成带引号的字符串），
+且改完 `package.json` 后必须重新构建（`npm run mobile:sync` 或直接走发布脚本），不能只重跑 Gradle。
 
 ---
 
-## 5. 发布
+## 5. 发布到 Gitee
 
 ```powershell
-# 脚本自己会用 git credential fill 取 token；只有在 CI 里才设 GITHUB_TOKEN
-node scripts\gh-release.mjs 5.1.1
+$env:PATH = "C:\Program Files\Lenovo\AIAgent\mcp\node-v22.16.0-win-x64;$env:PATH"
+node scripts\gitee-release.mjs 5.2.1
 ```
 
-脚本行为（`scripts/gh-release.mjs`）：
+脚本行为（`scripts/gitee-release.mjs`）：
 
-- 产物路径固定 `android/app/build/outputs/apk/release/app-release.apk`；
-- **如果这个文件已存在就直接复用**（第 2 节第 1 步必须删旧产物就是因为这个）；
-- 不存在才去跑 `npm run mobile:release`；
-- 创建 tag `v5.1.1` 的 Release（`draft:false`、`prerelease:false`），已存在则复用该 Release；
-- 资产名固定 `app-release.apk`（App 内更新取"第一个 `.apk` 资产"，名字不能变）。
+- 令牌优先取 `process.env.GITEE_TOKEN`，否则用 `git credential fill` 从本机凭据管理器读；
+- **校验版本一致**：入参必须等于 `package.json` 的 version，且 `build.gradle` 里必须有
+  `versionName "<版本>"`，否则直接退出；
+- 若该 tag 的发行版**已经带 APK 附件**，报错拒绝覆盖（版本号不可回退，要发就递增版本）；
+- 依次跑 `vite build` → `cap sync android` → `gradlew.bat assembleRelease --offline`
+  （自动清掉 `GRADLE_USER_HOME`）；
+- 建发行版（`tag_name=v<版本>`、`target_commitish=main`、body 里写 SHA-256），
+  再把 `app-release.apk` 传到 `/releases/{id}/attach_files`；
+- 成功时打印附件下载地址与 SHA-256。
 
-### 发布后必须核对 5 项（"推送成功"不等于"用户能更新"）
+### 发布后必须核对 5 项（"上传成功"不等于"用户能更新"）
 
 ```powershell
-$repo = 'wzy6789/VirtuGene-Mobile'
+$repo = 'wang-zhiyi6789/virtu-gene'
 # ① /releases/latest 是否已指向新 tag
-# ② 资产是否存在、大小是否与本地一致
-# ③ 把线上的包下载回来，SHA-256 与本地一致（逐字节）
-# ④ aapt2 dump badging 线上包的 versionName == tag（这一步专门拦"发布了旧包"）
+# ② 附件是否真的存在：注意发布版对象里的 attach_files 常为空，要查 /releases/{id}/attach_files
+# ③ 把附件下载回来，SHA-256 与本地一致（逐字节）
+# ④ aapt2 dump badging 线上包的 versionName == tag（专门拦"发布了旧包"）
 # ⑤ apksigner 的证书 SHA-256 仍是 ef38a01c…（否则老用户无法覆盖升级）
 ```
 
-第 ④ 步不是多余的：**这个陷阱在 5.1.0 → 5.1.4 每一轮都真实踩到过**。
-`android/app/build/outputs/apk/release/app-release.apk` 不会被改版本号这件事自动作废，
-它一直是"上一次构建"的产物（5.1.0 那轮是 `2ededdbc…`，5.1.4 那轮开工时是 5.1.3 的 `4,084,231 B`）。
-不删产物直接 `node scripts\gh-release.mjs <新版本>`，就会把旧包发成新 tag，
-用户在 App 里会一直看到"有新版本"但装上去还是旧版本。
-**结论：每次发版前先删 `app-release.apk`，发布后必须把线上包下载回来核对包内 versionName。**
+**第 ② 步是 Gitee 特有的坑**：`GET /repos/{owner}/{repo}/releases/latest` 返回的
+`attach_files` 数组**永远是空的**（`/releases/tags/<tag>` 也一样），附件只能通过
+`GET /repos/{owner}/{repo}/releases/{id}/attach_files` 拿到，或者直接用固定路径：
+
+```
+https://gitee.com/<owner>/<repo>/releases/download/<tag>/app-release.apk
+```
+
+手机端 `src/lib/mobile-update.ts` 已经按"先读发行版对象 → 再查附件接口"的顺序兜底；
+官网 `website/main.js` 同样做了三步兜底（发行版对象 → 附件接口 → 固定路径）。
+**新增任何读取发行版的地方，都要按这个顺序写，否则会出现"发行版明明发了，前端却取不到 APK"。**
+
+第 ④ 步也不是多余的：`android/app/build/outputs/apk/release/app-release.apk` 不会被改版本号
+这件事自动作废，它一直是"上一次构建"的产物。发布脚本自己会重建，所以走脚本是安全的；
+但如果是手动打包 + 手动上传，**必须把线上包下载回来核对包内 versionName**。
 
 ---
 
@@ -195,34 +215,35 @@ $repo = 'wzy6789/VirtuGene-Mobile'
   必须手动建一个；`node_modules` 也要 junction 过去。构建完记得先 `rmdir`（不带 `/s`）断开
   junction 再删 worktree，否则会连真实 `node_modules` 一起删掉。
 - **本机 `npm` 不一定在 PATH 里**：可以直接调 `node_modules\.bin\*.cmd`，或用 `node` 跑脚本。
-- **别手动把 token 粘进脚本**：统一 `git credential fill`，避免泄露与过期。
+- **别手动把令牌粘进脚本或命令行**：统一走凭据管理器 `git credential fill`，
+  或只放在当前进程的 `GITEE_TOKEN` 环境变量里（不要写进任何文件）。
 - **给 PATH 加 node 时必须"前置"而不是"重写"**：本机 `git` 在 `E:\Git\cmd\git.exe`，
-  如果你写 `$env:PATH = "…node-v22.16.0-win-x64"`（赋值而不是拼接），
-  `gh-release.mjs` 里 `execSync('git credential fill')` 就会找不到 git，
-  报 `'git' is not recognized…` 然后 `❌ 未获取到 GitHub token`。正确写法：
+  写成赋值会把 git 挤出 PATH，脚本里 `git credential fill` 就会报
+  `'git' is not recognized…` 然后取不到令牌。正确写法：
   `$env:PATH = "C:\Program Files\Lenovo\AIAgent\mcp\node-v22.16.0-win-x64;$env:PATH"`。
-- **取 token 的兜底姿势**（不改脚本、不把 token 写进任何文件）：
-  ```powershell
-  $cred = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
-  $env:GITHUB_TOKEN = ($cred | Where-Object { $_ -match '^password=' }) -replace '^password=',''
-  node scripts\gh-release.mjs 5.1.4
-  ```
-  脚本优先用 `process.env.GITHUB_TOKEN`，环境变量只在当前这个 pwsh 进程里有效。
+- **本机访问 GitHub 只能走 IPv4**：这台机器到 GitHub 的 IPv6 前缀握手会失败，
+  PowerShell/.NET 调 GitHub API 会报 `The SSL connection could not be established`，
+  需要时用 `curl.exe -4`。Gitee 不受影响。
 - **不要把 debug 包和 release 包混着发**：现在 release 变体已经会签名，发 `app-debug.apk`
   会让版本线混乱（5.0.4 是 debug，5.0.5 起是 release）。
 - **改 UI/逻辑后要重新 `cap sync`**：只跑 Gradle 不会把新的 `dist/renderer` 打进 APK。
+- **官网托管尚未迁移**：`website/` 仍是纯静态页，旧站还在 GitHub Pages（已停止自动部署），
+  Gitee Pages 当前不可用；换托管前保持资源相对路径（`./assets/...`），
+  并同步改 `website/index.html` 里的 `canonical` / `og:url` / `og:image` 绝对地址。
 
 ---
 
 ## 7. 可以直接交给 AI 助手的最短指令
 
-> 在 `F:\VirtuGene-Mobile` 用 PowerShell 打包 Android release 包并发布 v5.1.1：
+> 在 `F:\VirtuGene-Mobile` 用 PowerShell 打包并发布 Gitee 渠道的 Android v5.2.2：
 > 1) `$env:JAVA_HOME="D:\Java\jdk-21"`，**不要设 `GRADLE_USER_HOME`**（用默认 `%USERPROFILE%\.gradle`）；
-> 2) 先删 `android\app\build\outputs\apk\release\app-release.apk`（发布脚本会复用旧产物）；
-> 3) `npm run mobile:sync`，然后 `cd android; .\gradlew.bat --stop; .\gradlew.bat assembleRelease --offline`；
-> 4) 用 `aapt2 dump badging` 确认 versionCode=22 / versionName=5.1.1，
->    用 `apksigner verify --print-certs` 确认证书 SHA-256 仍是 `ef38a01c…40:16`；
-> 5) `node scripts\gh-release.mjs 5.1.1` 发布，然后把线上资产下载回来对 SHA-256 与包内 versionName。
+> 2) 改 4 处版本号：`package.json`、`package-lock.json`、`android/app/build.gradle`（versionCode +1）、
+>    `src/lib/changelog.ts`；
+> 3) `node scripts\gitee-release.mjs 5.2.2`（脚本自己构建 + 上传；令牌从本机凭据管理器读）；
+> 4) 核对：`/releases/latest` 指向 v5.2.2、`/releases/{id}/attach_files` 有 app-release.apk、
+>    把附件下回来 SHA-256 与本地一致、`aapt2 dump badging` 线上包是 5.2.2、
+>    `apksigner verify --print-certs` 证书仍是 `ef38a01c…40:16`；
+> 5) 若官网要同步，改 `website/index.html` 的静态下载地址与版本字样，并跑一遍官网自检。
 > 若 Gradle 报 `Could not move temporary workspace` / `Timeout waiting to lock`：
 > 先 `gradlew.bat --stop` 并结束残留 java 进程，只清 `~\.gradle\daemon\8.14.3`、
 > `~\.gradle\caches\8.14.3\transforms`、`~\.gradle\caches\journal-1`、`android\.gradle`，

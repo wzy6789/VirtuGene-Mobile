@@ -107,9 +107,16 @@ npx serve website
 
 下载入口只指向真实存在的发布资产，版本号分别核对，不假定两个平台版本一致：
 
-- Android 当前网页链接默认指向已发布的 GitHub v5.2.0 历史安装包；页面加载时会查询 Gitee 最新发行版，只有其中确有 APK 附件才自动改为 Gitee 下载地址。
+- Android 网页里的静态链接**直接指向 Gitee 已发布的 v5.2.1 附件**（不依赖 JS 也能下载）；
+  页面加载时再查一次 Gitee 最新发行版，取到更新的 APK 就改写下载地址与版本标签。
+  取包顺序（三处兜底）写在中 `main.js` 的 `initAndroidRelease()`：
+  发行版对象里的 `attach_files`/`assets` → **`/releases/{id}/attach_files`** → 固定路径
+  `/releases/download/{tag}/app-release.apk`。第一步在 Gitee 上**永远是空的**，只读它就拿不到包。
 - Windows 属于另一个仓库，目前网页链接仍指向它的 GitHub v2.1.0 历史安装包。迁移 Windows 发布渠道需在电脑版仓库另做。
 
-新版 Android 发版使用本机 Git Credential Manager 中保存的 Gitee 私人令牌（首次可运行 `scripts/save-gitee-token.ps1`），再运行 `node scripts/gitee-release.mjs <版本号>`；也可临时设置 `GITEE_TOKEN` 环境变量。脚本会核对版本、使用本地 Vite/Capacitor 构建 Android 签名 APK，并上传 Gitee 附件。更新下载入口时要核对发行版附件是否真的可匿名下载——标签存在不代表安装包存在。
+新版 Android 发版使用本机 Git Credential Manager 中保存的 Gitee 私人令牌（首次可运行 `scripts/save-gitee-token.ps1`），再运行 `node scripts/gitee-release.mjs <版本号>`；也可临时设置 `GITEE_TOKEN` 环境变量。脚本会核对版本、使用本地 Vite/Capacitor 构建 Android 签名 APK，并上传 Gitee 附件。完整流程与核对清单见 `docs/BUILD-AND-RELEASE.md`；更新下载入口时要核对发行版附件是否真的可匿名下载——标签存在不代表安装包存在。
+
+当前图库照片拍摄于 5.1.5 构建，而 5.2.x 改动过朋友圈设置、世界页面板与聊天窗口；
+要维持"每一张都是当前版本真实界面"的口径，需按当前构建重拍一轮。
 
 公开发布前，请确认角色图片拥有公开展示授权。
