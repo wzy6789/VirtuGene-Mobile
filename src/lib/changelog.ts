@@ -6,6 +6,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '5.2.1',
+    date: '2026-09-24',
+    notes: [
+      '跨场景记忆账本与后台整理：角色按实际知情范围召回单聊、群聊、朋友圈、日记、待办和星域经历。',
+      '编辑、撤回或删除来源后，旧记忆不会在后续对话中重新出现。',
+      'Android 新版本与应用内更新改由 Gitee 发行版提供。',
+    ],
+  },
+  {
     version: '5.2.0',
     date: '2026-09-23',
     notes: [
