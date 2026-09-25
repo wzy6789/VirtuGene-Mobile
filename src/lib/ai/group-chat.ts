@@ -7,13 +7,18 @@
 import { resolveModel, getProviderKey, findModel, llmChat, type LLMModel, type LLMChatResult } from './llm';
 import { stripRoleplayActions } from './text';
 import { buildTimeContext } from '../chat-context';
+import { containsPrivateMemoryEcho } from '../memory-disclosure';
 
 export interface GroupMemberBrief {
   id: string;
   name: string;
+  /** Short, non-secret description used by the shared speaker selector. */
+  publicPersona?: string;
   persona: string;
   /** 当前群全体成员都可知的共同资料；不能放入某一成员的私聊或私密状态。 */
   memory?: string;
+  /** Actor-only memory. It is never interpolated into the shared director prompt. */
+  privateMemory?: string;
   /** 与这段共享资料对应的准确本地来源，仅供消息溯源，不拼进模型提示词。 */
   memoryReferences?: { source: 'chat' | 'group' | 'world' | 'moment' | 'todo' | 'diary'; id: string }[];
 }
@@ -35,7 +40,7 @@ const GROUP_INSTRUCTION =
   '- **每条 content 只能是一个人的话**：想让多个角色说话就输出多条 JSON（每条约 1~2 句），**严禁把不同角色的发言写进同一条 content**（content 里不要出现"艾莉：…"这种前缀）\n' +
   '- 群成员的名字不能改，speaker 必须是下面列出的成员之一（用成员原名，不要加称呼/括号/编号）\n' +
   '- 成员资料中若有共享记忆，那些内容已确认当前群全体成员都可知。只在话题相关时自然提起，不要生硬复述，也不要编造记忆里没有的内容\n' +
-  '- 私聊、个人心情、好感度、未共享日记和待办不会提供给群聊模型；任何成员都不能借别人的口吻泄露这些私密资料\n' +
+  '- 私聊、个人心情、好感度、未共享日记和待办不会进入共享群聊提示词；个人记忆只会在该角色自己的独立回合中用于理解关系，任何成员都不能借别人的口吻泄露这些私密资料\n' +
   '- 没有共享记忆的成员不要假装有共同经历\n' +
   '- 禁止用括号写动作描写（如（笑）（叹气））\n' +
   '输出要求（务必遵守）：\n' +
@@ -67,15 +72,163 @@ export async function generateGroupTurn(params: GroupTurnParams): Promise<{ turn
   const fallback = findModel('deepseek-v4-flash')!;
 
   const first = await attemptTurn(params, model);
-  if (first.turns.length > 0) return first;
+  if (first.turns.length > 0) {
+    const turns = await generateActorTurns(params, first.turns, model);
+    return { turns: turns.length ? turns : first.turns };
+  }
 
   // 默认模型失败 → 兜底 flash（仅当不是同一个模型）
   if (model.id !== fallback.id) {
     const fb = await attemptTurn(params, fallback);
-    if (fb.turns.length > 0) return fb;
+    if (fb.turns.length > 0) {
+      const turns = await generateActorTurns(params, fb.turns, fallback);
+      return { turns: turns.length ? turns : fb.turns };
+    }
     return { turns: [], error: `默认模型失败：${first.error ?? '未知'}；兜底模型也失败：${fb.error ?? '未知'}` };
   }
   return { turns: [], error: first.error ?? '生成结果为空' };
+}
+
+/**
+ * The shared model call above chooses speakers using only group-visible context.
+ * Each selected character then gets a separate private prompt and a separate
+ * generation call. A disclosure review sees only that one character's private
+ * memory; if it fails or flags the draft, we regenerate from public context.
+ */
+async function generateActorTurns(params: GroupTurnParams, selected: GroupTurn[], model: LLMModel): Promise<GroupTurn[]> {
+  const out: GroupTurn[] = [];
+  const sharedHistory = [...params.history.slice(-16)];
+  for (const selection of selected.slice(0, params.maxTurns ?? 3)) {
+    const member = params.members.find((item) => item.id === selection.senderId);
+    if (!member) continue;
+    const prior = out.map((turn) => ({
+      senderName: params.members.find((item) => item.id === turn.senderId)?.name,
+      role: 'assistant' as const,
+      content: turn.content,
+    }));
+    const privateMemory = member.privateMemory?.trim() ?? '';
+    const personalDraft = await generateActorReply(params, member, model, [...sharedHistory, ...prior], true);
+    if (!personalDraft) {
+      // The director draft was created without any actor-private memory.
+      out.push(selection);
+      continue;
+    }
+    if (!privateMemory) {
+      out.push({ senderId: selection.senderId, content: personalDraft });
+      continue;
+    }
+    const safe = await reviewActorDisclosure(params, member, model, [...sharedHistory, ...prior], personalDraft);
+    if (safe && !containsPrivateMemoryEcho(personalDraft, privateMemory)) {
+      out.push({ senderId: selection.senderId, content: personalDraft });
+      continue;
+    }
+    const publicDraft = await generateActorReply(params, member, model, [...sharedHistory, ...prior], false);
+    out.push({ senderId: selection.senderId, content: publicDraft || selection.content });
+  }
+  return out;
+}
+
+function actorUserContent(params: GroupTurnParams, model: LLMModel): unknown {
+  const selectedName = params.members.find((member) => params.atMembers?.includes(member.name))?.name;
+  const instruction = params.mode === 'proactive'
+    ? '群里安静了一会儿。按你的性格决定是否自然开口；只写你自己的这一条消息。'
+    : params.mode === 'banter'
+      ? '用户不在。像群友一样自然接续群内聊天，只写你自己的这一条消息。'
+      : `用户刚刚说：${params.userMessage ?? ''}${selectedName ? `\n用户特别 @ 了你（${selectedName}），优先回应用户当前这句话。` : ''}\n只写你自己的回应，不替别人发言。`;
+  if (!params.image) return instruction;
+  if (model.vision) return [
+    { type: 'text', text: instruction + '\n用户还发来了一张图片，请只描述你能确认的内容。' },
+    { type: 'image_url', image_url: { url: params.image } },
+  ];
+  return instruction + '\n（用户发来图片；当前模型无法读取图像内容。）';
+}
+
+function mergeHistory(history: GroupTurnParams['history']): { role: string; content: string }[] {
+  const merged: { role: string; content: string }[] = [];
+  for (const item of history.slice(-16)) {
+    const content = item.senderName ? `${item.senderName}：${item.content}` : item.content;
+    const previous = merged[merged.length - 1];
+    if (previous?.role === item.role) previous.content += `\n${content}`;
+    else merged.push({ role: item.role, content });
+  }
+  return merged;
+}
+
+async function callMemberText(params: {
+  apiKey: string;
+  model: LLMModel;
+  system: string;
+  history: GroupTurnParams['history'];
+  userContent: unknown;
+}): Promise<string> {
+  const key = params.model.provider === 'deepseek' ? params.apiKey : await getProviderKey(params.model.provider);
+  if (!key) return '';
+  try {
+    const result = await llmChat({
+      provider: params.model.provider,
+      model: params.model.id,
+      apiKey: key,
+      messages: [
+        { role: 'system', content: params.system },
+        ...mergeHistory(params.history),
+        { role: 'user', content: params.userContent },
+      ],
+      temperature: 0.88,
+      disableThinking: true,
+      maxTokens: 420,
+      timeoutMs: 90_000,
+    });
+    return stripRoleplayActions(result.content).replace(/[\r\n]+/g, ' ').trim().slice(0, 500);
+  } catch (error) {
+    console.warn('[group-chat] actor generation failed:', (error as Error)?.message ?? error);
+    return '';
+  }
+}
+
+async function generateActorReply(
+  params: GroupTurnParams,
+  member: GroupMemberBrief,
+  model: LLMModel,
+  history: GroupTurnParams['history'],
+  includePrivate: boolean,
+): Promise<string> {
+  const shared = member.memory ? `\n\n【群成员共同知道的经历】\n${member.memory}` : '';
+  const roster = params.members.map((item) => item.name).join('、');
+  const personal = includePrivate && member.privateMemory
+    ? `\n\n【只属于你自己的记忆，仅供你调整语气与关系距离】\n${member.privateMemory}\n不得在群里复述、转述、暗示或透露这些具体事实。用户在当前群消息中亲自提到的内容除外，但不得补充记忆中的隐藏细节。`
+    : '';
+  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【完整角色设定（只有你自己的）】\n${member.persona}${shared}${personal}\n\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
+  return callMemberText({ apiKey: params.apiKey, model, system, history, userContent: actorUserContent(params, model) });
+}
+
+async function reviewActorDisclosure(
+  params: GroupTurnParams,
+  member: GroupMemberBrief,
+  model: LLMModel,
+  history: GroupTurnParams['history'],
+  draft: string,
+): Promise<boolean> {
+  const privateFacts = member.privateMemory?.trim();
+  if (!privateFacts) return true;
+  const system = `你是群聊隐私审查器。只检查草稿是否泄露、复述、影射或借用“仅角色本人知道”的具体经历、私聊内容、日记、待办或个人生活细节。角色性格、一般偏好不算泄露。群内历史和共同记忆是公开依据。只输出 JSON：{"safe":true} 或 {"safe":false}。无法确定时 safe=false。`;
+  const publicBasis = [
+    ...history.slice(-12).map((item) => `${item.senderName ?? (item.role === 'user' ? '用户' : '群聊')}：${item.content}`),
+    params.userMessage ? `用户本轮在群里说：${params.userMessage}` : '',
+    member.memory ? `群内共同记忆：${member.memory}` : '',
+  ].filter(Boolean).join('\n');
+  const result = await callMemberText({
+    apiKey: params.apiKey,
+    model,
+    system,
+    history: [],
+    userContent: `仅角色本人知道的资料：\n${privateFacts}\n\n群内公开依据：\n${publicBasis}\n\n待审草稿：\n${draft}\n\n判断是否泄露。`,
+  });
+  try {
+    const json = result.match(/\{[\s\S]*\}/)?.[0];
+    return json ? (JSON.parse(json) as { safe?: boolean }).safe === true : false;
+  } catch {
+    return false;
+  }
 }
 
 /** 用指定模型生成一次群聊回合；返回 turns 与具体错误信息（供上层显示定位）。
@@ -93,7 +246,7 @@ async function attemptTurn(
     const membersDesc = params.members
       .map((m) => {
         const mem = m.memory ? `\n　· 可以在当前群里提起的真实记忆：${m.memory}` : '';
-      return `${m.name}：${m.persona}${mem}`;
+      return `${m.name}：${m.publicPersona ?? m.persona.slice(0, 240)}${mem}`;
       })
       .join('\n');
     const rawHistory = params.history.slice(-16).map((h) => ({

@@ -53,11 +53,11 @@ powershell -ExecutionPolicy Bypass -File scripts\verify\run-all.ps1
 | Phase 3b 舞台后果进入私聊上下文（闭环） | `phase3b.html` | 35 |
 | Phase 3c 幕次与选择分支 | `phase3c.html` | 44 |
 | **Living World A 意图理解与自由度**（§12–§16 / §95 / §96） | `worldA.html` | 59 |
-| **Living World B 多智能体与知识隔离**（§18–§27 / §40 / §97 / §98） | `worldB.html` | 34 |
+| **Living World B 多智能体与知识隔离**（§18–§27 / §40 / §97 / §98） | `worldB.html` | 44 |
 | **Living World C 结算 / 设定 / 时间线 / 关系 / 隐私 / 撤销**（§28–§46 / §100–§103） | `worldC.html` | 57 |
 | **Living World D 世界空间 UI**（§5–§12 / §37 / §66–§70 / §78） | `worldD.html` | 43 |
 | **Living World E 失败恢复 / 解析兼容 / 性能 / 迁移**（§51–§55 / §63 / §104 / §106 / §107） | `worldE.html` | 62 |
-| **合计** | | **898** |
+| **合计** | | **908** |
 
 > 计数口径说明：更早的 2b-0 报告里写的"38 项"与本 README 曾经的"32/44 项"是当时的粗略标签，
 > 与脚本实际打印的行数不一致；此处以**实际打印行数**为准（2b-2 报告 §8 已披露这次更正）。
@@ -70,10 +70,10 @@ These suites use real IndexedDB and verify scoped recall, listener isolation, re
 
 | Suite | Coverage | Assertions |
 |---|---|---:|
-| `character-memory.html` | private/group chat, Moments, diary, todos, world recall, durable extraction, source revision/revocation, undo, account boundaries, stale backups | 98 |
+| `character-memory.html` | private/group chat, per-actor group generation and disclosure boundaries, Moments, diary participant privacy, todos, world recall, durable extraction, source revision/revocation, claim-source edge granularity, undo, account boundaries, stale backups, spoken-only cooldown, multi-source survival, pinned summary cleanup across private chat and world, private-life recall in one-character world, memory-driven summary invalidation, session deletion cleanup, safe correction matching, per-character world memory and privacy boundary | 137 |
 | `worldG.html` | world state and undo regression | 13 |
 | `moments.html` | Moments visibility and interaction | 39 |
-| `moments-autonomous.html` | autonomous posts/comments, isolation and retries | 13 |
+| `moments-autonomous.html` | autonomous posts/comments, per-character memory context, public disclosure review, isolation and retries | 14 |
 
 ### Living World A–E：公共装置
 

@@ -5,6 +5,8 @@ import { sessionRepo } from '../db/session-repo';
 import { messageRepo } from '../db/message-repo';
 import { characterRepo } from '../db/character-repo';
 import { memoryRepo } from '../db/memory-repo';
+import { todoRepo } from '../db/todo-repo';
+import { worldRepo } from '../db/world-repo';
 import { recallCharacterMemory } from '../lib/character-memory';
 import { useAuthStore } from './auth-store';
 import { useNotificationStore } from './notification-store';
@@ -115,19 +117,40 @@ function groupPromptTrace(briefs: GroupMemberBrief[], session: Session | undefin
 
 /** 构建群聊上下文：成员人设（含经当前全体成员见证的跨场景记忆） */
 async function buildBriefs(group: Group, userId: string, query = ''): Promise<GroupMemberBrief[]> {
+  const world = await worldRepo.ensureDefaultWorld(userId).catch(() => null);
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
     (c): c is NonNullable<typeof c> => !!c,
   );
   return Promise.all(
     members.map(async (c) => {
-      const recalled = await recallCharacterMemory({ userId, characterId: c.id, query, audience: group.characterIds, sources: ['world', 'moment', 'todo'], budget: 1800 });
-      const memText = recalled.text;
+      const [shared, personal, personalTodos] = await Promise.all([
+        // The director may see only memories that every current group member is
+        // allowed to know. These are the only memories included in its prompt.
+        recallCharacterMemory({ userId, characterId: c.id, query, audience: group.characterIds, sources: ['world', 'moment', 'todo'], budget: 1800 }),
+        // Each speaker gets a separate, actor-scoped context later. Never place
+        // this text in the shared director prompt.
+        recallCharacterMemory({
+          userId, characterId: c.id, query, audience: [c.id],
+          ...(world ? { worldId: world.id } : {}),
+          sources: ['chat', 'group', 'world', 'moment', 'todo', 'diary'],
+          includePrivateCharacterLifeEvents: true,
+          budget: 1800,
+        }),
+        todoRepo.visibleOccurrencesForCharacter(userId, c.id, 4, true).catch(() => []),
+      ]);
+      const personalTodoText = personalTodos.length
+        ? `\n\n【只分享给你的未完成事项，供你自己记得】\n${personalTodos.map(({ todo, occurrence }) => `- ${todo.title}${occurrence.dueDate !== '9999-12-31' ? `（${occurrence.dueDate}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note.slice(0, 80)}` : ''}`).join('\n')}`
+        : '';
       return {
         id: c.id,
         name: c.name,
-        persona: c.signature || c.systemPrompt.slice(0, 60),
-        memory: memText || undefined,
-        memoryReferences: recalled.references.map(({ source, id }) => ({ source, id })),
+        // Keep enough of the authored persona for stable voice and boundaries.
+        // The old 60-character fallback silently discarded almost all of it.
+        persona: (c.systemPrompt || c.signature || '').slice(0, 6000),
+        publicPersona: [c.signature, ...(c.tags ?? []).slice(0, 5)].filter(Boolean).join('；').slice(0, 220),
+        memory: shared.text || undefined,
+        memoryReferences: shared.references.map(({ source, id }) => ({ source, id })),
+        privateMemory: `${personal.text}${personalTodoText}`.trim() || undefined,
       };
     }),
   );

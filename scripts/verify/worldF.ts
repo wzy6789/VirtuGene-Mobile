@@ -166,6 +166,8 @@ async function run() {
         intent: talkIntent,
         director: JSON.stringify({ narration: '夜色沉下来。', speakers: [{ character: '古月娜', intent: '回应', mode: 'dialogue' }], sequential: false, worldChanges: [], shouldSettle: false }),
         actor: JSON.stringify({ dialogue: '失败轮的对白。' }),
+        // 前一场戏留下了只对古月娜可说的记忆；多人场景先走隐私边界检查。
+        guard: JSON.stringify({ ok: true, issues: [], rewrites: [] }),
       }),
     });
     (worldSceneRepo as unknown as { patchSceneState: unknown }).patchSceneState = originalPatch;
@@ -181,6 +183,7 @@ async function run() {
       call: routerStub({
         director: JSON.stringify({ narration: '这一次世界回应了。', speakers: [{ character: '古月娜', intent: '回应', mode: 'dialogue' }], sequential: false, worldChanges: [], shouldSettle: false }),
         actor: JSON.stringify({ dialogue: '我在。' }),
+        guard: JSON.stringify({ ok: true, issues: [], rewrites: [] }),
       }),
     });
     const afterRetry = await worldSceneRepo.listRecentEntries(sceneC.id, 400);

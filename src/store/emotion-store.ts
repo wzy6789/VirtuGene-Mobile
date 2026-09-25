@@ -202,7 +202,9 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
     try {
       if (result.memories && result.memories.length > 0) {
         const existing = await memoryRepo.getByCharacter(characterId, userId);
-        const existingContents = new Set(existing.map((m) => m.content.trim()));
+        const existingContents = new Set(existing
+          .filter((memory) => (memory.status ?? 'active') === 'active')
+          .map((memory) => memory.content.trim()));
         const fresh = result.memories
           .map((m) => ({ content: m.content.trim(), evidence: m.evidence ?? [] }))
           .filter((m) => m.content.length > 0 && !existingContents.has(m.content))

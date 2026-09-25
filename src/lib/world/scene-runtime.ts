@@ -36,6 +36,7 @@ import { validateSettlement } from './scene-consequences';
 import { actMarkerContent, shouldAdvanceAct } from './scene-acts';
 import { buildHiddenUserProfile } from './user-profile';
 import { recallCharacterMemory } from '../character-memory';
+import { memoryRepo } from '../../db/memory-repo';
 
 /** 一次场景推演的结果（供 UI 与验收断言） */
 export interface SceneTurnResult {
@@ -58,14 +59,17 @@ async function buildMembers(scene: WorldScene, userId: string, query = ''): Prom
     const participant = scene.state.participants.find((p) => p.characterId === characterId);
     const carryMemory = (participant?.entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory') !== 'present';
     // 角色**只能知道**自己参与过的事件：用认知边界过滤（§62）
-    const recalled = carryMemory ? await recallCharacterMemory({ userId, characterId, query, audience: scene.characterIds, worldId: scene.worldId, excludeSceneId: scene.id }) : { text: '' };
+    const recalled = carryMemory ? await recallCharacterMemory({
+      userId, characterId, query, audience: scene.characterIds,
+      worldId: scene.worldId, excludeSceneId: scene.id,
+      includePrivateCharacterLifeEvents: scene.characterIds.length === 1,
+    }) : { text: '' };
     // Scene Director sees every member in one request. Per-character history, goals and secrets
     // cannot be isolated inside that shared prompt, so only inject them in a single-actor scene.
     const privateContextIsIsolated = scene.characterIds.length === 1;
     const userMemories = carryMemory && privateContextIsIsolated
-      ? await db.memories.where('characterId').equals(characterId).toArray()
+      ? await memoryRepo.getByCharacter(characterId, userId)
         .then((rows) => rows
-          .filter((row) => row.userId === userId)
           .filter((row) => (row.status ?? 'active') === 'active')
           .sort((a, b) => b.createdAt - a.createdAt)
           .slice(0, 18))

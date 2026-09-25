@@ -11,7 +11,7 @@
  * 排序 = 命中词数 → 重要度 → 新鲜度。宁可少召回，也不把整个数据库塞进 Prompt。
  */
 import type { SharedMemory, WorldEvent } from '../../db/index';
-import { worldEventRepo } from '../../db/world-event-repo';
+import { isMentionableDiaryEvent, worldEventRepo } from '../../db/world-event-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { isVisibleToCharacter } from './visibility';
 import { knowledgeRepo } from '../../db/knowledge-repo';
@@ -102,10 +102,17 @@ export async function findRelevantHistory(params: {
       .filter((row) => row.canMention && row.knowledgeLevel === 'full')
       .map((row) => row.eventId)));
   }));
-  const audienceCanMentionEvent = (event: WorldEvent) => characterIds.every((characterId) =>
-    isVisibleToCharacter(event, characterId)
-    && (event.visibility === 'world' || mentionableByCharacter.get(characterId)?.has(event.id) === true),
-  );
+  const audienceCanMentionEvent = async (event: WorldEvent) => {
+    for (const characterId of characterIds) {
+      if (!isVisibleToCharacter(event, characterId)) return false;
+      if (event.sourceType === 'diary') {
+        if (!(await isMentionableDiaryEvent(event, characterId, params.userId))) return false;
+      } else if (event.visibility !== 'world' && !mentionableByCharacter.get(characterId)?.has(event.id)) {
+        return false;
+      }
+    }
+    return true;
+  };
   const allowedMemoryIdsByCharacter = new Map<string, Set<string>>();
   for (const characterId of characterIds) {
     const ids = new Set<string>();
@@ -121,7 +128,6 @@ export async function findRelevantHistory(params: {
   const push = (row: WorldEvent | SharedMemory, kind: HistoryHit['kind']) => {
     if (params.characterId && !isVisibleToCharacter(row, params.characterId)) return;
     if (params.audienceCharacterIds?.some((id) => !isVisibleToCharacter(row, id))) return;
-    if (kind === 'event' && characterIds.length > 0 && !audienceCanMentionEvent(row as WorldEvent)) return;
     if (kind === 'memory' && characterIds.some((id) => !isVisibleToCharacter(row, id)
       || (row.visibility !== 'world' && !allowedMemoryIdsByCharacter.get(id)?.has(row.id)))) return;
     const text = kind === 'event'
@@ -133,7 +139,13 @@ export async function findRelevantHistory(params: {
     hits.push({ date: formatDate(ts), timestamp: ts, text, kind, id: row.id, score });
   };
 
-  for (const event of events) push(event, 'event');
+  for (const event of events) {
+    // This API is also used by character recall; without an identified
+    // audience there is no safe way to authorize a personal diary event.
+    if (event.sourceType === 'diary' && characterIds.length === 0) continue;
+    if (characterIds.length > 0 && !(await audienceCanMentionEvent(event))) continue;
+    push(event, 'event');
+  }
   for (const memory of memories) push(memory, 'memory');
 
   return hits

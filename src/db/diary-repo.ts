@@ -56,7 +56,7 @@ export const diaryRepo = {
    * 5.0 隐私查询：某个角色**被允许知道**的日记。
    * - private（默认）永远不返回
    * - selected 只在 visibleTo 命中时返回
-   * - world 才表示世界内角色可见（需用户显式选择）
+   * - world 日记只对关联的共同经历角色开放；不会自动广播给所有角色
    * 闸门实现统一在 `lib/world/visibility.ts`（与共同记忆/世界事件同一份实现）。
    */
   async listVisibleFor(characterId: string, userId: string, limit = 20): Promise<Diary[]> {
@@ -64,6 +64,10 @@ export const diaryRepo = {
     return all
       .filter((d) => !d.deletedAt)
       .filter((d) => isVisibleToCharacter(d, characterId))
+      // `world` on a diary means the character explicitly attached to that
+      // life entry participated in the shared world. Other characters must
+      // receive an explicit selected grant instead.
+      .filter((d) => d.visibility !== 'world' || d.characterId === characterId)
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, limit);
   },

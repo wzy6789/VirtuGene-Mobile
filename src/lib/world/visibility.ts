@@ -4,7 +4,7 @@
  * 三态语义（§24 / `WorldVisibility`）：
  * - `private`  只有用户自己 —— **永远不返回给任何角色**
  * - `selected` 只有 `visibleTo` 里的角色
- * - `world`    世界内角色都可以知道
+ * - `world`    世界公开内容可见；日记还必须属于该角色的共同经历
  *
  * 为什么必须收敛成一个函数（2b-2 审核指出的缺陷）：
  * 之前 `sharedMemories` / `worldEvents` / `diaries` 各自内联了一份可见性判断，
@@ -22,12 +22,24 @@
 export interface VisibilitySubject {
   visibility?: 'private' | 'selected' | 'world';
   visibleTo?: string[];
+  /** 日记关联的共同经历角色；world 日记只对这位参与者开放。 */
+  characterId?: string;
+  /** Diary marker fields let this generic gate fail closed even when characterId is absent. */
+  date?: string;
+  content?: string;
+  title?: string;
 }
 
 /** 这个角色是否**被允许知道**这条内容（没标注可见性 ⇒ 按最保守的 private 处理） */
 export function isVisibleToCharacter(subject: VisibilitySubject, characterId: string): boolean {
   if (!characterId) return false;
-  if (subject.visibility === 'world') return true;
+  if (subject.visibility === 'world') {
+    // A diary is a real-life record, not a blanket announcement to every
+    // character that happens to share the user's local world container.
+    const diary = typeof subject.date === 'string' && typeof subject.content === 'string' && typeof subject.title === 'string';
+    if (diary) return subject.characterId === characterId;
+    return true;
+  }
   if (subject.visibility === 'selected') return (subject.visibleTo ?? []).includes(characterId);
   return false;
 }

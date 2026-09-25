@@ -163,12 +163,12 @@ export const todoRepo = {
     await Promise.all(reminders.filter((item) => item.notificationId > 0).map((item) => cancelTodoNotification(item.notificationId)));
     await db.todoReminders.where('todoId').equals(id).filter((item) => item.userId === userId).modify({ status: 'cancelled', updatedAt: Date.now() });
   },
-  async visibleForCharacter(userId: string, characterId: string, limit = 5): Promise<Todo[]> {
-    return (await this.visibleOccurrencesForCharacter(userId, characterId, limit)).map(({ todo }) => todo);
+  async visibleForCharacter(userId: string, characterId: string, limit = 5, includeUnplanned = false): Promise<Todo[]> {
+    return (await this.visibleOccurrencesForCharacter(userId, characterId, limit, includeUnplanned)).map(({ todo }) => todo);
   },
-  async visibleOccurrencesForCharacter(userId: string, characterId: string, limit = 5): Promise<TodoWithOccurrence[]> {
+  async visibleOccurrencesForCharacter(userId: string, characterId: string, limit = 5, includeUnplanned = false): Promise<TodoWithOccurrence[]> {
     const today = localDateKey();
-    const rows = await this.list(userId, today, addLocalDays(today, 30), true);
+    const rows = await this.list(userId, today, addLocalDays(today, 30), includeUnplanned);
     const seen = new Set<string>();
     return rows.filter(({ todo, occurrence }) => {
       if (todo.visibility !== 'selected' || !todo.visibleTo?.includes(characterId) || occurrence.status !== 'todo' || seen.has(todo.id)) return false;

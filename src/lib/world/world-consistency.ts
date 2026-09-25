@@ -18,7 +18,7 @@
  */
 import { safeParseObject } from '../ai/safe-json';
 import { worldChat, type WorldLlmCaller } from './world-ai-client';
-import { renderGuardContext, type WorldContext } from './world-context';
+import { hasPrivateActorContext, renderCharacterContext, renderGuardContext, type WorldContext } from './world-context';
 import type { ActorBeat } from './world-actor';
 import type { TurnPlan } from './world-director';
 import type { WorldAction } from './world-actions';
@@ -26,10 +26,11 @@ import type { WorldAction } from './world-actions';
 export const GUARD_INSTRUCTION = `你是一致性守护者。检查下面这些角色的回应有没有严重问题。
 
 只输出 JSON：
-{"ok":true,"issues":["问题（一句话）"],"rewrites":[{"character":"角色名","dialogue":"改写后的话","action":"改写后的动作","drop":false}]}
+{"ok":true,"issues":["问题（一句话）"],"rewrites":[{"beat":1,"character":"角色名或 id","dialogue":"改写后的话","action":"改写后的动作","drop":false}]}
 
 要检查的问题（**只有严重到必须修的才报**）：
 - 泄露了 TA 不该知道的秘密或别人的私事
+- 多人场景中，角色未经用户明确要求就把自己私聊、个人记忆、日记或待办告诉了其他在场者
 - 严重 OOC（完全不像这个人）
 - 违背已经确定的世界规则
 - 原样复述用户的话
@@ -48,7 +49,7 @@ export const GUARD_INSTRUCTION = `你是一致性守护者。检查下面这些�
 export interface GuardResult {
   ok: boolean;
   issues: string[];
-  rewrites: { characterId: string; dialogue?: string; action?: string; drop?: boolean }[];
+  rewrites: { characterId: string; /** zero-based index into the reviewed beat batch */ beatIndex?: number; dialogue?: string; action?: string; drop?: boolean }[];
   llmCalls: number;
   error?: string;
   /** 是否真的跑了这次守护（false = 这一轮不满足守护条件，0 次调用） */
@@ -60,17 +61,29 @@ export function shouldGuard(params: { plan: TurnPlan; action: WorldAction; beats
   const { plan, action, beats, ctx } = params;
   if (beats.length === 0) return false;
   if (ctx.secrets.length > 0) return true;
+  if (requiresPrivateDisclosureReview(ctx, beats)) return true;
   if (plan.shouldSettle) return true;
   return ['world_rule', 'character_fact', 'retcon', 'time_skip'].includes(action.intent);
+}
+
+/** A speaker may read their own private context, but that context is not public knowledge. */
+export function requiresPrivateDisclosureReview(ctx: WorldContext, beats: ActorBeat[]): boolean {
+  if (ctx.presence.length < 2) return false;
+  return beats.some((beat) => {
+    if (beat.via === 'none' || (!beat.dialogue && !beat.action)) return false;
+    return hasPrivateActorContext(ctx, beat.characterId);
+  });
 }
 
 /** 把守护结果应用到实际内容上（**只修真正报出来的问题**） */
 export function applyGuard(beats: ActorBeat[], rewrites: GuardResult['rewrites']): ActorBeat[] {
   if (rewrites.length === 0) return beats;
-  const byId = new Map(rewrites.map((r) => [r.characterId, r]));
+  const byId = new Map(rewrites.filter((rewrite) => rewrite.beatIndex == null).map((rewrite) => [rewrite.characterId, rewrite]));
+  const byIndex = new Map(rewrites.filter((rewrite) => rewrite.beatIndex != null).map((rewrite) => [rewrite.beatIndex!, rewrite]));
   const out: ActorBeat[] = [];
-  for (const beat of beats) {
-    const fix = byId.get(beat.characterId);
+  for (let beatIndex = 0; beatIndex < beats.length; beatIndex += 1) {
+    const beat = beats[beatIndex];
+    const fix = byIndex.get(beatIndex) ?? byId.get(beat.characterId);
     if (!fix) {
       out.push(beat);
       continue;
@@ -90,18 +103,63 @@ export interface GuardParams {
   plan: TurnPlan;
   action: WorldAction;
   beats: ActorBeat[];
+  /** Run even if this turn would otherwise skip the optional consistency check. */
+  force?: boolean;
   call?: WorldLlmCaller;
 }
 
-/** 一次守护调用（条件性） */
+/**
+ * In a shared scene, review each speaker separately whenever any speaker has
+ * actor-only memory. A single reviewer must never receive several characters'
+ * private contexts and then be allowed to rewrite all of their lines.
+ */
 export async function guardWorldBeat(params: GuardParams): Promise<GuardResult> {
+  const { ctx, beats } = params;
+  const empty: GuardResult = { ok: true, issues: [], rewrites: [], llmCalls: 0, ran: false };
+  if (!params.force && !shouldGuard(params)) return empty;
+  const activeIndices = beats.flatMap((beat, index) => beat.via !== 'none' && (beat.dialogue || beat.action) ? [index] : []);
+
+  if (requiresPrivateDisclosureReview(ctx, beats) && activeIndices.length > 1) {
+    const results: GuardResult[] = [];
+    const rewrites: GuardResult['rewrites'] = [];
+    let invalidRewrite = false;
+    for (let index = 0; index < beats.length; index += 1) {
+      const beat = beats[index];
+      if (beat.via === 'none' || (!beat.dialogue && !beat.action)) continue;
+      const result = await guardWorldBeatOnce(
+        { ...params, beats: [beat] },
+        hasPrivateActorContext(ctx, beat.characterId) ? beat.characterId : undefined,
+      );
+      results.push(result);
+      for (const rewrite of result.rewrites) {
+        if (rewrite.characterId !== beat.characterId) { invalidRewrite = true; continue; }
+        rewrites.push({ ...rewrite, beatIndex: index });
+      }
+    }
+    return {
+      ok: results.every((result) => result.ok) && !invalidRewrite,
+      issues: results.flatMap((result) => result.issues),
+      rewrites,
+      llmCalls: results.reduce((total, result) => total + result.llmCalls, 0),
+      ran: true,
+      ...(invalidRewrite || results.some((result) => result.error)
+        ? { error: invalidRewrite ? '守护改写了其他角色' : results.find((result) => result.error)!.error }
+        : {}),
+    };
+  }
+
+  return guardWorldBeatOnce(params, requiresPrivateDisclosureReview(ctx, beats) && activeIndices.length === 1
+    ? beats[activeIndices[0]].characterId : undefined);
+}
+
+/** One model call: it receives either public context or exactly one actor's private context. */
+async function guardWorldBeatOnce(params: GuardParams, privateActorCharacterId?: string): Promise<GuardResult> {
   const { ctx, plan, action, beats } = params;
   const empty: GuardResult = { ok: true, issues: [], rewrites: [], llmCalls: 0, ran: false };
-  if (!shouldGuard(params)) return empty;
 
-  const render = beats.map((b) => {
+  const render = beats.map((b, index) => {
     const parts = [b.dialogue ? `说：${b.dialogue}` : '', b.action ? `动作：${b.action}` : ''].filter(Boolean).join('；');
-    return `${ctx.nameOf(b.characterId)} —— ${parts || '（什么都没有）'}`;
+    return `第 ${index + 1} 条 [${ctx.nameOf(b.characterId)} / ${b.characterId}] —— ${parts || '（什么都没有）'}`;
   }).join('\n');
 
   const body = [
@@ -113,10 +171,20 @@ export async function guardWorldBeat(params: GuardParams): Promise<GuardResult> 
     `\n要检查的回应：\n${render}`,
   ].filter(Boolean).join('\n');
 
+  const privateActorContext = privateActorCharacterId
+    ? `【${ctx.nameOf(privateActorCharacterId)}仅自己知道的资料；只用于检查这位角色的发言是否泄露】\n${renderCharacterContext(ctx, privateActorCharacterId).slice(0, 9000)}`
+    : '';
+  const guardSystem = [
+    GUARD_INSTRUCTION,
+    renderGuardContext(ctx),
+    privateActorContext,
+    '私有资料只属于对应角色。除非用户本轮明确要求该角色向在场者分享某件具体内容，否则该角色不能在公开台词中泄露私聊、日记、待办或个人经历。若发现泄露，改写成不泄露的自然回应；没有可安全保留的回应时 drop=true。守护失败时调用方会阻止这批台词上屏。',
+  ].filter(Boolean).join('\n\n');
+
   try {
     const res = await worldChat({
       messages: [
-        { role: 'system', content: `${GUARD_INSTRUCTION}\n\n${renderGuardContext(ctx)}` },
+        { role: 'system', content: guardSystem },
         { role: 'user', content: body },
       ],
       temperature: 0.1,
@@ -140,10 +208,18 @@ export async function guardWorldBeat(params: GuardParams): Promise<GuardResult> 
       const rawName = typeof row.character === 'string' ? row.character.trim() : '';
       const characterId = byId.has(rawName) ? rawName : byName.get(rawName);
       if (!characterId) continue;
+      const requestedBeat = typeof row.beat === 'number' && Number.isInteger(row.beat) ? row.beat - 1 : undefined;
+      const beatIndex = requestedBeat != null
+        && requestedBeat >= 0
+        && requestedBeat < beats.length
+        && beats[requestedBeat].characterId === characterId
+        ? requestedBeat
+        : undefined;
       const dialogue = typeof row.dialogue === 'string' ? row.dialogue.trim().slice(0, 1200) : undefined;
       const actionText = typeof row.action === 'string' ? row.action.trim().slice(0, 600) : undefined;
       rewrites.push({
         characterId,
+        ...(beatIndex != null ? { beatIndex } : {}),
         ...(dialogue ? { dialogue } : {}),
         ...(actionText ? { action: actionText } : {}),
         ...(row.drop === true ? { drop: true } : {}),

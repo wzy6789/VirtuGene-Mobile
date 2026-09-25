@@ -17,10 +17,10 @@ import { worldEventRepo } from '../../src/db/world-event-repo';
 import { knowledgeRepo } from '../../src/db/knowledge-repo';
 import { ensureCanvasScene, loadCanvas } from '../../src/lib/world/world-canvas';
 import { runWorldTurn } from '../../src/lib/world/world-turn';
-import { buildWorldContext, renderCharacterContext, renderWorldLayer } from '../../src/lib/world/world-context';
+import { buildWorldContext, renderCharacterContext, renderWorldBrief, renderWorldLayer } from '../../src/lib/world/world-context';
 import { fallbackPlan, parseDirectorOutput, requiredSpeakers, type TurnSpeaker } from '../../src/lib/world/world-director';
 import { buildActorSystem, parseActorOutput } from '../../src/lib/world/world-actor';
-import { applyGuard, shouldGuard } from '../../src/lib/world/world-consistency';
+import { applyGuard, requiresPrivateDisclosureReview, shouldGuard } from '../../src/lib/world/world-consistency';
 import { normalizeWorldAction } from '../../src/lib/world/world-actions';
 import { characterRef, userRef } from '../../src/lib/world/subjects';
 import { fakeCharacter, installFakeLlm, createReporter, seedWorld } from './world-harness';
@@ -112,7 +112,7 @@ async function run() {
   }
 
   /* ================= R. 知识隔离（§20 / §97） ================= */
-  section('R. 知识隔离：A 知道的，B 的提示词里根本没有');
+  section('R. 角色记忆归属：A 自己记得，B 与导演不继承');
   const memoryTitle = '那个只有古月娜知道的秘密';
   {
     // 一条只对 C1 可见的共同记忆（走的是与生产完全相同的三张表）
@@ -131,15 +131,52 @@ async function run() {
     const iso = await buildWorldContext({ userId: U, worldId, scene: (await worldSceneRepo.getScene(scene.id))!, characters });
     const c1ctx = renderCharacterContext(iso, C1);
     const c2ctx = renderCharacterContext(iso, C2);
-    check('① 多人场景里古月娜的旧私密记忆不进入可说出的上下文', !c1ctx.includes(memoryTitle), c1ctx.slice(0, 200));
-    check('② 星遥的私有上下文里**完全没有**这件事（结构隔离，不是"嘱咐别说"）',
+    check('① 多人场景里古月娜仍能读取自己拥有的私密记忆', c1ctx.includes(memoryTitle) && c1ctx.includes('雨里的那句话'), c1ctx.slice(0, 260));
+    check('② 星遥的私有上下文里**完全没有**古月娜的记忆（按角色隔离）',
       !c2ctx.includes(memoryTitle) && !c2ctx.includes('雨里'), c2ctx.slice(0, 200));
     check('③ 世界层（含全部世界设定）也不含这条私有记忆的正文泄漏',
       !renderWorldLayer(iso).includes('只有古月娜知道'), renderWorldLayer(iso).slice(0, 160));
-    check('④ 秘密会被列入"守护者可见"清单（用于一致性检查）',
+    check('④ 公共导演上下文不接收角色私有记忆', !renderWorldBrief(iso).includes(memoryTitle));
+    const actorA = buildActorSystem({ ctx: iso, speaker: { characterId: C1, intent: '自然回应', mode: 'both' }, userText: '你想起什么了吗' });
+    const actorB = buildActorSystem({ ctx: iso, speaker: { characterId: C2, intent: '自然回应', mode: 'both' }, userText: '你想起什么了吗' });
+    check('⑤ A 的实际 Actor 提示词有自己的记忆，并带有不向他人自动透露的边界',
+      actorA.includes(memoryTitle) && actorA.includes('不要主动向其他在场者透露'),
+      { hasOwnMemory: actorA.includes(memoryTitle), hasBoundary: actorA.includes('不要主动向其他在场者透露') });
+    check('⑥ B 的实际 Actor 提示词没有 A 的记忆', !actorB.includes(memoryTitle) && !actorB.includes('雨里的那句话'));
+    check('⑦ 有角色私有记忆时，公开台词必须先过边界检查', requiresPrivateDisclosureReview(iso, [{ characterId: C1, dialogue: '测试', via: 'json' }]) && shouldGuard({ plan: { speakers: [], sequential: false, worldChanges: [], shouldSettle: false, suggestions: [], via: 'json', llmCalls: 0 }, action: { intent:'freeform', raw:'继续', by:'fallback', requiresCharacterResponse:true, requiresNarration:false }, beats: [{ characterId:C1, dialogue:'测试', via:'json' }], ctx:iso } as any));
+    check('⑧ 秘密会被列入"守护者可见"清单（用于一致性检查）',
       iso.secrets.some((s) => s.title === memoryTitle), iso.secrets);
     const oneToOne = await buildWorldContext({ userId: U, worldId, scene: (await worldSceneRepo.getScene(scene.id))!, characters, presence:[C1] });
-    check('⑤ 单人场景仍能唤起古月娜自己知道的旧事', renderCharacterContext(oneToOne,C1).includes(memoryTitle));
+    check('⑨ 单人场景仍能唤起古月娜自己知道的旧事', renderCharacterContext(oneToOne,C1).includes(memoryTitle));
+
+    const privateSessionId = 'worldB-private-chat-c1';
+    const privateQuote = '那天我把纸船藏在旧车站，只想把这个秘密告诉你。';
+    await db.sessions.put({ id: privateSessionId, userId: U, characterId: C1, type: 'single', title: '古月娜的私聊', createdAt: Date.now() - 10_000, updatedAt: Date.now() - 10_000, unreadCount: 0 } as any);
+    await db.messages.put({ id: 'worldB-private-message-c1', sessionId: privateSessionId, role: 'user', content: privateQuote, createdAt: Date.now() - 10_000, isProactive: false } as any);
+    const recallStart = llm.seen.length;
+    const recallCalls = llm.calls();
+    llm.push(JSON.stringify({ intent: 'talk', addressedCharacters: ['古月娜'] }));
+    llm.push(JSON.stringify({
+      narration: '旧车站的风从半开的门缝里吹进来。',
+      speakers: [{ character: '古月娜', intent: '回应用户提起的旧事', mode: 'dialogue' }, { character: '星遥', intent: '自然地接住谈话', mode: 'dialogue' }],
+      sequential: true, worldChanges: [], shouldSettle: false,
+    }));
+    llm.push(JSON.stringify({ dialogue: '我记得。你把它藏得很认真。' }));
+    llm.push(JSON.stringify({ dialogue: '你们说的纸船，是那种折起来的？' }));
+    llm.push(JSON.stringify({ ok: true, issues: [], rewrites: [] }));
+    llm.push(JSON.stringify({ ok: true, issues: [], rewrites: [] }));
+    await runWorldTurn({ userId: U, worldId, sceneId: scene.id, text: '古月娜，你还记得旧车站的纸船吗？', characters, call: llm.stub });
+    const recallDirectorPrompt = JSON.stringify(llm.seen[recallStart + 1]);
+    const recallActorA = JSON.stringify(llm.seen[recallStart + 2]);
+    const recallActorB = JSON.stringify(llm.seen[recallStart + 3]);
+    const recallGuardA = JSON.stringify(llm.seen[recallStart + 4]);
+    const recallGuardB = JSON.stringify(llm.seen[recallStart + 5]);
+    check('⑩ 明确回忆私聊时，真实 Actor A 能召回自己的私聊原文', recallActorA.includes(privateQuote), recallActorA.includes(privateQuote));
+    check('⑪ 同一场景里的 B 与公共导演都拿不到 A 的私聊原文',
+      !recallActorB.includes(privateQuote) && !recallDirectorPrompt.includes(privateQuote),
+      { actorB: recallActorB.includes(privateQuote), director: recallDirectorPrompt.includes(privateQuote) });
+    check('⑫ 两位角色的公开对白分别经过边界检查', llm.calls() - recallCalls === 6, llm.calls() - recallCalls);
+    check('⑬ 每次守护请求只看到正在审查的角色自己的私聊', recallGuardA.includes(privateQuote) && !recallGuardB.includes(privateQuote));
   }
 
   /* ================= S. 多角色互动（§24 / §25 / §40 / §98） ================= */
@@ -159,15 +196,15 @@ async function run() {
     llm.push(JSON.stringify({ dialogue: '没有。', action: '她看向窗外。' }));
     llm.push(JSON.stringify({ dialogue: '你骗不了我。' }));   // 自动第 1 拍
     llm.push(JSON.stringify({ dialogue: '……好吧。' }));       // 自动第 2 拍
-    // 这个世界里有秘密（R 段造的）⇒ 每轮多一次一致性守护，这是设计如此（§27）
-    llm.push(JSON.stringify({ ok: true, issues: [], rewrites: [] }));
+    // 四条公开发言分别审查，私有记忆不会在一份守护提示词中汇聚。
+    for (let index = 0; index < 4; index += 1) llm.push(JSON.stringify({ ok: true, issues: [], rewrites: [] }));
 
     const result = await runWorldTurn({
       userId: U, worldId, sceneId: scene.id, text: '你们两个自己聊聊，我听着。', characters, call: llm.stub,
     });
     const calls = llm.calls() - before;
-    check('① 「你们两个自己聊聊」⇒ 初次回应 2 人 + 自动续 2 拍 + 1 次守护 = 7 次（§40）',
-      calls === 7 && llm.pending() === 0, { calls, pending: llm.pending() });
+    check('① 「你们两个自己聊聊」⇒ 初次回应 2 人 + 自动续 2 拍 + 逐条守护 = 10 次（§40）',
+      calls === 10 && llm.pending() === 0, { calls, pending: llm.pending() });
     check('② 自动续拍的内容也进了世界流（用户逐条看到，不是一次性弹出）',
       result.entries.filter((e) => e.kind === 'dialogue').length === 4,
       result.entries.map((e) => `${e.kind}:${e.content}`));
@@ -181,9 +218,17 @@ async function run() {
       auto1Prompt.includes('没有。') || auto1Prompt.includes('你最近是不是有心事'), auto1Prompt.slice(0, 80));
     const actor1Prompt = JSON.stringify(llm.seen[seenStart + 2]);
     const auto2Prompt = JSON.stringify(llm.seen[seenStart + 5]);
-    check('⑤ 多人互动双方及后续自动拍都没有单方私密内容',
-      !actor1Prompt.includes(memoryTitle) && !actor2Prompt.includes(memoryTitle) && !auto2Prompt.includes(memoryTitle),
-      { knows: actor1Prompt.includes(memoryTitle), star1: actor2Prompt.includes(memoryTitle), star2: auto2Prompt.includes(memoryTitle) });
+    check('⑤ 私密记忆只进入所属角色自己的轮次，不进入另一角色的轮次',
+      actor1Prompt.includes(memoryTitle)
+        && !actor2Prompt.includes(memoryTitle)
+        && auto1Prompt.includes(memoryTitle)
+        && !auto2Prompt.includes(memoryTitle),
+      {
+        firstActorKnows: actor1Prompt.includes(memoryTitle),
+        secondActorKnows: actor2Prompt.includes(memoryTitle),
+        firstAutoSpeakerKnows: auto1Prompt.includes(memoryTitle),
+        secondAutoSpeakerKnows: auto2Prompt.includes(memoryTitle),
+      });
 
     // 中断：shouldInterrupt 为真时立刻停
     const beforeStop = llm.calls();
@@ -195,12 +240,13 @@ async function run() {
     llm.push(JSON.stringify({ dialogue: '他们开始了。' }));
     llm.push(JSON.stringify({ dialogue: '嗯。' }));
     llm.push(JSON.stringify({ ok: true, issues: [], rewrites: [] }));
+    llm.push(JSON.stringify({ ok: true, issues: [], rewrites: [] }));
     const stopped = await runWorldTurn({
       userId: U, worldId, sceneId: scene.id, text: '你们继续。', characters, call: llm.stub,
       shouldInterrupt: () => true,
     });
     check('⑥ 用户一输入就立刻中断自动互动：这一轮只有初次回应，没有续拍（§40）',
-      llm.calls() - beforeStop === 5 && stopped.entries.filter((e) => e.kind === 'dialogue').length === 2,
+      llm.calls() - beforeStop === 6 && stopped.entries.filter((e) => e.kind === 'dialogue').length === 2,
       { calls: llm.calls() - beforeStop, dialogues: stopped.entries.filter((e) => e.kind === 'dialogue').length });
   }
 
@@ -227,6 +273,13 @@ async function run() {
     check('⑤ 守护改写会被应用（按角色 id 精确对应）', applied[0].dialogue === '我什么都不知道。');
     const dropped = applyGuard(beats, [{ characterId: C1, drop: true }]);
     check('⑥ 守护可以整条丢弃（不可用时宁可不显示）', dropped.length === 0);
+    const repeatedSpeaker = applyGuard([
+      { characterId: C1, dialogue: '越界的那句', via: 'json' },
+      { characterId: C2, dialogue: '我听着。', via: 'json' },
+      { characterId: C1, dialogue: '你接着说。', via: 'json' },
+    ], [{ characterId: C1, beatIndex: 0, dialogue: '我记错了，没什么。' }]);
+    check('⑦ 同一角色说多次时，改写只落到指定发言，不覆盖安全的后续台词',
+      repeatedSpeaker.map((beat) => beat.dialogue).join('|') === '我记错了，没什么。|我听着。|你接着说。', repeatedSpeaker);
 
     // 真实一轮：守护把泄漏的那句改写掉，并且**改写落回数据库**
     const before = llm.calls();
@@ -236,17 +289,17 @@ async function run() {
       sequential: false, worldChanges: [], shouldSettle: false,
     }));
     llm.push(JSON.stringify({ dialogue: '那个雨里的秘密我知道了。' }));
-    llm.push(JSON.stringify({ ok: false, issues: ['泄露了不该知道的秘密'], rewrites: [{ character: '古月娜', dialogue: '……没什么。' }] }));
+    llm.push(JSON.stringify({ ok: false, issues: ['泄露了不该知道的秘密'], rewrites: [{ beat: 1, character: '古月娜', dialogue: '……没什么。' }] }));
     const guarded = await runWorldTurn({
       userId: U, worldId, sceneId: scene.id, text: '你还记得那件事吗？', characters, call: llm.stub,
     });
-    check('⑦ 有秘密在场 ⇒ 这一轮多跑了一次守护', llm.calls() - before === 4, llm.calls() - before);
+    check('⑧ 有秘密在场 ⇒ 这一轮多跑了一次守护', llm.calls() - before === 4, llm.calls() - before);
     const canvas = await loadCanvas(scene.id);
     const rewritten = canvas!.entries.find((e) => e.kind === 'dialogue' && e.content === '……没什么。');
-    check('⑧ 改写真的落回了数据库那一行（不是只改了返回值）', !!rewritten, canvas!.entries.slice(-4).map((e) => e.content));
+    check('⑨ 改写真的落回了数据库那一行（不是只改了返回值）', !!rewritten, canvas!.entries.slice(-4).map((e) => e.content));
     const leaked = canvas!.entries.find((e) => e.content.includes('那个雨里的秘密我知道了'));
-    check('⑨ 泄漏版本已经从世界流里消失', !leaked);
-    check('⑩ 返回值与落库一致', guarded.beats.some((b) => b.dialogue === '……没什么。'));
+    check('⑩ 泄漏版本已经从世界流里消失', !leaked);
+    check('⑪ 返回值与落库一致', guarded.beats.some((b) => b.dialogue === '……没什么。'));
   }
 
   /* ================= U. 纪律 ================= */

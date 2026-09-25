@@ -3,6 +3,7 @@ import { db, type Message } from './index';
 import { invalidateUnpinnedMemoriesForMessages } from './memory-repo';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import { memoryLedgerRepo } from './memory-ledger-repo';
+import { invalidateSessionSummarySources } from './session-summary-repo';
 
 /** 会话消息分页大小：进入会话时只加载最近 200 条，更早的消息按需加载 */
 export const MESSAGE_PAGE_SIZE = 200;
@@ -83,13 +84,13 @@ export const messageRepo = {
   },
 
   async deleteBySession(sessionId: string): Promise<void> {
-    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs], async () => {
+    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge], async () => {
       const session = await db.sessions.get(sessionId);
       const messages = await db.messages.where('sessionId').equals(sessionId).toArray();
       if (session) {
         const ids = messages.map((message) => message.id);
         await invalidateUnpinnedMemoriesForMessages(session.userId, ids);
-        await invalidateGroupSummarySources(sessionId, ids);
+        await invalidateSessionSummarySources(sessionId, ids);
         for (const message of messages) {
           await memorySourceTombstoneRepo.record({ userId: session.userId, sourceType: 'message', sourceId: message.id, sourceRevision: message.revision ?? 1, status: 'deleted' });
         }
@@ -101,13 +102,13 @@ export const messageRepo = {
   },
 
   async deleteById(id: string): Promise<void> {
-    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs], async () => {
+    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge], async () => {
       const message = await db.messages.get(id);
       if (!message) return;
       const session = await db.sessions.get(message.sessionId);
       if (session) {
         await invalidateUnpinnedMemoriesForMessages(session.userId, [id]);
-        await invalidateGroupSummarySources(session.id, [id]);
+        await invalidateSessionSummarySources(session.id, [id]);
         await memorySourceTombstoneRepo.record({ userId: session.userId, sourceType: 'message', sourceId: id, sourceRevision: message.revision ?? 1, status: 'deleted' });
         await db.memoryJobs.where('userId').equals(session.userId).filter((job) => job.sourceIds.includes(id) && job.status !== 'done').modify({ status: 'cancelled', leaseUntil: undefined, updatedAt: Date.now() });
       }
@@ -132,14 +133,14 @@ export const messageRepo = {
 
   async update(id: string, patch: Partial<Message>): Promise<number> {
     if (patch.content === undefined) return db.messages.update(id, patch);
-    return db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.groups], async () => {
+    return db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.groups, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge], async () => {
       const current = await db.messages.get(id);
       if (!current) return 0;
       if (current.content !== patch.content) {
         const session = await db.sessions.get(current.sessionId);
         if (session) {
           await invalidateUnpinnedMemoriesForMessages(session.userId, [id]);
-          await invalidateGroupSummarySources(session.id, [id]);
+          await invalidateSessionSummarySources(session.id, [id]);
           await memorySourceTombstoneRepo.record({
             userId: session.userId,
             sourceType: 'message',
@@ -199,11 +200,4 @@ async function queueMemoryExtraction(
       task: 'extract',
     });
   }
-}
-
-async function invalidateGroupSummarySources(sessionId: string, messageIds: string[]): Promise<void> {
-  const session = await db.sessions.get(sessionId);
-  if (!session?.summary || !session.summarySourceMessageIds?.some((id) => messageIds.includes(id))) return;
-  const { summary: _summary, summaryUpdatedAt: _updatedAt, summarySourceMessageIds: _sourceIds, summarySourceMessageRevisions: _sourceRevisions, summarySourceMessageOffsets: _sourceOffsets, summaryWitnessedBy: _witnessedBy, ...rest } = session;
-  await db.sessions.put(rest as typeof session);
 }

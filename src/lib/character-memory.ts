@@ -5,10 +5,12 @@ import { findRelevantHistory } from './world/world-recall';
 import { selectRecallableScenes, selectLiveSceneMoments } from './world/scene-recall';
 import { classifyMemoryKind, rankConversationMemories } from './memory-engine';
 import { memoryLedgerRepo } from '../db/memory-ledger-repo';
+import { memoryRepo } from '../db/memory-repo';
 import { todoRepo } from '../db/todo-repo';
 import { diaryRepo } from '../db/diary-repo';
 import { historyWindowCutoff } from './moments/preferences';
 import { knowledgeRepo } from '../db/knowledge-repo';
+import { isMentionableDiaryEvent } from '../db/world-event-repo';
 import { isVisibleToCharacter } from './world/visibility';
 import { listMentionableDiaryIds } from './world/diary-visibility';
 import { visibleToCharacter } from '../db/moments-repo';
@@ -26,7 +28,7 @@ export interface CharacterMemoryRequest {
   worldId?: string;
   excludeSceneId?: string;
   budget?: number;
-  /** 私密角色生活仅可进入一对一私聊；舞台、群聊及公开评论保持关闭。 */
+  /** 私密角色生活只进入该角色独享的上下文；公开发言还须经过披露审查。 */
   includePrivateCharacterLifeEvents?: boolean;
   excludeReferences?: { source: MemorySource; id: string }[];
 }
@@ -51,7 +53,9 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<{ text: s
   const explicitTodoHistory = /记得|还记得|之前|以前|上次|那件事|待办|任务|完成|做完/u.test(p.query ?? '');
   const items: MemoryReference[] = [];
   if (sources.has('chat') && audience.length === 1) {
-    const rows = await db.memories.where('characterId').equals(p.characterId).filter(m => m.userId === p.userId).toArray();
+    // Use the same read path as private chat so legacy detached summaries are
+    // retired before any other channel can recall them.
+    const rows = await memoryRepo.getByCharacter(p.characterId, p.userId);
     for (const m of rankConversationMemories(rows, p.query ?? '', new Set(), 6)) {
       items.push({
         source: 'chat',
@@ -344,9 +348,13 @@ async function indexVisibleReference(p: CharacterMemoryRequest, reference: Memor
       } else {
         const event = await db.worldEvents.get(reference.id);
         if (!event || event.userId !== p.userId || !audience.every((id) => isVisibleToCharacter(event, id))) return undefined;
-        for (const characterId of audience) {
-          const known = await knowledgeRepo.listKnownBy(characterId, event.worldId, { minLevel: 'full', limit: 500, userId: p.userId });
-          if (!known.some((row) => row.eventId === event.id && row.canMention && row.knowledgeLevel === 'full')) return undefined;
+        if (event.sourceType === 'diary') {
+          if (!(await Promise.all(audience.map((id) => isMentionableDiaryEvent(event, id, p.userId)))).every(Boolean)) return undefined;
+        } else {
+          for (const characterId of audience) {
+            const known = await knowledgeRepo.listKnownBy(characterId, event.worldId, { minLevel: 'full', limit: 500, userId: p.userId });
+            if (!known.some((row) => row.eventId === event.id && row.canMention && row.knowledgeLevel === 'full')) return undefined;
+          }
         }
         sourceType = 'worldEvent';
         revision = event.updatedAt;

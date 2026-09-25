@@ -29,6 +29,7 @@ let responseText = JSON.stringify({
   kind: 'project', title: '修好了旧收音机', summary: '独自修好了旧收音机，听到了久违的节目',
   continueEventId: null, completed: false, publish: true, postText: '旧收音机终于响了，旋钮差点又被我拧坏。',
 });
+let queuedResponseTexts: string[] = [];
 const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
 const originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
@@ -36,7 +37,8 @@ window.fetch = async (input, init) => {
   if (url.includes('/chat/completions')) {
     const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
     calls.push({ url, body });
-    return new Response(JSON.stringify({ choices: [{ message: { content: responseText }, finish_reason: 'stop' }] }), {
+    const content = queuedResponseTexts.shift() ?? responseText;
+    return new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -110,6 +112,45 @@ async function run(): Promise<void> {
     && (await db.moments.where('userId').equals(failureUser).count()) === 0
     && (await db.characterLifeEvents.where('userId').equals(failureUser).count()) === 0
     && (await db.momentPostPlans.where('userId').equals(failureUser).first())?.status === 'failed');
+
+  // Public comments may use the character's own experience for tone, but the
+  // published text must pass a private-memory disclosure review. Unsafe drafts
+  // are regenerated from public-only context.
+  useAuthStore.getState().login(userId, '验收账号', 'sk-fake', '');
+  // The earlier deletion test removed this character's life events. Restore a
+  // private fact here so this case actually exercises the disclosure boundary.
+  await db.characterLifeEvents.put({ ...privateLife, id:'private-life-comment-fixture', occurredAt:at + 9, createdAt:at + 9, updatedAt:at + 9 });
+  await db.momentJobs.where('userId').equals(userId).delete();
+  const publicMomentId = 'public-comment-memory-check';
+  await db.moments.put({
+    id:publicMomentId, userId, text:'今天走路时看到一只橘猫。', visibility:'all',
+    audienceCharacterIds:[characterId], visibilityRevision:1, mediaIds:[], createdAt:at + 10, updatedAt:at + 10,
+  } as any);
+  await db.momentReactions.put({
+    id:'public-comment-user', userId, momentId:publicMomentId, type:'comment', content:'你最近还好吗？',
+    status:'active', createdAt:at + 11, updatedAt:at + 11,
+  } as any);
+  await db.momentJobs.put({
+    id:'moment-reply:public-comment-user:' + characterId, userId, momentId:publicMomentId, characterId,
+    type:'reply', replyToId:'public-comment-user', status:'queued', visibilityRevision:1,
+    attempts:0, availableAt:at + 12, createdAt:at + 12, updatedAt:at + 12,
+  } as any);
+  queuedResponseTexts = [
+    '我还记得秘密生活片段QW82，最近确实有点忙。',
+    JSON.stringify({ safe:true }),
+    '最近还行，刚被一只橘猫逗笑了。',
+  ];
+  const commentCallStart = calls.length;
+  await momentsRepo.processJobs(userId, at + 20);
+  const commentCalls = calls.slice(commentCallStart);
+  const publicComment = (await db.momentReactions.where('momentId').equals(publicMomentId)
+    .filter((reaction) => reaction.userId === userId && reaction.characterId === characterId && reaction.type === 'comment' && reaction.status === 'active').first());
+  const commentPayload = (index: number) => JSON.stringify(commentCalls[index]?.body ?? {});
+  check('朋友圈评论可参考本人记忆；语义审查与字面回声保护会隔离公开内容', commentCalls.length === 3
+    && commentPayload(0).includes('秘密生活片段QW82')
+    && commentPayload(1).includes('秘密生活片段QW82')
+    && !commentPayload(2).includes('秘密生活片段QW82')
+    && publicComment?.content === '最近还行，刚被一只橘猫逗笑了。', commentCalls.length);
 }
 
 run().then(async () => {

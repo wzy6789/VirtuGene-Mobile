@@ -55,6 +55,7 @@ async function pickFollowUp(characterId: string, userId: string): Promise<string
   try {
     const mems = await memoryRepo.getByCharacter(characterId, userId);
     const hits = mems
+      .filter((memory) => (memory.status ?? 'active') === 'active')
       .filter((m) => FOLLOW_UP_RE.test(m.content))
       .sort((a, b) => b.createdAt - a.createdAt);
     return hits[0]?.content;

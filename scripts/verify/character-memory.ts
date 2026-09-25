@@ -4,13 +4,14 @@ import { memoryRepo } from '../../src/db/memory-repo';
 import { sessionRepo } from '../../src/db/session-repo';
 import { todoRepo } from '../../src/db/todo-repo';
 import { indexPromptMemoryReferences, recallCharacterMemory, packCharacterMemory } from '../../src/lib/character-memory';
-import { rankConversationMemories } from '../../src/lib/memory-engine';
+import { findSpokenMemoryIds, rankConversationMemories } from '../../src/lib/memory-engine';
 import { buildContextTrace } from '../../src/lib/chat-trace';
-import { buildWorldContext, renderCharacterContext } from '../../src/lib/world/world-context';
+import { buildWorldContext, renderCharacterContext, renderWorldLayer } from '../../src/lib/world/world-context';
 import { knowledgeRepo } from '../../src/db/knowledge-repo';
 import { momentsRepo, planAutonomousMomentInteraction } from '../../src/db/moments-repo';
 import { collectSyncData, importSyncData } from '../../src/lib/sync';
 import { diaryRepo } from '../../src/db/diary-repo';
+import { worldEventRepo } from '../../src/db/world-event-repo';
 import { clearDiarySharing, setDiarySharing } from '../../src/lib/world/diary-visibility';
 import { useAuthStore } from '../../src/store/auth-store';
 import { undoLastTurn } from '../../src/lib/world/world-undo';
@@ -19,6 +20,7 @@ import { findRelevantHistory } from '../../src/lib/world/world-recall';
 import { recallHistoricalPrivateChat } from '../../src/lib/character-history-recall';
 import { buildSummaryBatch, findUncoveredSummaryMessages } from '../../src/lib/ai/summary-batches';
 import { memoryLedgerRepo } from '../../src/db/memory-ledger-repo';
+import { generateGroupTurn } from '../../src/lib/ai/group-chat';
 
 const report = window.fetch.bind(window);
 async function run() {
@@ -74,6 +76,45 @@ async function run() {
   await db.messages.update('msg',{failed:false});
   check(!(await recall('foreign')).text, 'foreign character rejected');
   check(!(await recall('a',{audience:['foreign']})).text, 'foreign audience rejected');
+
+  // Real group generator path: the shared speaker selector must never see
+  // actor-private memory; each selected actor and its disclosure review may see
+  // only that actor's own context.
+  const priorFetch = window.fetch;
+  const privatePromptBodies: Record<string, unknown>[] = [];
+  const privateResponses = [
+    JSON.stringify({ turns:[{speaker:'角色甲',content:'导演草稿甲'},{speaker:'角色乙',content:'导演草稿乙'}] }),
+    '甲自然地回应。', JSON.stringify({ safe:true }),
+    '乙自然地回应。', JSON.stringify({ safe:true }),
+  ];
+  window.fetch = async (_input, init) => {
+    privatePromptBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+    const content = privateResponses.shift() ?? '';
+    return new Response(JSON.stringify({ choices:[{message:{content},finish_reason:'stop'}] }), {
+      status:200, headers:{'Content-Type':'application/json'},
+    });
+  };
+  try {
+    const generated = await generateGroupTurn({
+      apiKey:'sk-fake', groupName:'验收群', userMessage:'你们说说看',
+      history:[{role:'user',content:'刚刚的话题'}],
+      members:[
+        {id:'actor-a',name:'角色甲',persona:'甲的人设，话不多。',privateMemory:'PRIVATE_MEMORY_A only',memory:'GROUP_SHARED_MEMORY'},
+        {id:'actor-b',name:'角色乙',persona:'乙的人设，爱开玩笑。',privateMemory:'PRIVATE_MEMORY_B only',memory:'GROUP_SHARED_MEMORY'},
+      ],
+    });
+    const messages = (index: number) => privatePromptBodies[index]?.messages as {role:string;content:unknown}[];
+    const systemAt = (index: number) => String(messages(index)?.[0]?.content ?? '');
+    const allAt = (index: number) => JSON.stringify(privatePromptBodies[index] ?? {});
+    check(generated.turns.length === 2 && generated.turns[0].content === '甲自然地回应。' && generated.turns[1].content === '乙自然地回应。', 'group actors generate their own sequential replies');
+    check(!systemAt(0).includes('PRIVATE_MEMORY_A') && !systemAt(0).includes('PRIVATE_MEMORY_B'), 'shared group director sees no actor-private memories');
+    check(systemAt(1).includes('PRIVATE_MEMORY_A') && !systemAt(1).includes('PRIVATE_MEMORY_B'), 'actor A receives only A private memory');
+    check(allAt(2).includes('PRIVATE_MEMORY_A') && !allAt(2).includes('PRIVATE_MEMORY_B'), 'actor A disclosure review is scoped to A');
+    check(systemAt(3).includes('PRIVATE_MEMORY_B') && !systemAt(3).includes('PRIVATE_MEMORY_A'), 'actor B receives only B private memory');
+    check(allAt(4).includes('PRIVATE_MEMORY_B') && !allAt(4).includes('PRIVATE_MEMORY_A'), 'actor B disclosure review is scoped to B');
+  } finally {
+    window.fetch = priorFetch;
+  }
   await db.memories.bulkPut([
     {id:'pin',userId:'u',characterId:'a',content:'一定记住喜欢蓝色',pinned:true,status:'active',type:'auto',createdAt:now},
     {id:'old',userId:'u',characterId:'a',content:'已经作废的偏好',status:'superseded',type:'auto',createdAt:now},
@@ -98,6 +139,19 @@ async function run() {
     {id:'cool-fresh', userId:'u', characterId:'a', content:'另一条仍可用的旧记忆', type:'auto', createdAt:now - 1000},
   ] as any, '今天聊点别的', new Set(['cool-pinned','cool-used']), 2);
   check(recallCooldown.some((item) => item.id === 'cool-pinned') && recallCooldown.some((item) => item.id === 'cool-fresh') && !recallCooldown.some((item) => item.id === 'cool-used'), 'cooldown preserves pinned facts and backfills from eligible memories');
+  const spokenFixture = { id:'spoken-memory', userId:'u', characterId:'a', content:'用户喜欢喝咖啡，每天早上都喝', type:'auto', createdAt:now } as any;
+  check(findSpokenMemoryIds('我记得你喜欢喝咖啡，早上也会喝一杯。', [spokenFixture]).includes(spokenFixture.id), 'a memory echoed in the assistant reply is marked spoken');
+  check(findSpokenMemoryIds('早上的咖啡你一直都挺喜欢的。', [spokenFixture]).includes(spokenFixture.id), 'a clear paraphrase of a memory is recognized as spoken');
+  check(findSpokenMemoryIds('今天风挺舒服的。', [spokenFixture]).length === 0, 'a memory merely present in the prompt is not marked spoken');
+  await db.memories.bulkPut([
+    { id:'ambiguous-correction-tea', userId:'u', characterId:'a', content:'用户喜欢喝红茶', memoryKind:'preference', status:'active', type:'auto', createdAt:now },
+    { id:'ambiguous-correction-coffee', userId:'u', characterId:'a', content:'用户喜欢喝咖啡', memoryKind:'preference', status:'active', type:'auto', createdAt:now },
+  ] as any);
+  await memoryRepo.supersedeLikelyCorrections('a','u',{ id:'ambiguous-correction-new', userId:'u', characterId:'a', content:'其实我喜欢喝绿茶', memoryKind:'preference', type:'auto', createdAt:now + 1 } as any);
+  check((await db.memories.get('ambiguous-correction-tea'))?.status === 'active' && (await db.memories.get('ambiguous-correction-coffee'))?.status === 'active', 'ambiguous correction wording does not silently supersede unrelated preferences');
+  await db.memories.put({ id:'unique-correction-old', userId:'u', characterId:'a', content:'用户不吃香菜', memoryKind:'preference', status:'active', type:'auto', createdAt:now } as any);
+  await memoryRepo.supersedeLikelyCorrections('a','u',{ id:'unique-correction-new', userId:'u', characterId:'a', content:'其实我很喜欢香菜', memoryKind:'preference', type:'auto', createdAt:now + 2 } as any);
+  check((await db.memories.get('unique-correction-old'))?.status === 'superseded', 'a clear same-topic preference correction supersedes its prior active memory');
   const crowdedPins = Array.from({length: 9}, (_, index) => ({id:`crowded-pin-${index}`,userId:'u',characterId:'a',content:`固定偏好编号${index}`,pinned:true,type:'auto',createdAt:now}));
   const relevantUnpinned = {id:'relevant-unpinned',userId:'u',characterId:'a',content:'我在青海看见极光并拍了照片',type:'auto',createdAt:now};
   check(rankConversationMemories([...crowdedPins,relevantUnpinned] as any,'青海极光',new Set(),8).some((item) => item.id === 'relevant-unpinned'), 'relevant memory survives a crowded pinned-memory set');
@@ -131,6 +185,76 @@ async function run() {
   await messageRepo.update('edited-summary-source', { content:'更正后的事实' });
   check(!(await sessionRepo.getById('edited-summary-session'))?.summary, 'editing a summarized message invalidates its stale summary');
   check((await db.memories.get('edited-summary-memory'))?.status === 'superseded', 'editing a summarized message invalidates its derived memory');
+
+  await sessionRepo.create({ id:'granular-ledger-session', userId:'u', characterId:'a', title:'证据边粒度测试', type:'single', createdAt:now, updatedAt:now, unreadCount:0 } as any);
+  await db.messages.bulkPut([
+    { id:'granular-source-edited', sessionId:'granular-ledger-session', role:'user', content:'原消息', createdAt:now, isProactive:false },
+    { id:'granular-source-survives', sessionId:'granular-ledger-session', role:'user', content:'另一条仍有效的依据', createdAt:now + 1, isProactive:false },
+  ] as any);
+  await sessionRepo.updateSummary('granular-ledger-session', '一段覆盖两条消息的旧摘要', undefined,
+    ['granular-source-edited','granular-source-survives'], { 'granular-source-edited':1, 'granular-source-survives':1 });
+  await memoryRepo.create({ id:'granular-extracted-memory', userId:'u', characterId:'a', content:'用户喜欢青绿色', type:'auto', memoryKind:'preference', sourceSessionId:'granular-ledger-session', sourceMessageIds:['granular-source-edited','granular-source-survives'], createdAt:now } as any);
+  await memoryRepo.create({ id:'granular-summary-memory', userId:'u', characterId:'a', content:'一段覆盖两条消息的旧摘要', type:'summary', memoryKind:'summary', sourceSessionId:'granular-ledger-session', sourceMessageIds:['granular-source-edited','granular-source-survives'], createdAt:now } as any);
+  const granularClaim = await memoryLedgerRepo.findClaim('u', 'preference', '用户喜欢青绿色');
+  await messageRepo.update('granular-source-edited', { content:'刚刚被修改的消息' });
+  const survivingEvidence = granularClaim
+    ? await db.memoryEvidence.where('[userId+claimId]').equals(['u', granularClaim.id]).filter((row) => row.sourceId === 'granular-source-survives').first()
+    : undefined;
+  check((await db.memories.get('granular-extracted-memory'))?.status === 'active'
+    && (await db.memories.get('granular-extracted-memory'))?.sourceMessageIds?.join(',') === 'granular-source-survives', 'editing one summary source preserves an extracted fact supported by a surviving source');
+  check(Boolean(granularClaim && survivingEvidence && !survivingEvidence.withdrawnAt
+    && (await db.memoryClaims.get(granularClaim.id))?.status === 'active'), 'summary invalidation revokes only its own claim-source evidence edge');
+
+  await sessionRepo.create({ id:'pinned-summary-session', userId:'u', characterId:'a', title:'置顶摘要失效测试', createdAt:now, updatedAt:now, unreadCount:0 } as any);
+  await db.messages.put({ id:'pinned-summary-source', sessionId:'pinned-summary-session', role:'user', content:'摘要来源', createdAt:now, isProactive:false } as any);
+  await sessionRepo.updateSummary('pinned-summary-session', '会话摘要只作为聚合记忆', undefined, ['pinned-summary-source']);
+  await memoryRepo.create({ id:'pinned-session-summary', userId:'u', characterId:'a', content:'会话摘要只作为聚合记忆', type:'summary', memoryKind:'summary', pinned:true, sourceSessionId:'pinned-summary-session', sourceMessageIds:['pinned-summary-source'], createdAt:now } as any);
+  let rejectedSummaryPin = false;
+  try { await memoryRepo.setPinned('pinned-session-summary', true); } catch { rejectedSummaryPin = true; }
+  check(rejectedSummaryPin, 'session aggregate summaries cannot be pinned as permanent standalone facts');
+  await messageRepo.update('pinned-summary-source', { content:'摘要来源已修改' });
+  check((await db.memories.get('pinned-session-summary'))?.status === 'superseded'
+    && !(await db.memories.get('pinned-session-summary'))?.pinned, 'editing a source supersedes a legacy pinned aggregate summary instead of orphaning it');
+  await sessionRepo.create({ id:'detached-pinned-summary-session', userId:'u', characterId:'a', title:'旧版孤儿摘要', createdAt:now, updatedAt:now, unreadCount:0 } as any);
+  await memoryRepo.create({ id:'detached-pinned-summary', userId:'u', characterId:'a', content:'来源已丢失的旧置顶摘要', type:'summary', memoryKind:'summary', pinned:true, sourceSessionId:'detached-pinned-summary-session', createdAt:now } as any);
+  check(!(await memoryRepo.getRecentActiveByCharacter('a','u',100)).some((memory) => memory.id === 'detached-pinned-summary')
+    && (await db.memories.get('detached-pinned-summary'))?.status === 'superseded', 'legacy detached pinned aggregate is retired on first memory read');
+  await db.memories.put({ id:'detached-cross-channel-summary', userId:'u', characterId:'a', content:'过时的蓝湖暗号', type:'summary', memoryKind:'summary', pinned:true, sourceSessionId:'detached-pinned-summary-session', createdAt:now } as any);
+  check(!(await recall('a', { query:'过时的蓝湖暗号', sources:['chat'] })).text.includes('过时的蓝湖暗号')
+    && (await db.memories.get('detached-cross-channel-summary'))?.status === 'superseded', 'cross-channel recall retires a detached legacy summary before using it');
+
+  await sessionRepo.create({ id:'memory-summary-stale-session', userId:'u', characterId:'a', title:'记忆撤回摘要失效', createdAt:now, updatedAt:now, unreadCount:0 } as any);
+  await db.messages.put({ id:'memory-summary-stale-source', sessionId:'memory-summary-stale-session', role:'user', content:'旧的置顶事实来源', createdAt:now, isProactive:false } as any);
+  await sessionRepo.updateSummary('memory-summary-stale-session', '摘要里烘入了旧的置顶事实', undefined, ['memory-summary-stale-source']);
+  await memoryRepo.create({ id:'memory-summary-derived-row', userId:'u', characterId:'a', content:'摘要里烘入了旧的置顶事实', type:'summary', memoryKind:'summary', sourceSessionId:'memory-summary-stale-session', sourceMessageIds:['memory-summary-stale-source'], createdAt:now } as any);
+  await memoryRepo.create({ id:'retractable-pinned-fact', userId:'u', characterId:'a', content:'旧的置顶事实', type:'auto', memoryKind:'fact', pinned:true, sourceSessionId:'memory-summary-stale-session', sourceMessageIds:['memory-summary-stale-source'], createdAt:now } as any);
+  await memoryRepo.deleteById('retractable-pinned-fact');
+  check(!(await sessionRepo.getById('memory-summary-stale-session'))?.summary, 'deleting a durable fact invalidates a session summary that cited its source');
+  check((await db.memories.get('memory-summary-derived-row'))?.status === 'superseded', 'fact deletion also supersedes the derived summary memory');
+  await sessionRepo.create({ id:'legacy-summary-session', userId:'u', characterId:'a', title:'旧版摘要来源测试', createdAt:now, updatedAt:now, unreadCount:0 } as any);
+  await db.messages.put({ id:'legacy-summary-source', sessionId:'legacy-summary-session', role:'user', content:'旧版摘要依据', createdAt:now - 10, isProactive:false });
+  await sessionRepo.updateSummary('legacy-summary-session', '旧版摘要中的事实');
+  await memoryRepo.create({ id:'legacy-summary-memory', userId:'u', characterId:'a', content:'旧版摘要中的事实', type:'summary', sourceSessionId:'legacy-summary-session', createdAt:now } as any);
+  await messageRepo.update('legacy-summary-source', { content:'已修正的事实' });
+  check(!(await sessionRepo.getById('legacy-summary-session'))?.summary, 'editing a source covered by a legacy timestamp-only summary invalidates it');
+  check((await db.memories.get('legacy-summary-memory'))?.status === 'superseded', 'legacy timestamp-only summary memory is invalidated with its source session');
+  await sessionRepo.create({ id:'multi-evidence-session', userId:'u', characterId:'a', type:'single', title:'多来源事实', createdAt:now, updatedAt:now, unreadCount:0 } as any);
+  await db.messages.bulkPut([
+    { id:'multi-source-a', sessionId:'multi-evidence-session', role:'user', content:'用户每周五会去游泳', createdAt:now, isProactive:false },
+    { id:'multi-source-b', sessionId:'multi-evidence-session', role:'user', content:'用户周五下班后去游泳', createdAt:now + 1, isProactive:false },
+  ] as any);
+  await memoryRepo.create({ id:'multi-source-memory', userId:'u', characterId:'a', content:'用户每周五下班后会去游泳', type:'auto', sourceSessionId:'multi-evidence-session', sourceMessageIds:['multi-source-a','multi-source-b'], createdAt:now } as any);
+  await messageRepo.update('multi-source-a', { content:'更正：用户改为周日游泳' });
+  const survivingMemory = await db.memories.get('multi-source-memory');
+  check(survivingMemory?.status === 'active' && survivingMemory.sourceMessageIds?.join(',') === 'multi-source-b', 'editing one source preserves an active fact supported by another independent source');
+  check((await memoryLedgerRepo.claimIdsForSource('u','chat','multi-source-a')).length === 0 && (await memoryLedgerRepo.claimIdsForSource('u','chat','multi-source-b')).length > 0, 'source edits revoke only stale ledger evidence and retain surviving evidence');
+  await sessionRepo.create({ id:'delete-session-memory', userId:'u', characterId:'a', type:'single', title:'删除会话清理', createdAt:now, updatedAt:now, unreadCount:0 } as any);
+  await messageRepo.create({ id:'delete-session-pending-source', sessionId:'delete-session-memory', role:'user', content:'这条消息用于检查提取任务取消', createdAt:now, isProactive:false });
+  await memoryRepo.create({ id:'delete-session-summary-memory', userId:'u', characterId:'a', content:'来自待删除会话的旧摘要', type:'summary', sourceSessionId:'delete-session-memory', createdAt:now } as any);
+  await sessionRepo.deleteById('delete-session-memory');
+  const deleteSessionJobs = (await db.memoryJobs.where('userId').equals('u').toArray()).filter((job) => job.sourceIds.includes('delete-session-pending-source'));
+  check(deleteSessionJobs.length > 0 && deleteSessionJobs.every((job) => job.status === 'cancelled'), 'deleting a session cancels every unfinished extraction job from its messages');
+  check((await db.memories.get('delete-session-summary-memory'))?.status === 'superseded', 'deleting a session invalidates a legacy summary memory without message ids');
   await db.moments.put({id:'post',userId:'u',authorCharacterId:'b',text:'今天看到彩虹',visibility:'all',audienceCharacterIds:['a','b'],visibilityRevision:0,mediaIds:['image'],createdAt:now,updatedAt:now} as any);
   check(!(await recall()).text.includes('彩虹'), 'unseen post not treated as known');
   await indexPromptMemoryReferences({ userId:'u', characterId:'a' }, [{ source:'moment', id:'post', text:'visible social post', at:now }], 'unseen-prompt');
@@ -187,8 +311,23 @@ async function run() {
   check(!(await recall('c')).text.includes('鸟鸣'), 'absent character cannot recall live world');
   const scene: any = {id:'scene',userId:'u',worldId:'w',characterIds:['a'],place:'海边',timeLabel:'午后',mood:'安静',state:{participants:[],entryMemoryMode:'memory'}};
   const characters = await db.characters.toArray();
+  await db.sessions.update('private-history', {summary:'私聊摘要：一起在海边约好看流星雨'});
+  await db.characterStates.put({characterId:'a',userId:'u',affinity:64,mood:82,milestones:[],lifeFocus:'准备流星雨观测',storyRelations:[{targetCharacterId:'b',label:'旧友',createdAt:now}],updatedAt:now});
   const context = await buildWorldContext({userId:'u',worldId:'w',scene,characters});
   check(renderCharacterContext(context,'a').includes('GROUP_MEMORY_SENTINEL_42'), 'actual world actor context receives group memory');
+  const singleActor = renderCharacterContext(context,'a');
+  check(singleActor.includes('私聊摘要：一起在海边约好看流星雨'), 'single-actor world receives current private-chat summary');
+  check(singleActor.includes('挚友') && singleActor.includes('心情很好') && singleActor.includes('准备流星雨观测') && singleActor.includes('旧友'), 'single-actor world uses the same relationship, mood, life and authored links as private chat');
+  await db.memories.put({ id:'detached-world-profile-summary', userId:'u', characterId:'a', content:'过时的星域密语', type:'summary', memoryKind:'summary', pinned:true, sourceSessionId:'detached-pinned-summary-session', createdAt:now } as any);
+  const cleanedWorldContext = await buildWorldContext({userId:'u',worldId:'w',scene,characters,userText:'过时的星域密语'});
+  check(!renderCharacterContext(cleanedWorldContext,'a').includes('过时的星域密语')
+    && (await db.memories.get('detached-world-profile-summary'))?.status === 'superseded', 'world actor uses the same legacy-summary cleanup as private chat');
+  await db.characterLifeEvents.put({id:'a-private-life',userId:'u',characterId:'a',threadId:'a-private-thread',kind:'reflection',title:'独处修表',summary:'独处时修好怀表QF77',visibility:'private',status:'active',occurredAt:now,createdAt:now,updatedAt:now} as any);
+  const oneActorLife = await buildWorldContext({userId:'u',worldId:'w',scene,characters,userText:'你独处时修好怀表QF77了吗'});
+  check(renderCharacterContext(oneActorLife,'a').includes('独处时修好怀表QF77'), 'single-character world recalls that character own private life as private chat does');
+  const sharedLife = await buildWorldContext({userId:'u',worldId:'w',scene:{...scene,characterIds:['a','b']},characters,userText:'你独处时修好怀表QF77了吗'});
+  check(!renderCharacterContext(sharedLife,'a').includes('独处时修好怀表QF77')
+    && !renderCharacterContext(sharedLife,'b').includes('独处时修好怀表QF77'), 'shared world keeps a private life event out of multi-character prompts');
   await db.memories.bulkPut(Array.from({length:25}, (_, index) => ({
     id:`old-profile-${index}`,userId:'u',characterId:'a',content:index === 0 ? '用户早年参加过天文观测营并很喜欢看木星' : `较早的普通个人事实 ${index}`,
     type:'auto',status:'active',createdAt:now - (100 - index) * 1000,
@@ -200,11 +339,18 @@ async function run() {
   check(renderCharacterContext(crowdedProfile,'a').includes('天文观测营'), 'world profile recalls requested fact even with more than six unrelated pins');
   const sharedScene = {...scene, characterIds:['a','b']};
   const sharedContext = await buildWorldContext({userId:'u',worldId:'w',scene:sharedScene,characters,userText:'你还记得我参加过天文观测营吗'});
-  check(!renderCharacterContext(sharedContext,'a').includes('天文观测营') && !renderCharacterContext(sharedContext,'b').includes('天文观测营'), 'multi-character scene cannot expose A-only private profile through dialogue');
-  check(!renderCharacterContext(sharedContext,'a').includes('蓝色'), 'multi-character scene cannot expose pinned one-to-one chat memory');
+  const aWorldContext = renderCharacterContext(sharedContext,'a');
+  const bWorldContext = renderCharacterContext(sharedContext,'b');
+  check(aWorldContext.includes('天文观测营') && aWorldContext.includes('蓝色') && aWorldContext.includes('私聊摘要：一起在海边约好看流星雨'), 'multi-character scene still gives A their own private memory, profile and chat summary');
+  check(!bWorldContext.includes('天文观测营') && !bWorldContext.includes('蓝色') && !bWorldContext.includes('私聊摘要：一起在海边约好看流星雨'), 'B does not inherit A-only private memory');
+  check(aWorldContext.includes('挚友') && aWorldContext.includes('心情很好') && aWorldContext.includes('准备流星雨观测') && aWorldContext.includes('旧友'), 'A carries their own current relationship, mood, life and authored links');
+  check(aWorldContext.includes('不要主动向其他在场者透露'), 'A sees an explicit boundary against disclosing personal memory to other actors');
+  check(!renderWorldLayer(sharedContext).includes('天文观测营') && !renderWorldLayer(sharedContext).includes('蓝色'), 'private character memories stay out of the shared world layer');
   scene.state.entryMemoryMode='present';
   const present = await buildWorldContext({userId:'u',worldId:'w',scene,characters});
   check(!renderCharacterContext(present,'a').includes('GROUP_MEMORY_SENTINEL_42'), 'present mode excludes imported memory');
+  check(!renderCharacterContext(present,'a').includes('私聊摘要：一起在海边约好看流星雨')
+    && renderCharacterContext(present,'a').includes('挚友'), 'present mode retains current character relationship while leaving past private conversation behind');
   await db.todos.put({ id:'shared-completed', userId:'u', title:'寄出资料包', note:'已经交给快递', dueDate:'2026-09-20', recurrence:{kind:'none'}, status:'completed', completedAt:now, visibility:'selected', visibleTo:['a'], createdAt:now, updatedAt:now } as any);
   await db.todoOccurrences.put({ id:'todo-occ:shared-completed:2026-09-20', userId:'u', todoId:'shared-completed', dueDate:'2026-09-20', originalDueDate:'2026-09-20', status:'completed', completedAt:now, createdAt:now, updatedAt:now } as any);
   await db.todos.put({ id:'private-pending', userId:'u', title:'未来提醒测试', recurrence:{kind:'none'}, status:'todo', visibility:'selected', visibleTo:['a'], createdAt:now, updatedAt:now } as any);
@@ -212,7 +358,8 @@ async function run() {
   check(completedTodoRecall.text.includes('寄出资料包') && completedTodoRecall.text.includes('已在'), 'completed shared todo is recalled as an experience');
   check(!(await recall('a', { audience:['b'], query:'资料包', sources:['todo'] })).text.includes('寄出资料包'), 'completed todo requires authorization for every listener');
   check(!(await recall('a', { query:'提醒', sources:['todo'] })).text.includes('未来提醒测试'), 'unfinished todo is not duplicated as a past memory');
-  check((await todoRepo.visibleOccurrencesForCharacter('u', 'a', 8)).some(({ todo }) => todo.id === 'private-pending'), 'selected unfinished todo remains available to its authorized character');
+  check(!(await todoRepo.visibleOccurrencesForCharacter('u', 'a', 8)).some(({ todo }) => todo.id === 'private-pending'), 'undated todo is not injected on every ordinary chat turn');
+  check((await todoRepo.visibleOccurrencesForCharacter('u', 'a', 8, true)).some(({ todo }) => todo.id === 'private-pending'), 'explicit todo-related chat can still recall an authorized undated task');
   const packed = packCharacterMemory([{source:'chat',id:'1',text:'记住蓝色',at:now,pinned:true},{source:'chat',id:'2',text:'记住蓝色',at:now},{source:'group',id:'3',text:'超长'.repeat(2000),at:now}], '', 600);
   check(packed.references.length === 1 && packed.references[0].id === '1' && packed.text.length <= 600, 'dedup, pinned priority, budget');
   const trace = buildContextTrace({compiled:{prompt:'',included:[],partial:['cross-channel-memory'],omitted:[]},crossChannelReferences:[{source:'group',id:'msg'}]});
@@ -294,6 +441,27 @@ async function run() {
   check((await db.diaries.get(diaryId))?.visibility === 'private', 'old backup cannot restore withdrawn diary visibility');
   check(!(await db.characterKnowledge.where('eventId').equals(`diary:${diaryId}`).first()), 'old backup cannot restore withdrawn diary knowledge');
   check(!(await db.worldEvents.get('stale-diary-event')), 'old backup cannot restore withdrawn diary world event');
+
+  const worldDiaryId = await diaryRepo.create({ userId:'u', date:'2026-09-22', title:'橘色天文穹顶', content:'那晚我们在橘色天文穹顶下看到了流星', mood:4, tags:[], characterId:'a' });
+  await setDiarySharing({ userId:'u', diaryId:worldDiaryId, visibility:'world' });
+  const worldDiary = await db.diaries.get(worldDiaryId);
+  const worldDiaryEvent = worldDiary?.worldEventId ? await db.worldEvents.get(worldDiary.worldEventId) : undefined;
+  const diaryWorldId = worldDiaryEvent?.worldId ?? '';
+  const diaryParticipantHistory = await findRelevantHistory({ userId:'u', worldId:diaryWorldId, characterId:'a', query:'还记得橘色天文穹顶那晚吗' });
+  const unrelatedHistory = await findRelevantHistory({ userId:'u', worldId:diaryWorldId, characterId:'b', query:'还记得橘色天文穹顶那晚吗' });
+  const unrelatedDiaryRecall = await recall('b', { worldId:diaryWorldId, query:'星域里你还记得橘色天文穹顶那晚吗', sources:['world','diary'] });
+  check(Boolean(worldDiaryEvent && diaryParticipantHistory.some((hit) => hit.id === worldDiaryEvent.id)), 'world-shared diary remains recallable by its linked participant');
+  check(Boolean(worldDiaryEvent && !unrelatedHistory.some((hit) => hit.id === worldDiaryEvent.id)
+    && !(await worldEventRepo.listVisibleToCharacter(diaryWorldId,'b',200,'u')).some((event) => event.id === worldDiaryEvent.id)
+    && !unrelatedDiaryRecall.text.includes('橘色天文穹顶')), 'world diary stays hidden from characters without diary participation and knowledge');
+
+  const likedPostId = 'request-like-records-view';
+  await db.moments.put({ id:likedPostId, userId:'u', text:'用户发出的动态', visibility:'all', audienceCharacterIds:['a'], visibilityRevision:1, mediaIds:[], createdAt:now, updatedAt:now } as any);
+  const likeCharacter = (await db.characters.get('a'))!;
+  const requestedLike = await momentsRepo.requestCharacterLike('u', likeCharacter, true, likedPostId);
+  check(requestedLike.status === 'liked'
+    && Boolean(await db.momentViews.get(`moment-view:${likedPostId}:a`)), 'a requested character like records that character as having seen the post');
+  check((await recall('a', { query:'还记得点了赞吗', sources:['moment'] })).text.includes('点了赞'), 'the character can later recall its own requested like');
 
   const deletedMomentId = 'deleted-moment-source';
   await db.moments.put({ id:deletedMomentId, userId:'u', authorCharacterId:'a', text:'这条动态已经删除', visibility:'all', audienceCharacterIds:['a','b'], visibilityRevision:2, mediaIds:['deleted-media'], createdAt:now, updatedAt:now } as any);

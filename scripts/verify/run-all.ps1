@@ -22,16 +22,20 @@ $Suites = $Suites | ForEach-Object { $_ -split ',' } | Where-Object { $_ }
 
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $verifyDir = Join-Path $root 'scripts\verify'
+$profileRoot = [System.IO.Path]::GetFullPath((Join-Path $root '.tmp-preview'))
 $results = @()
 
 foreach ($suite in $Suites) {
   $resultFile = Join-Path $verifyDir ".last-result-$suite.txt"
   if (Test-Path $resultFile) { Remove-Item $resultFile -Force }
 
-  $profile = Join-Path $root ".tmp-preview\run-$suite-$(Get-Random)"
+  $profile = [System.IO.Path]::GetFullPath((Join-Path $profileRoot "run-$suite-$(Get-Random)"))
+  if (-not $profile.StartsWith($profileRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to use a browser profile outside $profileRoot"
+  }
   New-Item -ItemType Directory -Force -Path $profile | Out-Null
 
-  $proc = Start-Process -FilePath $Chrome -PassThru -ArgumentList @(
+  $proc = Start-Process -FilePath $Chrome -WindowStyle Hidden -PassThru -ArgumentList @(
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
     "--user-data-dir=$profile", "http://127.0.0.1:17899/$suite.html"
   )
@@ -54,6 +58,8 @@ foreach ($suite in $Suites) {
     $text = [System.IO.File]::ReadAllText($resultFile, [System.Text.Encoding]::UTF8)
     $verdict = if ($text -match 'ALL PASS') { 'PASS' } else { 'FAIL' }
     $okCount = ([regex]::Matches($text, '(?m)^ok ')).Count
+    $aggregate = [regex]::Match($text, '(?m)^ok\s+(\d+)\s+assertions\b')
+    if ($aggregate.Success) { $okCount = [int]$aggregate.Groups[1].Value }
     $failCount = ([regex]::Matches($text, '(?m)^FAIL ')).Count
     $results += [pscustomobject]@{ Suite = $suite; Verdict = $verdict; Ok = $okCount; Fail = $failCount; Seconds = [math]::Round($waited, 1) }
     Write-Host ("{0,-10} {1,-5} ok={2,-3} fail={3,-3} {4}s" -f $suite, $verdict, $okCount, $failCount, [math]::Round($waited, 1))
@@ -74,7 +80,7 @@ $totalOk = ($results | Measure-Object -Property Ok -Sum).Sum
 $totalFail = ($results | Measure-Object -Property Fail -Sum).Sum
 Write-Host ("套件 {0} 个：PASS {1}，FAIL {2}，TIMEOUT {3}；断言 ok={4} fail={5}" -f `
   $results.Count,
-  ($results | Where-Object Verdict -eq 'PASS').Count,
-  ($results | Where-Object Verdict -eq 'FAIL').Count,
-  ($results | Where-Object Verdict -eq 'TIMEOUT').Count,
+  @($results | Where-Object Verdict -eq 'PASS').Count,
+  @($results | Where-Object Verdict -eq 'FAIL').Count,
+  @($results | Where-Object Verdict -eq 'TIMEOUT').Count,
   $totalOk, $totalFail)

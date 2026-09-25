@@ -1,4 +1,4 @@
-import { db, type MemoryItem } from './index';
+import { db, type MemoryEvidenceSource, type MemoryItem } from './index';
 import { prepareMemoryMetadata } from '../lib/memory-engine';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import { memoryLedgerRepo } from './memory-ledger-repo';
@@ -66,35 +66,159 @@ async function upsertMemory(memory: MemoryItem): Promise<string> {
   return existing.id;
 }
 
-/** 删除或撤回原始消息时，失效由其自动归纳出的非固定记忆；用户明确钉住的事实保留。 */
+function isSessionAggregateSummary(memory: MemoryItem): boolean {
+  return memory.type === 'summary' && Boolean(memory.sourceSessionId);
+}
+
+async function revokeMemoryEvidence(
+  memory: MemoryItem,
+  sourceIds: string[],
+  exhaustedStatus: 'withdrawn' | 'superseded' = 'superseded',
+): Promise<void> {
+  const sourceSession = memory.sourceSessionId ? await db.sessions.get(memory.sourceSessionId) : undefined;
+  const sourceType: MemoryEvidenceSource = memory.importedFromMemoryId
+    ? 'legacy'
+    : sourceSession?.type === 'group' ? 'group'
+      : memory.sourceMessageIds?.length ? 'chat' : 'legacy';
+  const claim = await memoryLedgerRepo.findClaim(memory.userId, memory.memoryKind ?? 'fact', memory.content);
+  if (!claim) return;
+  for (const sourceId of sourceIds) {
+    await memoryLedgerRepo.revokeClaimSource(memory.userId, claim.id, sourceType, sourceId, exhaustedStatus);
+  }
+}
+
+/** A corrected/deleted durable fact must not remain baked into any summary that cited its source turn. */
+async function invalidateSessionSummariesForMemory(memory: MemoryItem): Promise<void> {
+  const sourceIds = [...new Set(memory.sourceMessageIds ?? [])];
+  if (!sourceIds.length && !memory.sourceSessionId) return;
+  const sourceMessages = sourceIds.length ? await db.messages.bulkGet(sourceIds) : [];
+  const sessions = await db.sessions.where('userId').equals(memory.userId).toArray();
+  for (const session of sessions) {
+    if (!session.summary) continue;
+    let affected = session.id === memory.sourceSessionId;
+    if (!affected && (session.summarySourceMessageIds?.length ?? 0) > 0) {
+      affected = session.summarySourceMessageIds!.some((id) => sourceIds.includes(id));
+    } else if (!affected && sourceIds.length) {
+      affected = sourceMessages.some((message) => message?.sessionId === session.id
+        && message.createdAt <= (session.summaryUpdatedAt ?? 0));
+    }
+    if (!affected) continue;
+    const {
+      summary: _summary,
+      summaryUpdatedAt: _summaryUpdatedAt,
+      summaryAttemptedAt: _summaryAttemptedAt,
+      summarySourceMessageIds: _summarySourceMessageIds,
+      summarySourceMessageRevisions: _summarySourceMessageRevisions,
+      summarySourceMessageOffsets: _summarySourceMessageOffsets,
+      summaryWitnessedBy: _summaryWitnessedBy,
+      ...rest
+    } = session;
+    await db.sessions.put(rest);
+    await invalidateSessionSummaryMemory(session.userId, session.id);
+  }
+}
+
+/** One-time repair for older builds that detached source ids but left a pinned aggregate active. */
+async function retireDetachedPinnedSessionSummaries(items: MemoryItem[]): Promise<MemoryItem[]> {
+  const retired = new Map<string, MemoryItem>();
+  for (const memory of items) {
+    if (!isSessionAggregateSummary(memory) || !memory.pinned || (memory.sourceMessageIds?.length ?? 0) > 0
+      || (memory.status ?? 'active') !== 'active') continue;
+    const updatedAt = Date.now();
+    const updated: MemoryItem = { ...memory, status: 'superseded', pinned: undefined, updatedAt };
+    await memoryLedgerRepo.forgetMemoryItem(memory);
+    await db.memories.put(updated);
+    await memorySourceTombstoneRepo.record({ userId: memory.userId, sourceType: 'memory', sourceId: memory.id, sourceRevision: updatedAt, status: 'superseded' });
+    retired.set(memory.id, updated);
+  }
+  return items.map((memory) => retired.get(memory.id) ?? memory);
+}
+
+/** 删除或撤回原始消息时，失效由其自动归纳出的记忆；独立置顶事实保留，摘要始终按聚合来源整体失效。 */
 export async function invalidateUnpinnedMemoriesForMessages(userId: string, messageIds: string[]): Promise<number> {
   const ids = new Set(messageIds);
   if (!ids.size) return 0;
   const rows = await db.memories.where('userId').equals(userId).toArray();
-  const invalidated = rows.filter((memory) =>
-    !memory.pinned && (memory.status ?? 'active') === 'active' && (memory.sourceMessageIds ?? []).some((id) => ids.has(id)),
+  const affected = rows.filter((memory) =>
+    (memory.status ?? 'active') === 'active' && (memory.sourceMessageIds ?? []).some((id) => ids.has(id)),
   );
-  if (invalidated.length) {
+  let invalidated = 0;
+  const sourceTypes: MemoryEvidenceSource[] = ['chat', 'group', 'legacy'];
+
+  for (const memory of affected) {
+    const allSourceIds = [...new Set(memory.sourceMessageIds ?? [])];
+    const changedIds = allSourceIds.filter((id) => ids.has(id));
+    // A session summary is an aggregate claim: editing any input invalidates the
+    // whole summary. Ordinary extracted memories may keep independent surviving
+    // source messages instead of being discarded wholesale.
+    const isAggregateSummary = isSessionAggregateSummary(memory);
+    const revokedIds = isAggregateSummary ? (allSourceIds.length ? allSourceIds : [memory.id]) : changedIds;
+    const remainingIds = allSourceIds.filter((id) => !revokedIds.includes(id));
+    const shouldSupersede = isAggregateSummary || (!memory.pinned && remainingIds.length === 0);
+    const retainedIds = remainingIds;
+    const retainMap = (value?: Record<string, number>) => {
+      if (!value) return undefined;
+      const next = Object.fromEntries(Object.entries(value).filter(([id]) => retainedIds.includes(id)));
+      return Object.keys(next).length ? next : undefined;
+    };
     const now = Date.now();
-    await db.memories.bulkPut(invalidated.map((memory) => ({ ...memory, status: 'superseded' as const, updatedAt: now })));
-    for (const memory of invalidated) {
+    const updated: MemoryItem = {
+      ...memory,
+      ...(shouldSupersede ? { status: 'superseded' as const } : {}),
+      ...(shouldSupersede ? { pinned: undefined } : {}),
+      sourceMessageIds: retainedIds.length ? retainedIds : undefined,
+      sourceMessageRevisions: retainMap(memory.sourceMessageRevisions),
+      sourceMessageOffsets: retainMap(memory.sourceMessageOffsets),
+      sourceMessageEndOffsets: retainMap(memory.sourceMessageEndOffsets),
+      updatedAt: now,
+    };
+    await db.memories.put(updated);
+
+    const claim = await memoryLedgerRepo.findClaim(userId, memory.memoryKind ?? 'fact', memory.content);
+    if (claim) for (const sourceId of revokedIds) {
+      // Revoke only this memory claim's evidence edge. A different fact extracted
+      // from the same message remains supported by that message.
+      for (const sourceType of sourceTypes) {
+        await memoryLedgerRepo.revokeClaimSource(userId, claim.id, sourceType, sourceId,
+          shouldSupersede ? 'superseded' : 'withdrawn');
+      }
+    }
+
+    if (shouldSupersede) {
+      invalidated += 1;
       await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: memory.id, sourceRevision: now, status: 'superseded' });
+    } else if (updated.pinned || retainedIds.length) {
+      await memoryLedgerRepo.syncMemoryItem(updated);
     }
   }
-  return invalidated.length;
+  return invalidated;
+}
+
+export async function invalidateSessionSummaryMemory(userId: string, sessionId: string): Promise<void> {
+  const rows = await db.memories.where('userId').equals(userId).toArray();
+  for (const memory of rows) {
+    if (!isSessionAggregateSummary(memory) || memory.sourceSessionId !== sessionId || (memory.status ?? 'active') !== 'active') continue;
+    const updatedAt = Date.now();
+    const updated: MemoryItem = { ...memory, status: 'superseded', pinned: undefined, sourceMessageIds: undefined, updatedAt };
+    await db.memories.put(updated);
+    const sourceIds = memory.sourceMessageIds?.length ? memory.sourceMessageIds : [memory.id];
+    await revokeMemoryEvidence(memory, sourceIds, 'superseded');
+    await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: memory.id, sourceRevision: updatedAt, status: 'superseded' });
+  }
 }
 
 export const memoryRepo = {
   /** 获取一个用户最近留下的记忆，用于生命回顾等跨角色视图。 */
   async getRecentByUser(userId: string, limit = 60): Promise<MemoryItem[]> {
-    return db.memories
+    const items = await db.memories
       .where('userId')
       .equals(userId)
       .toArray()
-      .then((items) => items
-        .filter((item) => (item.status ?? 'active') === 'active')
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, limit));
+    const repaired = await retireDetachedPinnedSessionSummaries(items);
+    return repaired
+      .filter((item) => (item.status ?? 'active') === 'active')
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
   },
 
   /**
@@ -133,14 +257,15 @@ export const memoryRepo = {
 
   async getByCharacter(characterId: string, userId: string): Promise<MemoryItem[]> {
     const all = await db.memories.where('characterId').equals(characterId).toArray();
-    return all.filter((m) => m.userId === userId).sort((a, b) => a.createdAt - b.createdAt);
+    const own = all.filter((m) => m.userId === userId);
+    return (await retireDetachedPinnedSessionSummaries(own)).sort((a, b) => a.createdAt - b.createdAt);
   },
 
   /** 取最近 limit 条记忆（新→旧），用于注入回复上下文，避免全量记忆撑爆 token */
   async getRecentByCharacter(characterId: string, userId: string, limit = 15): Promise<MemoryItem[]> {
     const all = await db.memories.where('characterId').equals(characterId).toArray();
-    return all
-      .filter((m) => m.userId === userId)
+    const own = all.filter((m) => m.userId === userId);
+    return (await retireDetachedPinnedSessionSummaries(own))
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit);
   },
@@ -148,8 +273,9 @@ export const memoryRepo = {
   /** 给运行时用的有效记忆查询；档案页仍可用 getRecentByCharacter 查看已替代记录。 */
   async getRecentActiveByCharacter(characterId: string, userId: string, limit = 15): Promise<MemoryItem[]> {
     const all = await db.memories.where('characterId').equals(characterId).toArray();
-    return all
-      .filter((memory) => memory.userId === userId && (memory.status ?? 'active') === 'active')
+    const own = all.filter((memory) => memory.userId === userId);
+    return (await retireDetachedPinnedSessionSummaries(own))
+      .filter((memory) => (memory.status ?? 'active') === 'active')
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit);
   },
@@ -223,7 +349,7 @@ export const memoryRepo = {
   },
 
   /** 记录最近一次被召回的记忆；只更新元数据，不改写记忆内容。 */
-  async markMentioned(ids: string[]): Promise<void> {
+  async markSpoken(ids: string[]): Promise<void> {
     const unique = [...new Set(ids.filter(Boolean))];
     if (unique.length === 0) return;
     const now = Date.now();
@@ -244,6 +370,7 @@ export const memoryRepo = {
     const current = await db.memories.get(id);
     if (!current) return;
     if (pinned && (current.status ?? 'active') !== 'active') throw new Error('memory:cannot-pin-inactive');
+    if (pinned && isSessionAggregateSummary(current)) throw new Error('memory:cannot-pin-session-summary');
     await db.memories.update(id, {
       pinned: pinned || undefined,
       ...(pinned ? { stability: 'stable' as const, status: 'active' as const } : {}),
@@ -255,6 +382,7 @@ export const memoryRepo = {
   async supersede(oldId: string, replacementId: string): Promise<void> {
     const old = await db.memories.get(oldId);
     if (!old) return;
+    await invalidateSessionSummariesForMemory(old);
     const updatedAt = Date.now();
     await db.memories.update(oldId, {
       status: 'superseded',
@@ -268,14 +396,40 @@ export const memoryRepo = {
 
   /** 用户明确纠正事实时，停用最可能的旧事实；普通新记忆不会触发。 */
   async supersedeLikelyCorrections(characterId: string, userId: string, replacement: MemoryItem): Promise<void> {
-    if (!/其实|不是|不再|已经不|改成|更正|纠正|现在是/u.test(replacement.content)) return;
-    const words = Array.from(replacement.content.matchAll(/[\u4e00-\u9fff]{2}/gu)).map(([word]) => word);
-    if (words.length === 0) return;
+    if (!/(?:其实|不是|不再|已经改成|已经不|更正|纠正|现在是|我改口|说错了)/u.test(replacement.content)) return;
+    const stopTerms = new Set(['这个', '那个', '现在', '其实', '不是', '不再', '已经', '改成', '更正', '纠正', '我改', '说错', '用户', '觉得', '感觉', '喜欢', '不喜']);
+    const termsOf = (value: string): Set<string> => {
+      const normalized = value.normalize('NFKC').toLocaleLowerCase().replace(/[\s\u3000，。、！？：；“”‘’（）()\[\]{}.,!?;:"']/gu, '');
+      const terms = new Set<string>();
+      for (const run of normalized.matchAll(/[\u4e00-\u9fff]{2,}/gu)) {
+        const text = run[0];
+        for (let i = 0; i < text.length - 1; i += 1) {
+          const term = text.slice(i, i + 2);
+          if (!stopTerms.has(term) && !/[我你他很的了在有是不欢]/u.test(term)) terms.add(term);
+        }
+      }
+      for (const word of normalized.matchAll(/[a-z0-9]{3,}/gu)) terms.add(word[0]);
+      return terms;
+    };
+    const replacementTerms = termsOf(replacement.content);
+    if (!replacementTerms.size) return;
     const candidates = (await db.memories.where('characterId').equals(characterId).toArray())
       .filter((memory) => memory.userId === userId && memory.id !== replacement.id && (memory.status ?? 'active') === 'active')
-      .filter((memory) => memory.memoryKind === 'fact' || memory.memoryKind === 'preference');
-    const target = candidates.find((memory) => words.filter((word) => memory.content.includes(word)).length >= 2);
-    if (target) await this.supersede(target.id, replacement.id);
+      .filter((memory) => memory.memoryKind === replacement.memoryKind && (memory.memoryKind === 'fact' || memory.memoryKind === 'preference'))
+      .map((memory) => {
+        const oldTerms = termsOf(memory.content);
+        const overlap = [...replacementTerms].filter((term) => oldTerms.has(term)).length;
+        return { memory, overlap, score: overlap / Math.max(1, Math.min(replacementTerms.size, oldTerms.size)) };
+      })
+      .filter((item) => item.overlap > 0)
+      .sort((a, b) => b.score - a.score || b.overlap - a.overlap);
+    const best = candidates[0];
+    const next = candidates[1];
+    // Automatic correction is deliberately strict: ambiguous overlap leaves
+    // both claims available for review instead of silently replacing a fact.
+    if (best && (!next || best.score - next.score >= 0.2) && (best.overlap >= 2 || replacementTerms.size <= 3)) {
+      await this.supersede(best.memory.id, replacement.id);
+    }
   },
 
   async createMany(memories: MemoryItem[]): Promise<string[]> {
@@ -295,6 +449,7 @@ export const memoryRepo = {
   async deleteById(id: string): Promise<void> {
     const memory = await db.memories.get(id);
     if (memory) {
+      await invalidateSessionSummariesForMemory(memory);
       await memoryLedgerRepo.forgetMemoryItem(memory);
       await memorySourceTombstoneRepo.record({
         userId: memory.userId,
@@ -311,6 +466,7 @@ export const memoryRepo = {
     const all = await db.memories.where('characterId').equals(characterId).toArray();
     for (const m of all) {
       if (m.userId === userId && m.createdAt < beforeTs) {
+        await invalidateSessionSummariesForMemory(m);
         await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: m.id, sourceRevision: m.updatedAt ?? m.createdAt, status: 'deleted' });
         await db.memories.delete(m.id);
       }
@@ -321,6 +477,7 @@ export const memoryRepo = {
     const all = await db.memories.where('characterId').equals(characterId).toArray();
     for (const m of all) {
       if (m.userId === userId) {
+        await invalidateSessionSummariesForMemory(m);
         await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: m.id, sourceRevision: m.updatedAt ?? m.createdAt, status: 'deleted' });
         await db.memories.delete(m.id);
       }

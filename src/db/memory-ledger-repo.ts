@@ -348,4 +348,38 @@ export const memoryLedgerRepo = {
       return rows.length;
     });
   },
+
+  /** Revoke one claim's edge to one source without touching other claims on that source. */
+  async revokeClaimSource(
+    userId: string,
+    claimId: string,
+    sourceType: MemoryEvidenceSource,
+    sourceId: string,
+    exhaustedStatus: 'withdrawn' | 'superseded' = 'withdrawn',
+  ): Promise<number> {
+    return db.transaction('rw', [db.memoryEvidence, db.memoryKnowledge, db.memoryClaims], async () => {
+      const rows = await db.memoryEvidence.where('[userId+sourceType+sourceId]')
+        .equals([userId, sourceType, sourceId])
+        .filter((row) => row.claimId === claimId && !row.withdrawnAt)
+        .toArray();
+      if (!rows.length) return 0;
+      const now = Date.now();
+      await db.memoryEvidence.bulkPut(rows.map((row) => ({ ...row, withdrawnAt: now })));
+      const stillHasEvidence = await db.memoryEvidence.where('[userId+claimId]')
+        .equals([userId, claimId]).filter((row) => !row.withdrawnAt).count();
+      const matchingEdges = await db.memoryKnowledge.where('[userId+claimId]')
+        .equals([userId, claimId])
+        .filter((row) => row.sourceType === sourceType && row.sourceId === sourceId)
+        .toArray();
+      if (matchingEdges.length) {
+        await db.memoryKnowledge.bulkPut(matchingEdges.map((row) => ({ ...row, canMention: false, revokedAt: now })));
+      }
+      if (stillHasEvidence === 0) {
+        const knowledge = await db.memoryKnowledge.where('[userId+claimId]').equals([userId, claimId]).toArray();
+        await db.memoryKnowledge.bulkPut(knowledge.map((row) => ({ ...row, canMention: false, revokedAt: now })));
+        await db.memoryClaims.update(claimId, { status: exhaustedStatus, updatedAt: now });
+      }
+      return rows.length;
+    });
+  },
 };

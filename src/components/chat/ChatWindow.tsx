@@ -45,7 +45,7 @@ import { resolveModel, findModel } from '../../lib/ai/llm';
 import { compileChatContext } from '../../lib/chat-context-compiler';
 import { hasAiGatewayAccess } from '../../lib/ai/gateway';
 import { buildHumanConversationContext, buildProactiveTopicSeeds, recommendConversationTemperature } from '../../lib/chat-humanizer';
-import { buildMemoryContext, prepareMemoryMetadata, rankConversationMemories } from '../../lib/memory-engine';
+import { buildMemoryContext, findSpokenMemoryIds, prepareMemoryMetadata, rankConversationMemories } from '../../lib/memory-engine';
 import { formatHistoricalPrivateChat, recallHistoricalPrivateChat } from '../../lib/character-history-recall';
 import { buildSummaryBatch, findUncoveredSummaryMessages } from '../../lib/ai/summary-batches';
 import { selectRecallableMoments, buildMomentContext, isDirectMomentQuestion, isMomentLikeRequest, isForceMomentLikeRequest, type RecallableMoment } from '../../lib/moments/recall';
@@ -57,7 +57,7 @@ import { db } from '../../db/index';
 import { buildCharacterIntentContext, inferCharacterResponseAction, planCharacterIntent } from '../../lib/character-intent';
 import { ModelPickModal } from './ModelPickModal';
 import { ImmersiveSceneCard } from './ImmersiveSceneCard';
-import type { ContinuityThread, Diary, Message, SharedStoryEvent } from '../../db/index';
+import type { ContinuityThread, Diary, Message, Session, SharedStoryEvent } from '../../db/index';
 
 // 记忆依据弹窗只在长按菜单里用到：与手账/群聊同一套按需加载策略，不进首屏主包
 const MemoryBasisModal = lazy(() => import('./MemoryBasisModal').then((m) => ({ default: m.MemoryBasisModal })));
@@ -65,8 +65,8 @@ const MemoryBasisModal = lazy(() => import('./MemoryBasisModal').then((m) => ({ 
 const FIVE_MINUTES = 5 * 60 * 1000;
 /** 会话保留窗口：最近 18 条消息原样保留，更早的内容滚动压缩为摘要 */
 const SUMMARY_WINDOW = 18;
-/** 摘要再生成阈值：滚动出窗口的消息累积到该数量才重新压缩 */
-const SUMMARY_REGENERATE_THRESHOLD = 8;
+/** 一有未覆盖原文就尝试补摘要；后台保留重试间隔，发送时另有临时原文兜底 */
+const SUMMARY_REGENERATE_THRESHOLD = 1;
 const MAX_CHARACTER_PROMPT_CHARS = 12_000;
 const MAX_SUMMARY_CHARS = 2_400;
 const MAX_MEMORY_CHARS = 220;
@@ -95,8 +95,46 @@ function recentMemoryIds(messages: Message[], windowSize = 8): Set<string> {
   return new Set(
     messages
       .slice(-windowSize)
-      .flatMap((message) => message.contextTrace?.memoryIds ?? []),
+      .flatMap((message) => message.contextTrace?.spokenMemoryIds ?? []),
   );
+}
+
+function buildUncoveredChatContext(messages: Message[], currentMessageId: string, session?: Session): string {
+  const priorMessages = messages.filter((message) => message.id !== currentMessageId && !message.failed);
+  const summaryCandidates = priorMessages.slice(0, Math.max(0, priorMessages.length - SUMMARY_WINDOW));
+  if (!summaryCandidates.length) return '';
+
+  const hasSourceIds = (session?.summarySourceMessageIds?.length ?? 0) > 0;
+  const legacyCovered = !hasSourceIds
+    ? summaryCandidates.filter((message) => message.createdAt <= (session?.summaryUpdatedAt ?? 0))
+    : [];
+  const uncovered = findUncoveredSummaryMessages(summaryCandidates, {
+    sourceMessageIds: [...(session?.summarySourceMessageIds ?? []), ...legacyCovered.map((message) => message.id)],
+    sourceMessageRevisions: {
+      ...(session?.summarySourceMessageRevisions ?? {}),
+      ...Object.fromEntries(legacyCovered.map((message) => [message.id, message.revision ?? 1])),
+    },
+    sourceMessageOffsets: {
+      ...(session?.summarySourceMessageOffsets ?? {}),
+      ...Object.fromEntries(legacyCovered.map((message) => [message.id, Math.min(message.content.length, MAX_HISTORY_MESSAGE_CHARS)])),
+    },
+  });
+  if (!uncovered.length) return '';
+
+  // Summarization is asynchronous. Keep a small recent source window available
+  // until its coverage cursor advances, so a fast next turn cannot create a gap.
+  let remaining = 6_000;
+  const lines: string[] = [];
+  for (const message of uncovered.slice(-10).reverse()) {
+    if (remaining <= 0) break;
+    const content = message.content.trim().slice(-Math.min(1_200, remaining));
+    if (!content) continue;
+    lines.unshift(`${message.role === 'user' ? '用户' : '角色'}：${content}`);
+    remaining -= content.length;
+  }
+  return lines.length
+    ? `\n\n[尚未进入长期摘要的早前对话，作为临时原文补充；摘要更新后会自动接替]\n${lines.join('\n')}`
+    : '';
 }
 
 interface ChatWindowProps {
@@ -546,7 +584,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       // 注意：allMsgs 已包含刚发送的 userMsg，history 需排除最后一条，
       // 否则模型会看到同一条用户消息两遍（deepseek.ts 会再 append 一次）。
       const allMsgs = useChatStore.getState().messages;
-      const history = allMsgs.slice(-13, -1).map((m) => ({
+      const history = allMsgs.slice(-19, -1).map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content.slice(0, MAX_HISTORY_MESSAGE_CHARS),
         image: m.image,
@@ -863,7 +901,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       let todoContext = '';
       let injectedTodos: { id: string; occurrenceId?: string }[] = [];
       try {
-        const visibleTodos = await todoRepo.visibleOccurrencesForCharacter(userId, character.id, 4);
+        const wantsTodoRecall = /待办|计划|安排|要做|没做完|准备做|记得.*做/u.test(text);
+        const visibleTodos = await todoRepo.visibleOccurrencesForCharacter(userId, character.id, 4, wantsTodoRecall);
         const completedTodos = await todoRepo.completedVisibleForAudience(userId, [character.id], 4);
         injectedTodos = [
           ...visibleTodos.map(({ todo, occurrence }) => ({ id: todo.id, occurrenceId: occurrence.id })),
@@ -901,6 +940,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       const summaryContext = sessionData?.summary
         ? `\n\n[早前对话摘要（更早的内容已压缩，不必逐条回忆，若与当前话题相关可自然提及）]\n${sessionData.summary.slice(0, MAX_SUMMARY_CHARS)}`
         : '';
+      const uncoveredChatContext = buildUncoveredChatContext(allMsgs, userMsg.id, sessionData);
       const conversationStateContext = buildChatConversationStateContext(sessionData?.conversation);
       const characterIntent = planCharacterIntent(text, history, sessionData?.conversation, character);
       const characterIntentContext = buildCharacterIntentContext(characterIntent);
@@ -980,7 +1020,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           // compilation drops its result before the model sees it.
           { key: 'historical-chat', text: historicalChatContext, priority: 99 },
           { key: 'taught-memory', text: teachContext, priority: 100 },
-          { key: 'summary', text: summaryContext, priority: 87 },
+          { key: 'uncovered-chat', text: uncoveredChatContext, priority: 98 },
+          { key: 'summary', text: summaryContext, priority: 94 },
           { key: 'diary', text: diaryShareContext, priority: 70 },
           { key: 'diary-mood', text: diaryMoodContext, priority: 65 },
           { key: 'moments', text: momentsContext + momentActionContext, priority: isDirectMomentQuestion(text) || momentActionContext ? 99 : 69 },
@@ -992,7 +1033,6 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       // Only count a memory as presented after the compiler actually kept the
       // whole block. Otherwise budget truncation silently cools unseen facts.
       if (compiled.included.includes('memory')) {
-        void memoryRepo.markMentioned(memories.map((memory) => memory.id)).catch(() => undefined);
         for (const memory of memories) {
           void memoryLedgerRepo.syncMemoryItem(memory).then((claimId) => {
             if (!claimId) return;
@@ -1198,6 +1238,14 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         await messageRepo.markFailed(userMsg.id, true);
         updateMessage(userMsg.id, { failed: true });
       } else if (result.content?.trim()) {
+        const recalledForThisReply = new Set(contextTrace.memoryIds ?? []);
+        const spokenMemoryIds = findSpokenMemoryIds(
+          result.content,
+          memories.filter((memory) => recalledForThisReply.has(memory.id)),
+        );
+        const responseTrace = spokenMemoryIds.length
+          ? { ...contextTrace, spokenMemoryIds }
+          : contextTrace;
         // 自然聊天节奏：默认一条；模型用 --- 分段或普通闲聊偶尔过长时，
         // 才在自然停顿处分成 2~3 条，逐条按真人打字时间出现（第一条 350~900ms，后续 450~1100ms / 长句最多 1800ms，总长 ≤3500ms）。
         const longFormRequest = isLongFormRequest(text);
@@ -1233,11 +1281,26 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
             ...(replyBatchId
               ? { replyBatchId, replyBatchIndex: i, replyBatchSize: parts.length }
               : {}),
-            ...(hasTrace ? { contextTrace } : {}),
+            ...(hasTrace ? { contextTrace: responseTrace } : {}),
             ...(aiVoiceOn ? { audio: { dataUrl: '', duration: 0, text: content } } : {}),
           };
           await messageRepo.create(aiMsg);
           addMessage(aiMsg);
+          if (i === 0 && spokenMemoryIds.length > 0) {
+            void memoryRepo.markSpoken(spokenMemoryIds).catch(() => undefined);
+            for (const memory of memories.filter((item) => spokenMemoryIds.includes(item.id))) {
+              void memoryLedgerRepo.syncMemoryItem(memory).then((claimId) => {
+                if (!claimId) return;
+                return memoryLedgerRepo.recordUsage({
+                  userId,
+                  characterId: character!.id,
+                  claimId,
+                  messageId: aiMsg.id,
+                  stage: 'spoken',
+                });
+              }).catch(() => undefined);
+            }
+          }
           // 后台合成语音（跟随朗读引擎 + 角色声线）
           if (aiVoiceOn) {
             const msgId = aiMsg.id;
@@ -1382,7 +1445,7 @@ const maybeSummarize = async (sessionId: string) => {
       // 摘要不能成为“记住”内容的第二个清理入口：明确置顶的记忆即使早于
       // 本次压缩窗口，也要继续出现在摘要里。它们仍然按当前用户和角色隔离。
       const protectedMemories = (await memoryRepo.getByCharacter(character?.id ?? '', userId))
-        .filter((memory) => memory.pinned === true)
+        .filter((memory) => memory.pinned === true && (memory.status ?? 'active') === 'active')
         .sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))
         .slice(0, 8)
         .map((memory) => memory.content);

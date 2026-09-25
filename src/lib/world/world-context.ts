@@ -39,6 +39,9 @@ import { buildHiddenUserProfile } from './user-profile';
 import { worldObjectRepo } from '../../db/world-object-repo';
 import { todoRepo } from '../../db/todo-repo';
 import { isVisibleToCharacter } from './visibility';
+import { stateRepo } from '../../db/state-repo';
+import { memoryRepo } from '../../db/memory-repo';
+import { buildLifeContext, buildRelationshipContext, buildStoryRelationContext } from '../chat-context';
 import type { WorldConversationState, WorldVisualState } from './world-immersion';
 import { deriveWorldVisualState, directorConversationHints, emptyConversationState } from './world-immersion';
 
@@ -59,8 +62,12 @@ export interface WorldContextParams {
 
 export interface CharacterMemory {
   crossChannelMemory?: string;
+  /** Same live 4.x character state that private chat reads. */
+  characterStateContext?: string;
+  /** Earlier one-to-one conversation, available only to its own actor alone. */
+  privateChatSummary?: string;
   /** 用户明确回忆旧事时，为该角色单独检索且通过认知闸门的历史。 */
-  historicalRecall?: { date: string; text: string }[];
+  historicalRecall?: { id?: string; date: string; text: string }[];
   persona?: string;
   characterId: string;
   name: string;
@@ -81,7 +88,7 @@ export interface CharacterMemory {
   /** 只由该角色自己的 4.x 用户记忆整理出的隐藏画像，不跨角色共享 */
   userProfile?: string;
   /** 用户明确告诉 TA 的现实待办；私密待办永远不在这里。 */
-  todos: { title: string; dueDate?: string; dueTime?: string; note?: string }[];
+  todos: { id: string; title: string; dueDate?: string; dueTime?: string; note?: string }[];
 }
 
 export interface WorldContext {
@@ -117,6 +124,38 @@ export interface WorldContext {
   visual?: WorldVisualState;
 }
 
+/**
+ * True only when this Actor has private material the other current speakers do not.
+ * Common, explicitly shared memories should not trigger an extra disclosure-review call.
+ */
+export function hasPrivateActorContext(ctx: WorldContext, characterId: string): boolean {
+  const memory = ctx.perCharacter[characterId];
+  if (!memory) return false;
+  const others = ctx.presence.filter((id) => id !== characterId);
+  const uniqueToActor = <T>(
+    rows: T[],
+    idOf: (row: T) => string | undefined,
+    rowsFor: (otherId: string) => T[] | undefined,
+  ) => rows.some((row) => {
+    const rowId = idOf(row);
+    return !rowId || others.some((otherId) => !rowsFor(otherId)?.some((otherRow) => idOf(otherRow) === rowId));
+  });
+
+  return Boolean(
+    memory.crossChannelMemory
+    || memory.privateChatSummary
+    || memory.userProfile
+    || uniqueToActor(memory.diaries, (row) => row.id, (id) => ctx.perCharacter[id]?.diaries)
+    || uniqueToActor(memory.todos, (row) => row.id, (id) => ctx.perCharacter[id]?.todos)
+    || uniqueToActor(memory.memories, (row) => row.id, (id) => ctx.perCharacter[id]?.memories)
+    || uniqueToActor(memory.events, (row) => row.id, (id) => ctx.perCharacter[id]?.events)
+    || uniqueToActor(memory.scenes, (row) => row.id, (id) => ctx.perCharacter[id]?.scenes)
+    || uniqueToActor(memory.threads, (row) => row.id, (id) => ctx.perCharacter[id]?.threads)
+    || uniqueToActor(memory.historicalRecall ?? [], (row) => row.id, (id) => ctx.perCharacter[id]?.historicalRecall)
+    || uniqueToActor(memory.facts.filter((fact) => fact.visibility !== 'world'), (row) => row.id, (id) => ctx.perCharacter[id]?.facts?.filter((fact) => fact.visibility !== 'world'))
+  );
+}
+
 function presenceOf(scene: WorldScene, override?: string[]): string[] {
   const list = override ?? scene.characterIds;
   return [...new Set(list)];
@@ -132,9 +171,8 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     throw new Error('world-context:scene-owner-mismatch');
   }
   const presence = presenceOf(scene, params.presence);
-  // In a shared scene every spoken line is heard by all present characters.
-  // A private actor prompt is not a privacy boundary: the actor may repeat it.
-  const sharedAudience = presence.length > 1;
+  // Shared output is public, but memory stays attached to its character.
+  // Every Actor below receives a separately assembled, character-scoped prompt.
   const nameOf = (id: string) => params.characters.find((c) => c.id === id)?.name ?? '某人';
 
   const [worldFacts, entries, recentEvents, allThreads, objects] = await Promise.all([
@@ -155,24 +193,28 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     const participant = scene.state.participants?.find((p) => p.characterId === characterId);
     const entryMemoryMode = participant?.entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory';
     const carryMemory = entryMemoryMode !== 'present';
-    const [facts, memories, scenes, diaryVisible, threads, relation, userMemories, todos, knownRows] = await Promise.all([
+    const [facts, memories, scenes, diaryVisible, threads, relation, userMemories, todos, knownRows, characterState, privateSessions] = await Promise.all([
       worldFactRepo.listForCharacter(worldId, characterId, 10, userId),
-      carryMemory && !sharedAudience ? selectRecallableSharedMemories({ userId, worldId, characterId, limit: 3 }) : Promise.resolve([]),
-      carryMemory && !sharedAudience ? selectRecallableScenes({ userId, worldId, characterId, limit: 2 }) : Promise.resolve([]),
-      carryMemory && !sharedAudience ? diaryRepo.listVisibleFor(characterId, userId, 20) : Promise.resolve([]),
-      carryMemory && !sharedAudience ? Promise.resolve(openThreads.filter((t) => t.characterId === characterId)) : Promise.resolve([]),
-      sharedAudience ? Promise.resolve(undefined) : relationshipRepo.getStateFor(userRef(userId), characterRef(characterId), worldId),
-      carryMemory && !sharedAudience
-        ? db.memories.where('characterId').equals(characterId).toArray().then((rows) => rows
-          .filter((row) => row.userId === userId)
+      carryMemory ? selectRecallableSharedMemories({ userId, worldId, characterId, limit: 3 }) : Promise.resolve([]),
+      carryMemory ? selectRecallableScenes({ userId, worldId, characterId, limit: 2 }) : Promise.resolve([]),
+      carryMemory ? diaryRepo.listVisibleFor(characterId, userId, 20) : Promise.resolve([]),
+      carryMemory ? Promise.resolve(openThreads.filter((t) => t.characterId === characterId)) : Promise.resolve([]),
+      relationshipRepo.getStateFor(userRef(userId), characterRef(characterId), worldId),
+      carryMemory
+        ? memoryRepo.getByCharacter(characterId, userId).then((rows) => rows
           .filter((row) => (row.status ?? 'active') === 'active')
           .sort((a, b) => b.createdAt - a.createdAt)
           // 让 buildHiddenUserProfile 从完整候选集中按相关性挑选；固定取最近 18 条
           // 会让很重要但较早的用户事实在星域里永久消失。
           )
       : Promise.resolve([]),
-      carryMemory && !sharedAudience ? todoRepo.visibleForCharacter(userId, characterId, 5) : Promise.resolve([]),
-      carryMemory && !sharedAudience ? knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'partial', limit: 30, userId }) : Promise.resolve([]),
+      carryMemory ? todoRepo.visibleForCharacter(userId, characterId, 5) : Promise.resolve([]),
+      carryMemory ? knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'partial', limit: 30, userId }) : Promise.resolve([]),
+      stateRepo.get(characterId, userId),
+      carryMemory
+        ? db.sessions.where('[characterId+userId]').equals([characterId, userId])
+          .filter((row) => row.type !== 'group' && Boolean(row.summary?.trim())).toArray()
+        : Promise.resolve([]),
     ]);
 
     const knownEvents = carryMemory && knownRows.length
@@ -183,7 +225,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
       : [];
 
     // 日记：可见 ∩ 可提起（与私聊完全同一口径，避免"世界页能说、私聊不能说"）
-    const mentionable = carryMemory && !sharedAudience
+    const mentionable = carryMemory
       ? await listMentionableDiaryIds(userId, worldId, characterId)
       : new Set<string>();
     const diaries = diaryVisible
@@ -192,12 +234,30 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
       .map((d) => ({ id: d.id, date: d.date, title: d.title, content: d.content.slice(0, 400) }));
 
     perCharacter[characterId] = {
+      ...(characterState ? {
+        characterStateContext: [
+          buildRelationshipContext(characterState.affinity, characterState.mood, characterState.tierNames),
+          buildStoryRelationContext(characterState, params.characters),
+          ...(carryMemory ? [buildLifeContext(characterState)] : []),
+        ].filter(Boolean).join('\n'),
+      } : {}),
+      ...(carryMemory && privateSessions.length ? {
+        privateChatSummary: privateSessions
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, 2)
+          .map((row) => row.summary?.trim().slice(0, 900))
+          .filter(Boolean).join('\n'),
+      } : {}),
       crossChannelMemory: carryMemory ? (await recallCharacterMemory({
-        userId, characterId, query: params.userText, audience: presence,
-        // In a shared scene, world memories pass the existing all-listeners
-        // knowledge/visibility gate; private one-to-one chat never does.
-        sources: sharedAudience ? ['group', 'moment', 'todo', 'world', 'diary'] : ['chat', 'group', 'moment', 'todo', 'diary'],
+        // Recall only this Actor's own knowledge. Other speakers and the
+        // Director never receive this result.
+        userId, characterId, query: params.userText, audience: [characterId],
+        sources: ['chat', 'group', 'moment', 'todo', 'world', 'diary'],
         worldId, excludeSceneId: scene.id, budget: 2200,
+        // A one-character scene has no other actor who could overhear this
+        // role's private life. Shared scenes keep that material out until the
+        // public disclosure check is isolated per speaker.
+        includePrivateCharacterLifeEvents: presence.length === 1,
       })).text : '',
       persona: params.characters.find((character) => character.id === characterId)?.systemPrompt,
       characterId,
@@ -211,11 +271,11 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
         place: s.scene.place,
         summary: s.event.summary || s.scene.title,
       })),
-      facts: sharedAudience ? facts.filter((fact) => fact.visibility === 'world') : facts,
+      facts,
       ...(relation && relation.userId === userId ? { userRelation: relation } : {}),
       threads,
-      ...(carryMemory && !sharedAudience ? { userProfile: buildHiddenUserProfile(userMemories, params.userText) } : {}),
-      todos: todos.map((todo) => ({ title: todo.title, ...(todo.dueDate ? { dueDate: todo.dueDate } : {}), ...(todo.dueTime ? { dueTime: todo.dueTime } : {}), ...(todo.note ? { note: todo.note.slice(0, 120) } : {}) })),
+      ...(carryMemory ? { userProfile: buildHiddenUserProfile(userMemories, params.userText) } : {}),
+      todos: todos.map((todo) => ({ id: todo.id, title: todo.title, ...(todo.dueDate ? { dueDate: todo.dueDate } : {}), ...(todo.dueTime ? { dueTime: todo.dueTime } : {}), ...(todo.note ? { note: todo.note.slice(0, 120) } : {}) })),
     };
 
     // 秘密：TA 守着不说的事（只有一致性守护看得到）
@@ -398,10 +458,16 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string): 
   if (memory.todos.length) {
     lines.push(`【用户明确告诉你的待办】\n${memory.todos.map((todo) => `- ${todo.title}${todo.dueDate ? `（${todo.dueDate}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note}` : ''}`).join('\n')}\n只在话题相关时自然提起，不要像任务管理器一样盘问。`);
   }
+  if (memory.characterStateContext) lines.push(memory.characterStateContext);
+  if (memory.privateChatSummary) lines.push(`【你们早前私聊的摘要】\n${memory.privateChatSummary}\n这是你和用户真实聊过的内容；只在当前话题相关时自然使用，不要逐条复述。`);
   if (memory.userProfile) lines.push(memory.userProfile);
   if (memory.crossChannelMemory) lines.push(memory.crossChannelMemory);
   if (memory.historicalRecall?.length) {
     lines.push(`【你确实知道、而用户正在回忆的旧事】\n${memory.historicalRecall.map((hit) => `- ${hit.date} ${hit.text}`).join('\n')}\n只回应与用户当前问题有关的线索，不要转回无关旧话题。`);
+  }
+  const hasActorOwnedContext = hasPrivateActorContext(ctx, characterId);
+  if (ctx.presence.length > 1 && hasActorOwnedContext) {
+    lines.push('【记忆边界】以上个人记忆只属于你，不代表其他在场者知道。不要主动向其他在场者透露私聊、日记、待办或个人经历；只有用户明确要求你当众分享某件具体内容时，才可谈及那一件。');
   }
   return lines.join('\n');
 }

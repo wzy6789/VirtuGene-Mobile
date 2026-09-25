@@ -1,5 +1,5 @@
 import { db, type Session } from './index';
-import { invalidateUnpinnedMemoriesForMessages } from './memory-repo';
+import { invalidateSessionSummaryMemory, invalidateUnpinnedMemoriesForMessages } from './memory-repo';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 export const sessionRepo = {
@@ -68,14 +68,19 @@ export const sessionRepo = {
   },
 
   async deleteById(id: string): Promise<void> {
-    await db.transaction('rw', [db.sessions, db.messages, db.memories, db.memorySourceTombstones], async () => {
+    await db.transaction('rw', [db.sessions, db.messages, db.memories, db.memorySourceTombstones, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.memoryJobs], async () => {
       const session = await db.sessions.get(id);
       const messages = await db.messages.where('sessionId').equals(id).toArray();
       if (session) {
         await invalidateUnpinnedMemoriesForMessages(session.userId, messages.map((message) => message.id));
+        await invalidateSessionSummaryMemory(session.userId, session.id);
         for (const message of messages) {
           await memorySourceTombstoneRepo.record({ userId: session.userId, sourceType: 'message', sourceId: message.id, sourceRevision: message.revision ?? 1, status: 'deleted' });
         }
+        const messageIds = new Set(messages.map((message) => message.id));
+        await db.memoryJobs.where('userId').equals(session.userId)
+          .filter((job) => job.sourceIds.some((sourceId) => messageIds.has(sourceId)) && job.status !== 'done')
+          .modify({ status: 'cancelled', leaseUntil: undefined, updatedAt: Date.now() });
       }
       await db.sessions.delete(id);
       await db.messages.where('sessionId').equals(id).delete();

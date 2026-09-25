@@ -32,7 +32,7 @@ import { interpretWorldIntent } from './world-intent';
 import { directWorldTurn, fallbackPlan, type TurnPlan, type TurnSpeaker } from './world-director';
 import { actAsCharacter, actWorldBeat, type ActorBeat } from './world-actor';
 import { narrateWorldBeat, shouldNarrate } from './world-narrator';
-import { applyGuard, guardWorldBeat } from './world-consistency';
+import { applyGuard, guardWorldBeat, requiresPrivateDisclosureReview } from './world-consistency';
 import { settleWorldTurn, type SettleTurnResult } from './world-settlement';
 import { findRelevantHistory } from './world-recall';
 import { recallHistoricalPrivateChat } from '../character-history-recall';
@@ -423,6 +423,9 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
 
   /** 角色台词/动作的流式增量：对白与动作各自一个复合键，互不覆盖 */
   const emitCharacterPartial = (characterId: string, partial: { dialogue?: string; action?: string }) => {
+    // In a shared scene, wait for the private-memory disclosure review before
+    // showing character text to the other people present.
+    if (scene.characterIds.length > 1) return;
     if (partial.action !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId, speakerId: characterId, field: 'action', text: partial.action });
     if (partial.dialogue !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId, speakerId: characterId, field: 'dialogue', text: partial.dialogue });
   };
@@ -515,31 +518,28 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     if (action.intent === 'recall' || /记得|还记得|以前|那次|上次|第一次|之前提到|之前说|刚才说|答应|说好了|你说过|那件事/.test(text)) {
       const query = action.recallTarget ?? text;
       // 给导演的内容只包含全体在场者均知道、可提起的共同旧事；每个 Actor
-      // 另外按自己的认知边界召回，因此私聊告知 A 的事不会泄露给 B。
+      // 另行按自己的认知边界召回历史与私聊原文。公共导演不会接收单人记忆。
       const sharedHits = await findRelevantHistory({ userId, worldId, query, limit: 5, audienceCharacterIds: ctx.presence });
       const [actorHits, actorChatHits] = await Promise.all([
-        ctx.presence.length > 1
-          ? Promise.resolve(ctx.presence.map((characterId) => [characterId, sharedHits] as const))
-          : Promise.all(ctx.presence.map(async (characterId) => [characterId, await findRelevantHistory({
-            userId, worldId, query, limit: 5, characterId,
-          })] as const)),
-        ctx.presence.length > 1
-          ? Promise.resolve([])
-          : Promise.all(ctx.presence.map(async (characterId) => [characterId, await recallHistoricalPrivateChat({
-            userId, characterId, query, limit: 3,
-          })] as const)),
+        Promise.all(ctx.presence.map(async (characterId) => [characterId, await findRelevantHistory({
+          userId, worldId, query, limit: 5, characterId,
+        })] as const)),
+        Promise.all(ctx.presence.map(async (characterId) => [characterId, await recallHistoricalPrivateChat({
+          userId, characterId, query, limit: 3,
+        })] as const)),
       ]);
       const chatHitsByCharacter = new Map(actorChatHits);
       ctx = {
         ...ctx,
-        recalledHistory: sharedHits.map(({ date, text: hitText }) => ({ date, text: hitText })),
+          recalledHistory: sharedHits.map(({ date, text: hitText }) => ({ date, text: hitText })),
         perCharacter: {
           ...ctx.perCharacter,
           ...Object.fromEntries(actorHits.map(([characterId, hits]) => [characterId, {
             ...ctx.perCharacter[characterId],
             historicalRecall: [
-              ...hits.map(({ date, text: hitText }) => ({ date, text: hitText })),
+                ...hits.map(({ id, date, text: hitText }) => ({ id, date, text: hitText })),
               ...(chatHitsByCharacter.get(characterId) ?? []).map((hit) => ({
+                  id: hit.messageId,
                 date: new Date(hit.createdAt).toLocaleDateString('zh-CN'),
                 text: `你们私聊时${hit.role === 'user' ? '用户' : '你'}曾说：“${hit.content}”`,
               })),
@@ -607,7 +607,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       sequential: plan.speakers.length > 1 ? true : plan.sequential,
       ...(plan.worldChanges.length ? { worldChanges: plan.worldChanges } : {}),
       // 星域呈现：角色台词/动作边生成边上屏
-      onPartial: emitCharacterPartial,
+      ...(scene.characterIds.length <= 1 ? { onPartial: emitCharacterPartial } : {}),
       ...(params.call ? { call: params.call } : {}),
     });
     llmCalls += beats.reduce((sum, beat) => sum + (beat.llmCalls ?? 1), 0);
@@ -627,7 +627,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         worldChanges: plan.worldChanges,
         rounds: autoRounds,
         prior: beats,
-        onPartial: emitCharacterPartial,
+        ...(scene.characterIds.length <= 1 ? { onPartial: emitCharacterPartial } : {}),
         ...(params.call ? { call: params.call } : {}),
         ...(params.shouldInterrupt ? { shouldStop: params.shouldInterrupt } : {}),
       });
@@ -635,9 +635,23 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       beats = [...beats, ...extra.beats];
     }
 
+    // Each Actor may use their own memory, but spoken text is heard by the
+    // whole scene. Review this batch before persisting or exposing any beat.
+    let privacyGuard: Awaited<ReturnType<typeof guardWorldBeat>> | null = null;
+    if (requiresPrivateDisclosureReview(ctx, beats)) {
+      privacyGuard = await guardWorldBeat({
+        ctx, plan, action, beats, force: true,
+        ...(params.call ? { call: params.call } : {}),
+      });
+      llmCalls += privacyGuard.llmCalls;
+      const unresolved = Boolean(privacyGuard.error)
+        || privacyGuard.issues.length > privacyGuard.rewrites.length
+        || (!privacyGuard.ok && privacyGuard.rewrites.length === 0);
+      if (unresolved) beats = [];
+      else if (privacyGuard.rewrites.length > 0) beats = applyGuard(beats, privacyGuard.rewrites);
+    }
+
     // ---- 7) 角色内容落库（动作与对白分成两条，UI 负责把同一角色合成一组）
-    //     先落库再守护：用户要**立刻**看到第一位角色的回应（§57），
-    //     守护发现问题后再把改写落回那一行（不是"让用户看到未修正版本"）。
     // beatRows 记录的是 beats 数组里的**原始下标**：中间有角色选择沉默（via 'none'）
     // 被跳过时，按下标错位会把 A 的守护改写落到 B 的条目上。
     const beatRows: { beatIndex: number; characterId: string; actionEntryId?: string; dialogueEntryId?: string }[] = [];
@@ -672,12 +686,12 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     await worldTurnRepo.addEntryIds(turn.id, turnEntries.map((e) => e.id));
 
     // ---- 8) 一致性守护（重要轮次才跑；失败不影响已经生成的内容）
-    const guard = await guardWorldBeat({
+    const guard = privacyGuard ?? await guardWorldBeat({
       ctx, plan, action, beats,
       ...(params.call ? { call: params.call } : {}),
     });
-    llmCalls += guard.llmCalls;
-    if (guard.rewrites.length > 0) {
+    if (!privacyGuard) llmCalls += guard.llmCalls;
+    if (!privacyGuard && guard.rewrites.length > 0) {
       const rewritten = applyGuard(beats, guard.rewrites);
       const byCharacter = new Map(guard.rewrites.map((r) => [r.characterId, r]));
       for (const row of beatRows) {
@@ -709,7 +723,9 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     const visibleBeats = beats.filter((b) => b.via !== 'none');
     // 一个角色都没说话、也没有旁白 ⇒ 这一轮世界没有回应（如实失败，保留用户原话）
     if (visibleBeats.length === 0 && !narration) {
-      const reason = plan.error ?? guard.error ?? beatError(beats) ?? '世界没有继续回应';
+      const reason = privacyGuard && (privacyGuard.error || (!privacyGuard.ok && privacyGuard.rewrites.length === 0))
+        ? '这一轮没能通过角色记忆边界检查，请重试'
+        : plan.error ?? guard.error ?? beatError(beats) ?? '世界没有继续回应';
       return finish({
         status: 'failed', action, plan, beats, entries: turnEntries,
         ...(narration ? { narration } : {}),
@@ -919,6 +935,7 @@ async function rerunAfterUserEntry(params: {
   let llmCalls = 0;
 
   const emitCharacterPartial = (characterId: string, partial: { dialogue?: string; action?: string }) => {
+    if (scene.characterIds.length > 1) return;
     if (partial.action !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId: turn.sceneId, speakerId: characterId, field: 'action', text: partial.action });
     if (partial.dialogue !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId: turn.sceneId, speakerId: characterId, field: 'dialogue', text: partial.dialogue });
   };
@@ -938,16 +955,28 @@ async function rerunAfterUserEntry(params: {
     added.push(entry);
     emit({ type: 'entry', entry });
   }
-  const beats = await actWorldBeat({
+  let beats = await actWorldBeat({
     ctx,
     speakers: plan.speakers,
     userText: turn.input,
     sequential: plan.speakers.length > 1 ? true : plan.sequential,
     // 星域呈现：重试时同样边生成边上屏
-    onPartial: emitCharacterPartial,
+    ...(scene.characterIds.length <= 1 ? { onPartial: emitCharacterPartial } : {}),
     ...(params.call ? { call: params.call } : {}),
   });
   llmCalls += beats.reduce((sum, beat) => sum + (beat.llmCalls ?? 1), 0);
+  let privacyReviewFailed = false;
+  if (requiresPrivateDisclosureReview(ctx, beats)) {
+    const privacyGuard = await guardWorldBeat({
+      ctx, plan, action, beats, force: true,
+      ...(params.call ? { call: params.call } : {}),
+    });
+    llmCalls += privacyGuard.llmCalls;
+    privacyReviewFailed = Boolean(privacyGuard.error)
+      || privacyGuard.issues.length > privacyGuard.rewrites.length
+      || (!privacyGuard.ok && privacyGuard.rewrites.length === 0);
+    beats = privacyReviewFailed ? [] : applyGuard(beats, privacyGuard.rewrites);
+  }
   for (const beat of beats) {
     if (beat.action) {
       const entry = await worldSceneRepo.appendEntry(turn.sceneId, {
@@ -975,9 +1004,10 @@ async function rerunAfterUserEntry(params: {
 
   const visible = beats.filter((b) => b.via !== 'none');
   if (visible.length === 0 && !plan.narration) {
-    await worldTurnRepo.markFailed(turn.id, 'responding', plan.error ?? '世界没有继续回应');
+    const error = privacyReviewFailed ? '这一轮没能通过角色记忆边界检查，请重试' : plan.error ?? '世界没有继续回应';
+    await worldTurnRepo.markFailed(turn.id, 'responding', error);
     emit({ type: 'status', status: 'failed' });
-    return { turnId: turn.id, status: 'failed', action, plan, beats, entries: userEntry ? [userEntry] : [], suggestions: [], llmCalls, error: plan.error ?? '世界没有继续回应' };
+    return { turnId: turn.id, status: 'failed', action, plan, beats, entries: userEntry ? [userEntry] : [], suggestions: [], llmCalls, error };
   }
   emit({ type: 'ready' });
 

@@ -149,3 +149,53 @@ export function buildMemoryContext(memories: MemoryItem[]): string {
   });
   return `\n\n[用户画像与关系记忆（仅供你参考，不向用户展示）]\n${lines.join('\n')}\n这些内容只作为背景。标记为“用户主动分享”的内容是你后来听用户讲到的资料，不是你与用户共同经历过的回忆。当前用户的说法、角色人设和边界优先；除非用户主动问起，不要逐条复述，也不要把不确定内容说成事实。`;
 }
+
+/**
+ * Conservatively identify memories that the assistant actually echoed in a reply.
+ * False negatives are preferable to claiming that a fact was spoken when it was
+ * merely present in the prompt. This is only used for repetition cooldowns.
+ */
+export function findSpokenMemoryIds(response: string, memories: MemoryItem[]): string[] {
+  const normalize = (text: string) => text.normalize('NFKC').toLocaleLowerCase().replace(/[\s\u3000，。、！？：；“”‘’（）()\[\]{}.,!?;:"']/gu, '');
+  const answer = normalize(response);
+  if (answer.length < 3) return [];
+  const commonCjkPairs = new Set(['用户', '角色', '喜欢', '不喜', '觉得', '感觉', '其实', '不是', '已经', '现在', '我们', '之前', '当时', '这个', '那个', '他们', '可以', '因为', '所以', '不再', '改成']);
+  const commonLatinTerms = new Set(['user', 'character', 'like', 'want', 'know', 'remember', 'about', 'that', 'this', 'with', 'from', 'have', 'your', 'you', 'just', 'really']);
+  const cjkTerms = (text: string) => {
+    const terms = new Set<string>();
+    for (const run of text.matchAll(/[\u4e00-\u9fff]{2,}/gu)) {
+      const value = run[0];
+      for (let i = 0; i < value.length - 1; i += 1) {
+        const term = value.slice(i, i + 2);
+        if (!commonCjkPairs.has(term) && !/[我你他她它的了在是与和就也都]/u.test(term)) terms.add(term);
+      }
+    }
+    return terms;
+  };
+  const latinTerms = (text: string) => new Set(
+    [...text.matchAll(/[a-z0-9]{4,}/gu)].map(([word]) => word)
+      .filter((word) => !commonLatinTerms.has(word)),
+  );
+  const responseCjkTerms = cjkTerms(answer);
+  const responseLatinTerms = latinTerms(answer);
+
+  return memories.filter((memory) => {
+    const source = normalize(memory.content).slice(0, 220);
+    if (source.length < 3) return false;
+    const phraseLength = /[\u4e00-\u9fff]/u.test(source) ? 4 : 8;
+    // Short memories require an exact match; longer memories need a distinctive
+    // phrase that the assistant really used, rather than just a shared topic.
+    if (source.length <= phraseLength) return answer.includes(source);
+    for (let start = 0; start + phraseLength <= source.length; start += 1) {
+      if (answer.includes(source.slice(start, start + phraseLength))) return true;
+    }
+    const sourceCjkTerms = cjkTerms(source);
+    const sourceLatinTerms = latinTerms(source);
+    return (
+      ([...sourceCjkTerms].some((term) => responseCjkTerms.has(term))
+        && [...sourceLatinTerms].some((term) => responseLatinTerms.has(term)))
+      || [...sourceCjkTerms].filter((term) => responseCjkTerms.has(term)).length >= 2
+      || [...sourceLatinTerms].filter((term) => responseLatinTerms.has(term)).length >= 2
+    );
+  }).map((memory) => memory.id);
+}

@@ -800,6 +800,8 @@ export interface Message {
    */
   contextTrace?: {
     memoryIds?: string[];
+    /** Memory rows the assistant actually reflected in its reply; prompt inclusion alone is not speech. */
+    spokenMemoryIds?: string[];
     continuityThreadIds?: string[];
     sharedEventIds?: string[];
     /** 5.0 共同记忆（sharedMemories.id）：角色确实知道、且这一轮真的注入了的那些 */

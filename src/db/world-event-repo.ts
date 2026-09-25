@@ -41,6 +41,21 @@ function clampImportance(n: number | undefined): number {
   return Math.max(0, Math.min(1, n));
 }
 
+/** A world-shared diary is visible only to its linked participant with current diary consent. */
+export async function isMentionableDiaryEvent(event: WorldEvent, characterId: string, userId?: string): Promise<boolean> {
+  if (event.sourceType !== 'diary') return true;
+  const diary = await db.diaries.get(event.sourceId);
+  if (!diary || (userId !== undefined && diary.userId !== userId) || diary.userId !== event.userId
+    || diary.deletedAt || diary.visibility !== 'world' || diary.worldEventId !== event.id
+    || diary.characterId !== characterId || !event.participants.includes(characterRef(characterId))) return false;
+  const knowledge = await db.characterKnowledge.where('[worldId+characterId]')
+    .equals([event.worldId, characterId])
+    .filter((row) => row.userId === event.userId && row.eventId === `diary:${diary.id}`
+      && row.canMention && row.knowledgeLevel === 'full')
+    .first();
+  return Boolean(knowledge);
+}
+
 export const worldEventRepo = {
   async create(input: NewWorldEventInput): Promise<string> {
     const now = Date.now();
@@ -157,12 +172,15 @@ export const worldEventRepo = {
   /** 某个角色被允许知道的世界事件（visibility 三态；供认知边界与记忆召回使用） */
   async listVisibleToCharacter(worldId: string, characterId: string, limit = 50, userId?: string): Promise<WorldEvent[]> {
     const all = await db.worldEvents.where('worldId').equals(worldId).toArray();
-    return all
+    const visible: WorldEvent[] = [];
+    for (const event of all) {
       // 可见性闸门只有一份实现（lib/world/visibility.ts）：private 一律不返回
-      .filter((e) => userId === undefined || e.userId === userId)
-      .filter((e) => isVisibleToCharacter(e, characterId))
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, limit);
+      if (userId !== undefined && event.userId !== userId) continue;
+      if (!isVisibleToCharacter(event, characterId)) continue;
+      if (!(await isMentionableDiaryEvent(event, characterId, userId))) continue;
+      visible.push(event);
+    }
+    return visible.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
   },
 
   async countByWorld(worldId: string): Promise<number> {

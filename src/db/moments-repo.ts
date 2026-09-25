@@ -7,6 +7,9 @@ import { useAuthStore } from '../store/auth-store';
 import { recallCharacterMemory } from '../lib/character-memory';
 import { historyWindowCutoff, loadMomentsPreferences, type MomentPostFrequency } from '../lib/moments/preferences';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
+import { worldRepo } from './world-repo';
+import { todoRepo } from './todo-repo';
+import { containsPrivateMemoryEcho } from '../lib/memory-disclosure';
 
 export type MomentAudience = {
   visibility: Moment['visibility'];
@@ -51,8 +54,26 @@ async function generateComment(userId: string, character: Character, moment: Mom
   if (auth.userId !== userId || (!auth.apiKey && !hasAiGatewayAccess())) return undefined;
   const postAuthor = moment.authorCharacterId ? await db.characters.get(moment.authorCharacterId) : undefined;
   const postOwner = postAuthor?.name ?? '用户';
-  const recalled = await recallCharacterMemory({ userId, characterId: character.id, audience: moment.audienceCharacterIds, query: `朋友圈 ${moment.text} ${reply?.content ?? ''}`, sources: ['world', 'moment'], budget: 2200 });
-  const prompt = `${character.systemPrompt}\n你正在看朋友圈里一条由${postOwner}发布的动态。以你自己的性格留一句自然、有具体回应的评论，最多60个汉字；可以不赞同，不必总是夸赞或提问。不要写动作或旁白，不要假装看清图片细节。没有配文时只知道对方发了图片。不要泄露私聊、日记或任何不在这条动态里的信息。`;
+  const world = await worldRepo.ensureDefaultWorld(userId).catch(() => null);
+  // The role may use their own cross-channel experience to choose warmth,
+  // distance and conversational rhythm. This private context is never shared
+  // with other characters and is reviewed before any public comment is saved.
+  const recalled = await recallCharacterMemory({
+    userId,
+    characterId: character.id,
+    audience: [character.id],
+    ...(world ? { worldId: world.id } : {}),
+    query: `朋友圈 ${moment.text} ${reply?.content ?? ''}`,
+    sources: ['chat', 'group', 'world', 'moment', 'todo', 'diary'],
+    includePrivateCharacterLifeEvents: true,
+    budget: 1800,
+  });
+  const personalTodos = await todoRepo.visibleOccurrencesForCharacter(userId, character.id, 3, true).catch(() => []);
+  const privateContext = `${recalled.text}${personalTodos.length
+    ? `\n\n【只分享给你的未完成事项，仅供调整语气，不要在公开评论中提起】\n${personalTodos.map(({ todo, occurrence }) => `- ${todo.title}${occurrence.dueDate !== '9999-12-31' ? `（${occurrence.dueDate}）` : ''}`).join('\n')}`
+    : ''}`.trim();
+  const publicInstruction = `你正在看朋友圈里一条由${postOwner}发布的动态。以你自己的性格留一句自然、有具体回应的评论，最多60个汉字；可以不赞同，不必总是夸赞或提问。不要写动作或旁白，不要假装看清图片细节。没有配文时只知道对方发了图片。只能评论当前动态和评论区里真实出现的内容。`;
+  const prompt = `${character.systemPrompt}\n${publicInstruction}\n\n【你的个人经历，仅用于判断语气和关系距离】\n${privateContext}\n不得复述、转述、影射或借评论透露这些私聊、日记、待办或个人生活信息。用户在当前评论区亲自写出的内容除外，但不得补充未公开细节。`;
   const original = moment.text || `${postAuthor?.name ?? '用户'}发布了${moment.mediaIds.length}张图片，没有配文，图片内容未知。`;
   const thread = (await db.momentReactions.where('momentId').equals(moment.id)
     .filter(r => r.userId === userId && r.status === 'active' && r.type === 'comment').toArray())
@@ -67,8 +88,42 @@ async function generateComment(userId: string, character: Character, moment: Mom
   const message = reply
     ? `原动态：${original}\n评论区真实对话：\n${threadLines.join('\n')}\n用户在评论区回复你：${reply.content}\n请继续这个评论区对话，只以你自己的身份回应。`
     : `原动态：${original}\n请写一句朋友圈评论。`;
-  const result = await sendMessage({ apiKey: auth.apiKey ?? '', systemPrompt: `${prompt}\n${recalled.text}`, message, history: [], character, temperature: 0.75 });
-  return result.content.split('---')[0]?.replace(/[\r\n]+/g, ' ').trim().slice(0, 100) || undefined;
+  const result = await sendMessage({ apiKey: auth.apiKey ?? '', systemPrompt: prompt, message, history: [], character, temperature: 0.75 });
+  const draft = result.content.split('---')[0]?.replace(/[\r\n]+/g, ' ').trim().slice(0, 100) || '';
+  if (!draft) return undefined;
+  if (privateContext && (!(await reviewPublicComment({ character, publicInstruction, privateContext, draft, message }))
+    || containsPrivateMemoryEcho(draft, privateContext))) {
+    const safeResult = await sendMessage({ apiKey: auth.apiKey ?? '', systemPrompt: `${character.systemPrompt}\n${publicInstruction}`, message, history: [], character, temperature: 0.75 });
+    return safeResult.content.split('---')[0]?.replace(/[\r\n]+/g, ' ').trim().slice(0, 100) || undefined;
+  }
+  return draft;
+}
+
+async function reviewPublicComment(params: {
+  character: Character;
+  publicInstruction: string;
+  privateContext: string;
+  draft: string;
+  message: string;
+}): Promise<boolean> {
+  const auth = useAuthStore.getState();
+  try {
+    const review = await sendMessage({
+      apiKey: auth.apiKey ?? '',
+      character: params.character,
+      temperature: 0,
+      structuredOutput: true,
+      systemPrompt: '你是公开评论隐私审查器。判断评论是否泄露、复述或影射仅角色本人知道的具体私聊、日记、待办或生活经历。当前动态配文与评论串是公开依据；一般性格、语气、关系距离不算泄露。无法确定时返回 safe=false。只输出 JSON：{"safe":true} 或 {"safe":false}。',
+      message: `公开依据：\n${params.publicInstruction}\n${params.message}\n\n仅角色本人知道的资料：\n${params.privateContext}\n\n待审评论：\n${params.draft}\n\n只判断是否泄露，输出 JSON。`,
+      history: [],
+    });
+    const json = review.content.match(/\{[\s\S]*\}/)?.[0];
+    return json ? (JSON.parse(json) as { safe?: boolean }).safe === true : false;
+  } catch {
+    // If review itself fails, caller retries from public-only context. Never
+    // allow an unreviewed draft to cross the public boundary.
+    return false;
+  }
 }
 
 const LIFE_KINDS = ['routine', 'hobby', 'project', 'social', 'discovery', 'reflection'] as const;
@@ -581,15 +636,25 @@ export const momentsRepo = {
     if (!moment || !(await visibleToCharacter(moment, character.id))) return { status: 'unavailable' };
     const likeId = `moment-like:${moment.id}:${character.id}`;
     const existing = await db.momentReactions.get(likeId);
-    if (existing?.status === 'active') return { status: 'already', moment };
+    if (existing?.status === 'active') {
+      const viewId = `moment-view:${moment.id}:${character.id}`;
+      if (!(await db.momentViews.get(viewId))) {
+        await db.momentViews.put({ id: viewId, userId, momentId: moment.id, characterId: character.id, viewedAt: Date.now() });
+      }
+      return { status: 'already', moment };
+    }
     const state = await stateRepo.getOrCreate(character.id, userId);
     const affinity = Math.max(0, Math.min(1, (state.affinity ?? 0) / 100));
     const warmth = Math.max(0, Math.min(1, character.proactivity ?? 0.5));
     const willing = force || deterministicUnit(`${likeId}:willing`) < 0.35 + affinity * 0.35 + warmth * 0.2;
     if (!willing) return { status: 'declined', moment };
     const now = Date.now();
-    await db.transaction('rw', [db.momentReactions, db.momentNotifications], async () => {
+    await db.transaction('rw', [db.momentReactions, db.momentNotifications, db.momentViews], async () => {
       const latest = await db.momentReactions.get(likeId);
+      const viewId = `moment-view:${moment.id}:${character.id}`;
+      if (!(await db.momentViews.get(viewId))) {
+        await db.momentViews.put({ id: viewId, userId, momentId: moment.id, characterId: character.id, viewedAt: now });
+      }
       if (latest?.status === 'active') return;
       await db.momentReactions.put({ id: likeId, userId, momentId: moment.id, characterId: character.id, type: 'like', status: 'active', createdAt: latest?.createdAt ?? now, updatedAt: now });
       await db.momentNotifications.put({ id: `moment-notice:like:${moment.id}:${character.id}`, userId, momentId: moment.id, characterId: character.id, type: 'like', preview: `${character.name} 点了赞`, read: false, createdAt: now });

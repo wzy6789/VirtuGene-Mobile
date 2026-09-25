@@ -165,14 +165,16 @@ export function MemoryArchiveModal({
                   </div>
                 )}
                 <div className="mt-2 flex justify-end">
-                  <button
-                    onClick={() => void memoryRepo.setPinned(memory.id, !memory.pinned).then(reload)}
-                    disabled={(memory.status ?? 'active') !== 'active' && !memory.pinned}
-                    title={(memory.status ?? 'active') !== 'active' ? '已停用的旧记忆不能重新置顶；需要时请在聊天中重新告诉角色' : undefined}
-                    className="mr-2 rounded-lg px-2 py-1 text-[10px] text-life-cyan disabled:cursor-not-allowed disabled:text-gray-500"
-                  >
-                    {(memory.status ?? 'active') !== 'active' ? (memory.pinned ? '清除重点' : '已停用') : memory.pinned ? '取消重点' : '设为必须记住'}
-                  </button>
+                  {!(memory.type === 'summary' && memory.sourceSessionId) && (
+                    <button
+                      onClick={() => void memoryRepo.setPinned(memory.id, !memory.pinned).then(reload)}
+                      disabled={(memory.status ?? 'active') !== 'active' && !memory.pinned}
+                      title={(memory.status ?? 'active') !== 'active' ? '已停用的旧记忆不能重新置顶；需要时请在聊天中重新告诉角色' : undefined}
+                      className="mr-2 rounded-lg px-2 py-1 text-[10px] text-life-cyan disabled:cursor-not-allowed disabled:text-gray-500"
+                    >
+                      {(memory.status ?? 'active') !== 'active' ? (memory.pinned ? '清除重点' : '已停用') : memory.pinned ? '取消重点' : '设为必须记住'}
+                    </button>
+                  )}
                   {confirmId === memory.id ? (
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-gray-500">这段记忆将被永久抹除</span>
