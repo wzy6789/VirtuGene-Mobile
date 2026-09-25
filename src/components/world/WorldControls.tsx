@@ -101,7 +101,7 @@ export function WorldSuggestions({ options, onPick, onDismiss }: {
  * ------------------------------------------------------------------ */
 export type WorldControlAction =
   | { kind: 'characters_talk' }
-  | { kind: 'entry_mode'; mode: 'memory' | 'present' }
+  | { kind: 'entry_mode'; mode: 'memory' | 'present' | 'amnesiac' }
   | { kind: 'time_skip'; label: string }
   | { kind: 'save_moment' }
   | { kind: 'pause' }
@@ -117,7 +117,7 @@ export function WorldControlSheet(params: {
   onClose: () => void;
   onAction: (action: WorldControlAction) => void;
   busy: boolean;
-  entryMemoryMode: 'memory' | 'present';
+  entryMemoryMode: 'memory' | 'present' | 'amnesiac';
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -138,7 +138,8 @@ export function WorldControlSheet(params: {
           <span>角色加入时</span>
           <div className="vg-sheet-mode-options">
             <button type="button" className={params.entryMemoryMode === 'memory' ? 'is-selected' : ''} onClick={() => params.onAction({ kind: 'entry_mode', mode: 'memory' })}>带上你们的记忆</button>
-            <button type="button" className={params.entryMemoryMode === 'present' ? 'is-selected' : ''} onClick={() => params.onAction({ kind: 'entry_mode', mode: 'present' })}>只带当前状态</button>
+            <button type="button" className={params.entryMemoryMode === 'present' ? 'is-selected' : ''} onClick={() => params.onAction({ kind: 'entry_mode', mode: 'present' })}>从此刻开始参与</button>
+            <button type="button" className={params.entryMemoryMode === 'amnesiac' ? 'is-selected' : ''} onClick={() => params.onAction({ kind: 'entry_mode', mode: 'amnesiac' })}>失忆设定</button>
           </div>
         </div>
 

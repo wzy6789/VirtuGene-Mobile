@@ -306,7 +306,7 @@ export async function applyWorldSettlement(params: {
           if (!ref.startsWith('c:')) continue;
           const characterId = ref.slice(2);
           if (!params.characterIds.includes(characterId)) continue;
-          await knowledgeRepo.upsert({ userId, worldId, characterId, eventId: id, knowledgeLevel: 'full', canMention: true });
+          await knowledgeRepo.grantForEvent({ userId, worldId, characterId, eventId: id, knowledgeLevel: 'full', canMention: true });
         }
       }
 

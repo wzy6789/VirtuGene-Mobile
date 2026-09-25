@@ -1,7 +1,7 @@
 import { db, type Character, type WorldEvent, type WorldPulse } from '../../db';
 import { characterRef } from './subjects';
 import { worldAgentRepo } from '../../db/world-agent-repo';
-import { worldEventRepo } from '../../db/world-event-repo';
+import { isSharedWorldEvent, worldEventRepo } from '../../db/world-event-repo';
 import { worldLocationRepo } from '../../db/world-location-repo';
 import { worldPulseRepo } from '../../db/world-pulse-repo';
 import { beginWorldPulse, failWorldPulse, completeWorldPulse } from './world-pulse';
@@ -184,7 +184,8 @@ async function buildPulsePrompt(params: {
   // The pulse planner sees the shared world, never private or selected-only
   // event summaries. Full character prompts are reserved for that character's
   // own acting call and must not be mixed into a multi-character planner prompt.
-  const publicEvents = events.filter((event) => event.visibility === 'world');
+  // 日记授权也不算"世界公开"：它只授予关联角色，见 isSharedWorldEvent。
+  const publicEvents = events.filter(isSharedWorldEvent);
   const locationLines = locations.map((location) => `${location.id} | ${location.name}${location.description ? ` | ${location.description}` : ''}`);
   const presenceLines = params.characters.map((character) => {
     const presence = presences.find((row) => row.characterId === character.id);
@@ -287,7 +288,7 @@ async function commitActions(params: {
       eventIds.push(result.id);
       // 认知由亲身参与者决定，模型不能指定谁知道什么。重复脉冲仍然幂等。
       for (const participantId of participantIds) {
-        await knowledgeRepo.upsert({
+        await knowledgeRepo.grantForEvent({
           userId: params.pulse.userId,
           worldId: params.pulse.worldId,
           characterId: participantId,

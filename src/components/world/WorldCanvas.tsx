@@ -107,7 +107,7 @@ export function WorldCanvas() {
     return () => window.removeEventListener('vg-close-canvas-sheet', closeSheet);
   }, []);
   const [toast, setToast] = useState<string | null>(null);
-  const [entryMemoryMode, setEntryMemoryMode] = useState<'memory' | 'present'>('memory');
+  const [entryMemoryMode, setEntryMemoryMode] = useState<'memory' | 'present' | 'amnesiac'>('memory');
   const [exploreOpen, setExploreOpen] = useState(false);
   const [locations, setLocations] = useState<WorldLocation[]>([]);
   const [objects, setObjects] = useState<WorldObject[]>([]);

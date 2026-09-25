@@ -45,13 +45,13 @@ export function queryTerms(query: string): string[] {
   return [...terms].filter((t) => t.length >= 2).slice(0, 12);
 }
 
-function hitCount(text: string, terms: string[]): number {
+export function hitCount(text: string, terms: string[]): number {
   let n = 0;
   for (const term of terms) if (text.includes(term)) n += 1;
   return n;
 }
 
-function formatDate(ts: number): string {
+export function formatDate(ts: number): string {
   const d = new Date(ts);
   const days = Math.floor((Date.now() - ts) / 86_400_000);
   const label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

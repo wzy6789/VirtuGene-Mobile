@@ -476,6 +476,15 @@ export async function importSyncData(
 
         n = 0;
         for (const e of data.sharedStoryEvents ?? []) {
+          // 共同事件直接进私聊上下文，删除后必须靠墓碑挡住旧备份复活。
+          if (await memorySourceTombstoneRepo.blocksImport({
+            userId: ownerId,
+            sourceType: 'sharedStoryEvent',
+            sourceId: e.id,
+            sourceRevision: e.updatedAt ?? e.createdAt ?? 0,
+          })) continue;
+          const existing = await db.sharedStoryEvents.get(e.id);
+          if (existing && (existing.updatedAt ?? existing.createdAt ?? 0) > (e.updatedAt ?? e.createdAt ?? 0)) continue;
           await db.sharedStoryEvents.put(e);
           n += 1;
         }
@@ -552,13 +561,22 @@ export async function importSyncData(
         n = 0;
         for (const k of data.characterKnowledge ?? []) {
           const diaryId = k.eventId.startsWith('diary:') ? k.eventId.slice('diary:'.length) : '';
+          // 日记授权是个人知情：拿不到版本时宁可少导（隐私优先，fail-closed）。
           if (diaryId && await memorySourceTombstoneRepo.blocksImport({
             userId: ownerId,
             sourceType: 'diary',
             sourceId: diaryId,
             sourceRevision: k.sourceRevision ?? 0,
           })) continue;
-          if (await memorySourceTombstoneRepo.blocksImport({ userId: ownerId, sourceType: 'worldEvent', sourceId: k.eventId, sourceRevision: k.sourceRevision ?? 0 })) continue;
+          // 世界事件的墓碑只代表"正文被改写/撤回"这**一个版本**，不代表认知失效。
+          // 旧数据没有 sourceRevision 时不能按 0 处理：那等于任何一次正常的正文
+          // 同步都会把角色对这件事的认知挡在门外，换设备恢复后角色就静默失忆了。
+          if (k.sourceRevision !== undefined && await memorySourceTombstoneRepo.blocksImport({
+            userId: ownerId,
+            sourceType: 'worldEvent',
+            sourceId: k.eventId,
+            sourceRevision: k.sourceRevision,
+          })) continue;
           await db.characterKnowledge.put(k);
           n += 1;
         }
@@ -689,7 +707,24 @@ export async function importSyncData(
         }
         counts.momentReactions = n;
         n = 0;
-        for (const contact of data.momentContacts ?? []) { await db.momentContacts.put(contact); n += 1; }
+        for (const contact of data.momentContacts ?? []) {
+          // 屏蔽（blocked）与"不看他"（muted）是同一行上的两个隐私开关，
+          // **按并集合并**：旧备份不能用整行覆盖把 blocked 抹掉。
+          // 解除屏蔽只发生在本机的直接写库路径（`momentsRepo.block(false)`），不经过导入。
+          const existing = await db.momentContacts.get(contact.id);
+          const blocked = Boolean(existing?.blocked || contact.blocked);
+          const muted = Boolean(existing?.muted || contact.muted);
+          const updatedAt = Math.max(contact.updatedAt ?? 0, existing?.updatedAt ?? 0);
+          await db.momentContacts.put({
+            id: contact.id,
+            userId: ownerId,
+            characterId: contact.characterId,
+            ...(blocked ? { blocked: true } : {}),
+            ...(muted ? { muted: true } : {}),
+            updatedAt,
+          });
+          n += 1;
+        }
         counts.momentContacts = n;
         n = 0;
         for (const job of data.momentJobs ?? []) {
@@ -710,7 +745,18 @@ export async function importSyncData(
         }
         counts.momentNotifications = n;
         n = 0;
-        for (const event of data.characterLifeEvents ?? []) { await db.characterLifeEvents.put(event); n += 1; }
+        for (const event of data.characterLifeEvents ?? []) {
+          if (await memorySourceTombstoneRepo.blocksImport({
+            userId: ownerId,
+            sourceType: 'characterLifeEvent',
+            sourceId: event.id,
+            sourceRevision: event.updatedAt ?? event.createdAt ?? 0,
+          })) continue;
+          const existing = await db.characterLifeEvents.get(event.id);
+          if (existing && (existing.updatedAt ?? 0) > (event.updatedAt ?? 0)) continue;
+          await db.characterLifeEvents.put(event);
+          n += 1;
+        }
         counts.characterLifeEvents = n;
         n = 0;
         for (const plan of data.momentPostPlans ?? []) {

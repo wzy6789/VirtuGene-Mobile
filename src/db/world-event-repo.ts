@@ -41,6 +41,20 @@ function clampImportance(n: number | undefined): number {
   return Math.max(0, Math.min(1, n));
 }
 
+/**
+ * 能不能进「多人共享」的世界提示词（导演 / 旁白 / 世界编排器）。
+ *
+ * `visibility === 'world'` 只说明"这条记录属于世界时间线"，**不**说明"在场的所有角色
+ * 都知道"。日记是最典型的反例：用户把一页日记"加入共同世界"只是把它记进年表，
+ * 认知仍然只授予那一个关联角色（见 `diary-visibility.ts` 的 `shouldKnow`）。
+ * 一旦它混进共享提示词，旁白就可能把只授权给某个角色的正文说给所有人听。
+ *
+ * 因此共享层的判据是：世界公开 **且** 不是日记授权的现实记录。
+ */
+export function isSharedWorldEvent(event: WorldEvent): boolean {
+  return event.visibility === 'world' && event.sourceType !== 'diary';
+}
+
 /** A world-shared diary is visible only to its linked participant with current diary consent. */
 export async function isMentionableDiaryEvent(event: WorldEvent, characterId: string, userId?: string): Promise<boolean> {
   if (event.sourceType !== 'diary') return true;

@@ -130,7 +130,7 @@ await build({
   jsx: 'automatic',
 });
 
-for (const name of ['worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 'character-memory', 'worldG', 'moments', 'moments-autonomous']) {
+for (const name of ['worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 'character-memory', 'memory-continuity', 'worldG', 'moments', 'moments-autonomous']) {
   await build({
     ...shared,
     entryPoints: [`scripts/verify/${name}.ts`],

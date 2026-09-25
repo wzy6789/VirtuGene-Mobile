@@ -4,7 +4,7 @@ import { stateRepo } from './state-repo';
 import { sendMessage } from '../lib/ai/deepseek';
 import { hasAiGatewayAccess } from '../lib/ai/gateway';
 import { useAuthStore } from '../store/auth-store';
-import { recallCharacterMemory } from '../lib/character-memory';
+import { buildCharacterMemoryContext } from '../lib/character-memory';
 import { historyWindowCutoff, loadMomentsPreferences, type MomentPostFrequency } from '../lib/moments/preferences';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import { worldRepo } from './world-repo';
@@ -58,13 +58,14 @@ async function generateComment(userId: string, character: Character, moment: Mom
   // The role may use their own cross-channel experience to choose warmth,
   // distance and conversational rhythm. This private context is never shared
   // with other characters and is reviewed before any public comment is saved.
-  const recalled = await recallCharacterMemory({
+  const recalled = await buildCharacterMemoryContext({
     userId,
     characterId: character.id,
     audience: [character.id],
     ...(world ? { worldId: world.id } : {}),
-    query: `朋友圈 ${moment.text} ${reply?.content ?? ''}`,
-    sources: ['chat', 'group', 'world', 'moment', 'todo', 'diary'],
+    topic: `朋友圈 ${moment.text} ${reply?.content ?? ''}`,
+    // 角色可以用自己的私有经历判断语气与距离；来源集合由服务决定。
+    mode: 'moments-comment',
     includePrivateCharacterLifeEvents: true,
     budget: 1800,
   });

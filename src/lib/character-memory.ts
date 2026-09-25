@@ -2,7 +2,7 @@ import { db } from '../db/index';
 import { messageRepo } from '../db/message-repo';
 import { selectRecallableSharedMemories } from './world/recall';
 import { findRelevantHistory } from './world/world-recall';
-import { selectRecallableScenes, selectLiveSceneMoments } from './world/scene-recall';
+import { selectRecallableScenes, selectLiveSceneMoments, findSceneSegmentHistory } from './world/scene-recall';
 import { classifyMemoryKind, rankConversationMemories } from './memory-engine';
 import { memoryLedgerRepo } from '../db/memory-ledger-repo';
 import { memoryRepo } from '../db/memory-repo';
@@ -11,18 +11,103 @@ import { diaryRepo } from '../db/diary-repo';
 import { historyWindowCutoff } from './moments/preferences';
 import { knowledgeRepo } from '../db/knowledge-repo';
 import { isMentionableDiaryEvent } from '../db/world-event-repo';
+import { worldEventRepo } from '../db/world-event-repo';
+import { continuityRepo } from '../db/continuity-repo';
+import { recallHistoricalPrivateChat } from './character-history-recall';
 import { isVisibleToCharacter } from './world/visibility';
 import { listMentionableDiaryIds } from './world/diary-visibility';
 import { visibleToCharacter } from '../db/moments-repo';
 
 export type MemorySource = 'chat' | 'group' | 'world' | 'moment' | 'todo' | 'diary';
-export interface MemoryReference { source: MemorySource; id: string; text: string; at: number; pinned?: boolean; ledgerClaimId?: string }
+
+/**
+ * 取用场景。**调用方只说"我在哪里、对谁说话"，不再自己拼长期记忆规则**：
+ * 默认查哪些来源、哪些来源必须等用户明确问起、默认预算多少，都由服务决定。
+ *
+ * - `private-chat`    一对一私聊。群聊/朋友圈/星域等跨模式资料按需（用户问起）才查。
+ * - `group-chat`      群聊。听众 > 1 时只返回所有听众都有权知道的内容（共享提示词安全）。
+ * - `world-scene`     星域（含进行中的片段）。
+ * - `moments-comment` 朋友圈自主评论：角色可用自己的私有经历判断语气，公开发言前另有披露审查。
+ */
+export type MemoryMode = 'private-chat' | 'group-chat' | 'world-scene' | 'moments-comment';
+
+/**
+ * 意图检测：**这是全系统唯一的一份**。
+ *
+ * 以前每个调用方各写一套正则（私聊一套、群聊一套、朋友圈一套），于是
+ * "用户明确问起旧事"这件事在不同模式下标准不同，同一句话在一个模式里
+ * 能召回、在另一个模式里召不回。现在统一由服务判断，调用方只传话题。
+ */
+export interface RecallIntent {
+  /** 用户在明确追问旧事（"还记得……"） */
+  explicit: boolean;
+  group: boolean;
+  world: boolean;
+  moment: boolean;
+  todo: boolean;
+  diary: boolean;
+}
+
+const EXPLICIT_PREFIX = /记得|还记得|想起来|想起|以前|之前|上次|上回|那次|那天|当时|第一次|那件事|说过|答应|约好|约定|别忘了/u;
+
+export function detectRecallIntent(topic: string | undefined): RecallIntent {
+  const text = topic ?? '';
+  // 地点/渠道词本身也算"在问那个渠道的事"
+  const group = /群里|群聊|大家说/u.test(text);
+  const world = /星域|世界里|那场戏|舞台上/u.test(text);
+  const moment = /朋友圈|动态|照片|评论|点赞|那条/u.test(text);
+  const todo = /待办|任务|完成|做完|提醒/u.test(text);
+  const diary = /日记/u.test(text);
+  const explicit = EXPLICIT_PREFIX.test(text) || group || world || moment || todo || diary;
+  return { explicit, group: explicit && group, world: explicit && world, moment: explicit && moment, todo: explicit && todo, diary: explicit && diary };
+}
+
+/**
+ * 模式决定默认查哪些来源。调用方不再自己拼来源列表。
+ *
+ * 共同点：**平常的闲聊只带"此刻真的会自然想起"的东西**（本模式的内容 +
+ * 跨模式里最近发生、权限允许的部分）；凡是可能把很久以前的事挖出来的查询
+ * （日记、星域旧事、跨模式历史）都要等用户明确问起——这与
+ * `packCharacterMemory` 的优先级一致：用户明确要求记住的 > 当前问题命中的旧事
+ * > 未完成的约定 > 最近对话。
+ */
+function sourcesForMode(mode: MemoryMode | undefined, explicitSources: MemorySource[] | undefined, multiListener: boolean): MemorySource[] {
+  if (explicitSources) return explicitSources;
+  switch (mode) {
+    case 'group-chat':
+      // 共享提示词（听众 > 1）会被所有成员看到：只放所有成员都有权知道的内容。
+      // 单个发言者的私有档案仍然是他的全部来源——多人生成时每个角色单独取自己的档案。
+      return multiListener ? ['world', 'moment', 'todo'] : ['chat', 'group', 'world', 'moment', 'todo', 'diary'];
+    case 'world-scene':
+      return ['chat', 'group', 'world', 'moment', 'todo', 'diary'];
+    case 'moments-comment':
+      return ['chat', 'group', 'world', 'moment', 'todo', 'diary'];
+    case 'private-chat':
+    default:
+      return ['chat', 'group', 'moment', 'todo', 'world', 'diary'];
+  }
+}
+
+export interface MemoryReference { source: MemorySource; id: string; text: string; at: number; pinned?: boolean; ledgerClaimId?: string; memoryKind?: import('./memory-engine').ConversationMemory['memoryKind'] }
+
 export interface CharacterMemoryRequest {
   userId: string;
   characterId: string;
+  /** 当前话题（用户这轮说的话、星域里的动作、朋友圈动态文本）。 */
+  topic?: string;
+  /** @deprecated 用 `topic`；保留以兼容旧调用方。 */
   query?: string;
   /** 所有可能听见本轮回复的角色；多人场合只注入听众共同获准的资料。 */
   audience?: string[];
+  /** 取用场景；缺省时按 `sources` 或私聊处理（兼容旧调用方）。 */
+  mode?: MemoryMode;
+  /** 当前所在星域片段：进行中的片段既要能自然接话，也要能按关键词回查较早的正文。 */
+  scene?: {
+    worldId: string;
+    sceneId?: string;
+    /** 是否把"正在发生的最近几步"带进上下文（默认：星域与非星域场景都带）。 */
+    liveSegments?: boolean;
+  };
   sources?: MemorySource[];
   excludeSessionId?: string;
   worldId?: string;
@@ -31,44 +116,133 @@ export interface CharacterMemoryRequest {
   /** 私密角色生活只进入该角色独享的上下文；公开发言还须经过披露审查。 */
   includePrivateCharacterLifeEvents?: boolean;
   excludeReferences?: { source: MemorySource; id: string }[];
+  /**
+   * 同时返回**结构化档案**（记忆行 / 未完成的约定 / 日记 / 他知道的世界事件 / 待办）。
+   *
+   * 给星域这类需要把记忆分区渲染、逐条展示来源的调用方用：它们以前各自去读
+   * 5 张表、各自跑一遍闸门，于是"同一个角色在不同入口记得什么"很容易走岔。
+   * 打开后由服务统一读一次、统一过闸门。
+   */
+  withCatalog?: boolean;
+}
+
+/** 结构化档案：与 `text` 同一批闸门下的原始行，供上层分区渲染。 */
+export interface CharacterMemoryCatalog {
+  /** 该角色的全部有效记忆行（按时间倒序，未做相关性裁剪）。 */
+  memories: import('../db/index').MemoryItem[];
+  /** 与这个角色有关的、还没做完的约定。 */
+  threads: import('../db/index').ContinuityThread[];
+  /** 可见且可提起的日记（最多 3 页）。 */
+  diaries: { id: string; date: string; title: string; content: string }[];
+  /** 他参与过、已经结算成共同记忆的经历（最多 3 条）。 */
+  sharedMemories: import('../db/index').SharedMemory[];
+  /** 他参与过、已经结束的星域片段（最多 2 场）。 */
+  scenes: { id: string; title: string; place: string; summary: string }[];
+  /** 他确实知道、可以提起，且不是世界公开事件的那些事（最多 6 条）。 */
+  events: import('../db/index').WorldEvent[];
+  /** 被明确分享给他的待办（最多 5 条）。 */
+  todos: { id: string; title: string; dueDate?: string; dueTime?: string; note?: string }[];
+}
+
+/** 提示词分区：同一个角色的同一套档案，按"此刻适合提起什么"分块，而不是按表分块。 */
+export interface CharacterMemorySections {
+  /** 稳定事实与偏好（含"用户创建你时主动分享的背景"）。 */
+  profile: string;
+  /** 共同经历：已结算的星域、共同记忆、动态里的共同片段。 */
+  episodes: string;
+  /** 约定与未完成的约定。 */
+  promises: string;
+  /** 跨模式知情：群聊、朋友圈、日记、待办。 */
+  crossChannel: string;
+  /** 最近对话与当前正在发生的几步（只够自然接话，不足以"想起来"）。 */
+  recent: string;
+  /** 用户明确追问时回查到的原文（私聊/群聊/星域旧片段）。 */
+  historical: string;
+}
+
+export interface CharacterMemoryContext {
+  /** 面向提示词的整段文本（与旧 `recallCharacterMemory().text` 完全一致）。 */
+  text: string;
+  references: MemoryReference[];
+  /** 分区文本，调用方按用途取用，不再各自拼装长期记忆。 */
+  sections: CharacterMemorySections;
+  /** 命中的原文位置与"他怎么知道的"，供界面展示"为什么记得"。 */
+  provenance: MemoryProvenance[];
+  /** 仅在 `withCatalog` 时返回的结构化档案。 */
+  catalog?: CharacterMemoryCatalog;
+}
+
+/** 一条记忆的来源说明：回答"这件事来自哪、他怎么知道的、他能不能说"。 */
+export interface MemoryProvenance {
+  source: MemorySource;
+  id: string;
+  /** 亲历 / 亲口说过 / 看过 / 被告知 */
+  learnedBy: 'witnessed' | 'said' | 'viewed' | 'told';
+  /** 只在当前话题里有依据可提起 */
+  canMention: boolean;
+  at: number;
 }
 
 /** 原数据是唯一事实源，不复制私密正文；每轮重新核验权限，删除/撤回立即生效。零联网。 */
-export async function recallCharacterMemory(p: CharacterMemoryRequest): Promise<{ text: string; references: MemoryReference[] }> {
-  try { return await readCharacterMemory(p); }
-  catch { console.warn('[character-memory] local recall unavailable; skipped optional context'); return { text: '', references: [] }; }
-}
-
-async function readCharacterMemory(p: CharacterMemoryRequest): Promise<{ text: string; references: MemoryReference[] }> {
-  const empty = { text: '', references: [] };
+async function readCharacterMemory(p: CharacterMemoryRequest): Promise<CharacterMemoryContext> {
+  const empty: CharacterMemoryContext = { text: '', references: [], sections: { profile: '', episodes: '', promises: '', crossChannel: '', recent: '', historical: '' }, provenance: [] };
   const character = await db.characters.get(p.characterId);
   if (!character || character.createdBy !== p.userId) return empty;
   const audience = [...new Set([p.characterId, ...(p.audience ?? [])])];
   const audienceRows = await db.characters.bulkGet(audience);
   if (audienceRows.some(c => !c || c.createdBy !== p.userId)) return empty;
-  const sources = new Set(p.sources ?? ['chat', 'group', 'world', 'moment', 'todo']);
-  const explicitGroupHistory = /记得|还记得|以前|之前|上次|那次|第一次|那件事|群里/u.test(p.query ?? '');
-  const explicitWorldHistory = /记得|还记得|以前|之前|上次|那次|第一次|那件事|星域|世界里|那场/u.test(p.query ?? '');
-  const explicitMomentHistory = /朋友圈|动态|照片|评论|点赞|那条|之前|上次|记得|发过/u.test(p.query ?? '');
-  const explicitTodoHistory = /记得|还记得|之前|以前|上次|那件事|待办|任务|完成|做完/u.test(p.query ?? '');
+  const topic = p.topic ?? p.query ?? '';
+  const intent = detectRecallIntent(topic);
+  const multiListener = audience.length > 1;
+  const catalogWorldId = p.worldId ?? p.scene?.worldId;
+  const sources = new Set(sourcesForMode(p.mode, p.sources, multiListener));
+  // 跨模式历史只在以下几件事上"等用户明确问起"，其余按目录自然带入：
+  //   group  → 群聊历史（追问时才翻全部会话）
+  //   world  → 星域旧事（追问时才按关键词检索旧事件/旧片段）
+  //   moment → 朋友圈历史（追问时才放开时间窗）
+  //   todo   → 已完成的待办（追问时才回溯全部）
+  const explicitGroupHistory = intent.explicit;
+  const explicitWorldHistory = intent.explicit;
+  const explicitMomentHistory = intent.moment || intent.explicit;
+  const explicitTodoHistory = intent.todo || intent.explicit;
   const items: MemoryReference[] = [];
   if (sources.has('chat') && audience.length === 1) {
     // Use the same read path as private chat so legacy detached summaries are
     // retired before any other channel can recall them.
     const rows = await memoryRepo.getByCharacter(p.characterId, p.userId);
-    for (const m of rankConversationMemories(rows, p.query ?? '', new Set(), 6)) {
+    for (const m of rankConversationMemories(rows, topic, new Set(), 6)) {
       items.push({
         source: 'chat',
         id: m.id,
         text: m.importedFromMemoryId ? `用户创建你时主动分享的背景（不是你亲历）：${m.content}` : m.content,
         at: m.createdAt,
         pinned: m.pinned,
+        memoryKind: m.memoryKind,
       });
     }
     const sessions = await db.sessions.where('[characterId+userId]').equals([p.characterId, p.userId]).filter(s => s.type !== 'group' && s.id !== p.excludeSessionId).toArray();
     const latest = sessions.sort((a,b) => b.updatedAt-a.updatedAt)[0];
+    const recentMessageIds: string[] = [];
     if (latest) for (const m of await messageRepo.getPage(latest.id, { limit: 6 })) {
-      if (!m.failed && m.role !== 'system' && m.content.trim()) items.push({ source: 'chat', id: m.id, at: m.createdAt, text: `最近私聊中${m.role === 'user' ? '用户' : '你'}说：${m.content}` });
+      if (m.failed || m.role === 'system' || !m.content.trim()) continue;
+      recentMessageIds.push(m.id);
+      items.push({ source: 'chat', id: m.id, at: m.createdAt, text: `最近私聊中${m.role === 'user' ? '用户' : '你'}说：${m.content}` });
+    }
+    /**
+     * 明确追问旧事时回查**原文**：摘要只用来快速定位，不能替代原话，
+     * 也不能把摘要里漏掉的事当成"从没发生过"。这是"聊久了就忘"的私聊侧缺口。
+     */
+    if (intent.explicit) {
+      const hits = await recallHistoricalPrivateChat({
+        userId: p.userId,
+        characterId: p.characterId,
+        query: topic,
+        limit: 4,
+        excludeMessageIds: recentMessageIds,
+      });
+      for (const hit of hits) {
+        items.push({ source: 'chat', id: hit.messageId, at: hit.createdAt, text: `你翻到的旧私聊原话（${new Date(hit.createdAt).toISOString().slice(0, 10)}）：${hit.content}` });
+      }
     }
   }
   if (sources.has('group')) {
@@ -85,12 +259,14 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<{ text: s
     }
   }
   if (sources.has('world')) {
-    const worlds = await db.worlds.where('userId').equals(p.userId).filter(w => !p.worldId || w.id === p.worldId).toArray();
+    const worldFilter = p.worldId ?? p.scene?.worldId;
+    const liveEntryIds = new Set<string>();
+    const worlds = await db.worlds.where('userId').equals(p.userId).filter(w => !worldFilter || w.id === worldFilter).toArray();
     for (const world of (explicitWorldHistory ? worlds : worlds.slice(0, 4))) {
       if (explicitWorldHistory) {
         const hits = await findRelevantHistory({
           userId: p.userId, worldId: world.id, characterId: p.characterId,
-          audienceCharacterIds: audience, query: p.query ?? '', limit: 6,
+          audienceCharacterIds: audience, query: topic, limit: 6,
         });
         for (const hit of hits) items.push({ source: 'world', id: hit.id, at: hit.timestamp, text: `星域旧事：${hit.date} ${hit.text}` });
       }
@@ -111,7 +287,39 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<{ text: s
           if (!perActor.every(a => a.live.some(s => s.scene.id === scene.id && s.entries.some(e => e.id === entry.id)))) continue;
           const original = await db.worldSceneEntries.get(entry.id);
           if (!original || original.sceneId !== scene.id) continue;
+          liveEntryIds.add(entry.id);
           items.push({source:'world',id:entry.id,at:original.createdAt,text:`世界「${scene.title}」中仍在发生的片段（尚未结算）：${entry.content}`});
+        }
+      }
+      /**
+       * 进行中的星域：最近几步只够自然接话，**较早的正文要能按关键词回查**。
+       * 这是"聊久了就忘"的检索断层：同一场戏里 30 轮之前说好的事，
+       * 既没有结算成共同记忆，也不在"最近几步"里，用户问起时就会失忆。
+       * 摘要/最近片段是索引，原文才是证据——这里取原文。
+       *
+       * 只在用户明确追问旧事时回查：平常的一轮不必把本场旧正文再塞一遍
+       * （那既挤占篇幅，也会让"这个角色带着私密上下文"在每一轮都成立）。
+       */
+      if (intent.explicit || p.scene?.liveSegments === true) {
+        const segmentHits = await findSceneSegmentHistory({
+          userId: p.userId,
+          worldId: world.id,
+          characterId: p.characterId,
+          ...(p.scene?.sceneId ? { sceneId: p.scene.sceneId } : {}),
+          audience,
+          query: topic,
+          limit: 5,
+        });
+        for (const hit of segmentHits) {
+          // `excludeSceneId` 只用来避免重复"最近几步"（上面已按 liveEntryIds 去过重）；
+          // 较早的片段恰恰不在最近窗口里，不能因为它是"当前这场戏"就被排除。
+          if (liveEntryIds.has(hit.entryId)) continue;
+          items.push({
+            source: 'world',
+            id: hit.entryId,
+            at: hit.timestamp,
+            text: `世界「${hit.sceneTitle}」里较早的片段（${hit.date}）：${hit.text}`,
+          });
         }
       }
     }
@@ -200,7 +408,7 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<{ text: s
     }
   }
   const excluded = new Set((p.excludeReferences ?? []).map(r => `${r.source}:${r.id}`));
-  const packed = packCharacterMemory(items.filter(r => !excluded.has(`${r.source}:${r.id}`)), p.query ?? '', p.budget ?? 2600);
+  const packed = packCharacterMemory(items.filter(r => !excluded.has(`${r.source}:${r.id}`)), topic, p.budget ?? 2600);
   // The ledger only learns from references that passed the same source-level
   // visibility checks and survived prompt packing. It never widens visibility.
   const references: MemoryReference[] = [];
@@ -220,7 +428,167 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<{ text: s
       references.push(reference);
     }
   }
-  return { ...packed, references };
+  return {
+    ...packed,
+    references,
+    sections: renderSections(references),
+    provenance: references.map(describeProvenance),
+    ...(p.withCatalog ? { catalog: await buildCatalog(p, audience, catalogWorldId) } : {}),
+  };
+}
+
+/**
+ * 结构化档案：与提示词用的是**同一批闸门**，只是不做相关性裁剪、按用途分组。
+ * 星域的世界页/角色页需要"逐条列出他记得什么"，这里给它一份一致的读数。
+ */
+async function buildCatalog(p: CharacterMemoryRequest, audience: string[], worldId?: string): Promise<CharacterMemoryCatalog> {
+  const [memories, threads, todos] = await Promise.all([
+    memoryRepo.getByCharacter(p.characterId, p.userId).then((rows) => rows
+      .filter((row) => (row.status ?? 'active') === 'active')
+      .sort((a, b) => b.createdAt - a.createdAt)),
+    continuityRepo.getOpenByCharacter(p.characterId, p.userId).catch(() => []),
+    todoRepo.visibleForCharacter(p.userId, p.characterId, 5).catch(() => []),
+  ]);
+  const catalog: CharacterMemoryCatalog = {
+    memories,
+    threads,
+    diaries: [],
+    sharedMemories: [],
+    scenes: [],
+    events: [],
+    todos: todos.map((todo) => ({
+      id: todo.id,
+      title: todo.title,
+      ...(todo.dueDate ? { dueDate: todo.dueDate } : {}),
+      ...(todo.dueTime ? { dueTime: todo.dueTime } : {}),
+      ...(todo.note ? { note: todo.note.slice(0, 120) } : {}),
+    })),
+  };
+  if (!worldId) return catalog;
+  // 共同经历：已结算的共同记忆 + 已结束的星域片段（逐条列出用，不参与提示词排序）
+  const [sharedRows, sceneRows] = await Promise.all([
+    selectRecallableSharedMemories({ userId: p.userId, worldId, characterId: p.characterId, limit: 3 }),
+    selectRecallableScenes({ userId: p.userId, worldId, characterId: p.characterId, limit: 2 }),
+  ]);
+  catalog.sharedMemories = sharedRows.map((row) => row.memory);
+  catalog.scenes = sceneRows.map((row) => ({
+    id: row.scene.id,
+    title: row.scene.title,
+    place: row.scene.place,
+    summary: row.event.summary || row.scene.title,
+  }));
+  // 日记：可见 ∩ 可提起（与私聊、星域同一口径）
+  const [visible, mentionable] = await Promise.all([
+    diaryRepo.listVisibleFor(p.characterId, p.userId, 20),
+    listMentionableDiaryIds(p.userId, worldId, p.characterId),
+  ]);
+  catalog.diaries = visible
+    .filter((diary) => mentionable.has(diary.id))
+    .slice(0, 3)
+    .map((diary) => ({ id: diary.id, date: diary.date, title: diary.title, content: diary.content.slice(0, 400) }));
+  // 他知道且可提起、且不是"世界公开"的事件（世界公开的部分由共享层渲染）
+  const knownRows = await knowledgeRepo.listKnownBy(p.characterId, worldId, { minLevel: 'partial', limit: 30, userId: p.userId });
+  catalog.events = knownRows.length
+    ? (await worldEventRepo.getByIds(knownRows.filter((row) => row.canMention).map((row) => row.eventId)))
+      .filter((event) => event.userId === p.userId && event.worldId === worldId
+        && event.visibility !== 'world' && isVisibleToCharacter(event, p.characterId)
+        && audience.every((id) => isVisibleToCharacter(event, id) && knowledgeRowAllows(knownRows, id, event.id)))
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, 6)
+    : [];
+  return catalog;
+}
+
+/** 认知行是否允许这个角色提起这条事件（多人场合要求每个人都有一行）。 */
+function knowledgeRowAllows(
+  rows: import('../db/index').CharacterKnowledge[],
+  characterId: string,
+  eventId: string,
+): boolean {
+  return rows.some((row) => row.characterId === characterId && row.eventId === eventId
+    && row.canMention && row.knowledgeLevel !== 'none');
+}
+
+/** 一条记忆归类到哪个分区：稳定事实 / 共同经历 / 约定 / 跨模式知情 / 较早的原文。 */
+function sectionOf(reference: MemoryReference): keyof CharacterMemorySections {
+  switch (reference.source) {
+    case 'chat':
+      if (reference.text.includes('你翻到的旧私聊原话')) return 'historical';
+      if (reference.memoryKind === 'promise') return 'promises';
+      if (reference.memoryKind === 'episode') return 'episodes';
+      if (reference.text.includes('最近私聊中')) return 'recent';
+      return 'profile';
+    case 'todo':
+      return 'promises';
+    case 'group':
+    case 'diary':
+    case 'moment':
+      return 'crossChannel';
+    case 'world':
+      if (reference.text.startsWith('星域旧事') || reference.text.includes('里较早的片段')) return 'historical';
+      if (reference.text.includes('仍在发生的片段')) return 'recent';
+      return 'episodes';
+    default:
+      return 'crossChannel';
+  }
+}
+
+/** "他怎么知道的"：亲历 / 亲口说过 / 看过 / 被告知。 */
+function learnedByOf(reference: MemoryReference): MemoryProvenance['learnedBy'] {
+  switch (reference.source) {
+    case 'world':
+      return 'witnessed';
+    case 'moment':
+      return 'viewed';
+    case 'group':
+      return 'said';
+    default:
+      return 'told';
+  }
+}
+
+function renderSections(references: MemoryReference[]): CharacterMemorySections {
+  const sections: CharacterMemorySections = { profile: '', episodes: '', promises: '', crossChannel: '', recent: '', historical: '' };
+  for (const reference of references) {
+    const key = sectionOf(reference);
+    sections[key] = sections[key] ? `${sections[key]}\n${reference.text}` : reference.text;
+  }
+  return sections;
+}
+
+function describeProvenance(reference: MemoryReference): MemoryProvenance {
+  return {
+    source: reference.source,
+    id: reference.id,
+    learnedBy: learnedByOf(reference),
+    canMention: true,
+    at: reference.at,
+  };
+}
+
+/**
+ * **唯一**的角色记忆取用入口。
+ *
+ * 调用方只说明：这是谁、当前话题是什么、在哪个场景、谁听得见。
+ * 来源核验（这条资料还存在吗、他还被允许知道吗）、权限判断（听众是否都能知道）、
+ * 检索、排序、去重、篇幅分配都由这里完成——各个页面不再自己拼长期记忆规则。
+ * 页面仍然可以单独附上"当前会话最近几条消息"或"当前星域正在发生的那几步"，
+ * 但那些是现场信息，不是长期记忆。
+ *
+ * 全程本地读取，零联网；任何失败都退化成"没有记忆"而不是抛错。
+ */
+export async function buildCharacterMemoryContext(p: CharacterMemoryRequest): Promise<CharacterMemoryContext> {
+  try { return await readCharacterMemory(p); }
+  catch {
+    console.warn('[character-memory] local recall unavailable; skipped optional context');
+    return { text: '', references: [], sections: { profile: '', episodes: '', promises: '', crossChannel: '', recent: '', historical: '' }, provenance: [] };
+  }
+}
+
+/** @deprecated 用 `buildCharacterMemoryContext`：同一个服务，这里只是旧签名。 */
+export async function recallCharacterMemory(p: CharacterMemoryRequest): Promise<{ text: string; references: MemoryReference[] }> {
+  const context = await buildCharacterMemoryContext(p);
+  return { text: context.text, references: context.references };
 }
 
 async function indexVisibleReference(p: CharacterMemoryRequest, reference: MemoryReference): Promise<string | undefined> {

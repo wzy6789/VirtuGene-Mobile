@@ -71,9 +71,26 @@ These suites use real IndexedDB and verify scoped recall, listener isolation, re
 | Suite | Coverage | Assertions |
 |---|---|---:|
 | `character-memory.html` | private/group chat, per-actor group generation and disclosure boundaries, Moments, diary participant privacy, todos, world recall, durable extraction, source revision/revocation, claim-source edge granularity, undo, account boundaries, stale backups, spoken-only cooldown, multi-source survival, pinned summary cleanup across private chat and world, private-life recall in one-character world, memory-driven summary invalidation, session deletion cleanup, safe correction matching, per-character world memory and privacy boundary | 137 |
+| `memory-continuity.html` | the six cross-mode acceptance scenarios: private→world/group recall with other-actor isolation, older in-progress scene segments retrieved by keyword, seen vs unseen Moments, diary grant/revoke plus the shared-layer diary leak guard, correction/deletion across all modes, long-conversation compression with spoken-memory cooldown, shared-story and block-state stale-backup guards, knowledge-revision restore, account deletion clearing the ledger | 63 |
 | `worldG.html` | world state and undo regression | 13 |
 | `moments.html` | Moments visibility and interaction | 39 |
 | `moments-autonomous.html` | autonomous posts/comments, per-character memory context, public disclosure review, isolation and retries | 14 |
+
+> **出场状态语义（5.2.3 起）**：`entryMemoryMode` 只决定"这场戏的正文从哪开始"，
+> 不再决定"这个人记得什么"。
+> - `memory`（默认）：带上这段经历与自己的全部过往。
+> - `present`：**从此刻开始参与** —— 不继承入场前的本场正文，但仍保有自己的私聊、群聊、
+>   日记授权与既有经历（以前它会压掉这些，让同一个角色换个入口就像换了一个人）。
+> - `amnesiac`：明确标注的失忆玩法，才连带压掉他自己的过往记忆。
+>
+> 三个入口（`world-context.ts` / `scene-runtime.ts` / 记忆引用校验）共用
+> `world-scene-repo.ts` 的 `participantReadsEntry` 单一判据（按 `enteredAt` 时间戳，
+> 不再依赖写入当刻的 `witnessedBy` 快照——那个快照天然包含入场后加入的角色）。
+
+> **已由新套件取代的旧断言**：`phase2a` / `phase2b0` / `phase2b1` / `phase2b2` / `phase3` / `phase3c`
+> 是**世界 IA 改版前**的旧验收（世界页文案、旧舞台分支），当前仍是 FAIL；
+> 它们要守的行为已由 `worldG`（世界状态与撤销）与 `worldD`（世界空间 UI）覆盖。
+> 运行全量前请先看这两组的状态，不要把旧断言的红当成记忆系统回归。
 
 ### Living World A–E：公共装置
 

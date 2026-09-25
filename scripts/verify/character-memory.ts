@@ -346,11 +346,20 @@ async function run() {
   check(aWorldContext.includes('挚友') && aWorldContext.includes('心情很好') && aWorldContext.includes('准备流星雨观测') && aWorldContext.includes('旧友'), 'A carries their own current relationship, mood, life and authored links');
   check(aWorldContext.includes('不要主动向其他在场者透露'), 'A sees an explicit boundary against disclosing personal memory to other actors');
   check(!renderWorldLayer(sharedContext).includes('天文观测营') && !renderWorldLayer(sharedContext).includes('蓝色'), 'private character memories stay out of the shared world layer');
+  // 出场状态只决定**这场戏的正文**从哪开始，不再决定"这个人记得什么"：
+  // present = 从此刻开始参与（保留自己的私聊/群聊/既有经历）；
+  // amnesiac = 明确标注的失忆玩法，才压掉他自己的过往记忆。
   scene.state.entryMemoryMode='present';
   const present = await buildWorldContext({userId:'u',worldId:'w',scene,characters});
-  check(!renderCharacterContext(present,'a').includes('GROUP_MEMORY_SENTINEL_42'), 'present mode excludes imported memory');
-  check(!renderCharacterContext(present,'a').includes('私聊摘要：一起在海边约好看流星雨')
-    && renderCharacterContext(present,'a').includes('挚友'), 'present mode retains current character relationship while leaving past private conversation behind');
+  check(renderCharacterContext(present,'a').includes('GROUP_MEMORY_SENTINEL_42')
+    && renderCharacterContext(present,'a').includes('私聊摘要：一起在海边约好看流星雨'), 'present mode starts from now but keeps the character own history');
+  check(renderCharacterContext(present,'a').includes('挚友'), 'present mode keeps the current relationship');
+  scene.state.entryMemoryMode='amnesiac';
+  const amnesiac = await buildWorldContext({userId:'u',worldId:'w',scene,characters});
+  check(!renderCharacterContext(amnesiac,'a').includes('GROUP_MEMORY_SENTINEL_42')
+    && !renderCharacterContext(amnesiac,'a').includes('私聊摘要：一起在海边约好看流星雨'), 'amnesiac mode is the explicit setting that drops the character own memory');
+  check(renderCharacterContext(amnesiac,'a').includes('挚友'), 'even amnesiac mode keeps the current relationship');
+  scene.state.entryMemoryMode='memory';
   await db.todos.put({ id:'shared-completed', userId:'u', title:'寄出资料包', note:'已经交给快递', dueDate:'2026-09-20', recurrence:{kind:'none'}, status:'completed', completedAt:now, visibility:'selected', visibleTo:['a'], createdAt:now, updatedAt:now } as any);
   await db.todoOccurrences.put({ id:'todo-occ:shared-completed:2026-09-20', userId:'u', todoId:'shared-completed', dueDate:'2026-09-20', originalDueDate:'2026-09-20', status:'completed', completedAt:now, createdAt:now, updatedAt:now } as any);
   await db.todos.put({ id:'private-pending', userId:'u', title:'未来提醒测试', recurrence:{kind:'none'}, status:'todo', visibility:'selected', visibleTo:['a'], createdAt:now, updatedAt:now } as any);

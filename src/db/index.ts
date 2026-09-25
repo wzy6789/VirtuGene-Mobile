@@ -296,7 +296,7 @@ export interface WorldEvent {
 export interface SceneParticipantState {
   characterId: string;
   /** 进入场景时携带的上下文范围。 */
-  entryMemoryMode?: 'memory' | 'present';
+  entryMemoryMode?: 'memory' | 'present' | 'amnesiac';
   /** 进入时间；present 角色只读取此刻之后的舞台正文。旧数据没有时兼容为全量。 */
   enteredAt?: number;
   /** 该角色本场想要什么 */
@@ -334,7 +334,7 @@ export interface WorldSceneState {
   /** 最近一次世界状态变化的人话说明（仅内部/调试，UI 默认不展示数字） */
   lastWorldChange?: string;
   /** 新加入角色默认携带的上下文范围；单个参与者可覆盖。 */
-  entryMemoryMode?: 'memory' | 'present';
+  entryMemoryMode?: 'memory' | 'present' | 'amnesiac';
   /** 5.2 Living World：不把短期对话节奏塞进世界正文，单独保存可压缩的导演状态。 */
   conversation?: {
     currentTopic?: string;
@@ -957,7 +957,7 @@ export interface MemoryUsage {
 export interface MemorySourceTombstone {
   id: string;
   userId: string;
-  sourceType: 'memory' | 'message' | 'diary' | 'moment' | 'momentReaction' | 'todo' | 'todoOccurrence' | 'worldEvent' | 'sharedMemory' | 'worldFact' | 'worldScene' | 'worldSceneEntry' | 'worldTurn' | 'continuityThread' | 'relationshipEvent';
+  sourceType: 'memory' | 'message' | 'diary' | 'moment' | 'momentReaction' | 'todo' | 'todoOccurrence' | 'worldEvent' | 'sharedMemory' | 'worldFact' | 'worldScene' | 'worldSceneEntry' | 'worldTurn' | 'continuityThread' | 'relationshipEvent' | 'sharedStoryEvent' | 'characterLifeEvent';
   sourceId: string;
   /** 被撤销的最高来源版本；更高版本代表用户后来重新授权或编辑。 */
   sourceRevision: number;

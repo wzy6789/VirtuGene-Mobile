@@ -117,7 +117,7 @@ export async function syncLifeEventToWorld(params: {
   });
 
   // 亲身经历 ⇒ 该角色获得认知（可以自然地提起）
-  await knowledgeRepo.upsert({ userId, worldId, characterId, eventId: event.id, knowledgeLevel: 'full', canMention: true });
+  await knowledgeRepo.grantForEvent({ userId, worldId, characterId, eventId: event.id, knowledgeLevel: 'full', canMention: true });
 
   /**
    * 关系变化额外记一条「为什么」（Phase 2b-5 关系网络可解释化）。
@@ -180,7 +180,7 @@ export async function syncContinuityThreadToWorld(params: {
     resolved: thread.status === 'done',
     meta: { threadStatus: thread.status, kind: thread.kind, ...(thread.dueAt ? { dueAt: thread.dueAt } : {}) },
   });
-  await knowledgeRepo.upsert({
+  await knowledgeRepo.grantForEvent({
     userId,
     worldId,
     characterId: thread.characterId,
@@ -252,7 +252,7 @@ export async function collectMessageAsSharedMemory(params: {
   const existing = await db.sharedMemories.get(memoryId);
   if (existing) {
     // 已收藏过：只把认知补齐（例如角色是新导入的），不产生第二行
-    await knowledgeRepo.upsert({
+    await knowledgeRepo.grantForEvent({
       userId, worldId, characterId, eventId, knowledgeLevel: 'full', canMention: true,
     });
     return { memoryId, eventId, created: false };
@@ -297,7 +297,7 @@ export async function collectMessageAsSharedMemory(params: {
       meta: { messageId: message.id },
     });
 
-    await knowledgeRepo.upsert({
+    await knowledgeRepo.grantForEvent({
       userId, worldId, characterId, eventId, knowledgeLevel: 'full', canMention: true,
     });
   });

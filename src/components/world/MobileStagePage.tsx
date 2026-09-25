@@ -74,7 +74,7 @@ export function MobileStagePage() {
 
   /** 建立新世界的表单 */
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ title: '', place: '', timeLabel: '傍晚', mood: '安静', goal: '', picked: [] as string[], entryMemoryMode: 'memory' as 'memory' | 'present' });
+  const [form, setForm] = useState({ title: '', place: '', timeLabel: '傍晚', mood: '安静', goal: '', picked: [] as string[], entryMemoryMode: 'memory' as 'memory' | 'present' | 'amnesiac' });
 
   /** 从星图「新的世界」进来时直接展开创建表单 */
   const createIntent = useUIStore((s) => s.worldCreateIntent);
@@ -434,22 +434,33 @@ export function MobileStagePage() {
                   )}
                   <div className="vg-entry-memory mt-4">
                     <p className="text-[10px] text-gray-500">进入世界时带着什么</p>
-                    <div className="mt-1.5 grid grid-cols-2 gap-2">
+                    <div className="mt-1.5 grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => setForm((f) => ({ ...f, entryMemoryMode: 'memory' }))}
-                        className={`rounded-xl border px-3 py-2 text-[11px] transition-colors ${form.entryMemoryMode === 'memory' ? 'border-gene-purple/50 bg-gene-purple/12 text-gene-purple' : 'border-line bg-surface text-gray-500'}`}
+                        className={`rounded-xl border px-2 py-2 text-[11px] transition-colors ${form.entryMemoryMode === 'memory' ? 'border-gene-purple/50 bg-gene-purple/12 text-gene-purple' : 'border-line bg-surface text-gray-500'}`}
                       >
                         带上与你的记忆
                       </button>
                       <button
                         type="button"
                         onClick={() => setForm((f) => ({ ...f, entryMemoryMode: 'present' }))}
-                        className={`rounded-xl border px-3 py-2 text-[11px] transition-colors ${form.entryMemoryMode === 'present' ? 'border-gene-purple/50 bg-gene-purple/12 text-gene-purple' : 'border-line bg-surface text-gray-500'}`}
+                        className={`rounded-xl border px-2 py-2 text-[11px] transition-colors ${form.entryMemoryMode === 'present' ? 'border-gene-purple/50 bg-gene-purple/12 text-gene-purple' : 'border-line bg-surface text-gray-500'}`}
                       >
-                        只带此刻状态
+                        从此刻开始参与
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, entryMemoryMode: 'amnesiac' }))}
+                        className={`rounded-xl border px-2 py-2 text-[11px] transition-colors ${form.entryMemoryMode === 'amnesiac' ? 'border-amber-400/50 bg-amber-400/10 text-amber-500' : 'border-line bg-surface text-gray-500'}`}
+                      >
+                        失忆设定
                       </button>
                     </div>
+                    <p className="mt-1.5 text-[10px] leading-5 text-gray-500">
+                      「从此刻开始参与」不继承这场戏入场前的正文，但仍保有自己的私聊、群聊与过往经历。
+                      「失忆设定」是明确的特殊玩法：连他自己的过往记忆也不带入。
+                    </p>
                   </div>
                   {error && <p className="mt-2 text-[11px] text-amber-500">{error}</p>}
                   <div className="mt-3 flex items-center gap-3">

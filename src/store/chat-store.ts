@@ -704,6 +704,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     await sharedEventRepo.clearForUser(userId);
     // 5.0 Living World：世界层全部数据（含世界本身）一并删除
     await worldRepo.clearForUser(userId);
+    // 统一记忆账本（claims/evidence/knowledge/jobs/usage）：注销必须一起清空，
+    // 否则"他为什么记得这件事"的来源会留在本机，却已经没有对应的记忆行。
+    await Promise.all([
+      db.memoryClaims.where('userId').equals(userId).delete(),
+      db.memoryEvidence.where('userId').equals(userId).delete(),
+      db.memoryKnowledge.where('userId').equals(userId).delete(),
+      db.memoryJobs.where('userId').equals(userId).delete(),
+      db.memoryUsage.where('userId').equals(userId).delete(),
+    ]);
+    // 待办与群组同样属于该账号：注销后不应残留。
+    await Promise.all([
+      db.todos.where('userId').equals(userId).delete(),
+      db.todoOccurrences.where('userId').equals(userId).delete(),
+      db.todoReminders.where('userId').equals(userId).delete(),
+      db.groups.where('userId').equals(userId).delete(),
+    ]);
     // 注销账号是彻底清理；撤回标记也属于该账号的数据，不能遗留在本机。
     await db.memorySourceTombstones.where('userId').equals(userId).delete();
     await db.users.delete(userId);

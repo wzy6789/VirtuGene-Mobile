@@ -29,11 +29,14 @@ export function MemoryArchiveModal({
   const [crossClaims, setCrossClaims] = useState<{ claim: MemoryClaim; sources: MemoryEvidence[] }[]>([]);
   const [jobStatus, setJobStatus] = useState({ pending: 0, failed: 0 });
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
+  const [sessionTypes, setSessionTypes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [originals, setOriginals] = useState<Record<string, string[]>>({});
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [filter, setFilter] = useState<MemoryFilter>('all');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -57,11 +60,16 @@ export function MemoryArchiveModal({
       setCrossClaims(cross.slice(0, 30));
       const sessionIds = Array.from(new Set(list.map((m) => m.sourceSessionId).filter((id): id is string => !!id)));
       const titles: Record<string, string> = {};
+      const types: Record<string, string> = {};
       for (const id of sessionIds) {
         const session = await sessionRepo.getById(id);
-        if (session) titles[id] = session.title || '一段对话';
+        if (session) {
+          titles[id] = session.title || '一段对话';
+          types[id] = session.type ?? 'single';
+        }
       }
       setSessionTitles(titles);
+      setSessionTypes(types);
     } finally {
       setLoading(false);
     }
@@ -137,6 +145,7 @@ export function MemoryArchiveModal({
                 <p className="text-[12.5px] leading-relaxed text-ink">{memory.content}</p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-gray-500">
                   <span className="rounded-full bg-life-cyan/10 px-1.5 py-0.5 text-life-cyan">{memoryKindLabel(memory.memoryKind)}</span>
+                  <span className="rounded-full bg-black/5 px-1.5 py-0.5">{memoryOrigin(memory, sessionTypes)}</span>
                   {memory.pinned && (memory.status ?? 'active') === 'active' && <span className="rounded-full bg-gene-purple/15 px-1.5 py-0.5 text-gene-purple">必须记住</span>}
                   {memory.status === 'superseded' && <span className="rounded-full bg-gray-500/15 px-1.5 py-0.5 text-gray-500">已被新信息替代</span>}
                   {memory.status === 'withdrawn' && <span className="rounded-full bg-gray-500/15 px-1.5 py-0.5 text-gray-500">已撤回，不再召回</span>}
@@ -145,6 +154,27 @@ export function MemoryArchiveModal({
                   <span>· {hasOrigin ? '有原话依据' : '由对话总结'}</span>
                   {typeof memory.confidence === 'number' && memory.confidence < 0.8 && <span>· 把握不大</span>}
                 </div>
+                {editingId === memory.id ? (
+                  <div className="mt-2">
+                    <textarea
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      rows={3}
+                      className="w-full rounded-xl border border-life-cyan/30 bg-surface/60 px-2.5 py-2 text-[12px] leading-relaxed text-ink outline-none focus:border-life-cyan/60"
+                      placeholder="改写成你希望他记住的说法"
+                    />
+                    <div className="mt-1.5 flex items-center justify-end gap-2">
+                      <button onClick={() => { setEditingId(null); setDraft(''); }} className="rounded-lg px-2 py-1 text-[10px] text-gray-500">取消</button>
+                      <button
+                        onClick={() => void memoryRepo.correctContent(memory.id, draft, userId).then(() => { setEditingId(null); setDraft(''); return reload(); })}
+                        disabled={!draft.trim() || draft.trim() === memory.content}
+                        className="rounded-lg bg-life-cyan/15 px-2 py-1 text-[10px] text-life-cyan disabled:cursor-not-allowed disabled:text-gray-500"
+                      >
+                        保存更正
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 {hasOrigin && (
                   <button
                     onClick={() => void toggleOriginal(memory)}
@@ -165,6 +195,13 @@ export function MemoryArchiveModal({
                   </div>
                 )}
                 <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={() => { setEditingId(memory.id); setDraft(memory.content); setConfirmId(null); }}
+                    disabled={(memory.status ?? 'active') !== 'active'}
+                    className="mr-2 rounded-lg px-2 py-1 text-[10px] text-life-cyan disabled:cursor-not-allowed disabled:text-gray-500"
+                  >
+                    纠正这条
+                  </button>
                   {!(memory.type === 'summary' && memory.sourceSessionId) && (
                     <button
                       onClick={() => void memoryRepo.setPinned(memory.id, !memory.pinned).then(reload)}
@@ -240,8 +277,23 @@ export function MemoryArchiveModal({
   );
 }
 
-function sourceLabel(source: MemoryEvidence['sourceType']): string {
-  const labels: Record<MemoryEvidence['sourceType'], string> = {
+/**
+ * "他怎么知道的"：这条记忆是用户在哪告诉他的，还是他自己经历/总结出来的。
+ * 只回答来源，不展示内部评分或证据表。
+ */
+function memoryOrigin(memory: MemoryItem, sessionTypes: Record<string, string>): string {
+  if (memory.importedFromMemoryId) return '你创建他时分享的背景';
+  const type = memory.sourceSessionId ? sessionTypes[memory.sourceSessionId] : undefined;
+  if (type === 'group') return '群聊里听到的';
+  if (memory.memoryKind === 'character-life') return '他自己的近况';
+  if (memory.memoryKind === 'episode') return '你们一起经历过的';
+  if (memory.memoryKind === 'summary') return '由对话总结';
+  if (type === 'single' || memory.sourceMessageIds?.length) return '你在私聊里告诉他的';
+  if (memory.sourceSessionId) return '来自一段对话';
+  return '他记得的事';
+}
+
+function sourceLabel(source: MemoryEvidence['sourceType']): string {  const labels: Record<MemoryEvidence['sourceType'], string> = {
     chat: '私聊', group: '群聊', moment: '朋友圈', momentReaction: '评论互动', diary: '日记', todo: '待办',
     todoOccurrence: '待办记录', worldEvent: '世界事件', sharedMemory: '共同经历', worldScene: '星域', worldSceneEntry: '星域片段',
     continuityThread: '约定', relationshipEvent: '关系变化', legacy: '旧记忆',

@@ -1,4 +1,5 @@
 import { db, type SharedStoryEvent } from './index';
+import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 export type SharedEventType = SharedStoryEvent['type'];
 
@@ -123,7 +124,22 @@ export const sharedEventRepo = {
     });
   },
 
+  /**
+   * 删除一条共同事件。必须留下墓碑：共同事件会直接进入私聊上下文
+   * （`chat-context.ts` 的「你们之间发生过的事」），没有墓碑的话，
+   * 一份旧备份就能把用户删掉的事件重新塞回角色的记忆里。
+   */
   async remove(id: string): Promise<void> {
+    const existing = await db.sharedStoryEvents.get(id);
+    if (existing) {
+      await memorySourceTombstoneRepo.record({
+        userId: existing.userId,
+        sourceType: 'sharedStoryEvent',
+        sourceId: id,
+        sourceRevision: existing.updatedAt ?? existing.createdAt ?? Date.now(),
+        status: 'deleted',
+      });
+    }
     await db.sharedStoryEvents.delete(id);
   },
 

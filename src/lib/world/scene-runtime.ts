@@ -35,7 +35,7 @@ import {
 import { validateSettlement } from './scene-consequences';
 import { actMarkerContent, shouldAdvanceAct } from './scene-acts';
 import { buildHiddenUserProfile } from './user-profile';
-import { recallCharacterMemory } from '../character-memory';
+import { buildCharacterMemoryContext } from '../character-memory';
 import { memoryRepo } from '../../db/memory-repo';
 
 /** 一次场景推演的结果（供 UI 与验收断言） */
@@ -57,11 +57,17 @@ async function buildMembers(scene: WorldScene, userId: string, query = ''): Prom
     const character = await characterRepo.getById(characterId);
     if (!character) continue;
     const participant = scene.state.participants.find((p) => p.characterId === characterId);
-    const carryMemory = (participant?.entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory') !== 'present';
-    // 角色**只能知道**自己参与过的事件：用认知边界过滤（§62）
-    const recalled = carryMemory ? await recallCharacterMemory({
-      userId, characterId, query, audience: scene.characterIds,
-      worldId: scene.worldId, excludeSceneId: scene.id,
+    // 出场状态只决定本场正文从哪开始（与 world-context 同一口径）：
+    // present 仍保有自己的过往经历，只有明确标注的 amnesiac 才压掉。
+    const carryMemory = (participant?.entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory') !== 'amnesiac';
+    // 角色**只能知道**自己参与过的事件：用认知边界过滤（§62）。
+    // 多人场景里共享导演一次看到所有成员，因此只传"所有在场者都有权知道"的内容
+    // （audience 取全场 ⇒ 服务按交集返回），个人档案留给各自的 Actor 调用。
+    const recalled = carryMemory ? await buildCharacterMemoryContext({
+      userId, characterId, topic: query, audience: scene.characterIds,
+      mode: 'world-scene',
+      scene: { worldId: scene.worldId, sceneId: scene.id },
+      excludeSceneId: scene.id,
       includePrivateCharacterLifeEvents: scene.characterIds.length === 1,
     }) : { text: '' };
     // Scene Director sees every member in one request. Per-character history, goals and secrets
@@ -113,7 +119,7 @@ export async function startScene(params: {
   theme?: string;
   characterIds: string[];
   sceneGoal?: string;
-  participants?: { characterId: string; goals: string[]; knowsEventIds: string[]; secrets: string[]; entryMemoryMode?: 'memory' | 'present' }[];
+  participants?: { characterId: string; goals: string[]; knowsEventIds: string[]; secrets: string[]; entryMemoryMode?: 'memory' | 'present' | 'amnesiac' }[];
 }): Promise<string> {
   if (params.characterIds.length === 0) throw new Error('scene:participants_required');
   // 同一个角色同一时间只属于一段正在进行的星域片段。离开旧片段会先暂停它；
@@ -476,7 +482,7 @@ export async function finishSceneAndSettle(params: {
 
   // 5) 认知：**亲身经历 ⇒ 只有参与者获得**（不接受模型指定）
   for (const characterId of scene.characterIds) {
-    await knowledgeRepo.upsert({
+    await knowledgeRepo.grantForEvent({
       userId: params.userId,
       worldId: scene.worldId,
       characterId,

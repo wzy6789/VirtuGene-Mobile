@@ -261,7 +261,7 @@ export async function saveAsStory(params: {
   });
   await worldEventRepo.update(eventId, { memoryIds: [memoryId] });
   for (const characterId of scene.characterIds) {
-    await knowledgeRepo.upsert({
+    await knowledgeRepo.grantForEvent({
       userId: params.userId,
       worldId: params.worldId,
       characterId,

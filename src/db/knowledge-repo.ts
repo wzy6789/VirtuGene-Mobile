@@ -35,6 +35,22 @@ function knowledgeId(userId: string, worldId: string, characterId: string, event
 }
 
 export const knowledgeRepo = {
+  /**
+   * 授予"亲历 / 被告知"的认知，并记录**授予时所依据的来源版本**。
+   *
+   * 为什么必须带版本：换设备恢复备份时，导入侧要拿认知行的 `sourceRevision`
+   * 去和"来源被改写 / 撤回"的墓碑比较。缺这个字段的旧写法只能按版本 0 处理，
+   * 于是任何一条墓碑——包括"正文被正常改写"这种不该作废认知的墓碑——都会把
+   * 认知行挡在门外，角色就静默失忆了（且没有任何提示）。
+   */
+  async grantForEvent(input: KnowledgeInput): Promise<string> {
+    const event = input.sourceRevision === undefined ? await db.worldEvents.get(input.eventId) : undefined;
+    return this.upsert({
+      ...input,
+      ...(input.sourceRevision === undefined && event ? { sourceRevision: event.updatedAt } : {}),
+    });
+  },
+
   /** 幂等写入（同一角色 + 同一事件只有一条认知；重复调用更新等级/标记，不新增行） */
   async upsert(input: KnowledgeInput): Promise<string> {
     const id = knowledgeId(input.userId, input.worldId, input.characterId, input.eventId);

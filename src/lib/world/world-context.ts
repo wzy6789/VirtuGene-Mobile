@@ -6,11 +6,9 @@
  * 1. **Director / Narrator 知道世界全貌**（L0~L3、L5、L9）
  *    —— 但它们不扮演角色，所以拿到的是"世界事实层"的渲染结果。
  * 2. **Actor 只知道 TA 应该知道的**（§20）
- *    —— 每个角色单独构建一份私有上下文，四道数据闸门：
- *      · 世界设定：`worldFactRepo.listForCharacter`（visibility 硬过滤）
- *      · 共同记忆：`selectRecallableSharedMemories`（可见性 + 认知 + 相关度）
- *      · 日记：`listVisibleFor ∩ listMentionableDiaryIds`（与私聊完全同一口径）
- *      · 场景：`selectRecallableScenes`（参与过 + 认知 + 可见性）
+ *    —— 每个角色单独构建一份私有上下文。长期记忆（共同记忆 / 日记 / 场景 /
+ *      待办 / 他知道的事件 / 跨渠道记忆）全部由 `buildCharacterMemoryContext`
+ *      一处过闸门后以结构化档案返回；本模块只补齐世界设定、当前关系与当前状态。
  *    角色**不会**因为系统知道某件事就自动知道。
  *
  * 本模块**零 LLM 调用**：它只读数据库、拼字符串。
@@ -23,24 +21,17 @@
  */
 import { db, type Character, type SharedMemory, type WorldEvent, type WorldFact, type WorldObject, type WorldScene, type WorldSceneEntry, type ContinuityThread, type RelationshipState } from '../../db/index';
 import { worldFactRepo } from '../../db/world-fact-repo';
-import { worldEventRepo } from '../../db/world-event-repo';
+import { isSharedWorldEvent, worldEventRepo } from '../../db/world-event-repo';
 import { sceneEntriesAvailableToAudience, worldSceneRepo } from '../../db/world-scene-repo';
 import { knowledgeRepo } from '../../db/knowledge-repo';
 import { continuityRepo } from '../../db/continuity-repo';
 import { relationshipRepo } from '../../db/relationship-repo';
-import { diaryRepo } from '../../db/diary-repo';
 import { characterRef, userRef } from './subjects';
-import { selectRecallableSharedMemories } from './recall';
-import { recallCharacterMemory } from '../character-memory';
-import { selectRecallableScenes } from './scene-recall';
-import { listMentionableDiaryIds } from './diary-visibility';
+import { buildCharacterMemoryContext } from '../character-memory';
 import { describeFacets, FACET_LABEL } from './relationships';
 import { buildHiddenUserProfile } from './user-profile';
 import { worldObjectRepo } from '../../db/world-object-repo';
-import { todoRepo } from '../../db/todo-repo';
-import { isVisibleToCharacter } from './visibility';
 import { stateRepo } from '../../db/state-repo';
-import { memoryRepo } from '../../db/memory-repo';
 import { buildLifeContext, buildRelationshipContext, buildStoryRelationContext } from '../chat-context';
 import type { WorldConversationState, WorldVisualState } from './world-immersion';
 import { deriveWorldVisualState, directorConversationHints, emptyConversationState } from './world-immersion';
@@ -178,7 +169,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
   const [worldFacts, entries, recentEvents, allThreads, objects] = await Promise.all([
     worldFactRepo.listWorldLevel(worldId, 16, userId),
     worldSceneRepo.listRecentEntries(scene.id, Math.max(20, params.recentLimit ?? 60)),
-    worldEventRepo.getRecent(worldId, 30, userId).then((rows) => rows.filter((event) => event.visibility === 'world')),
+    worldEventRepo.getRecent(worldId, 30, userId).then((rows) => rows.filter(isSharedWorldEvent)),
     continuityRepo.getOpenByUser(userId),
     scene.locationId ? worldObjectRepo.listForLocation(worldId, scene.locationId, userId) : Promise.resolve([]),
   ]);
@@ -192,46 +183,52 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
   for (const characterId of presence) {
     const participant = scene.state.participants?.find((p) => p.characterId === characterId);
     const entryMemoryMode = participant?.entryMemoryMode ?? scene.state.entryMemoryMode ?? 'memory';
-    const carryMemory = entryMemoryMode !== 'present';
-    const [facts, memories, scenes, diaryVisible, threads, relation, userMemories, todos, knownRows, characterState, privateSessions] = await Promise.all([
+    /**
+     * 出场状态只决定**这场戏的正文**从哪里开始算，不再决定"这个人记得什么"。
+     *
+     * - `memory`（默认）：这段经历 + 自己的全部过往。
+     * - `present`（从此刻开始参与）：不继承入场前的本场正文（由
+     *   `participantReadsEntry` 按时间戳裁掉），但仍保有自己的私聊、群聊、
+     *   日记授权与既有个人经历——否则同一个角色换个入口就像换了一个人。
+     * - `amnesiac`（明确标注的失忆玩法）：连自己的过往记忆也不带入。
+     */
+    const carryMemory = entryMemoryMode !== 'amnesiac';
+    /**
+     * 长期记忆**只从这一个服务取**：共同记忆、日记授权、场景、待办、他知道的事件、
+     * 跨渠道记忆以前是在这里各查各表、各过各的闸门，于是同一个角色从世界页和从私聊
+     * 看"记得什么"会走岔。现在调用方只说"谁 / 什么话题 / 哪一场戏 / 谁听得见"，
+     * 由服务统一读一次、统一过闸门，并用 `withCatalog` 把分区渲染需要的原始行一起给出来。
+     *
+     * 世界设定（`worldFactRepo`）、当前关系、当前状态是本场戏的设定与即时状态，
+     * 不是长期记忆档案，仍然在这里读。
+     */
+    const [facts, relation, characterState, privateSessions, memory] = await Promise.all([
       worldFactRepo.listForCharacter(worldId, characterId, 10, userId),
-      carryMemory ? selectRecallableSharedMemories({ userId, worldId, characterId, limit: 3 }) : Promise.resolve([]),
-      carryMemory ? selectRecallableScenes({ userId, worldId, characterId, limit: 2 }) : Promise.resolve([]),
-      carryMemory ? diaryRepo.listVisibleFor(characterId, userId, 20) : Promise.resolve([]),
-      carryMemory ? Promise.resolve(openThreads.filter((t) => t.characterId === characterId)) : Promise.resolve([]),
       relationshipRepo.getStateFor(userRef(userId), characterRef(characterId), worldId),
-      carryMemory
-        ? memoryRepo.getByCharacter(characterId, userId).then((rows) => rows
-          .filter((row) => (row.status ?? 'active') === 'active')
-          .sort((a, b) => b.createdAt - a.createdAt)
-          // 让 buildHiddenUserProfile 从完整候选集中按相关性挑选；固定取最近 18 条
-          // 会让很重要但较早的用户事实在星域里永久消失。
-          )
-      : Promise.resolve([]),
-      carryMemory ? todoRepo.visibleForCharacter(userId, characterId, 5) : Promise.resolve([]),
-      carryMemory ? knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'partial', limit: 30, userId }) : Promise.resolve([]),
       stateRepo.get(characterId, userId),
+      // 会话摘要是**会话状态**，不是长期记忆档案：留在原地读。
       carryMemory
         ? db.sessions.where('[characterId+userId]').equals([characterId, userId])
           .filter((row) => row.type !== 'group' && Boolean(row.summary?.trim())).toArray()
         : Promise.resolve([]),
+      carryMemory ? buildCharacterMemoryContext({
+        // 只召回这个 Actor 自己知道的事；其他在场者和导演永远拿不到这份结果。
+        userId, characterId,
+        topic: params.userText,
+        audience: [characterId],
+        mode: 'world-scene',
+        scene: { worldId, sceneId: scene.id },
+        excludeSceneId: scene.id,
+        budget: 2200,
+        // 单人场景没有别人能听见这个角色的私人生活；多人场景先不带入，
+        // 等公开台词的披露审查能按发言人隔离之后再说。
+        includePrivateCharacterLifeEvents: presence.length === 1,
+        withCatalog: true,
+      }) : Promise.resolve(null),
     ]);
-
-    const knownEvents = carryMemory && knownRows.length
-      ? (await worldEventRepo.getByIds(knownRows.filter((row) => row.canMention).map((row) => row.eventId)))
-        .filter((event) => event.userId === userId && event.worldId === worldId && event.visibility !== 'world' && isVisibleToCharacter(event, characterId))
-        .sort((a, b) => b.timestamp - a.timestamp)
-        .slice(0, 6)
-      : [];
-
-    // 日记：可见 ∩ 可提起（与私聊完全同一口径，避免"世界页能说、私聊不能说"）
-    const mentionable = carryMemory
-      ? await listMentionableDiaryIds(userId, worldId, characterId)
-      : new Set<string>();
-    const diaries = diaryVisible
-      .filter((d) => mentionable.has(d.id))
-      .slice(0, 3)
-      .map((d) => ({ id: d.id, date: d.date, title: d.title, content: d.content.slice(0, 400) }));
+    // `carryMemory=false`（amnesiac）时服务完全不参与，字段退化成空值；
+    // 下面统一用空目录兜底，保证字段名与取值形态与改造前完全一致。
+    const catalog = memory?.catalog;
 
     perCharacter[characterId] = {
       ...(characterState ? {
@@ -248,34 +245,19 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
           .map((row) => row.summary?.trim().slice(0, 900))
           .filter(Boolean).join('\n'),
       } : {}),
-      crossChannelMemory: carryMemory ? (await recallCharacterMemory({
-        // Recall only this Actor's own knowledge. Other speakers and the
-        // Director never receive this result.
-        userId, characterId, query: params.userText, audience: [characterId],
-        sources: ['chat', 'group', 'moment', 'todo', 'world', 'diary'],
-        worldId, excludeSceneId: scene.id, budget: 2200,
-        // A one-character scene has no other actor who could overhear this
-        // role's private life. Shared scenes keep that material out until the
-        // public disclosure check is isolated per speaker.
-        includePrivateCharacterLifeEvents: presence.length === 1,
-      })).text : '',
+      crossChannelMemory: memory?.text ?? '',
       persona: params.characters.find((character) => character.id === characterId)?.systemPrompt,
       characterId,
       name: nameOf(characterId),
-      memories: memories.map((m) => m.memory),
-      diaries,
-      events: knownEvents,
-      scenes: scenes.map((s) => ({
-        id: s.scene.id,
-        title: s.scene.title,
-        place: s.scene.place,
-        summary: s.event.summary || s.scene.title,
-      })),
+      memories: catalog?.sharedMemories ?? [],
+      diaries: catalog?.diaries ?? [],
+      events: catalog?.events ?? [],
+      scenes: catalog?.scenes ?? [],
       facts,
       ...(relation && relation.userId === userId ? { userRelation: relation } : {}),
-      threads,
-      ...(carryMemory ? { userProfile: buildHiddenUserProfile(userMemories, params.userText) } : {}),
-      todos: todos.map((todo) => ({ id: todo.id, title: todo.title, ...(todo.dueDate ? { dueDate: todo.dueDate } : {}), ...(todo.dueTime ? { dueTime: todo.dueTime } : {}), ...(todo.note ? { note: todo.note.slice(0, 120) } : {}) })),
+      threads: catalog?.threads ?? [],
+      ...(carryMemory ? { userProfile: buildHiddenUserProfile(catalog?.memories ?? [], params.userText) } : {}),
+      todos: catalog?.todos ?? [],
     };
 
     // 秘密：TA 守着不说的事（只有一致性守护看得到）

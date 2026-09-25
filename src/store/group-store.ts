@@ -7,7 +7,7 @@ import { characterRepo } from '../db/character-repo';
 import { memoryRepo } from '../db/memory-repo';
 import { todoRepo } from '../db/todo-repo';
 import { worldRepo } from '../db/world-repo';
-import { recallCharacterMemory } from '../lib/character-memory';
+import { buildCharacterMemoryContext } from '../lib/character-memory';
 import { useAuthStore } from './auth-store';
 import { useNotificationStore } from './notification-store';
 import { stateRepo } from '../db/state-repo';
@@ -124,15 +124,18 @@ async function buildBriefs(group: Group, userId: string, query = ''): Promise<Gr
   return Promise.all(
     members.map(async (c) => {
       const [shared, personal, personalTodos] = await Promise.all([
-        // The director may see only memories that every current group member is
-        // allowed to know. These are the only memories included in its prompt.
-        recallCharacterMemory({ userId, characterId: c.id, query, audience: group.characterIds, sources: ['world', 'moment', 'todo'], budget: 1800 }),
-        // Each speaker gets a separate, actor-scoped context later. Never place
-        // this text in the shared director prompt.
-        recallCharacterMemory({
-          userId, characterId: c.id, query, audience: [c.id],
+        // 共享提示词：听众是**全体成员**，服务因此只返回所有成员都有权知道的内容。
+        // 来源集合不再由调用方拼；跨模式历史何时放开也由服务按话题判断。
+        buildCharacterMemoryContext({
+          userId, characterId: c.id, topic: query,
+          audience: group.characterIds, mode: 'group-chat', budget: 1800,
+        }),
+        // 每个发言人有独立的、只属于自己的上下文，之后再单独生成；这份文本
+        // 绝不进共享提示词。听众只有自己时，服务会给出完整的来源集合。
+        buildCharacterMemoryContext({
+          userId, characterId: c.id, topic: query,
+          audience: [c.id], mode: 'group-chat',
           ...(world ? { worldId: world.id } : {}),
-          sources: ['chat', 'group', 'world', 'moment', 'todo', 'diary'],
           includePrivateCharacterLifeEvents: true,
           budget: 1800,
         }),

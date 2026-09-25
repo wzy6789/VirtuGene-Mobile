@@ -140,7 +140,7 @@ export async function applyLocalWorldAction(params: {
   characters: Character[];
   userId: string;
   worldId: string;
-  entryMemoryMode?: 'memory' | 'present';
+  entryMemoryMode?: 'memory' | 'present' | 'amnesiac';
 }): Promise<LocalActionOutcome> {
   const { action, scene, characters, userId, worldId, entryMemoryMode } = params;
   const entries: LocalActionOutcome['entries'] = [];
@@ -327,7 +327,7 @@ export interface RunWorldTurnParams {
   origin?: WorldTurn['origin'];
   characters: Character[];
   /** 通过自然语言召入角色时，决定他能否带入与用户的旧记忆。 */
-  entryMemoryMode?: 'memory' | 'present';
+  entryMemoryMode?: 'memory' | 'present' | 'amnesiac';
   /** 可注入的 LLM 边界（验收用） */
   call?: WorldLlmCaller;
   /** 渐进式回调（UI 用它即时渲染） */

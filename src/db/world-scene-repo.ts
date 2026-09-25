@@ -49,10 +49,29 @@ export function emptySceneState(sceneGoal?: string): WorldSceneState {
 }
 
 /**
- * 给当前听众筛选舞台正文。present 入场者不读取入场前正文；
- * memory 模式保留旧行为，允许带入场景前情。旧条目没有 witnessedBy 时，
- * 用 participant.enteredAt 保守判断，不把入场前内容交给 present 角色。
+ * 一个角色能不能读到某条舞台正文。
+ *
+ * 口径只有一份，三个地方共用（这里 / `selectLiveSceneMoments` / 记忆引用校验），
+ * 否则同一个角色在不同入口会得到不同的"我到底看没看过"：
+ * - `memory`（默认）：带上这段经历，可以读全部正文。
+ * - `present`（从此刻开始参与）：不继承**这场戏**入场前的正文，但保有自己的
+ *   私聊、群聊与既有个人经历（跨模式记忆由 `buildCharacterMemoryContext` 给）。
+ * - `amnesiac`（明确标注的失忆设定）：同样从此刻开始，且跨模式记忆也被压掉。
+ *
+ * 判据是**时间戳**而不是 `witnessedBy`：`witnessedBy` 是写入当刻的在场快照
+ * （`appendEntry`），入场后的新行天然包含该角色，因此它无法回答"入场前那条"。
  */
+export function participantReadsEntry(
+  participant: SceneParticipantState | undefined,
+  entry: Pick<WorldSceneEntry, 'createdAt'>,
+): boolean {
+  // 旧数据/未登记参与者没有 mode：按默认 `memory` 处理（他就在场，且没有要求过"从此刻开始"）。
+  if (!participant) return true;
+  if ((participant.entryMemoryMode ?? 'memory') === 'memory') return true;
+  return participant.enteredAt == null || entry.createdAt >= participant.enteredAt;
+}
+
+/** 给当前听众筛选舞台正文；每个听众都必须真的在这场戏里，且被允许读到这条。 */
 export function sceneEntriesAvailableToAudience(
   entries: WorldSceneEntry[],
   scene: WorldScene,
@@ -62,12 +81,9 @@ export function sceneEntriesAvailableToAudience(
   const participants = new Map((scene.state.participants ?? []).map((item) => [item.characterId, item]));
   return entries.filter((entry) => audience.every((characterId) => {
     const participant = participants.get(characterId);
+    // 共享输出必须 fail-closed：听众不在参与者名单里，就不能把正文给他。
     if (!participant) return false;
-    // memory mode is an explicit request to inherit this scene's earlier history;
-    // witnessedBy is only a hard gate for present-only arrivals.
-    if (participant.entryMemoryMode !== 'present') return true;
-    if (entry.witnessedBy) return entry.witnessedBy.includes(characterId);
-    return participant.enteredAt == null || entry.createdAt >= participant.enteredAt;
+    return participantReadsEntry(participant, entry);
   }));
 }
 
@@ -178,7 +194,7 @@ export const worldSceneRepo = {
   async addParticipant(
     sceneId: string,
     characterId: string,
-    options: { entryMemoryMode?: 'memory' | 'present' } = {},
+    options: { entryMemoryMode?: 'memory' | 'present' | 'amnesiac' } = {},
   ): Promise<WorldScene | undefined> {
     return db.transaction('rw', db.worldScenes, async () => {
       const existing = await db.worldScenes.get(sceneId);

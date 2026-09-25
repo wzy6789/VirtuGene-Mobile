@@ -1,5 +1,5 @@
 import { db, type MemoryEvidenceSource, type MemoryItem } from './index';
-import { prepareMemoryMetadata } from '../lib/memory-engine';
+import { normalizeMemoryContent, prepareMemoryMetadata } from '../lib/memory-engine';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import { memoryLedgerRepo } from './memory-ledger-repo';
 
@@ -187,8 +187,14 @@ export async function invalidateUnpinnedMemoriesForMessages(userId: string, mess
     if (shouldSupersede) {
       invalidated += 1;
       await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: memory.id, sourceRevision: now, status: 'superseded' });
-    } else if (updated.pinned || retainedIds.length) {
-      await memoryLedgerRepo.syncMemoryItem(updated);
+    } else {
+      // 独立置顶事实按设计保留（用户明确要求记住的不能被一次编辑清掉），
+      // 但它已经和来源脱钩了：**必须留墓碑**，否则一份旧备份会把"还能被原话核对"
+      // 的假象带回来，而那份原话在本机已经不存在了。
+      if (updated.pinned && retainedIds.length === 0) {
+        await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: memory.id, sourceRevision: now, status: 'superseded' });
+      }
+      if (updated.pinned || retainedIds.length) await memoryLedgerRepo.syncMemoryItem(updated);
     }
   }
   return invalidated;
@@ -376,6 +382,33 @@ export const memoryRepo = {
       ...(pinned ? { stability: 'stable' as const, status: 'active' as const } : {}),
       updatedAt: Date.now(),
     });
+  },
+
+  /**
+   * 用户自己在记忆档案里改正一条记忆的措辞（"其实不是这样"）。
+   *
+   * 这是**就地替换**而不是新建一条：
+   * - 来源与证据（哪句话、哪次经历）保持不变，只是内容被用户纠正；
+   * - 旧版本写入墓碑，因此下一次同步/恢复不会用旧文本覆盖用户的更正；
+   * - 依赖这份旧措辞的会话摘要一并失效，避免摘要继续引用被改掉的说法。
+   */
+  async correctContent(id: string, content: string, userId: string): Promise<void> {
+    const current = await db.memories.get(id);
+    if (!current || current.userId !== userId) return;
+    const next = normalizeMemoryContent(content);
+    if (!next || next === current.content) return;
+    await invalidateSessionSummariesForMemory(current);
+    const updatedAt = Date.now();
+    await memorySourceTombstoneRepo.record({
+      userId: current.userId,
+      sourceType: 'memory',
+      sourceId: current.id,
+      sourceRevision: current.updatedAt ?? current.createdAt,
+      status: 'superseded',
+    });
+    await db.memories.update(id, { content: next, updatedAt });
+    const updated = await db.memories.get(id);
+    if (updated) await memoryLedgerRepo.syncMemoryItem(updated);
   },
 
   /** 用新事实替代旧事实，保留旧记录与来源用于审计，但不再召回。 */
