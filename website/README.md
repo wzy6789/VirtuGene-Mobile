@@ -108,7 +108,7 @@ npx serve website
 
 下载入口只指向真实存在的发布资产，版本号分别核对，不假定两个平台版本一致：
 
-- Android：`https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v5.2.3/app-release.apk`
+- Android：`https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v5.2.4/app-release.apk`
 - Windows：`https://github.com/wzy6789/virtugene/releases/download/v2.1.0/VirtuGene-Setup-2.1.0-win.exe`
 
 更新下载入口时请同时核对 `releases/tag` 页面与资产是否真的存在——标签存在不代表安装包存在。
