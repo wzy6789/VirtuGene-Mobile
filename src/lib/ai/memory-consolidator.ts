@@ -17,36 +17,56 @@ const MEMORY_EXTRACTION_PROMPT =
 
 export interface ConsolidateParams {
   apiKey: string;
-  history: { role: string; content: string }[];
+  history: { role: string; content: string; sourceId?: string }[];
 }
 
 export interface ConsolidateResult {
   memories?: string[];
+  evidence?: { content: string; sourceIds: string[] }[];
   error?: string;
 }
 
 export async function extractMemories(params: ConsolidateParams): Promise<ConsolidateResult> {
   const { apiKey, history } = params;
   const userMessage = '请从以下对话中提取用户的关键信息：';
+  const systemPrompt = MEMORY_EXTRACTION_PROMPT + (history.some(m => m.sourceId)
+    ? '\n本次原话附有 sourceId。改用 JSON 数组对象：{"content":"事实","sourceIds":["实际支持该事实的来源id"]}。只引用明确支持这条事实的消息，不要给每条事实附上整批来源。'
+    : '');
+  const sourceText = history.map(m => `${m.role}${m.sourceId ? ` [sourceId=${m.sourceId}]` : ''}: ${m.content}`).join('\n');
   const viaGateway = async (): Promise<ConsolidateResult> => {
     const result = await gatewayChat({
-      apiKey: '', systemPrompt: MEMORY_EXTRACTION_PROMPT,
-      message: `${userMessage}\n\n${history.map((m) => `${m.role}: ${m.content}`).join('\n')}`,
+      apiKey: '', systemPrompt,
+      message: `${userMessage}\n\n${sourceText}`,
       history: [], temperature: 0.3,
     });
     return parse(result.content);
   };
   const parse = (text: string): ConsolidateResult => {
+    const parseItems = (arr: unknown): ConsolidateResult => {
+      if (!Array.isArray(arr)) return { error: 'parse:error' };
+      const allowed = new Set(history.map(m => m.sourceId).filter(Boolean));
+      const memories: string[] = [];
+      const evidence: { content: string; sourceIds: string[] }[] = [];
+      for (const item of arr.slice(0, 20)) {
+        if (typeof item === 'string' && item.trim()) memories.push(item.trim());
+        else if (item && typeof item.content === 'string' && item.content.trim()) {
+          const ids: string[] = Array.isArray(item.sourceIds) ? [...new Set<string>(item.sourceIds.filter((id: unknown): id is string => typeof id === 'string'))] : [];
+          if (!ids.length || ids.some(id => !allowed.has(id))) continue;
+          const content = item.content.trim();
+          memories.push(content); evidence.push({ content, sourceIds: ids });
+        }
+      }
+      return { memories, evidence };
+    };
     try {
       const parsed = JSON.parse(text);
       const arr = Array.isArray(parsed) ? parsed : (parsed.memories ?? []);
-      const memories = arr.filter((m: unknown) => typeof m === 'string' && m.length > 0).slice(0, 20);
-      return { memories };
+      return parseItems(arr);
     } catch {
       const match = text.match(/\[([\s\S]*?)\]/);
       if (match) {
         try {
-          return { memories: JSON.parse(match[0]).filter((m: unknown) => typeof m === 'string' && m.length > 0).slice(0, 20) };
+          return parseItems(JSON.parse(match[0]));
         } catch { /* retryable parse failure below */ }
       }
       return { error: 'parse:error' };
@@ -62,8 +82,8 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
   }
 
   const messages = [
-    { role: 'system', content: MEMORY_EXTRACTION_PROMPT },
-    { role: 'user', content: '请从以下对话中提取用户的关键信息：\n\n' + history.map((m) => `${m.role}: ${m.content}`).join('\n') },
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: `${userMessage}\n\n${sourceText}` },
   ];
 
   try {

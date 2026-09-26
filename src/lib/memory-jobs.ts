@@ -1,6 +1,6 @@
 import { db, type Message } from '../db';
 import { memoryLedgerRepo } from '../db/memory-ledger-repo';
-import { invalidateUnpinnedMemoriesForMessages, memoryRepo, normalizeMemoryKey } from '../db/memory-repo';
+import { invalidateUnpinnedMemoriesForMessages, memoryRepo } from '../db/memory-repo';
 import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
 import { extractMemories } from './ai/memory-consolidator';
 import { hasAiGatewayAccess } from './ai/gateway';
@@ -11,11 +11,12 @@ const runningUsers = new Set<string>();
 async function jobSourcesAreCurrent(userId: string, job: import('../db').MemoryJob): Promise<boolean> {
   const currentJob = await db.memoryJobs.get(job.id);
   if (currentJob?.status !== 'running') return false;
+  const suppressed = await Promise.all(job.characterIds.map(id => memorySourceTombstoneRepo.suppressedMessages(userId, id)));
   for (const sourceId of job.sourceIds) {
     const source = await db.messages.get(sourceId);
     const expectedRevision = job.sourceRevisions?.[sourceId] ?? 1;
     const session = source ? await db.sessions.get(source.sessionId) : undefined;
-    if (!source || !session || session.userId !== userId || source.sessionId !== job.sessionId || source.role !== 'user'
+    if (suppressed.some(ids => ids.has(sourceId)) || !source || !session || session.userId !== userId || source.sessionId !== job.sessionId || source.role !== 'user'
       || source.failed || (source.revision ?? 1) !== expectedRevision
       || (job.sourceType === 'group' && !job.characterIds.every((id) => source.witnessedBy?.includes(id)))
       || await memorySourceTombstoneRepo.blocksImport({ userId, sourceType: 'message', sourceId, sourceRevision: expectedRevision })) return false;
@@ -52,6 +53,8 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
 
         for (const job of activeJobs) {
           let jobValid = true;
+          const jobSlices: typeof slices = [];
+          const suppressed = await Promise.all(job.characterIds.map(id => memorySourceTombstoneRepo.suppressedMessages(userId, id)));
           for (const sourceId of job.sourceIds) {
             const message = messageById.get(sourceId);
             const expectedRevision = job.sourceRevisions?.[sourceId] ?? 1;
@@ -76,15 +79,15 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
               sourceId,
               sourceRevision: expectedRevision,
             });
-            if (blocked) {
+            if (blocked || suppressed.some(ids => ids.has(sourceId))) {
               jobValid = false;
               continue;
             }
             const text = message.content.slice(Math.max(0, start), Math.max(start, end)).trim();
-            if (text) slices.push({ sourceId, revision: expectedRevision, text, at: message.createdAt, start, end });
+            if (text) jobSlices.push({ sourceId, revision: expectedRevision, text, at: message.createdAt, start, end });
             else jobValid = false;
           }
-          if (jobValid) validJobIds.add(job.id);
+          if (jobValid) { validJobIds.add(job.id); slices.push(...jobSlices); }
           else await memoryLedgerRepo.cancelJob(job.id, { reason: 'source-unavailable-edited-deleted-or-revoked' });
         }
 
@@ -102,7 +105,7 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
         // to the user as if it were a confirmed fact.
         const result = await extractMemories({
           apiKey: apiKey ?? '',
-          history: slices.map((slice) => ({ role: 'user', content: slice.text })),
+          history: slices.map((slice) => ({ role: 'user', content: slice.text, sourceId: slice.sourceId })),
         });
         if (result.error) throw new Error(result.error);
 
@@ -131,11 +134,13 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
         for (const characterId of activeJobs[0].characterIds) {
           const character = await db.characters.get(characterId);
           if (!character || character.createdBy !== userId) continue;
-          const existing = await memoryRepo.getByCharacter(characterId, userId);
-          const existingKeys = new Set(existing.filter((memory) => (memory.status ?? 'active') === 'active').map((memory) => normalizeMemoryKey(memory.content)));
-          const fresh = extracted.filter((content) => !existingKeys.has(normalizeMemoryKey(content)));
+          // Repeated genuine evidence must be merged, rather than silently discarded.
+          const fresh = extracted;
           if (!fresh.length) continue;
-          const rows = fresh.map((content, index) => ({
+          const rows = fresh.map((content, index) => {
+            const ids = result.evidence?.find(item => item.content === content)?.sourceIds ?? evidenceIds;
+            const subset = (record: Record<string, number>) => Object.fromEntries(Object.entries(record).filter(([id]) => ids.includes(id)));
+            return ({
             id: crypto.randomUUID(),
             characterId,
             userId,
@@ -144,13 +149,14 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
             ...prepareMemoryMetadata(content, { confidence: evidenceIds.length ? 0.9 : 0.6 }),
             createdAt: now + index,
             sourceSessionId: activeJobs[0].sessionId,
-            sourceMessageIds: evidenceIds,
-            sourceMessageRevisions: evidenceRevisions,
-            sourceMessageOffsets: evidenceOffsets,
-            sourceMessageEndOffsets: evidenceEndOffsets,
+            sourceMessageIds: ids,
+            sourceEvidenceMode: ids.length === 1 ? 'independent' as const : 'dependent' as const,
+            sourceMessageRevisions: subset(evidenceRevisions),
+            sourceMessageOffsets: subset(evidenceOffsets),
+            sourceMessageEndOffsets: subset(evidenceEndOffsets),
             confidence: evidenceIds.length ? 0.9 : 0.6,
             updatedAt: now + index,
-          }));
+          }); });
           await memoryRepo.createMany(rows);
         }
 

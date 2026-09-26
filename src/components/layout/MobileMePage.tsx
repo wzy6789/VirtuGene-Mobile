@@ -117,11 +117,11 @@ export function MobileMePage() {
 
   return (
     <div className="vg-personal h-full flex flex-col overflow-y-auto pb-6">
-      <SpaceHeading eyebrow="VIRTUGENE / YOUR SPACE" title="我的生命空间" detail="你的偏好、记忆与创造，都有归处。" />
+      <SpaceHeading eyebrow="VIRTUGENE" title="我的" detail="你的偏好，都有归处。" />
       {/* 用户卡（点头像换头像，微信式） */}
       <button
         onClick={() => setShowProfile(true)}
-        className="relative mx-4 mt-4 flex items-center gap-3.5 overflow-hidden rounded-[26px] border border-white/10 bg-[radial-gradient(circle_at_90%_10%,rgba(0,206,201,.28),transparent_28%),linear-gradient(135deg,#261B53,#151B38_58%,#10272B)] px-5 py-6 text-left shadow-[0_16px_36px_rgba(22,15,58,.30)] transition-transform active:scale-[.985]"
+        className="vg-personal-profile relative mx-4 mt-4 flex items-center gap-3.5 overflow-hidden rounded-[26px] border border-white/10 px-5 py-6 text-left transition-transform active:scale-[.985]"
       >
         <span className="absolute -right-7 -bottom-10 h-36 w-36 rounded-full border border-life-cyan/20" />
         <div className="relative shrink-0">
@@ -131,11 +131,10 @@ export function MobileMePage() {
           </span>
         </div>
         <div className="min-w-0">
-          <p className="text-[10px] tracking-[0.18em] text-life-cyan">YOUR GENOME</p>
-          <p className="mt-1 text-lg font-semibold text-white truncate">{username ?? '数字灵魂'}</p>
-          <p className="text-xs text-white/55 mt-0.5">管理你的数字生命空间</p>
+          <p className="mt-1 text-lg font-semibold text-ink truncate">{username ?? '数字灵魂'}</p>
+          <p className="text-xs text-sub mt-1">个人资料与偏好</p>
         </div>
-        <span className="relative text-white/70 text-sm ml-auto">›</span>
+        <span className="relative text-sub text-sm ml-auto">›</span>
       </button>
 
       {/* 功能列表 */}

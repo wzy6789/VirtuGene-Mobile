@@ -15,7 +15,7 @@
  * 私聊说成已经结算的完整经历。
  */
 import { db, type WorldEvent, type WorldScene } from '../../db/index';
-import { participantReadsEntry, worldSceneRepo } from '../../db/world-scene-repo';
+import { sceneEntryKnownBy, hasSceneHistory, worldSceneRepo } from '../../db/world-scene-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { knowledgeRepo } from '../../db/knowledge-repo';
 import { isVisibleToCharacter } from './visibility';
@@ -32,7 +32,10 @@ export interface RecallableScene {
  */
 export interface LiveSceneMoment {
   scene: WorldScene;
-  entries: { id: string; kind: string; content: string; speakerId?: string }[];
+  /** The latest scene turns, used to continue the immediate exchange. */
+  entries: { id: string; kind: string; content: string; createdAt: number; speakerId?: string }[];
+  /** Recent user utterances are retained separately so later AI turns cannot push them out of the context window. */
+  userStatements: { id: string; content: string; createdAt: number }[];
 }
 
 /** 一次最多召回几场戏（戏是长篇，给 2 场就够；再多会把上下文挤满） */
@@ -104,6 +107,32 @@ export interface SceneSegmentHit {
   score: number;
 }
 
+export interface FinishedSceneMoment {
+  scene: WorldScene;
+  /** Recent user plans and the character's own last words from a finished, known scene. */
+  entries: { id: string; kind: string; content: string; createdAt: number; speakerId?: string }[];
+}
+
+export async function finishedSceneKnownByAudience(
+  scene: WorldScene,
+  ownerId: string,
+  audience: string[],
+): Promise<boolean> {
+  if (scene.status !== 'finished' || !scene.worldEventId || audience.length === 0) return false;
+  const event = await worldEventRepo.getById(scene.worldEventId);
+  if (!event || event.userId !== ownerId || event.worldId !== scene.worldId || event.type !== 'stage') return false;
+  if (!audience.every((id) => hasSceneHistory(scene, id) && isVisibleToCharacter(event, id))) return false;
+  const knowledge = await Promise.all(audience.map((id) => knowledgeRepo.getForCharacterEvent(id, event.id)));
+  return knowledge.every((row, index) => row?.userId === ownerId
+    && row.worldId === scene.worldId
+    && (row.knowledgeLevel === 'full' || (row.knowledgeLevel === 'partial'
+      && !scene.characterIds.includes(audience[index])
+      && scene.state.pastParticipants?.some(p => p.characterId === audience[index])))
+    && row.canMention === true
+    && row.eventId === event.id
+    && row.characterId === audience[index]);
+}
+
 export async function findSceneSegmentHistory(params: {
   userId?: string;
   worldId: string;
@@ -125,24 +154,24 @@ export async function findSceneSegmentHistory(params: {
   const audience = [...new Set([params.characterId, ...(params.audience ?? [])])];
 
   const scenes = await worldSceneRepo.listScenesByCharacter(params.worldId, params.characterId, {
-    limit: 40,
+    limit: Number.MAX_SAFE_INTEGER,
     userId: ownerId,
   });
   const candidates = scenes
     .filter((scene) => !params.sceneId || scene.id === params.sceneId)
-    .filter((scene) => params.includeFinished === true || scene.status === 'active' || scene.status === 'paused')
-    .filter((scene) => audience.every((id) => scene.characterIds.includes(id)));
+    .filter((scene) => scene.status === 'active' || scene.status === 'paused' || (params.includeFinished === true && scene.status === 'finished'))
+    .filter((scene) => audience.every((id) => hasSceneHistory(scene, id)));
 
   const hits: SceneSegmentHit[] = [];
   for (const scene of candidates) {
-    const all = await worldSceneRepo.listRecentEntries(scene.id, 4000);
-    // 最近的十几条本来就在"刚刚经历的这一刻/最近几步"里，重复注入只会挤占篇幅，
-    // 也会让"他有私密上下文"的判断在每一轮都成立。这里只翻**较早**的正文。
-    const older = all.slice(0, Math.max(0, all.length - 12));
-    const participants = new Map((scene.state.participants ?? []).map((item) => [item.characterId, item]));
+    if (scene.status === 'finished' && !(await finishedSceneKnownByAudience(scene, ownerId, audience))) continue;
+    const all = await worldSceneRepo.listEntries(scene.id, { limit: Number.MAX_SAFE_INTEGER });
+      // 全部原文都可按问题检索；调用方按来源 id 去重，不能在这里提前丢掉
+      // 最近窗口中的其他发言人原话（那些原话未必已被注入）。
+    const older = all;
     for (const entry of older) {
       if (!LIVE_ENTRY_KINDS.has(entry.kind) || !entry.content.trim()) continue;
-      if (!audience.every((id) => participantReadsEntry(participants.get(id), entry))) continue;
+      if (!audience.every((id) => sceneEntryKnownBy(scene, id, entry))) continue;
       const text = entry.content.trim();
       const score = hitCount(text, terms) * 2 + (entry.kind === 'dialogue' ? 0.5 : 0);
       if (score < 2) continue;
@@ -163,6 +192,51 @@ export async function findSceneSegmentHistory(params: {
 }
 
 /**
+ * A finished scene's latest user plans and the character's own words remain
+ * part of that character's lived memory. Keep this ambient carry small and
+ * strictly knowledge-gated; detailed older lines are still explicit-recall only.
+ */
+export async function selectRecentFinishedSceneMoments(params: {
+  userId?: string;
+  worldId: string;
+  characterId: string;
+  limit?: number;
+  entriesPerScene?: number;
+}): Promise<FinishedSceneMoment[]> {
+  const ownerId = await ownerFor(params.worldId, params.userId);
+  if (!ownerId) return [];
+  const limit = Math.max(1, params.limit ?? 1);
+  const scenes = await worldSceneRepo.listScenesByCharacter(params.worldId, params.characterId, {
+    status: 'finished',
+    limit: Math.max(limit * 8, 16),
+    userId: ownerId,
+  });
+  const out: FinishedSceneMoment[] = [];
+  for (const scene of scenes) {
+    if (out.length >= limit) break;
+    if (!(await finishedSceneKnownByAudience(scene, ownerId, [params.characterId]))) continue;
+    const rows = await worldSceneRepo.listRecentEntries(scene.id, 4000);
+    const readable = rows.filter((entry) => sceneEntryKnownBy(scene, params.characterId, entry)
+      && (entry.kind === 'user_input' || (entry.kind === 'dialogue' && entry.speakerId === params.characterId))
+      && entry.content.trim());
+    const userStatements = readable.filter((entry) => entry.kind === 'user_input').slice(-2);
+    const ownWords = readable.filter((entry) => entry.kind === 'dialogue' && entry.speakerId === params.characterId).slice(-2);
+    const entries = [...new Map([...userStatements, ...ownWords]
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .slice(-Math.max(1, params.entriesPerScene ?? 3))
+      .map((entry) => [entry.id, {
+        id: entry.id,
+        kind: entry.kind,
+        content: entry.content.trim().slice(0, 220),
+        createdAt: entry.createdAt,
+        ...(entry.speakerId ? { speakerId: entry.speakerId } : {}),
+      }]))].map(([, entry]) => entry);
+    if (entries.length) out.push({ scene, entries });
+  }
+  return out;
+}
+
+/**
  * 读取角色正在经历或暂时搁置的星域片段。与已结束场景的事件认知闸门不同，
  * 这里的资格来自 scene.characterIds：在场就是亲历；场景仍未完成，不能
  * 伪装成已经写入年表的长期记忆。只返回少量最近正文，避免污染私聊上下文。
@@ -177,25 +251,35 @@ export async function selectLiveSceneMoments(params: {
   const ownerId = await ownerFor(params.worldId, params.userId);
   if (!ownerId) return [];
   const scenes = await worldSceneRepo.listScenesByCharacter(params.worldId, params.characterId, {
-    limit: Math.max(1, params.limit ?? 2) + 2,
+    // Filter live status before capping, so recent finished scenes cannot hide it.
+    limit: Number.MAX_SAFE_INTEGER,
     userId: ownerId,
   });
   const live = scenes.filter((scene) => scene.status === 'active' || scene.status === 'paused');
   const out: LiveSceneMoment[] = [];
   for (const scene of live.slice(0, Math.max(1, params.limit ?? 2))) {
-    const rows = await worldSceneRepo.listRecentEntries(scene.id, 80);
-    const participant = scene.state.participants.find((item) => item.characterId === params.characterId);
-    const entries = rows
-      .filter((entry) => participantReadsEntry(participant, entry))
-      .filter((entry) => LIVE_ENTRY_KINDS.has(entry.kind) && entry.content.trim())
+    // Keep a wider local window than the on-screen conversation. The scene is
+    // persisted separately from private chat, so a short 80-row window can
+    // lose a user's stated plan after only a few multi-beat turns.
+    const rows = await worldSceneRepo.listRecentEntries(scene.id, 4000);
+    const readable = rows
+      .filter((entry) => sceneEntryKnownBy(scene, params.characterId, entry))
+      .filter((entry) => LIVE_ENTRY_KINDS.has(entry.kind) && entry.content.trim());
+    const entries = readable
       .slice(-(Math.max(2, params.entriesPerScene ?? 5)))
       .map((entry) => ({
         id: entry.id,
         kind: entry.kind,
         content: entry.content.trim().slice(0, 220),
+        createdAt: entry.createdAt,
         ...(entry.speakerId ? { speakerId: entry.speakerId } : {}),
       }));
-    if (entries.length > 0) out.push({ scene, entries });
+    const recentEntryIds = new Set(entries.map((entry) => entry.id));
+    const userStatements = readable
+      .filter((entry) => entry.kind === 'user_input' && !recentEntryIds.has(entry.id))
+      .slice(-6)
+      .map((entry) => ({ id: entry.id, content: entry.content.trim().slice(0, 220), createdAt: entry.createdAt }));
+    if (entries.length > 0 || userStatements.length > 0) out.push({ scene, entries, userStatements });
   }
   return out;
 }

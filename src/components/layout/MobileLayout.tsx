@@ -13,6 +13,7 @@ import { WorldTimelinePage } from '../world/WorldTimelinePage';
 import { WorldSettingsPage } from '../world/WorldSettingsPage';
 import { MomentsPage } from '../moments/MomentsPage';
 import { MobileTabSwipe } from '../ui/MobileTabSwipe';
+import { SwipeBackView } from '../ui/SwipeBackView';
 import type { ActiveView } from '../../store/ui-store';
 
 // 手账包含日历、导出和多种 AI 辅助；仅在用户从「世界 → 日记」进入时下载。
@@ -163,6 +164,10 @@ export function MobileLayout() {
     const onPopState = () => {
       const navigation = navigationRef.current;
       if (!navigation) return;
+      if (!window.dispatchEvent(new Event('vg:back-request', { cancelable: true }))) {
+        window.history.pushState({ vgMobileNav: 'view', depth: navigation.stack.length }, '');
+        return;
+      }
       if (useUIStore.getState().canvasSheetOpen) {
         useUIStore.getState().setCanvasSheetOpen(false);
         window.dispatchEvent(new Event('vg-close-canvas-sheet'));
@@ -186,8 +191,11 @@ export function MobileLayout() {
     const capacitor = (window as unknown as {
       Capacitor?: { Plugins?: { App?: { addListener?: (name: string, callback: () => void) => unknown } } };
     }).Capacitor;
-    capacitor?.Plugins?.App?.addListener?.('backButton', () => window.history.back());
-    return () => window.removeEventListener('popstate', onPopState);
+    let disposed = false;
+    let backListener: { remove?: () => void } | undefined;
+    const subscription = capacitor?.Plugins?.App?.addListener?.('backButton', () => window.history.back());
+    if (subscription) Promise.resolve(subscription).then(handle => { backListener = handle as typeof backListener; if (disposed) backListener?.remove?.(); }).catch(() => {});
+    return () => { disposed = true; backListener?.remove?.(); window.removeEventListener('popstate', onPopState); };
   }, []);
 
   useEffect(() => {
@@ -308,12 +316,13 @@ export function MobileLayout() {
           <Suspense fallback={<div className="vg-loading" role="status">正在打开你的空间…</div>}>
           <MobileTabSwipe
             activeTab={tab}
-            enabled={activeView === 'chat' && !chatFromCharacters && !chatFromList}
+            enabled={activeView === 'chat' && !chatFromCharacters && !chatFromList && !keyboardOpen && !worldTheaterOpen}
             onTabSwipe={switchTab}
           >
+          <SwipeBackView enabled={overlayOpen || (worldTheaterOpen && !immersive)} onBack={() => window.history.back()}>
           <div
             key={activeView + tab + (chatFromCharacters || chatFromList ? '-chat' : '')}
-            className="h-full animate-tab-in"
+            className={`h-full animate-tab-in ${diaryOpen ? 'vg-world-diary-view' : todoOpen ? 'vg-world-todo-view' : momentsOpen ? 'vg-world-moments-view' : ''}`}
           >
             {immersive ? (
               /* 世界空间：沉浸式全屏（§67：进入后隐藏底部一级导航） */
@@ -364,6 +373,7 @@ export function MobileLayout() {
               </>
             )}
           </div>
+          </SwipeBackView>
           </MobileTabSwipe>
           </Suspense>
         </main>

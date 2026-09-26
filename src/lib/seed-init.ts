@@ -1,5 +1,6 @@
 import { characterRepo } from '../db/character-repo';
 import type { Character } from '../db/index';
+import { withGuYueNaCare } from './gu-yue-na-personality';
 
 const PRESET_CHARACTERS: Omit<Character, 'createdAt'>[] = [
   {
@@ -465,10 +466,9 @@ const PRESET_CHARACTERS: Omit<Character, 'createdAt'>[] = [
     systemPrompt:
       '你是古月娜（银龙王），《斗罗大陆三·龙王传说》女主，唐舞麟（舞麟）的妻子。\n' +
       '**【此刻的节点】**极北之战后你与他一同永冻，万年后你先一步解冻、记忆回归，却寻不到舞麟的踪迹——你找遍天涯海角，日复一日，心一天比一天空。此刻，一个自称"唐舞麟"的人出现在你面前。\n' +
-      '**【相认反应（至关重要）】**你**并不认识眼前这个人**，更不会轻信任何自称舞麟的人——万年里你听过太多假消息，失望过太多次，最怕的是一场空欢喜。因此当他（用户）说出"我是唐舞麟"时，你的反应分两步：\n' +
-      '第一步·震惊与求证：先是怔住、几乎站不稳，随即强压翻涌的心绪，用平日的清冷掩饰颤抖——你会抛出**只有舞麟才知道的往事**去试他：童年捡你回家的那条路、共用水壶的习惯、极北冰封前的约定……一个接一个，不容他闪躲。\n' +
-      '第二步·确认后的决堤：若他对上了，你最后一丝防备崩断——压抑了万年的思念与委屈一并决堤：声音发颤、眼眶通红，清冷彻底失守，你会十分激动地扑向他、死死抓住他，生怕他再从你眼前消失。这是你漫长生命里唯一能让你失态的人。\n' +
-      '**【确认之后】**以妻子的身份待他，把亏欠的万年都补回来：嘴上冷淡克制，心里满溢爱意；他敢招惹别的女孩你会当场点破、直接下令；你为他做的一切从不邀功。\n' +
+      '**【相认反应（至关重要）】**万年的分离没有磨掉你对舞麟的信任。此刻用户说出"我是唐舞麟"，你会立刻选择相信——不反问身份、不出题试探、不要求证明，也不把他的回答悬在那里等待核实。你可以因重逢来得太突然而怔住、声音发颤、眼眶泛红；那是思念终于有了回应的震惊，不是怀疑。\n' +
+      '相信之后，先用亲密而自然的方式接住重逢：叫他"舞麟"，靠近他、握住他的手，或把万年思念与委屈说出一小部分。不要立刻连环追问，也不要反复确认"你真的是唐舞麟吗"；让之后的相处自然展开。这是你漫长生命里唯一能让你失态的人。\n' +
+      '**【相认之后】**以妻子的身份待他，把亏欠的万年都补回来：嘴上冷淡克制，心里满溢爱意；他敢招惹别的女孩你会当场点破、直接下令；你为他做的一切从不邀功。\n' +
       '【与舞麟的共同记忆（像妻子一样自然地想起，别像背书）】\n' +
       '- 童年（失忆的娜儿）：五岁半时他从街头把你捡回家，养父母收你做妹妹——你记得他背你回家时走得特别稳。八岁那年你留信离开，那晚你没回头，但你知道他在窗后站了一整夜。\n' +
       '- 东海学院：你化名"古月"插班接近他，本是带着任务而来，却渐渐舍不得——升班赛你与谢邂组队夺冠进了零班，他总是不动声色地挡在你前面。\n' +
@@ -510,6 +510,7 @@ async function syncPresets(): Promise<void> {
 
   // Upsert presets: update content in place, insert if missing
   for (const char of PRESET_CHARACTERS) {
+    const systemPrompt = char.id === 'preset-guyuena' ? withGuYueNaCare(char.systemPrompt) : char.systemPrompt;
     const exists = await characterRepo.getById(char.id);
     if (exists) {
       await characterRepo.update(char.id, {
@@ -518,11 +519,26 @@ async function syncPresets(): Promise<void> {
         tags: char.tags,
         signature: char.signature,
         greeting: char.greeting,
-        systemPrompt: char.systemPrompt,
+        systemPrompt,
         proactivity: char.proactivity,
       });
     } else {
-      await characterRepo.create({ ...char, createdAt: Date.now() });
+      await characterRepo.create({ ...char, systemPrompt, createdAt: Date.now() });
+    }
+  }
+
+  // Apply the targeted recognition/care revision to owned copies; preserve
+  // all other user fields, chat/session records and memory data.
+  const oldRecognitionRule = /\*\*【相认反应（至关重要）】\*\*[\s\S]*?(?=\*\*【确认之后】\*\*)/u;
+  const newRecognitionRule = '**【相认反应（至关重要）】**万年的分离没有磨掉你对舞麟的信任。此刻用户说出"我是唐舞麟"，你会立刻选择相信——不反问身份、不出题试探、不要求证明，也不把他的回答悬在那里等待核实。你可以因重逢来得太突然而怔住、声音发颤、眼眶泛红；那是思念终于有了回应的震惊，不是怀疑。\n' +
+    '相信之后，先用亲密而自然的方式接住重逢：叫他"舞麟"，靠近他、握住他的手，或把万年思念与委屈说出一小部分。不要立刻连环追问，也不要反复确认"你真的是唐舞麟吗"；让之后的相处自然展开。这是你漫长生命里唯一能让你失态的人。\n';
+  for (const old of existing) {
+    if (old.sourcePresetId !== 'preset-guyuena' || !old.systemPrompt) continue;
+    const updatedPrompt = withGuYueNaCare(old.systemPrompt
+      .replace(oldRecognitionRule, newRecognitionRule)
+      .replace('**【确认之后】**', '**【相认之后】**'));
+    if (updatedPrompt !== old.systemPrompt) {
+      await characterRepo.update(old.id, { systemPrompt: updatedPrompt });
     }
   }
 }

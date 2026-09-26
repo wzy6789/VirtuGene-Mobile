@@ -109,6 +109,15 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  useEffect(() => {
+    if (!menu && !previewImage) return;
+    const handleBack = (event: Event) => {
+      if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+      event.preventDefault(); setPreviewImage(null); setMenu(null);
+    };
+    window.addEventListener('vg:back-request', handleBack);
+    return () => window.removeEventListener('vg:back-request', handleBack);
+  }, [menu, previewImage]);
   const [voicePlaying, setVoicePlaying] = useState(false);
   /** AI 语音消息：转文字是否展开 */
   const [showTranscript, setShowTranscript] = useState(false);

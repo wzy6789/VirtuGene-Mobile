@@ -27,7 +27,7 @@ import { worldTurnRepo } from '../../db/world-turn-repo';
 import { worldFactRepo } from '../../db/world-fact-repo';
 import { continuityRepo } from '../../db/continuity-repo';
 import { db } from '../../db/index';
-import { buildWorldContext, renderWorldBrief, type WorldContext } from './world-context';
+import { buildWorldContext, renderWorldBrief, hasPrivateActorContext, type WorldContext } from './world-context';
 import { interpretWorldIntent } from './world-intent';
 import { directWorldTurn, fallbackPlan, type TurnPlan, type TurnSpeaker } from './world-director';
 import { actAsCharacter, actWorldBeat, type ActorBeat } from './world-actor';
@@ -421,11 +421,12 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
   // 重试路径必须能还原同样的结算条件（否则该轮的持久变化不会被写进世界层）。
   if (params.forceSettle === true) await worldTurnRepo.patch(turn.id, { forceSettle: true });
 
+  let canStreamCharacters = scene.characterIds.length <= 1;
   /** 角色台词/动作的流式增量：对白与动作各自一个复合键，互不覆盖 */
   const emitCharacterPartial = (characterId: string, partial: { dialogue?: string; action?: string }) => {
     // In a shared scene, wait for the private-memory disclosure review before
     // showing character text to the other people present.
-    if (scene.characterIds.length > 1) return;
+    if (!canStreamCharacters) return;
     if (partial.action !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId, speakerId: characterId, field: 'action', text: partial.action });
     if (partial.dialogue !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId, speakerId: characterId, field: 'dialogue', text: partial.dialogue });
   };
@@ -512,6 +513,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
 
     // ---- 4) 构建上下文（Stage B，0 次调用）
     let ctx = await buildWorldContext({ userId, worldId, scene: beatScene, characters, userText: text });
+    canStreamCharacters = ctx.presence.length <= 1 || ctx.presence.every(id => !hasPrivateActorContext(ctx, id));
 
     // 回忆类意图：把"相关但很久以前"的事也捞回来（§60 相关性优先于时间）
     let recallBlock = '';
@@ -607,7 +609,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       sequential: plan.speakers.length > 1 ? true : plan.sequential,
       ...(plan.worldChanges.length ? { worldChanges: plan.worldChanges } : {}),
       // 星域呈现：角色台词/动作边生成边上屏
-      ...(scene.characterIds.length <= 1 ? { onPartial: emitCharacterPartial } : {}),
+      ...(canStreamCharacters ? { onPartial: emitCharacterPartial } : {}),
       ...(params.call ? { call: params.call } : {}),
     });
     llmCalls += beats.reduce((sum, beat) => sum + (beat.llmCalls ?? 1), 0);
@@ -930,12 +932,13 @@ async function rerunAfterUserEntry(params: {
 
   const userEntry = turn.userEntryId ? (await worldSceneRepo.getEntriesById([turn.userEntryId]))[0] : undefined;
   const ctx = await buildWorldContext({ userId: turn.userId, worldId: turn.worldId, scene, characters: params.characters });
+  const canStreamCharacters = ctx.presence.length <= 1 || ctx.presence.every(id => !hasPrivateActorContext(ctx, id));
   const emit = (event: WorldTurnEvent) => params.onEvent?.(event);
   const action: WorldAction = turn.action ?? { intent: 'freeform', raw: turn.input, by: 'fallback', requiresNarration: true, requiresCharacterResponse: true };
   let llmCalls = 0;
 
   const emitCharacterPartial = (characterId: string, partial: { dialogue?: string; action?: string }) => {
-    if (scene.characterIds.length > 1) return;
+    if (!canStreamCharacters) return;
     if (partial.action !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId: turn.sceneId, speakerId: characterId, field: 'action', text: partial.action });
     if (partial.dialogue !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId: turn.sceneId, speakerId: characterId, field: 'dialogue', text: partial.dialogue });
   };
@@ -961,7 +964,7 @@ async function rerunAfterUserEntry(params: {
     userText: turn.input,
     sequential: plan.speakers.length > 1 ? true : plan.sequential,
     // 星域呈现：重试时同样边生成边上屏
-    ...(scene.characterIds.length <= 1 ? { onPartial: emitCharacterPartial } : {}),
+    ...(canStreamCharacters ? { onPartial: emitCharacterPartial } : {}),
     ...(params.call ? { call: params.call } : {}),
   });
   llmCalls += beats.reduce((sum, beat) => sum + (beat.llmCalls ?? 1), 0);

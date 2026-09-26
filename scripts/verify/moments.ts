@@ -265,10 +265,12 @@ async function run(): Promise<void> {
   check('⑫ 点「赞」真的写库（用户自己那条 like 落库）', likedRows.length === 1, { likedRows: likedRows.length });
   await render();
 
-  // ---------- C2. 点赞仍是头像堆叠（用户明确要求保留） ----------
+  // ---------- C2. 点赞头像独立排列，不互相遮挡 ----------
   const likeBlock = host?.querySelector(`#moment-${first.id} .vg-moment-likes`) ?? null;
   const likeAvatars = likeBlock ? likeBlock.querySelectorAll('.vg-moment-like-avatars > *').length : 0;
-  check('⑬ 点赞展示仍是头像堆叠（共 3 个：两位角色 + 我）', likeAvatars === 3, { likeAvatars });
+  check('⑬ 点赞展示三个完整头像（两位角色 + 我）', likeAvatars === 3, { likeAvatars });
+  const likeRects = [...(likeBlock?.querySelectorAll('.vg-moment-like-avatars > *') ?? [])].map(node => node.getBoundingClientRect());
+  check('⑬a 点赞头像之间不重叠', likeRects.length === 3 && likeRects.every((a, i) => likeRects.slice(i + 1).every(b => a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top)), { likeRects: likeRects.map(r => [r.left, r.top, r.right, r.bottom]) });
 
   // ---------- D. 设置面板 ----------
   const openedSettings = Boolean(host?.querySelector('.vg-moments-settings'));

@@ -141,12 +141,12 @@ export function visualCss(state: WorldVisualState): CSSProperties {
 }
 
 export function revealDelayFor(entry: Pick<WorldSceneEntry, 'kind' | 'content' | 'speakerId'>, previousSpeaker?: string): number {
-  const length = entry.content.trim().length;
-  if (entry.kind === 'narration') return Math.min(520, 120 + length * 3);
+  if (entry.kind === 'narration') return 0;
   if (entry.kind !== 'dialogue' && entry.kind !== 'action') return 0;
   const changed = Boolean(entry.speakerId && previousSpeaker && entry.speakerId !== previousSpeaker);
-  const base = changed ? 760 : entry.kind === 'action' ? 280 : 420;
-  return Math.min(1_450, base + Math.min(420, length * 4));
+  // Generation already provides a natural pause. Only keep a small speaker
+  // transition for buffered responses; action + speech form a single beat.
+  return changed ? 180 : 0;
 }
 
 export function directorConversationHints(state: WorldConversationState | undefined): string {

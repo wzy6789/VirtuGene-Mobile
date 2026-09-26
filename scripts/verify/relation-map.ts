@@ -1,0 +1,66 @@
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { RelationNetworkModal } from '../../src/components/character/RelationNetworkModal';
+import { portraitLayout, portraitRoute } from '../../src/lib/relationship-layout';
+import { useAuthStore } from '../../src/store/auth-store';
+import { stateRepo } from '../../src/db/state-repo';
+import { worldRepo } from '../../src/db/world-repo';
+import { relationshipRepo } from '../../src/db/relationship-repo';
+import { sharedEventRepo } from '../../src/db/shared-event-repo';
+import { memoryRepo } from '../../src/db/memory-repo';
+import type { Character, CharacterState, World, SharedStoryEvent } from '../../src/db';
+const report=window.fetch.bind(window);
+const wait=()=>new Promise(r=>setTimeout(r,160));
+let count=0;function check(ok:unknown,text:string){if(!ok)throw Error(text);count++;}
+async function run(){
+ const userId='map-user';useAuthStore.setState({userId,avatar:'🌌'});
+ const chars=Array.from({length:14},(_,i)=>({id:`person${i}`,name:`名字${i}`,avatar:['🌙','🌷','🌲','🦊','🌸','🪐','🦋','🌊'][i%8],createdBy:userId,systemPrompt:'test',tags:[],createdAt:1,isPreset:false} as Character));
+ const foreign={...chars[0],id:'foreign',name:'foreign',createdBy:'other'};
+ let failure=false;
+ worldRepo.ensureDefaultWorld=async()=>({id:'default',userId} as World);
+ worldRepo.listByUser=async()=>[{id:'default',userId} as World];
+ stateRepo.getAllByUser=async()=>{if(failure)throw Error('disk');return chars.map((c,i)=>({characterId:c.id,userId,affinity:100-i,storyRelations:i===0?[{targetCharacterId:'person1',label:'同伴',description:'一起修船'}]:[],lifeEvents:[]} as unknown as CharacterState));};
+ relationshipRepo.listStatesByWorld=async()=>[];relationshipRepo.listEventsByWorld=async()=>[];
+ sharedEventRepo.getAllByUser=async()=>[{id:'shared-three',characterIds:['person0','person1','person2'],userId,createdAt:1} as SharedStoryEvent];memoryRepo.getRecentActiveByCharacter=async()=>[];
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ root.render(createElement(RelationNetworkModal,{open:true,onClose:()=>{},characters:[...chars,foreign],userId}));await wait();
+ if(new URLSearchParams(location.search).has('visual'))return;
+ const map=()=>document.querySelector<HTMLElement>('[aria-label="角色关系星图"]')!;
+ check(!chars.some(c=>map().textContent?.includes(c.name))&&!/初识|信任|关系轨迹/.test(map().textContent??''),'graph has no visible names or labels');
+ check(!map().querySelector('text'),'no SVG typography in graph');
+ check(map().querySelectorAll('[data-portrait-ref]').length===9,'one center plus eight neighbors');
+ check(!map().querySelector('[data-portrait-ref="c:foreign"]'),'foreign user never appears');
+ check(!!map().querySelector('[aria-label="查看名字0与名字1的关系"]'),'real relationship between two non-user neighbors rendered');
+ check(!!map().querySelector('[aria-label="查看名字1与名字2的关系"]'),'three-person experience connects every pair');
+ const portraits=[...map().querySelectorAll<HTMLElement>('[data-portrait-ref]')];
+ check(portraits.every(p=>Math.abs(p.getBoundingClientRect().width-portraits[0].getBoundingClientRect().width)<.5),'user and character portraits same size');
+ (map().querySelector('[data-portrait-ref="c:person0"]') as HTMLElement).click();await wait();
+ check(!!map().querySelector('[data-portrait-ref="c:person0"][data-centered]'),'click moves character to center');
+ check(!chars.some(c=>map().textContent?.includes(c.name)),'focusing does not reveal labels');
+ (map().querySelector('[aria-label="查看名字0与名字1的关系"]') as SVGElement).dispatchEvent(new MouseEvent('click',{bubbles:true}));await wait();
+ check(document.body.textContent?.includes('一起修船'),'edge click opens actual relationship details');
+ check(!document.body.textContent?.includes('名字0'),'details use portraits instead of names');
+ [...document.querySelectorAll('button')].find(b=>b.textContent==='回到我的视角')!.click();await wait();
+ check(!!map().querySelector('[data-portrait-ref="u:map-user"][data-centered]'),'return to user focus');
+ (document.querySelector('[aria-label="下一组头像"]') as HTMLElement).click();await wait();
+ check(!!map().querySelector('[data-portrait-ref="c:person13"]'),'characters beyond old 12 limit reachable');
+ (map().querySelector('[data-portrait-ref="c:person13"]') as HTMLElement).click();await wait();
+ check(!!map().querySelector('[data-portrait-ref="c:person13"][data-centered]'),'late character can be focused');
+ for(let n=0;n<=8;n++){
+   const points=portraitLayout('center',Array.from({length:n},(_,i)=>`n${i}`),[]);
+   check(points.length===n+1&&points[0].x===180&&points[0].y===200,`layout count and center ${n}`);
+   check(points.every(p=>p.x>=26&&p.x<=334&&p.y>=26&&p.y<=374),`layout within frame ${n}`);
+   check(points.every((a,i)=>points.every((b,j)=>i===j||Math.hypot(a.x-b.x,a.y-b.y)>=60)),`no avatar overlap ${n}`);
+ }
+ const points=portraitLayout('center',['a','b','c','d'],[]);
+ const route=portraitRoute(points[1],points[3],points,true);
+ check(route.includes('Q')&&!route.includes('NaN'),'obstacle-aware secondary route finite');
+ check(route===portraitRoute(points[1],points[3],points,true),'routing is deterministic');
+ root.unmount();failure=true;
+ const retryRoot=createRoot(host);retryRoot.render(createElement(RelationNetworkModal,{open:true,onClose:()=>{},characters:chars,userId}));await wait();
+ check(!!document.querySelector('[role="alert"]'),'load failure distinguished from empty relations');
+ failure=false;[...document.querySelectorAll('button')].find(b=>b.textContent==='重试')!.click();await wait();
+ check(!document.querySelector('[role="alert"]'),'retry recovers graph');
+ retryRoot.unmount();await report('/result?suite=relation-map',{method:'POST',body:`PASS ${count} relationship checks\nALL PASS`});
+}
+run().catch(async e=>{await report('/result?suite=relation-map',{method:'POST',body:`FAIL ${e.stack}\n1 FAILED`});});

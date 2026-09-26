@@ -27,7 +27,7 @@ import { knowledgeRepo } from '../../db/knowledge-repo';
 import { continuityRepo } from '../../db/continuity-repo';
 import { relationshipRepo } from '../../db/relationship-repo';
 import { characterRef, userRef } from './subjects';
-import { buildCharacterMemoryContext } from '../character-memory';
+import { buildCharacterMemoryContext, renderCharacterMemoryReferences } from '../character-memory';
 import { describeFacets, FACET_LABEL } from './relationships';
 import { buildHiddenUserProfile } from './user-profile';
 import { worldObjectRepo } from '../../db/world-object-repo';
@@ -217,7 +217,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
         topic: params.userText,
         audience: [characterId],
         mode: 'world-scene',
-        scene: { worldId, sceneId: scene.id },
+        scene: { worldId, sceneId: scene.id, liveSegments: true },
         excludeSceneId: scene.id,
         budget: 2200,
         // 单人场景没有别人能听见这个角色的私人生活；多人场景先不带入，
@@ -229,6 +229,11 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     // `carryMemory=false`（amnesiac）时服务完全不参与，字段退化成空值；
     // 下面统一用空目录兜底，保证字段名与取值形态与改造前完全一致。
     const catalog = memory?.catalog;
+    const catalogSources = new Set([
+      ...(catalog?.sharedMemories ?? []).map(row => `world:${row.id}`),
+      ...(catalog?.scenes ?? []).map(row => `world:${row.id}`),
+      ...(catalog?.diaries ?? []).map(row => `diary:${row.id}`),
+    ]);
 
     perCharacter[characterId] = {
       ...(characterState ? {
@@ -245,7 +250,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
           .map((row) => row.summary?.trim().slice(0, 900))
           .filter(Boolean).join('\n'),
       } : {}),
-      crossChannelMemory: memory?.text ?? '',
+      crossChannelMemory: renderCharacterMemoryReferences((memory?.references ?? []).filter(row => !catalogSources.has(`${row.source}:${row.id}`))),
       persona: params.characters.find((character) => character.id === characterId)?.systemPrompt,
       characterId,
       name: nameOf(characterId),

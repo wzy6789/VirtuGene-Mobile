@@ -8,6 +8,7 @@ import { memoryRepo } from '../db/memory-repo';
 import { todoRepo } from '../db/todo-repo';
 import { worldRepo } from '../db/world-repo';
 import { buildCharacterMemoryContext } from '../lib/character-memory';
+import { buildRelationshipToneContext } from '../lib/chat-context';
 import { useAuthStore } from './auth-store';
 import { useNotificationStore } from './notification-store';
 import { stateRepo } from '../db/state-repo';
@@ -123,7 +124,7 @@ async function buildBriefs(group: Group, userId: string, query = ''): Promise<Gr
   );
   return Promise.all(
     members.map(async (c) => {
-      const [shared, personal, personalTodos] = await Promise.all([
+      const [shared, personal, personalTodos, characterState] = await Promise.all([
         // 共享提示词：听众是**全体成员**，服务因此只返回所有成员都有权知道的内容。
         // 来源集合不再由调用方拼；跨模式历史何时放开也由服务按话题判断。
         buildCharacterMemoryContext({
@@ -140,6 +141,7 @@ async function buildBriefs(group: Group, userId: string, query = ''): Promise<Gr
           budget: 1800,
         }),
         todoRepo.visibleOccurrencesForCharacter(userId, c.id, 4, true).catch(() => []),
+        stateRepo.get(c.id, userId).catch(() => undefined),
       ]);
       const personalTodoText = personalTodos.length
         ? `\n\n【只分享给你的未完成事项，供你自己记得】\n${personalTodos.map(({ todo, occurrence }) => `- ${todo.title}${occurrence.dueDate !== '9999-12-31' ? `（${occurrence.dueDate}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note.slice(0, 80)}` : ''}`).join('\n')}`
@@ -154,6 +156,9 @@ async function buildBriefs(group: Group, userId: string, query = ''): Promise<Gr
         memory: shared.text || undefined,
         memoryReferences: shared.references.map(({ source, id }) => ({ source, id })),
         privateMemory: `${personal.text}${personalTodoText}`.trim() || undefined,
+        relationshipContext: characterState
+          ? buildRelationshipToneContext(characterState.affinity, characterState.mood, characterState.tierNames)
+          : undefined,
       };
     }),
   );
@@ -224,7 +229,8 @@ async function maybeSummarizeGroup(sessionId: string, apiKey: string): Promise<v
         ...cursor.sourceMessageOffsets,
         ...Object.fromEntries(segments.map(({ message, endOffset }) => [message.id, endOffset])),
       };
-      await sessionRepo.updateSummary(sessionId, result.summary, members, sourceMessageIds, sourceMessageRevisions, sourceMessageOffsets);
+      await sessionRepo.updateSummary(sessionId, result.summary, members, sourceMessageIds, sourceMessageRevisions, sourceMessageOffsets,
+        { previousSummary: sessionData.summary });
     }
   } catch {
     /* 摘要失败是 best-effort */

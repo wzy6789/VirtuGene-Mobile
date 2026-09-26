@@ -11,7 +11,7 @@ param(
     'index', 'phase2a', 'phase2b0', 'phase2b1', 'phase2b2', 'phase2b3', 'phase2b4',
     'phase2b5', 'phase2b6', 'phase3', 'phase3b', 'phase3c',
     'worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF',
-    'character-memory', 'worldG', 'moments', 'moments-autonomous'
+    'character-memory', 'memory-continuity', 'memory-audit-20260926', 'worldG', 'moments', 'moments-autonomous'
   ),
   [int]$TimeoutSec = 150,
   [string]$Chrome = 'C:\Program Files\Google\Chrome\Application\chrome.exe'

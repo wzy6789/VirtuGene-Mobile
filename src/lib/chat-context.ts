@@ -77,6 +77,21 @@ export function buildRelationshipContext(
   );
 }
 
+/** Shared tone cue for channels with actor-private prompts (group / moments). */
+export function buildRelationshipToneContext(
+  affinity: number,
+  mood: number,
+  tierNames?: Record<string, string>,
+): string {
+  const { level } = getRelationLevel(affinity);
+  const levelName = tierNames?.[level.name] || level.name;
+  const moodText = mood >= 75 ? '心情明快，表达可以更轻快一些'
+    : mood >= 50 ? '心情平稳，按平常节奏回应'
+      : mood >= 30 ? '有些低落或疲倦，不必强打精神'
+        : '状态不太好，语气可以短一点、收敛一点';
+  return `[关系与情绪语气参考]\n你和用户目前相处在「${levelName}」阶段；${moodText}。只用来调整亲疏与表达节奏，不要说出等阶、数值或“系统状态”，也不要因此偏离角色原本性格。`;
+}
+
 /**
  * 生命轨迹注入：让角色知道自己最近正在经历什么，避免每次对话都像重新开始。
  * 只放入最近事件，核心人格仍由角色基因决定。
@@ -296,7 +311,14 @@ export function buildSceneContext(scenes: { title: string; place: string; timeLa
  * 在私聊里自然接上。它不是结算记忆，不应被说成已经写入年表。
  */
 export function buildLiveSceneContext(
-  scenes: { title: string; place: string; timeLabel: string; status: string; entries: { kind: string; content: string; speakerName?: string }[] }[],
+  scenes: {
+    title: string;
+    place: string;
+    timeLabel: string;
+    status: string;
+    entries: { id?: string; kind: string; content: string; speakerName?: string }[];
+    userStatements?: { id: string; content: string }[];
+  }[],
 ): string {
   const list = scenes.slice(0, 2);
   if (list.length === 0) return '';
@@ -308,11 +330,19 @@ export function buildLiveSceneContext(
         return `  ${prefix}：${entry.content.slice(0, 180)}`;
       })
       .join('\n');
-    return `- 《${scene.title}》（${scene.place} · ${scene.timeLabel} · ${scene.status === 'paused' ? '暂时停在这里' : '正在发生'}）\n${moments}`;
+    const recentIds = new Set(scene.entries.map((entry) => entry.id).filter((id): id is string => !!id));
+    const statements = (scene.userStatements ?? [])
+      .filter((entry) => !recentIds.has(entry.id))
+      .slice(-6)
+      .map((entry) => `  用户亲口说过：「${entry.content.slice(0, 180)}」`)
+      .join('\n');
+    // Put direct user statements first so they survive the compiler's front
+    // truncation if an unusually large prompt exhausts its optional-context budget.
+    return `- 《${scene.title}》（${scene.place} · ${scene.timeLabel} · ${scene.status === 'paused' ? '暂时停在这里' : '正在发生'}）\n${[statements, moments].filter(Boolean).join('\n')}`;
   }).join('\n');
   return (
     `\n\n[正在发生的世界星域片段]\n${lines}\n` +
-    '这是你亲身在场、但还没有演完的经历。可以在用户问到相关话题时自然接上最近的动作或情绪；不要声称这已经是完整结局，不要把旁白当成自己的记忆，也不要向未参与这场戏的人透露。用户换话题时立刻跟着用户。'
+    '这是你亲身在场、但还没有演完的经历。上面标为“用户亲口说过”的内容是你实际听到的原话；用户直接问自己刚才说了什么、打算去哪或要做什么时，先据此直接回答，不要说不知道；若前后说法不同，以最新一句为准，并把计划和已完成的事分清。可以自然接上最近的动作或情绪；不要把旁白当成自己的记忆，也不要向未参与这场戏的人透露。用户换话题时立刻跟着用户。'
   );
 }
 

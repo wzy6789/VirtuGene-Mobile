@@ -70,7 +70,7 @@ function parseResult(raw: string): GenerateCharacterResult {
 export async function generateCharacterPrompt(params: GeneratePromptParams): Promise<GenerateCharacterResult> {
   const { apiKey, characterName, fields, webContext, documentContext } = params;
 
-  let userMessage = `角色名：${characterName}`;
+  let userMessage = `角色名：${characterName}\n如果用户指定了自己的身份、双方关系或已认识的过去，必须据此写开场白和互动方式，不要默认是陌生人。用户设定的背景不是已有聊天记录，不编造设定之外的共同经历。`;
 
   const fieldBlocks: { label: string; value: string | undefined }[] = [
     { label: '描述', value: fields.description },

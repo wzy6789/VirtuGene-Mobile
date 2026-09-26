@@ -1,0 +1,194 @@
+/* Living light: shared mobile tokens, stable typography, inexpensive effects. */
+.mobile-layout {
+  --vg-radius-control:14px;
+  --vg-radius-card:20px;
+  --vg-duration:180ms;
+  --vg-ease:cubic-bezier(.2,.8,.2,1);
+}
+.mobile-layout :is(button,input,textarea) { -webkit-tap-highlight-color:transparent; }
+.mobile-layout :is(.vg-space-heading h1,.vg-canvas-title,.vg-moments-header h1) { overflow-wrap:anywhere; }
+.mobile-layout .vg-conversation-brand { padding:22px 20px 8px; }
+.mobile-layout .vg-conversation-search { min-height:48px; border-radius:16px; }
+.mobile-layout .vg-conversation-scroll { scrollbar-width:thin; scrollbar-color:rgba(150,134,229,.2) transparent; }
+.mobile-layout .vg-conversation-shell { border-radius:18px; }
+.mobile-layout .vg-conversation-shell.is-pinned { box-shadow:inset 3px 0 0 rgba(161,140,239,.35),inset 0 1px 0 rgba(176,155,245,.1); }
+.mobile-layout .vg-conversation-row:active { background:linear-gradient(110deg,rgba(154,132,235,.15),rgba(97,208,198,.045)); }
+.mobile-layout .vg-wordmark { isolation:isolate; padding:3px 0 5px; font-size:17px; line-height:1.5; font-weight:750; letter-spacing:.17em; }
+.mobile-layout .vg-wordmark::before { content:''; position:absolute; z-index:-1; pointer-events:none; inset:-14px -24px; background:radial-gradient(ellipse at 50% 50%,rgba(153,125,231,.13),rgba(97,208,199,.04) 38%,transparent 68%); }
+.mobile-layout .vg-wordmark-face { background-image:linear-gradient(110deg,color-mix(in srgb,var(--text) 92%,#c9b9ff) 10%,color-mix(in srgb,var(--text) 78%,#b6a1fa) 52%,color-mix(in srgb,var(--text) 78%,#7dded4) 100%); text-shadow:0 0 10px rgba(153,133,231,.12); }
+.mobile-layout .vg-wordmark-reflection { top:3px; }
+.mobile-layout .vg-wordmark-reflection::before { background-image:linear-gradient(110deg,transparent 43%,rgba(225,246,255,.25) 48%,rgba(244,252,255,.8) 50%,rgba(145,236,220,.3) 52%,transparent 57%); animation-duration:4.8s; animation-iteration-count:2; }
+.mobile-layout .chat-header { min-height:58px; }
+.mobile-layout .chat-header-title { letter-spacing:.045em; }
+.mobile-layout .vg-chat-message-row { animation:vg-message-arrive 180ms var(--vg-ease) both; }
+.mobile-layout .vg-message-bubble { overflow-wrap:anywhere; }
+.mobile-layout .chat-composer { box-shadow:inset 0 1px 0 rgba(162,147,239,.1); }
+.mobile-layout .chat-room:has(.scene-morning) .chat-thread { background:radial-gradient(ellipse at 90% 0%,rgba(118,191,189,.1),transparent 70%),var(--bg); }
+.mobile-layout .chat-room:has(.scene-day) .chat-thread { background:radial-gradient(ellipse at 90% 0%,rgba(123,169,221,.1),transparent 70%),var(--bg); }
+.mobile-layout .chat-room:has(.scene-dusk) .chat-thread { background:radial-gradient(ellipse at 90% 0%,rgba(175,120,177,.12),transparent 70%),var(--bg); }
+.mobile-layout .chat-room:has(.scene-night) .chat-thread { background:radial-gradient(ellipse at 90% 0%,rgba(110,113,204,.12),transparent 70%),var(--bg); }
+.mobile-layout .vg-personal > .grid { border-radius:20px; overflow:hidden; box-shadow:inset 0 1px 0 rgba(158,150,237,.07); }
+.vg-settings-mobile > section { border-radius:20px; background:radial-gradient(ellipse at 100% 0%,rgba(141,129,218,.08),transparent 75%),var(--bg-panel); }
+
+/* Scene panel remains outside the message layout. The header is its drag surface. */
+.scene-settings-panel-header { touch-action:none; cursor:grab; padding-top:10px; padding-bottom:8px; }
+.scene-settings-panel-header:active { cursor:grabbing; }
+.scene-settings-panel-header strong { font-size:16px; }
+.scene-settings-panel { border:1px solid rgba(179,157,236,.22); }
+.scene-settings-panel .scene-setting-heading { margin-bottom:12px; }
+.scene-settings-panel .scene-time-option { border-radius:12px; }
+.scene-settings-panel .scene-setting-preview { border-radius:16px; background:linear-gradient(125deg,rgba(152,132,234,.14),rgba(100,211,199,.09)); }
+.scene-settings-panel :is(.scene-setting-heading,.scene-time-picker-heading) { font-size:14px; }
+.scene-settings-panel .scene-setting-heading b { max-width:65%; overflow-wrap:anywhere; }
+.scene-settings-panel .scene-time-options { gap:7px; }
+
+/* Story surfaces have a restrained atmosphere; dialogue is the strongest layer. */
+.mobile-layout .vg-canvas { background-color:var(--bg); }
+.mobile-layout .vg-canvas-top { min-height:68px; padding:12px 14px; gap:10px; border-bottom:1px solid rgba(149,137,231,.16); background:radial-gradient(ellipse at 100% 0%,rgba(122,146,226,.12),transparent 80%),var(--bg-panel); }
+.mobile-layout .vg-canvas-title-stack { flex:1; min-width:0; }
+.mobile-layout .vg-canvas-title { font-size:18px; line-height:1.4; letter-spacing:.04em; }
+.mobile-layout .vg-canvas-place { font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.mobile-layout :is(.vg-canvas-back,.vg-canvas-more) { min-height:44px; min-width:44px; flex-shrink:0; border-radius:14px; }
+.mobile-layout .vg-canvas-actions { gap:5px; }
+.mobile-layout .vg-canvas-scroll { padding:20px 16px; overflow-x:hidden; overscroll-behavior-y:contain; }
+.mobile-layout .vg-beat { gap:11px; padding:3px 0 8px; animation-duration:180ms; }
+.mobile-layout .vg-beat::after { opacity:.4; }
+.mobile-layout .vg-beat-name { font-size:12px; letter-spacing:.035em; color:color-mix(in srgb,var(--text) 65%,#76cfc8); }
+.mobile-layout .vg-beat-line { font-size:14px; line-height:1.8; margin-top:7px; overflow-wrap:anywhere; }
+.mobile-layout .vg-beat-action { font-size:14px; line-height:1.85; margin-top:7px; overflow-wrap:anywhere; }
+.mobile-layout .vg-narration { font-size:14px; line-height:1.9; color:var(--text-secondary); overflow-wrap:anywhere; }
+.mobile-layout .vg-canvas-bottom { box-shadow:0 -3px 18px rgba(18,15,38,.055); }
+.mobile-layout :is(.vg-canvas-saved,.vg-canvas-finished p,.vg-new-content) { font-size:12px; }
+.mobile-layout .vg-new-content { border-color:rgba(124,211,204,.35); background:var(--bg-panel); box-shadow:0 3px 12px rgba(30,33,60,.12); }
+.mobile-layout .vg-story-title-text { line-height:1.4; }
+.mobile-layout .vg-stage-create { border-radius:24px; }
+.mobile-layout :is(.vg-stage-create-subtitle,.vg-stage-create-code,.vg-world-echoes small,.vg-world-echoes strong,.vg-world-echoes span) { font-size:12px; }
+.mobile-layout .vg-world-now-actions button { min-height:44px; }
+.mobile-layout .vg-stage-start { min-height:48px; border-radius:16px; }
+.mobile-layout .vg-world-map-sweep { opacity:.45; }
+
+/* Real-life surfaces: warm feed, readable diary, precise schedule. */
+.mobile-layout .vg-moments-header { padding:22px 18px 18px; gap:12px; }
+.mobile-layout .vg-moments-header h1 { font-size:26px; line-height:1.35; letter-spacing:.035em; }
+.mobile-layout .vg-moments-eyebrow { font-size:12px; }
+.mobile-layout :is(.vg-moments-settings,.vg-moments-camera) { width:48px; height:48px; display:grid; place-items:center; padding:0; border-radius:16px; }
+.mobile-layout .vg-moments-profile { border-radius:22px; border-color:rgba(218,176,118,.18); background:var(--bg-panel); }
+.mobile-layout .vg-moments-cover { background-color:var(--bg-panel); background-image:radial-gradient(ellipse at 85% 0%,rgba(224,185,126,.25),transparent 65%),radial-gradient(ellipse at 15% 100%,rgba(144,123,218,.23),transparent 75%); }
+.mobile-layout .vg-moments-profile-row { gap:14px; align-items:center; }
+.mobile-layout .vg-moment-card { margin:0 16px; padding:22px 0; border-color:color-mix(in srgb,var(--text) 10%,transparent); gap:12px; }
+.mobile-layout .vg-moment-body { min-width:0; }
+.mobile-layout .vg-moment-name { font-size:15px; line-height:1.5; }
+.mobile-layout .vg-moment-text { font-size:14px; line-height:1.8; margin-top:7px; overflow-wrap:anywhere; }
+.mobile-layout .vg-moment-media { gap:5px; margin-top:12px; }
+.mobile-layout .vg-moment-media button { overflow:hidden; border-radius:10px; }
+.mobile-layout .vg-moment-meta { margin-top:12px; font-size:12px; }
+.mobile-layout :is(.vg-moment-likes,.vg-moment-comments) { background:color-mix(in srgb,var(--bg-panel) 94%,#a891c5); border-radius:12px; }
+.mobile-layout .vg-moment-comment-row { font-size:14px; line-height:1.7; overflow-wrap:anywhere; }
+.mobile-layout .vg-moment-comment-box { gap:8px; }
+.mobile-layout .vg-moment-comment-box input { min-width:0; font-size:14px; min-height:44px; border-radius:12px; }
+.mobile-layout .vg-todo-overview { border-radius:22px; padding:20px; box-shadow:inset 0 1px 0 rgba(108,212,199,.1); }
+.mobile-layout .vg-todo-segment { padding:4px; gap:4px; border-radius:16px; background:var(--bg-panel); border:1px solid var(--border); }
+.mobile-layout .vg-todo-segment button { min-height:44px; font-size:14px; border-radius:12px; }
+.mobile-layout .vg-todo-segment button.active { color:var(--text); background:linear-gradient(135deg,rgba(94,208,195,.2),rgba(102,149,208,.1)); }
+.mobile-layout .vg-todo-row { border-radius:16px; padding:14px 12px; background:var(--bg-panel); border:1px solid rgba(106,191,180,.12); gap:12px; }
+.mobile-layout .vg-todo-row-main { min-width:0; }
+.mobile-layout .vg-todo-row-main strong { font-size:15px; line-height:1.5; overflow-wrap:anywhere; }
+.mobile-layout .vg-todo-row-main span { font-size:12px; line-height:1.6; }
+.mobile-layout .vg-todo-row.is-done { opacity:.65; }
+.mobile-layout .vg-todo-overview-item { gap:14px; min-height:64px; }
+.mobile-layout .vg-todo-grid button { min-height:44px; }
+.mobile-layout .vg-diary-paper { border-radius:22px; padding:24px 22px; background:radial-gradient(ellipse at 100% 0%,rgba(174,145,219,.07),transparent 60%),var(--bg-panel); }
+.mobile-layout .vg-diary-paper p { line-height:1.95; overflow-wrap:anywhere; }
+.mobile-layout :is(.vg-moments-empty,.vg-todo-empty,.vg-canvas-empty) { padding:40px 20px; text-align:center; }
+.mobile-layout :is(.vg-moments-empty,.vg-todo-empty,.vg-canvas-empty) p { font-size:14px; line-height:1.8; color:var(--text-secondary); }
+.mobile-layout :is(.vg-moments-empty,.vg-todo-empty) button { min-height:48px; border-radius:14px; }
+.vg-modal-panel > .shrink-0 { background:radial-gradient(ellipse at 100% 0%,rgba(140,125,224,.1),transparent 75%),var(--bg-panel); }
+.vg-modal-panel > .shrink-0 button { min-width:44px; min-height:44px; }
+.mobile-layout .vg-scene-constellation-map { isolation:isolate; }
+.mobile-layout .vg-scene-constellation-continue { min-height:48px; }
+.mobile-layout :is(.vg-scene-back,.vg-stage-exit) { min-height:44px; }
+@keyframes vg-message-arrive { from { opacity:.4; transform:translate3d(0,3px,0); } to { opacity:1; transform:translate3d(0,0,0); } }
+/* Paused when hidden, and entirely static when the system requests it. */
+html[data-vg-background] :is(.mobile-layout,.scene-settings-overlay,.vg-modal-overlay) *,
+html[data-vg-background] :is(.mobile-layout,.scene-settings-overlay,.vg-modal-overlay) *::before,
+html[data-vg-background] :is(.mobile-layout,.scene-settings-overlay,.vg-modal-overlay) *::after { animation-play-state:paused !important; }
+@media (prefers-reduced-motion:reduce) {
+  .mobile-layout *, .mobile-layout *::before, .mobile-layout *::after,
+  .scene-settings-overlay *, .scene-settings-overlay *::before, .scene-settings-overlay *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+}
+@media (max-width:360px) {
+  .mobile-layout .vg-moments-header { padding-left:14px; padding-right:14px; }
+  .mobile-layout .vg-canvas-top { gap:6px; padding-left:10px; padding-right:10px; }
+  .mobile-layout .vg-world-life-entry { padding:18px 14px; }
+}
+
+/* Living signal — a single visual language, with the story and the people in front. */
+.mobile-layout .vg-world-hero { position:relative; isolation:isolate; padding-top:22px; }
+.mobile-layout .vg-world-hero .vg-space-heading { position:relative; z-index:1; min-height:78px; padding:3px 4px 0; }
+.mobile-layout .vg-world-hero .vg-space-heading h1 { font-size:26px; line-height:1.28; letter-spacing:.025em; text-shadow:0 0 26px rgba(161,143,240,.18); }
+.mobile-layout .vg-world-helix { position:absolute; z-index:0; pointer-events:none; width:112px; height:112px; top:0; right:5px; color:#9de0da; opacity:.62; filter:drop-shadow(0 0 13px rgba(116,214,201,.18)); animation:vg-helix-arrive .75s ease-out both; }
+.mobile-layout .vg-world-life-entries { position:relative; z-index:1; margin-top:15px; gap:11px; }
+.mobile-layout .vg-world-life-entry { min-height:178px; padding:21px 17px 17px; border-radius:22px; background:radial-gradient(ellipse 82% 82% at 100% 0%,rgba(var(--entry-light),.28),transparent 78%),linear-gradient(150deg,rgba(var(--entry-depth),.16),transparent 74%),var(--bg-panel); box-shadow:inset 0 1px 0 rgba(var(--entry-light),.18),inset 0 -1px 0 rgba(var(--entry-light),.05),0 9px 22px rgba(8,8,27,.11); transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease; }
+.mobile-layout .vg-world-life-entry { animation:vg-life-card-arrive .34s cubic-bezier(.2,.8,.2,1) both; }
+.mobile-layout .vg-world-life-entry:nth-child(2) { animation-delay:45ms; }
+.mobile-layout .vg-world-life-entry:nth-child(3) { animation-delay:90ms; }
+.mobile-layout .vg-world-life-entry:nth-child(4) { animation-delay:135ms; }
+.mobile-layout .vg-world-life-entry::before { top:-52px; right:-45px; width:172px; height:172px; border:1px solid rgba(var(--entry-light),.11); background:radial-gradient(circle,rgba(var(--entry-light),.17) 0,rgba(var(--entry-light),.06) 42%,transparent 72%); box-shadow:0 0 0 21px rgba(var(--entry-light),.025),0 0 0 43px rgba(var(--entry-light),.012); opacity:.85; animation:none; }
+.mobile-layout .vg-world-life-entry::after { top:auto; bottom:0; left:18px; right:18px; height:1px; background:linear-gradient(90deg,rgba(var(--entry-light),.42),rgba(var(--entry-light),.09),transparent); }
+.mobile-layout .vg-world-life-entry > svg { width:29px; height:29px; padding:4px; border-radius:9px; background:rgba(var(--entry-light),.09); filter:drop-shadow(0 0 8px rgba(var(--entry-light),.15)); }
+.mobile-layout .vg-world-life-entry strong { position:relative; margin-top:auto; font-size:20px; line-height:1.3; letter-spacing:.035em; }
+.mobile-layout .vg-world-life-entry > span { position:relative; margin-top:6px; line-height:1.55; }
+.mobile-layout .vg-world-life-entry > i { font-size:17px; transform:translate3d(0,0,0); transition:transform .18s ease,opacity .18s ease; }
+.mobile-layout .vg-world-life-entry:is(:hover,:focus-visible) { border-color:rgba(var(--entry-light),.42); box-shadow:inset 0 1px 0 rgba(var(--entry-light),.25),0 10px 28px rgba(var(--entry-depth),.12); }
+.mobile-layout .vg-world-life-entry:is(:hover,:focus-visible) > i { transform:translate3d(2px,-2px,0); opacity:1; }
+.mobile-layout .vg-world-life-entry:active { transform:scale(.985); }
+.mobile-layout .vg-world-moment-badge { z-index:2; top:18px; right:14px; max-width:calc(100% - 56px); }
+
+.mobile-layout .vg-characters > header { position:relative; background:radial-gradient(ellipse 70% 120% at 100% 0%,rgba(139,113,226,.13),transparent 78%); }
+.mobile-layout .vg-characters > header h1 { font-size:25px; line-height:1.3; letter-spacing:.025em; }
+.mobile-layout .vg-characters > header > div:first-child > button { border-color:rgba(157,137,231,.4); background:linear-gradient(120deg,rgba(132,112,211,.24),rgba(93,172,181,.13)); box-shadow:inset 0 1px 0 rgba(218,208,255,.11); }
+.mobile-layout .vg-character-shortcuts { gap:11px; margin-bottom:18px; }
+.mobile-layout .vg-character-shortcuts > button { min-height:118px; padding:18px 16px; border-radius:22px; box-shadow:inset 0 1px 0 rgba(var(--entry-light),.15),0 8px 20px rgba(8,8,27,.08); }
+.mobile-layout .vg-character-shortcuts > button::before { animation:none; border:1px solid rgba(var(--entry-light),.08); width:170px; height:170px; right:-60px; top:-78px; }
+.mobile-layout .vg-character-shortcuts > button > span:first-child { position:relative; font-size:17px; line-height:1.35; }
+.mobile-layout .vg-character-shortcuts > button > span:last-child { position:relative; font-size:12px; line-height:1.5; }
+.mobile-layout .vg-character-row { position:relative; overflow:hidden; border-radius:19px; background:radial-gradient(ellipse 80% 120% at 100% 0%,rgba(149,127,222,.14),transparent 82%),var(--bg-panel); }
+.mobile-layout .vg-character-row::before { content:''; position:absolute; pointer-events:none; top:12px; bottom:12px; left:0; width:2px; border-radius:3px; background:linear-gradient(180deg,transparent,rgba(148,212,206,.5),rgba(166,138,230,.32),transparent); }
+.mobile-layout .vg-character-row button:first-child > img,.mobile-layout .vg-character-row button:first-child > span.rounded-full { box-shadow:0 0 0 2px rgba(142,126,216,.13); }
+.mobile-layout .vg-character-row:active { background:linear-gradient(105deg,rgba(148,127,223,.12),rgba(93,182,186,.08)),var(--bg-panel); }
+
+.mobile-layout .vg-conversations { background:radial-gradient(ellipse 115% 300px at 100% 0%,rgba(141,108,222,.17),transparent 74%),radial-gradient(ellipse 100% 360px at 0% 100%,rgba(62,179,178,.055),transparent 78%),var(--bg); }
+.mobile-layout .vg-conversation-brand { padding-top:21px; padding-bottom:8px; }
+.mobile-layout .vg-conversation-search { box-shadow:inset 0 1px 0 rgba(172,155,236,.07),0 6px 18px rgba(10,10,35,.06); }
+.mobile-layout .vg-conversation-shell { border:1px solid rgba(149,129,221,.16); background:radial-gradient(ellipse at 100% 0%,rgba(157,131,230,.13),transparent 78%),var(--bg-panel); box-shadow:inset 0 1px 0 rgba(174,160,238,.08),0 5px 16px rgba(10,9,33,.06); }
+.mobile-layout .vg-conversation-shell.is-pinned { border-color:rgba(157,133,229,.32); }
+.mobile-layout .vg-conversation-row { min-height:84px; }
+.mobile-layout .vg-conversation-row img { border-radius:14px; }
+.mobile-layout .vg-conversation-row .font-medium { letter-spacing:.01em; }
+.mobile-layout .vg-conversation-row p { opacity:.88; }
+.mobile-layout .chat-thread { background:radial-gradient(ellipse 95% 340px at 100% 0%,rgba(131,109,207,.095),transparent 76%),radial-gradient(ellipse 90% 370px at 0% 100%,rgba(78,159,173,.04),transparent 80%),var(--bg); }
+.mobile-layout .vg-message-bubble.is-character-bubble { box-shadow:inset 0 1px 0 rgba(176,164,232,.07),0 3px 9px rgba(9,9,30,.05) !important; }
+.mobile-layout .chat-composer { background:radial-gradient(ellipse at 100% 0%,rgba(132,120,216,.1),transparent 76%),var(--bg-panel); }
+
+.mobile-layout .vg-moments-header { background:radial-gradient(ellipse 80% 130% at 100% 0%,rgba(230,175,111,.12),transparent 80%); }
+.mobile-layout .vg-moments-cover:not([style]) { background-image:radial-gradient(ellipse 75% 95% at 88% 0%,rgba(227,190,137,.28),transparent 76%),radial-gradient(ellipse 95% 90% at 5% 110%,rgba(137,125,215,.22),transparent 78%),linear-gradient(125deg,rgba(136,111,202,.12),rgba(61,154,171,.1)); }
+.mobile-layout .vg-moments-profile-row { text-shadow:0 1px 4px rgba(0,0,0,.4); }
+.mobile-layout .vg-moments-inbox { border-radius:16px; }
+.mobile-layout .vg-moment-media button:active img { transform:scale(1.015); }
+.mobile-layout .vg-moment-media img { transition:transform .18s ease; }
+
+@keyframes vg-helix-arrive { from { opacity:0; transform:translate3d(8px,3px,0) rotate(8deg); } to { opacity:.62; transform:translate3d(0,0,0) rotate(0); } }
+@keyframes vg-life-card-arrive { from { opacity:.45; transform:translate3d(0,7px,0); } to { opacity:1; transform:translate3d(0,0,0); } }
+@media (max-width:360px) {
+  .mobile-layout .vg-world-helix { width:88px; height:88px; right:0; top:4px; opacity:.42; }
+  .mobile-layout .vg-world-hero .vg-space-heading { min-height:80px; }
+  .mobile-layout .vg-world-life-entry { min-height:169px; padding:17px 13px; }
+  .mobile-layout .vg-world-life-entry strong { font-size:18px; }
+  .mobile-layout .vg-character-shortcuts > button { min-height:110px; padding:15px 12px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .mobile-layout .vg-world-helix { animation:none; opacity:.5; }
+  .mobile-layout .vg-world-life-entry { animation:none; }
+  .mobile-layout .vg-world-life-entry > i,.mobile-layout .vg-moment-media img { transition:none; }
+  .mobile-layout .vg-world-life-entry:is(:hover,:focus-visible) > i,.mobile-layout .vg-moment-media button:active img { transform:none; }
+}

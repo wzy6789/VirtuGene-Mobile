@@ -189,8 +189,10 @@ export async function clearDiarySharing(
  * 该角色**确实知道并且可以主动提起**的日记 id（上下文注入的认知闸门）。
  * 认知等级要求 full：只知道一点点的（partial）不注入，避免角色说错。
  */
-export async function listMentionableDiaryIds(userId: string, worldId: string, characterId: string): Promise<Set<string>> {
-  const rows = await knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'full', limit: 300, userId });
+export async function listMentionableDiaryIds(userId: string, worldId: string | undefined, characterId: string): Promise<Set<string>> {
+  const rows = worldId
+    ? await knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'full', limit: Number.MAX_SAFE_INTEGER, userId })
+    : await db.characterKnowledge.where('characterId').equals(characterId).filter(row => row.userId === userId).toArray();
   const out = new Set<string>();
   for (const row of rows) {
     if (!row.canMention || row.knowledgeLevel !== 'full') continue;

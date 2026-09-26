@@ -11,6 +11,7 @@ import type { Character } from '../../db/index';
 
 interface GenePoolTabProps {
   onSelect: (character: Character) => void;
+  singleScroll?: boolean;
 }
 
 type FilterTab = 'all' | 'preset' | 'shared' | 'mine';
@@ -37,7 +38,7 @@ function getBadge(char: Character, userId: string, cloned: boolean) {
   return { text: '自定义基因', className: 'bg-life-cyan/10 text-life-cyan' };
 }
 
-export function GenePoolTab({ onSelect }: GenePoolTabProps) {
+export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterTab>('all');
   const [catFilter, setCatFilter] = useState<CatFilter>('all');
@@ -174,7 +175,8 @@ export function GenePoolTab({ onSelect }: GenePoolTabProps) {
     const container = listRef.current;
     const el = groupRefs.current[letter];
     if (!container || !el) return;
-    container.scrollTop += el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    const scroller = IS_MOBILE && singleScroll ? container.closest<HTMLElement>('[data-modal-scroll]') : container;
+    if (scroller) scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - (singleScroll ? 56 : 0);
   };
 
   return (
@@ -327,7 +329,7 @@ export function GenePoolTab({ onSelect }: GenePoolTabProps) {
         </div>
       ) : (
         <div className="flex gap-1">
-          <div ref={listRef} className="flex-1 min-w-0 max-h-[45vh] overflow-y-auto pr-1">
+          <div ref={listRef} className={`flex-1 min-w-0 pr-1 ${IS_MOBILE && singleScroll ? '' : 'max-h-[45vh] overflow-y-auto'}`}>
             {grouped.map((group) => (
               <div
                 key={group.letter}
@@ -373,7 +375,7 @@ export function GenePoolTab({ onSelect }: GenePoolTabProps) {
           </div>
 
           {/* Letter index bar */}
-          <div className="shrink-0 flex flex-col justify-center gap-0.5 text-[10px] text-gray-500">
+          <div className="shrink-0 self-start sticky top-16 flex flex-col justify-center gap-0.5 text-[10px] text-gray-500">
             {INDEX_LETTERS.map((l) => (
               <button
                 key={l}

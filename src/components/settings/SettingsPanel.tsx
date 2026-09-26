@@ -175,7 +175,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   return (
     <>
       <Modal open={open} onClose={onClose} title="设置">
-        <div className="vg-settings p-6 space-y-6">
+        <div className={`vg-settings p-6 space-y-6 ${IS_MOBILE ? 'vg-settings-mobile' : ''}`}>
           <section className="relative overflow-hidden rounded-2xl border border-gene-purple/25 bg-[#17152D] px-4 py-4 shadow-[0_14px_32px_rgba(63,48,128,0.20)]">
             <div className="absolute -right-5 -top-8 h-28 w-28 rounded-full border border-life-cyan/25" />
             <div className="absolute right-1 top-2 h-16 w-16 rounded-full bg-life-cyan/15 blur-2xl" />

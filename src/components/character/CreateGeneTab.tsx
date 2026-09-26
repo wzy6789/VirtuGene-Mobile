@@ -4,8 +4,8 @@ import { useChatStore } from '../../store/chat-store';
 import { EmojiPicker } from '../ui/EmojiPicker';
 import { ipc } from '../../lib/ipc-client';
 import { stateRepo } from '../../db/state-repo';
-import { memoryRepo } from '../../db/memory-repo';
 import type { Character } from '../../db/index';
+import { getProviderKey, llmChat, resolveModel } from '../../lib/ai/llm';
 
 interface CreateGeneTabProps {
   editCharacter?: Character;
@@ -56,7 +56,12 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
 
   const [name, setName] = useState(editCharacter?.name ?? '');
   const [avatar, setAvatar] = useState(editCharacter?.avatar ?? '🧬');
-  const [systemPrompt, setSystemPrompt] = useState(editCharacter?.systemPrompt ?? '');
+  const [systemPrompt, setSystemPrompt] = useState(() => {
+    const original = editCharacter?.systemPrompt ?? '';
+    const oldBoundary = editCharacter?.boundaries?.trim();
+    const suffix = oldBoundary ? `[互动边界]\n${oldBoundary}` : '';
+    return suffix && original.trimEnd().endsWith(suffix) ? original.trimEnd().slice(0, -suffix.length).trimEnd() : original;
+  });
   const [tags, setTags] = useState<string[]>(editCharacter?.tags ?? []);
   const [signature, setSignature] = useState(editCharacter?.signature ?? '');
   const [greeting, setGreeting] = useState(editCharacter?.greeting ?? '');
@@ -68,9 +73,23 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const [published, setPublished] = useState(editCharacter?.published ?? false);
   const [relationshipTargets, setRelationshipTargets] = useState<string[]>([]);
   const [relationshipMeta, setRelationshipMeta] = useState<Record<string, { label: string; description: string }>>({});
-  /** 默认关闭：新角色不会在未经用户确认时继承既有聊天中的内容。 */
-  const [importUserMemories, setImportUserMemories] = useState(false);
-  const [importableMemoryCount, setImportableMemoryCount] = useState(0);
+  const [step, setStep] = useState(0);
+  const stepsRef = useRef<HTMLElement>(null);
+  const goStep = (next: number) => {
+    setStep(next);
+    const scroller = stepsRef.current?.closest('[data-modal-scroll]');
+    if (scroller) scroller.scrollTop = 0;
+  };
+  const [userIdentity, setUserIdentity] = useState('');
+  const [userRelationship, setUserRelationship] = useState('');
+  const [alreadyKnow, setAlreadyKnow] = useState(false);
+  const [sharedPast, setSharedPast] = useState('');
+  const [previewInput, setPreviewInput] = useState('今天有点累，你呢？');
+  const [previewReply, setPreviewReply] = useState('');
+  const [previewError, setPreviewError] = useState('');
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const draftEpoch = useRef(0);
+  const previewLock = useRef(false);
 
   const [fields, setFields] = useState<Record<FieldKey, string>>({
     identity: '',
@@ -80,7 +99,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     boundaries: '',
     supplement: '',
   });
-  const [mode, setMode] = useState<'simple' | 'guided'>('guided');
+  const [mode, setMode] = useState<'simple' | 'guided'>('simple');
   const [description, setDescription] = useState('');
   const [openSections, setOpenSections] = useState<Record<FieldKey, boolean>>({
     identity: true,
@@ -109,6 +128,10 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [generationProgress, setGenerationProgress] = useState<{ step: string; message: string; progress: number } | null>(null);
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
+  const [relationsReady, setRelationsReady] = useState(!editCharacter);
+  const saveLock = useRef(false);
+  const savedCharacterId = useRef<string | null>(null);
+  const [saveError, setSaveError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
 
@@ -116,33 +139,51 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     if (!editCharacter || !userId) return;
     let alive = true;
     void stateRepo.get(editCharacter.id, userId).then((state) => {
-      if (!alive || !state) return;
-      const links = state.storyRelations ?? [];
+      if (!alive) return;
+      setRelationsReady(true);
+      const links = state?.storyRelations ?? [];
       setRelationshipTargets(links.map((link) => link.targetCharacterId));
       setRelationshipMeta(Object.fromEntries(links.map((link) => [link.targetCharacterId, {
         label: link.label,
         description: link.description ?? '',
       }])));
-    });
+    }).catch(() => { if (alive) setSaveError('人物关系未能读取，请关闭后重新打开；原有关系尚未修改。'); });
     return () => { alive = false; };
   }, [editCharacter, userId]);
 
-  useEffect(() => {
-    if (isEdit || !userId) return;
-    let alive = true;
-    void memoryRepo.getRecentByUser(userId, 36).then((items) => {
-      if (!alive) return;
-      const unique = new Set(items.map((item) => item.content.trim()).filter(Boolean));
-      setImportableMemoryCount(Math.min(12, unique.size));
-    });
-    return () => { alive = false; };
-  }, [isEdit, userId]);
-
   const filledCount = STEP_FIELDS.filter((f) => fields[f.key].trim().length > 0).length;
-  const canGenerate = name.trim().length >= 2 && !isEdit && (
-    mode === 'simple' ? description.trim().length > 0 : filledCount > 0
+  const canGenerate = name.trim().length >= 1 && !isEdit && (
+    mode === 'simple' ? !!(description.trim() || fields.identity.trim()) : filledCount > 0
   );
-  const canSave = name.trim().length >= 2 && systemPrompt.trim().length > 0;
+  const canSave = relationsReady && !!userId && name.trim().length >= 1 && systemPrompt.trim().length > 0;
+  const relationContext = [
+    userIdentity.trim() && `用户的身份：${userIdentity.trim()}`,
+    userRelationship.trim() && `你与用户的关系：${userRelationship.trim()}`,
+    alreadyKnow ? '出场时你与用户已认识，按既有关系自然交流。' : '出场时是初次相识，不编造共同经历。',
+    alreadyKnow && sharedPast.trim() && `用户为你们设定的过去（角色背景，不是聊天记录）：${sharedPast.trim()}`,
+  ].filter(Boolean).join('\n');
+  const composedPrompt = () => [systemPrompt.trim(), boundaries.trim() && `[互动边界]\n${boundaries.trim()}`,
+    !isEdit && `[与你的关系]\n${relationContext}`].filter(Boolean).join('\n\n');
+  useEffect(() => { draftEpoch.current++; setPreviewReply(''); setPreviewError(''); },
+    [systemPrompt, boundaries, userIdentity, userRelationship, alreadyKnow, sharedPast, name, fields, description]);
+  useEffect(() => () => { draftEpoch.current++; }, []);
+  const tryConversation = async () => {
+    if (!canSave || !previewInput.trim() || previewLock.current) return;
+    previewLock.current = true; setPreviewBusy(true); setPreviewError('');
+    const epoch = draftEpoch.current;
+    try {
+      const model = resolveModel();
+      const key = await getProviderKey(model.provider);
+      if (!key) throw new Error('请先在设置中配置可用的 API Key。');
+      // Preview uses the draft alone; it never imports another character's memory.
+      const result = await llmChat({ provider: model.provider, model: model.id, apiKey: key, disableThinking: true,
+        maxTokens: 240, messages: [{ role: 'system', content: `${composedPrompt()}\n像微信私聊一样自然回应，保持人物性格，不写说明和长篇旁白。` },
+          { role: 'user', content: previewInput.trim() }] });
+      if (!result.content?.trim()) throw new Error('暂时没能试聊成功，可以重试或直接创建。');
+      if (epoch === draftEpoch.current) setPreviewReply(result.content.trim());
+    } catch { if (epoch === draftEpoch.current) setPreviewError('试聊未完成，请检查模型设置后重试，或直接创建。'); }
+    finally { previewLock.current = false; setPreviewBusy(false); }
+  };
 
   const setField = (key: FieldKey, value: string) => setFields((f) => ({ ...f, [key]: value }));
   const toggleSection = (key: FieldKey) => setOpenSections((o) => ({ ...o, [key]: !o[key] }));
@@ -249,13 +290,15 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   };
 
   const handleGenerate = async () => {
-    if (!canGenerate) return;
+    if (!canGenerate || isGenerating) return;
+    const epoch = draftEpoch.current;
     setIsGenerating(true);
     setGenerationError(null);
     setGenerationProgress(null);
     setCandidates(null);
 
-    const genFields = mode === 'simple' ? { description: description.trim() } : fields;
+    const genFields = mode === 'simple' ? { description: description.trim(), identity: fields.identity, supplement: relationContext } : { ...fields, supplement: `${fields.supplement}\n${relationContext}` };
+    try {
     const result = await ipc.character.generate(
       {
         apiKey: apiKey ?? '',
@@ -271,11 +314,16 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     setIsGenerating(false);
     setGenerationProgress(null);
 
-    if (result.error) {
+    if (epoch !== draftEpoch.current) {
+      setGenerationError('设定已更新，请按新设定重新塑造。');
+    } else if (result.error) {
       setGenerationError(ERROR_MAP[result.error] ?? ERROR_MAP['server:error']);
     } else if (result.candidates && result.candidates.length > 0) {
       setCandidates(result.candidates);
+      goStep(3);
     }
+    } catch { setGenerationError('人物塑造暂时未完成，填写内容已保留，可以重试。'); }
+    finally { setIsGenerating(false); setGenerationProgress(null); }
   };
 
   const handlePickCandidate = (c: Candidate) => {
@@ -297,19 +345,17 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const removeTag = (t: string) => setTags(tags.filter((x) => x !== t));
 
   const handleSave = async () => {
-    if (!canSave) return;
+    if (!canSave || saveLock.current) return;
     setNameError(null);
 
-    if (name.trim().length < 2) {
-      setNameError('请为数字灵魂命名为');
+    if (name.trim().length < 1) {
+      setNameError('请为数字灵魂命名');
       return;
     }
 
-    setIsSaving(true);
-    const finalSystemPrompt = [
-      systemPrompt.trim(),
-      boundaries.trim() ? `\n[互动边界]\n${boundaries.trim()}` : '',
-    ].filter(Boolean).join('\n');
+    saveLock.current = true; setIsSaving(true); setSaveError('');
+    try {
+    const finalSystemPrompt = composedPrompt();
 
     if (isEdit) {
       await updateCharacter(editCharacter.id, {
@@ -329,7 +375,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         description: relationshipMeta[characterId]?.description ?? '',
       })));
     } else {
-      const created = await createCharacter({
+      const created = savedCharacterId.current ? { id: savedCharacterId.current } : await createCharacter({
         name: name.trim(),
         avatar,
         systemPrompt: finalSystemPrompt,
@@ -343,9 +389,12 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         published,
         createdBy: '',
       });
-      if (importUserMemories) {
-        await memoryRepo.importRecentUserMemories(created.id, userId);
-      }
+      savedCharacterId.current = created.id;
+      // If auxiliary writes failed previously, retry applies the current draft
+      // to the same character rather than leaving edits behind or creating twice.
+      await updateCharacter(created.id, { name: name.trim(), avatar, systemPrompt: finalSystemPrompt,
+        tags, signature: signature.trim(), greeting: greeting.trim(), catchphrase: catchphrase.trim() || undefined,
+        boundaries: boundaries.trim() || undefined, published });
       await stateRepo.replaceStoryRelations(created.id, userId, relationshipTargets.map((characterId) => ({
         characterId,
         label: relationshipMeta[characterId]?.label ?? '故事关联',
@@ -353,12 +402,26 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
       })));
     }
 
-    setIsSaving(false);
     onClose();
+    } catch { setSaveError('保存未完成，填写内容已保留，请重试。'); }
+    finally { saveLock.current = false; setIsSaving(false); }
   };
 
   return (
     <div className="space-y-5">
+      {saveError && <p role="alert" className="text-sm text-red-400">{saveError}</p>}
+      {!isEdit && <>
+        <div className="rounded-2xl border border-gene-purple/25 bg-gradient-to-br from-gene-purple/10 to-life-cyan/5 p-4">
+          <p className="text-lg font-semibold text-ink">让一个独特的 TA 诞生</p>
+          <p className="mt-1 text-sm text-sub">先认识，再塑造。关系与经历由你决定。</p>
+        </div>
+        <nav ref={stepsRef} aria-label="创建角色步骤" className="grid grid-cols-4 gap-1">
+          {['TA 是谁', '与你相处', '如何表达', '相遇'].map((title, i) => <button type="button" key={title}
+            aria-current={step === i ? 'step' : undefined} onClick={() => goStep(i)}
+            className={`min-w-0 whitespace-nowrap rounded-xl py-3 text-xs font-medium ${step === i ? 'bg-gene-purple/20 text-ink ring-1 ring-gene-purple/40' : 'bg-surface text-sub'}`}>{title}</button>)}
+        </nav>
+      </>}
+      <div className="space-y-5" hidden={!isEdit && step !== 0}>
       {/* Name */}
       <div>
         <label className="block text-sm text-gray-400 mb-1.5">姓名</label>
@@ -429,37 +492,38 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
           </button>
         </div>
       </div>
-
-      {!isEdit && (
-        <section className="rounded-2xl border border-gene-purple/20 bg-gene-purple/[0.05] px-4 py-3.5">
-          <label className="flex cursor-pointer items-start gap-3">
-            <input
-              type="checkbox"
-              checked={importUserMemories}
-              disabled={importableMemoryCount === 0}
-              onChange={(event) => setImportUserMemories(event.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-line-strong bg-surface text-gene-purple focus:ring-gene-purple/30 disabled:opacity-40"
-            />
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-ink">带上我已分享过的记忆</span>
-              <span className="mt-1 block text-[11px] leading-relaxed text-gray-500">
-                {importableMemoryCount > 0
-                  ? `导入最多 ${importableMemoryCount} 条关于你的记忆摘要；不会导入原始聊天记录。`
-                  : '还没有可导入的记忆。以后聊天沉淀下来的内容也仍由你决定是否分享。'}
-              </span>
-            </span>
-          </label>
-        </section>
-      )}
-
+      {!isEdit && <label className="block text-sm text-sub">一句话身份
+        <textarea value={fields.identity} onChange={e => setField('identity', e.target.value)} rows={2}
+          placeholder="例如：嘴硬心软的修理师，住在海边小城" className="mt-2 w-full rounded-xl border border-line bg-surface p-3 text-sm text-ink" />
+      </label>}
+      </div>
+      <div className="space-y-5" hidden={!isEdit && step !== 1}>
+      {!isEdit && <section className="space-y-4">
+        <label className="block text-sm text-sub">你的身份（可选）
+          <input value={userIdentity} onChange={e => setUserIdentity(e.target.value)} placeholder="例如：我自己、同班同学、一位旅人"
+            className="mt-2 w-full rounded-xl border border-line bg-surface p-3 text-sm text-ink" />
+        </label>
+        <label className="block text-sm text-sub">你们的关系（可选）
+          <input value={userRelationship} onChange={e => setUserRelationship(e.target.value)} placeholder="例如：搭档、旧友、恋人，也可以自由定义"
+            className="mt-2 w-full rounded-xl border border-line bg-surface p-3 text-sm text-ink" />
+        </label>
+        <div className="flex gap-2">{[{value:false,label:'初次相识'},{value:true,label:'已经认识'}].map(option => <button key={option.label} type="button"
+          aria-pressed={alreadyKnow === option.value} onClick={() => setAlreadyKnow(option.value)}
+          className={`flex-1 rounded-xl border p-3 text-sm ${alreadyKnow === option.value ? 'border-life-cyan/40 bg-life-cyan/10 text-ink' : 'border-line text-sub'}`}>{option.label}</button>)}</div>
+        {alreadyKnow && <label className="block text-sm text-sub">共同过去（可选）
+          <textarea value={sharedPast} onChange={e => setSharedPast(e.target.value)} rows={3} placeholder="写下你希望成为出场背景的经历"
+            className="mt-2 w-full rounded-xl border border-line bg-surface p-3 text-sm text-ink" /></label>}
+      </section>}
+      <details open={isEdit || undefined} className="rounded-2xl border border-line p-3">
+      <summary className="cursor-pointer py-1 text-sm font-medium text-ink">与其他角色的关系（可选）</summary>
       <section className="rounded-2xl border border-life-cyan/20 bg-gradient-to-br from-life-cyan/[0.07] to-gene-purple/[0.08] p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[10px] tracking-[0.18em] text-life-cyan">STORY RELATIONSHIPS</p>
+            <p className="text-xs tracking-[0.18em] text-life-cyan">STORY RELATIONSHIPS</p>
             <h3 className="mt-1 text-sm font-semibold text-ink">把 TA 放进你的故事世界</h3>
-            <p className="mt-1 text-[11px] leading-relaxed text-gray-500">设定的关系会直接出现在关系网络中；群聊和普通对话不会自动改变它。</p>
+            <p className="mt-1 text-xs leading-relaxed text-gray-500">设定的关系会直接出现在关系网络中；群聊和普通对话不会自动改变它。</p>
           </div>
-          <span className="shrink-0 rounded-full bg-life-cyan/10 px-2 py-1 text-[10px] text-life-cyan">{relationshipTargets.length} 条连接</span>
+          <span className="shrink-0 rounded-full bg-life-cyan/10 px-2 py-1 text-xs text-life-cyan">{relationshipTargets.length} 条连接</span>
         </div>
 
         {existingCharacters.filter((character) => character.id !== editCharacter?.id).length === 0 ? (
@@ -508,7 +572,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
                           ...current,
                           [targetId]: { label: preset.label, description: meta.description || preset.description },
                         }))}
-                        className={`rounded-full border px-2 py-1 text-[10px] transition-colors ${meta.label === preset.label ? 'border-life-cyan/50 bg-life-cyan/12 text-life-cyan' : 'border-line bg-surface text-gray-500 hover:border-life-cyan/35 hover:text-life-cyan'}`}
+                        className={`rounded-full border px-2 py-1 text-xs transition-colors ${meta.label === preset.label ? 'border-life-cyan/50 bg-life-cyan/12 text-life-cyan' : 'border-line bg-surface text-gray-500 hover:border-life-cyan/35 hover:text-life-cyan'}`}
                       >
                         {preset.label}
                       </button>
@@ -518,24 +582,26 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
                     <input value={meta.label} onChange={(event) => setRelationshipMeta((current) => ({ ...current, [targetId]: { ...meta, label: event.target.value } }))} maxLength={18} placeholder="关系名称，例如：搭档" className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none focus:border-life-cyan/45" />
                     <input value={meta.description} onChange={(event) => setRelationshipMeta((current) => ({ ...current, [targetId]: { ...meta, description: event.target.value } }))} maxLength={100} placeholder="关系锚点：他们为何如此相处？" className="w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none focus:border-life-cyan/45" />
                   </div>
-                  <p className="mt-2 text-[10px] leading-relaxed text-gray-500">关系锚点会保留在人物网络中，并在话题相关时成为两位角色理解彼此的共同背景。</p>
+                  <p className="mt-2 text-xs leading-relaxed text-gray-500">关系锚点会保留在人物网络中，并在话题相关时成为两位角色理解彼此的共同背景。</p>
                 </div>
               );
             })}
           </div>
         )}
       </section>
-
+      </details>
+      </div>
+      <div className="space-y-5" hidden={!isEdit && step !== 2}>
       {/* Create-mode input: toggle between simple description & 6-step guide */}
       {!isEdit && (
         <div className="space-y-3">
           <div className="rounded-2xl border border-gene-purple/20 bg-gradient-to-r from-gene-purple/[0.10] to-life-cyan/[0.06] px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-ink">创造一个有边界的数字人格</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-gray-500">角色可以有鲜明性格，也应尊重你的现实生活、关系和退出选择。</p>
+                <p className="text-sm font-medium text-ink">塑造 TA 的性格</p>
+                <p className="mt-1 text-xs leading-relaxed text-gray-500">角色可以有鲜明性格，也应尊重你的现实生活、关系和退出选择。</p>
               </div>
-              <span className="shrink-0 rounded-full border border-life-cyan/25 bg-panel/60 px-2 py-1 text-[10px] text-life-cyan">已填写 {filledCount}/6</span>
+              <span className="shrink-0 rounded-full border border-life-cyan/25 bg-panel/60 px-2 py-1 text-xs text-life-cyan">已填写 {filledCount}/6</span>
             </div>
             <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-gene-purple/10">
               <div className="h-full rounded-full bg-gradient-to-r from-gene-purple to-life-cyan transition-all" style={{ width: `${Math.max(8, (filledCount / 6) * 100)}%` }} />
@@ -566,7 +632,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="描述这个数字灵魂的性格、说话风格、背景故事..."
+              placeholder="TA 在意什么？生气时怎么说话？写两句 TA 真会发的消息，比堆性格形容词更有用。"
               rows={3}
               className="w-full px-4 py-3 bg-surface border border-line-strong rounded-xl text-sm text-ink placeholder-gray-500 focus:outline-none focus:border-gene-purple/50 transition-colors resize-none"
             />
@@ -586,7 +652,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
                       <span className="text-gene-purple mr-1.5">{i + 1}</span>
                       {f.title}
                     </span>
-                    <span className="text-[10px] text-gray-500 flex items-center gap-1">
+                    <span className="text-xs text-gray-500 flex items-center gap-1">
                       {fields[f.key].trim() ? '已填' : '可选'}
                       <span className="text-gray-500">{openSections[f.key] ? '▴' : '▾'}</span>
                     </span>
@@ -609,9 +675,14 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         </div>
       )}
 
+      {!isEdit && <button type="button" disabled={!name.trim() || !(description.trim() || filledCount)} onClick={() => {
+        setSystemPrompt([`你是${name.trim()}。`, ...STEP_FIELDS.map(field => fields[field.key].trim() && `${field.title}：${fields[field.key].trim()}`), description.trim()].filter(Boolean).join('\n'));
+        setBoundaries(fields.boundaries.trim()); setCandidates(null); goStep(3);
+      }} className="w-full rounded-xl border border-line py-3 text-sm text-sub disabled:opacity-40">直接使用我的设定</button>}
       {/* File import — create mode only */}
       {!isEdit && (
-        <div>
+        <details className="rounded-xl border border-line p-3">
+          <summary className="cursor-pointer text-sm text-ink">参考资料（可选）</summary>
           <label className="block text-sm text-gray-400 mb-1.5">📎 导入参考资料（可选）</label>
           <input
             ref={fileInputRef}
@@ -696,7 +767,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
               </div>
             )}
           </div>
-        </div>
+        </details>
       )}
 
       {/* Web search checkbox — create mode only */}
@@ -746,7 +817,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
                 {generationProgress ? generationProgress.message : '基因测序中...'}
               </>
             ) : (
-              systemPrompt ? '🔄 重新测序' : '⚡ 全节点扫描并生成基因序列'
+              systemPrompt ? '重新塑造 TA' : '塑造 TA 的性格'
             )}
           </button>
           {generationError && (
@@ -754,12 +825,13 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
           )}
         </div>
       )}
-
+      </div>
+      <div className="space-y-5" hidden={!isEdit && step !== 3}>
       {/* Candidate comparison — create mode only, before picking */}
       {!isEdit && candidates && (
         <div className="space-y-2">
-          <p className="text-xs text-gray-400">选择一组最契合的基因序列：</p>
-          <div className="grid grid-cols-3 gap-2">
+          <p className="text-sm text-sub">听听不同的 TA，选一个最契合的：</p>
+          <div className="grid grid-cols-1 gap-3">
             {candidates.map((c, i) => (
               <button
                 key={i}
@@ -767,24 +839,40 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
                 onClick={() => handlePickCandidate(c)}
                 className="text-left p-3 rounded-xl border border-line hover:border-gene-purple hover:bg-gene-purple/5 transition-colors"
               >
-                <div className="text-[10px] text-life-cyan mb-1">候选 {i + 1}</div>
+                <div className="text-xs text-life-cyan mb-1">候选 {i + 1}</div>
                 <div className="flex flex-wrap gap-1">
                   {c.tags.map((t) => (
-                    <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-gene-purple/10 text-gene-purple">
+                    <span key={t} className="text-xs px-2 py-1 rounded bg-gene-purple/10 text-gene-purple">
                       {t}
                     </span>
                   ))}
                 </div>
-                <p className="mt-1.5 text-[10px] text-gray-600 line-clamp-5 whitespace-pre-line">{c.systemPrompt}</p>
+                <p className="mt-2 text-sm text-ink">{c.signature}</p>
+                <p className="mt-2 text-sm leading-relaxed text-sub">“{c.greeting}”</p>
+                <p className="mt-2 text-xs text-sub line-clamp-3">{c.systemPrompt}</p>
               </button>
             ))}
           </div>
         </div>
       )}
 
+      {!isEdit && !candidates && <section className="rounded-2xl border border-life-cyan/20 bg-life-cyan/5 p-4 space-y-3">
+        <h3 className="text-base font-semibold text-ink">相遇</h3>
+        <p className="text-sm text-sub">{greeting || '选好人物设定后，试着和 TA 说句话。'}</p>
+        <label className="block text-sm text-sub">试聊一句
+          <input value={previewInput} onChange={e => { setPreviewInput(e.target.value); draftEpoch.current++; setPreviewReply(''); }}
+            className="mt-2 w-full rounded-xl border border-line bg-surface p-3 text-sm text-ink" /></label>
+        <button type="button" disabled={!canSave || previewBusy || !previewInput.trim()} onClick={tryConversation}
+          className="rounded-xl border border-life-cyan/30 px-4 py-2 text-sm text-life-cyan disabled:opacity-40">{previewBusy ? 'TA 正在回应…' : '试着聊两句'}</button>
+        {previewReply && <p className="rounded-xl bg-panel p-3 text-sm leading-relaxed text-ink whitespace-pre-wrap">{previewReply}</p>}
+        {previewError && <p role="alert" className="text-sm text-red-400">{previewError}</p>}
+        <p className="text-xs text-sub">试聊使用当前模型，不会保存到聊天或记忆；也可以跳过。</p>
+      </section>}
+
       {/* Generated result — editable fields */}
-      {((!isEdit && (systemPrompt || candidates)) || isEdit) && (
-        <div className="space-y-4">
+      {((!isEdit && systemPrompt && !candidates) || isEdit) && (
+        <details open={isEdit || undefined} className="rounded-xl border border-line p-4 space-y-4">
+          <summary className="cursor-pointer text-sm font-medium text-ink">深入塑造 · 人物设定与表达</summary>
           {/* Tags */}
           <div>
             <label className="block text-sm text-gray-400 mb-1.5">性格标签</label>
@@ -859,7 +947,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
           {/* System prompt */}
           <div>
             <label className="block text-sm text-gray-400 mb-1.5">
-              {isEdit ? '基因序列' : '生成的基因序列'}
+              人物设定
             </label>
             <textarea
               value={systemPrompt}
@@ -869,7 +957,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
               className="w-full px-4 py-3 bg-surface border border-line-strong rounded-xl text-sm text-ink placeholder-gray-500 focus:outline-none focus:border-gene-purple/50 transition-colors resize-none"
             />
           </div>
-        </div>
+        </details>
       )}
 
       {/* Publish to gene pool */}
@@ -899,11 +987,17 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
       {/* Save button */}
       <button
         onClick={handleSave}
-        disabled={!canSave || isSaving}
+        disabled={!canSave || isSaving || !!candidates}
         className="w-full py-3 rounded-xl bg-life-cyan hover:bg-[#00B8B3] disabled:opacity-30 disabled:cursor-not-allowed text-sm font-semibold text-[#0F0F1A] transition-colors"
       >
-        {isSaving ? '保存中...' : isEdit ? '重新编译基因序列' : '培育数字灵魂'}
+        {isSaving ? '保存中...' : isEdit ? '保存角色' : '让 TA 来到我的世界'}
       </button>
+      </div>
+      {!isEdit && <div className="flex items-center gap-3 border-t border-line pt-4">
+        {step > 0 && <button type="button" onClick={() => goStep(step - 1)} className="rounded-xl border border-line px-5 py-3 text-sm text-sub">上一步</button>}
+        {step < 3 && <button type="button" disabled={step === 0 && !name.trim()} onClick={() => goStep(step + 1)}
+          className="flex-1 rounded-xl bg-gene-purple py-3 text-sm font-medium text-white disabled:opacity-40">下一步</button>}
+      </div>}
     </div>
   );
 }

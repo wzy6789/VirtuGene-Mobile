@@ -19,6 +19,8 @@ export interface GroupMemberBrief {
   memory?: string;
   /** Actor-only memory. It is never interpolated into the shared director prompt. */
   privateMemory?: string;
+  /** Actor-only relationship / mood cue, used only to shape this speaker's voice. */
+  relationshipContext?: string;
   /** 与这段共享资料对应的准确本地来源，仅供消息溯源，不拼进模型提示词。 */
   memoryReferences?: { source: 'chat' | 'group' | 'world' | 'moment' | 'todo' | 'diary'; id: string }[];
 }
@@ -197,7 +199,10 @@ async function generateActorReply(
   const personal = includePrivate && member.privateMemory
     ? `\n\n【只属于你自己的记忆，仅供你调整语气与关系距离】\n${member.privateMemory}\n不得在群里复述、转述、暗示或透露这些具体事实。用户在当前群消息中亲自提到的内容除外，但不得补充记忆中的隐藏细节。`
     : '';
-  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【完整角色设定（只有你自己的）】\n${member.persona}${shared}${personal}\n\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
+  const relationship = includePrivate && member.relationshipContext
+    ? `\n\n${member.relationshipContext}`
+    : '';
+  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【完整角色设定（只有你自己的）】\n${member.persona}${shared}${personal}${relationship}\n\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
   return callMemberText({ apiKey: params.apiKey, model, system, history, userContent: actorUserContent(params, model) });
 }
 

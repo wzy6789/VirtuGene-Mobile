@@ -52,6 +52,7 @@ export const sessionRepo = {
     sourceMessageIds?: string[],
     sourceMessageRevisions?: Record<string, number>,
     sourceMessageOffsets?: Record<string, number>,
+    guard?: { previousSummary?: string; protectedMemories?: Record<string, number> },
   ): Promise<number> {
     const patch: Partial<Session> = {
       summary,
@@ -64,7 +65,23 @@ export const sessionRepo = {
       } : {}),
     };
     if (witnessedBy) patch.summaryWitnessedBy = [...new Set(witnessedBy)].sort();
-    return db.sessions.update(id, patch);
+    return db.transaction('rw', [db.sessions, db.messages, db.memories, db.memorySourceTombstones], async () => {
+      const session = await db.sessions.get(id);
+      if (!session || (guard && session.summary !== guard.previousSummary)) return 0;
+      const audiences = witnessedBy?.length ? witnessedBy : [session.characterId];
+      const suppressionSets = await Promise.all(audiences.map(actor => memorySourceTombstoneRepo.suppressedMessages(session.userId, actor)));
+      for (const sourceId of sourceMessageIds ?? []) {
+        const message = await db.messages.get(sourceId);
+        if (!message || message.sessionId !== id || message.failed || suppressionSets.some(ids => ids.has(sourceId))
+          || (message.revision ?? 1) !== (sourceMessageRevisions?.[sourceId] ?? 1)) return 0;
+      }
+      for (const [memoryId, revision] of Object.entries(guard?.protectedMemories ?? {})) {
+        const memory = await db.memories.get(memoryId);
+        if (!memory || memory.userId !== session.userId || memory.characterId !== session.characterId
+          || !memory.pinned || (memory.status ?? 'active') !== 'active' || (memory.updatedAt ?? memory.createdAt) !== revision) return 0;
+      }
+      return db.sessions.update(id, patch);
+    });
   },
 
   async deleteById(id: string): Promise<void> {

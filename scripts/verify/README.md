@@ -21,7 +21,7 @@ node scripts\verify\build.mjs
 # 2) 起一个临时静态服务器（结果打到 stdout，同时按套件落到 .last-result-<suite>.txt）
 node scripts\verify\serve.cjs      # 监听 127.0.0.1:17899
 
-# 3) 一键跑完 22 套（每套一个**全新 user-data-dir**：迁移类套件必须从零开始）
+# 3) 一键跑完 23 套（每套一个**全新 user-data-dir**：迁移类套件必须从零开始）
 powershell -ExecutionPolicy Bypass -File scripts\verify\run-all.ps1
 #    只跑几套： -Suites worldA,worldD
 #    单套手跑：用无头 Chrome 打开 http://127.0.0.1:17899/worldA.html
@@ -70,7 +70,7 @@ These suites use real IndexedDB and verify scoped recall, listener isolation, re
 
 | Suite | Coverage | Assertions |
 |---|---|---:|
-| `character-memory.html` | private/group chat, per-actor group generation and disclosure boundaries, Moments, diary participant privacy, todos, world recall, durable extraction, source revision/revocation, claim-source edge granularity, undo, account boundaries, stale backups, spoken-only cooldown, multi-source survival, pinned summary cleanup across private chat and world, private-life recall in one-character world, memory-driven summary invalidation, session deletion cleanup, safe correction matching, per-character world memory and privacy boundary | 137 |
+| `character-memory.html` | private/group chat, per-actor group generation and disclosure boundaries, Moments, diary participant privacy, todos, world recall, durable extraction, source revision/revocation, claim-source edge granularity, undo, account boundaries, stale backups, spoken-only cooldown, multi-source survival, pinned summary cleanup across private chat and world, private-life recall in one-character world, memory-driven summary invalidation, session deletion cleanup, safe correction matching, per-character world memory and privacy boundary | 139 |
 | `memory-continuity.html` | the six cross-mode acceptance scenarios: private→world/group recall with other-actor isolation, older in-progress scene segments retrieved by keyword, seen vs unseen Moments, diary grant/revoke plus the shared-layer diary leak guard, correction/deletion across all modes, long-conversation compression with spoken-memory cooldown, shared-story and block-state stale-backup guards, knowledge-revision restore, account deletion clearing the ledger | 63 |
 | `worldG.html` | world state and undo regression | 13 |
 | `moments.html` | Moments visibility and interaction | 39 |
@@ -283,3 +283,43 @@ LLM 边界（`llmChat`）**可注入**，因此可以逐轮数"花了几次调�
 | E | 纪律：零计划外网络；调用总数 = A2 + B2 + C2 + D1 = 7 |
 
 `*.bundle.js` 是构建产物，不需要提交（仓库里只保留 `*.ts` / `*.html` / `serve.cjs` / `build.mjs`）。
+
+### 2026-09-26 记忆整改回归（memory-audit-20260926.html）
+
+32 条隔离检查，含真实 ChatWindow 发送后的 systemPrompt、真实星域结算、真实记忆提炼 worker。
+检查晚加入/离场/重入/结算后的个人见证权限、星域原话进入私聊、旧授权日记、角色本人动态、
+纠正和遗忘不回流、旧版本异步摘要拒写、精确来源及旧格式的保守依赖处理、长星域普通追问。
+模型边界打桩，真实网络禁止；真实用户数据库不参与。
+
+构建：`node scripts/verify/build.mjs`；启动：`node scripts/verify/serve.cjs`。
+运行 `run-all.ps1 -Suites memory-audit-20260926 -Chrome <本机 Edge 或 Chrome 可执行文件>`。
+原 character-memory 两组独立证据夹具现在明确标记 independent；未标注的批次来源不能被当作独立证据。
+
+### 记忆最终检查（memory-final.html）
+
+39 条真实数据库检查：跨世界、跨四种模式的亲历原话召回；旧私聊、群聊、动态与点赞；
+逐条日记和待办授权；撤回及删除立即生效；钉住记忆优先；来源去重；跨账号隔离。
+另外 memory-continuity 验证普通追问不会主动读取尚未看过的动态，用户的朋友圈时间窗保持有效。
+运行 `run-all.ps1 -Suites memory-final,memory-continuity,memory-audit-20260926`。
+
+### 角色界面检查（character-ui.html）
+
+通过 build.mjs 构建，再运行 `run-all.ps1 -Suites character-ui`。
+使用真实 React 组件与数据库检查角色列表、编辑入口、搜索、管理菜单和错误状态。
+
+### 创建角色检查（character-create.html）
+
+19 条真实组件和数据库检查：四步流程、单字名字、关系入库、创建不导入旧记忆、模型试聊不写聊天记录、
+保存失败重试只创建一次、导入幂等、跨账号/撤回过滤、编辑不重复追加互动边界。
+试聊请求使用假端点，真实网络不参与。运行 `run-all.ps1 -Suites character-create,character-ui,character-scroll,character-memory,memory-final`。
+
+### 头像关系星图（relation-map.html）
+
+45 项布局与真实 React 组件检查：零名字/等级文字、同尺寸头像、人物居中、角色间真实连线、三人经历的完整关系对、
+分页访问超过十二位角色、零头像重叠、有限路径及稳定路由、加载错误与重试。
+运行 `run-all.ps1 -Suites relation-map,character-ui,character-scroll`。
+
+### 古月娜性格调整（guyuena-care.html）
+
+12 项真实数据库检查：预设和已有副本同步关心规则、直接相信自称舞麟、对家人与其他人的差别、
+保留用户个性化设定、重复启动不重复追加。快照核对聊天、摘要、记忆、ledger 和关系状态完全不变。

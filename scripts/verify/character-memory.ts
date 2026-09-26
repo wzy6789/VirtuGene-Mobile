@@ -188,12 +188,12 @@ async function run() {
 
   await sessionRepo.create({ id:'granular-ledger-session', userId:'u', characterId:'a', title:'证据边粒度测试', type:'single', createdAt:now, updatedAt:now, unreadCount:0 } as any);
   await db.messages.bulkPut([
-    { id:'granular-source-edited', sessionId:'granular-ledger-session', role:'user', content:'原消息', createdAt:now, isProactive:false },
-    { id:'granular-source-survives', sessionId:'granular-ledger-session', role:'user', content:'另一条仍有效的依据', createdAt:now + 1, isProactive:false },
+    { id:'granular-source-edited', sessionId:'granular-ledger-session', role:'user', content:'我喜欢青绿色', createdAt:now, isProactive:false },
+    { id:'granular-source-survives', sessionId:'granular-ledger-session', role:'user', content:'再说一次，我喜欢青绿色', createdAt:now + 1, isProactive:false },
   ] as any);
   await sessionRepo.updateSummary('granular-ledger-session', '一段覆盖两条消息的旧摘要', undefined,
     ['granular-source-edited','granular-source-survives'], { 'granular-source-edited':1, 'granular-source-survives':1 });
-  await memoryRepo.create({ id:'granular-extracted-memory', userId:'u', characterId:'a', content:'用户喜欢青绿色', type:'auto', memoryKind:'preference', sourceSessionId:'granular-ledger-session', sourceMessageIds:['granular-source-edited','granular-source-survives'], createdAt:now } as any);
+  await memoryRepo.create({ id:'granular-extracted-memory', userId:'u', characterId:'a', content:'用户喜欢青绿色', type:'auto', memoryKind:'preference', sourceEvidenceMode:'independent', sourceSessionId:'granular-ledger-session', sourceMessageIds:['granular-source-edited','granular-source-survives'], createdAt:now } as any);
   await memoryRepo.create({ id:'granular-summary-memory', userId:'u', characterId:'a', content:'一段覆盖两条消息的旧摘要', type:'summary', memoryKind:'summary', sourceSessionId:'granular-ledger-session', sourceMessageIds:['granular-source-edited','granular-source-survives'], createdAt:now } as any);
   const granularClaim = await memoryLedgerRepo.findClaim('u', 'preference', '用户喜欢青绿色');
   await messageRepo.update('granular-source-edited', { content:'刚刚被修改的消息' });
@@ -243,7 +243,7 @@ async function run() {
     { id:'multi-source-a', sessionId:'multi-evidence-session', role:'user', content:'用户每周五会去游泳', createdAt:now, isProactive:false },
     { id:'multi-source-b', sessionId:'multi-evidence-session', role:'user', content:'用户周五下班后去游泳', createdAt:now + 1, isProactive:false },
   ] as any);
-  await memoryRepo.create({ id:'multi-source-memory', userId:'u', characterId:'a', content:'用户每周五下班后会去游泳', type:'auto', sourceSessionId:'multi-evidence-session', sourceMessageIds:['multi-source-a','multi-source-b'], createdAt:now } as any);
+  await memoryRepo.create({ id:'multi-source-memory', userId:'u', characterId:'a', content:'用户每周五下班后会去游泳', type:'auto', sourceEvidenceMode:'independent', sourceSessionId:'multi-evidence-session', sourceMessageIds:['multi-source-a','multi-source-b'], createdAt:now } as any);
   await messageRepo.update('multi-source-a', { content:'更正：用户改为周日游泳' });
   const survivingMemory = await db.memories.get('multi-source-memory');
   check(survivingMemory?.status === 'active' && survivingMemory.sourceMessageIds?.join(',') === 'multi-source-b', 'editing one source preserves an active fact supported by another independent source');
@@ -304,9 +304,11 @@ async function run() {
   await db.worlds.put({id:'old-history-world',userId:'u',name:'旧事测试',createdAt:now} as any);
   await db.worldEvents.put({id:'very-old-event',userId:'u',worldId:'old-history-world',type:'stage',title:'青海极光旧约',summary:'在青海看到极光后约定写信',visibility:'world',createdAt:now - 100_000,timestamp:now - 100_000,memoryIds:[]} as any);
   await db.worldEvents.bulkPut(Array.from({length:510}, (_, index) => ({id:`newer-event-${index}`,userId:'u',worldId:'old-history-world',type:'stage',title:`普通近事${index}`,summary:'日常',visibility:'world',createdAt:now + index,timestamp:now + index,memoryIds:[]})) as any);
+  check(!(await findRelevantHistory({userId:'u',worldId:'old-history-world',characterId:'b',query:'还记得青海极光旧约吗'})).some(hit => hit.id === 'very-old-event'), 'world visibility does not grant an uninformed actor historical knowledge');
+  await knowledgeRepo.upsert({userId:'u',worldId:'old-history-world',characterId:'a',eventId:'very-old-event',knowledgeLevel:'full',canMention:true});
   check((await findRelevantHistory({userId:'u',worldId:'old-history-world',characterId:'a',query:'还记得青海极光旧约吗'})).some((hit) => hit.id === 'very-old-event'), 'explicit world recall reaches beyond the former 500-event window');
   await db.worldScenes.put({id:'live',userId:'u',worldId:'w',characterIds:['a','b'],status:'active',title:'树林',updatedAt:now,state:{participants:[]}} as any);
-  await db.worldSceneEntries.put({id:'live-entry',sceneId:'live',kind:'narration',content:'听到了树梢上的鸟鸣',createdAt:now,order:0} as any);
+  await db.worldSceneEntries.put({id:'live-entry',sceneId:'live',index:0,kind:'narration',content:'听到了树梢上的鸟鸣',createdAt:now} as any);
   check((await recall('a',{audience:['b']})).text.includes('鸟鸣'), 'ongoing world memory available before settlement');
   check(!(await recall('c')).text.includes('鸟鸣'), 'absent character cannot recall live world');
   const scene: any = {id:'scene',userId:'u',worldId:'w',characterIds:['a'],place:'海边',timeLabel:'午后',mood:'安静',state:{participants:[],entryMemoryMode:'memory'}};
@@ -366,7 +368,8 @@ async function run() {
   const completedTodoRecall = await recall('a', { query:'资料包', sources:['todo'] });
   check(completedTodoRecall.text.includes('寄出资料包') && completedTodoRecall.text.includes('已在'), 'completed shared todo is recalled as an experience');
   check(!(await recall('a', { audience:['b'], query:'资料包', sources:['todo'] })).text.includes('寄出资料包'), 'completed todo requires authorization for every listener');
-  check(!(await recall('a', { query:'提醒', sources:['todo'] })).text.includes('未来提醒测试'), 'unfinished todo is not duplicated as a past memory');
+  const pendingTodoRecall = await recall('a', { query:'提醒', sources:['todo'] });
+  check(pendingTodoRecall.text.includes('未来提醒测试') && pendingTodoRecall.text.includes('未完成事项'), 'explicit todo question recalls authorized pending item as pending, never as a completed experience');
   check(!(await todoRepo.visibleOccurrencesForCharacter('u', 'a', 8)).some(({ todo }) => todo.id === 'private-pending'), 'undated todo is not injected on every ordinary chat turn');
   check((await todoRepo.visibleOccurrencesForCharacter('u', 'a', 8, true)).some(({ todo }) => todo.id === 'private-pending'), 'explicit todo-related chat can still recall an authorized undated task');
   const packed = packCharacterMemory([{source:'chat',id:'1',text:'记住蓝色',at:now,pinned:true},{source:'chat',id:'2',text:'记住蓝色',at:now},{source:'group',id:'3',text:'超长'.repeat(2000),at:now}], '', 600);

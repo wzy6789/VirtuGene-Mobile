@@ -20,7 +20,7 @@ export function DiaryView({ diary }: Props) {
   return (
     <div className="max-w-2xl mx-auto">
       {/* 纸面感容器 */}
-      <div className="rounded-2xl border border-line bg-panel/70 px-6 py-6 shadow-[0_4px_20px_rgba(15,15,26,0.06)]">
+      <div className="vg-diary-paper rounded-2xl border border-line bg-panel/70 px-6 py-6 shadow-[0_4px_20px_rgba(15,15,26,0.06)]">
         {/* 抬头：日期 星期 天气 心情 */}
         <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-line">
           <div className="flex items-center gap-2 text-sm text-sub">

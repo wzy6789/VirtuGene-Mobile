@@ -295,6 +295,8 @@ export interface WorldEvent {
 /** 场景内某个角色的状态与目标（隐藏张力的载体：各角色目标不同才有真正的多角色互动） */
 export interface SceneParticipantState {
   characterId: string;
+  /** Historical participation closes on departure; it is never an authorization for later entries. */
+  leftAt?: number;
   /** 进入场景时携带的上下文范围。 */
   entryMemoryMode?: 'memory' | 'present' | 'amnesiac';
   /** 进入时间；present 角色只读取此刻之后的舞台正文。旧数据没有时兼容为全量。 */
@@ -325,6 +327,8 @@ export interface WorldSceneState {
   resolvedEventIds: string[];
   newEventIds: string[];
   participants: SceneParticipantState[];
+  /** Former participants retain their own witnessed history without remaining on stage. */
+  pastParticipants?: SceneParticipantState[];
   /**
    * 5.0.0 Living World（v18）：这一片段把世界时钟相对真实时间推了多久（毫秒）。
    * 「直接到第二天早上」这类时间跳跃只改这一个数 + `WorldScene.timeLabel`，
@@ -838,6 +842,8 @@ export interface MemoryItem {
   sourceSessionId?: string;
   /** 这条记忆来自哪些消息（真实消息 id；未知时为空，绝不靠文本相似度猜测） */
   sourceMessageIds?: string[];
+  /** Whether sources independently confirm the fact or jointly formed one extraction batch. */
+  sourceEvidenceMode?: 'independent' | 'dependent';
   /** Per-message evidence revision and source segment for invalidation and audit. */
   sourceMessageRevisions?: Record<string, number>;
   sourceMessageOffsets?: Record<string, number>;
@@ -959,6 +965,9 @@ export interface MemorySourceTombstone {
   userId: string;
   sourceType: 'memory' | 'message' | 'diary' | 'moment' | 'momentReaction' | 'todo' | 'todoOccurrence' | 'worldEvent' | 'sharedMemory' | 'worldFact' | 'worldScene' | 'worldSceneEntry' | 'worldTurn' | 'continuityThread' | 'relationshipEvent' | 'sharedStoryEvent' | 'characterLifeEvent';
   sourceId: string;
+  /** Actor-scoped suppression of raw evidence after explicit correction/forgetting; no plaintext retained. */
+  characterId?: string;
+  suppressedMessageIds?: string[];
   /** 被撤销的最高来源版本；更高版本代表用户后来重新授权或编辑。 */
   sourceRevision: number;
   status: 'withdrawn' | 'deleted' | 'superseded';

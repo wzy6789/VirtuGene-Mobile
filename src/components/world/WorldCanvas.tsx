@@ -13,11 +13,12 @@
  * 交互纪律：
  * - **沉浸式**：进入后底部一级导航隐藏（§67），返回键先退出世界空间
  * - **键盘**：输入框始终可见（sticky 底部），内容区正确缩放（§66）
- * - **滚动**：用户停在底部就自动跟随；正在向上阅读**绝不**强拉到底（§70）
+ * - **滚动**：输入框点击、键盘变化和新内容到达都跟随最新；加载旧内容保留视野。
  * - **渐进式回应**（§57）：用户行动立刻可见，第一位角色生成完立刻出现，
  *   看到回复后即可继续输入（结算在后台继续）
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLatestMessageScroll } from '../ui/useLatestMessageScroll';
 import type { WorldAgentState, WorldLocation, WorldObject, WorldPresence, WorldScene, WorldSceneEntry } from '../../db/index';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
@@ -134,6 +135,7 @@ export function WorldCanvas() {
   const partialFrameRef = useRef(0);
   /** 本轮里有过流式呈现的复合键：对应 entry 落库时跳过节拍延迟，避免"看过的再等一遍" */
   const streamedKeysRef = useRef<Set<string>>(new Set());
+  const committedStreamKeysRef = useRef<Set<string>>(new Set());
 
   const partialKeyOf = useCallback((turnId: string, sceneId: string, speakerId: string | null, field: string) =>
     `${turnId}:${sceneId}:${speakerId ?? '__narration'}:${field}`, []);
@@ -146,11 +148,13 @@ export function WorldCanvas() {
     pendingPartialsRef.current.clear();
     setPartials({});
     streamedKeysRef.current.clear();
+    committedStreamKeysRef.current.clear();
   }, []);
 
-  /** 流式增量上屏：按动画帧合帧批量替换，滚动跟随只看 stickRef（§70） */
+  /** 流式增量上屏：按动画帧合帧批量替换，提交后跟随最新内容。 */
   const handleTurnPartial = useCallback((event: { turnId: string; sceneId: string; speakerId: string | null; field: 'narration' | 'dialogue' | 'action'; text: string }) => {
     const key = partialKeyOf(event.turnId, event.sceneId, event.speakerId, event.field);
+    if (committedStreamKeysRef.current.has(key)) return;
     streamedKeysRef.current.add(key);
     pendingPartialsRef.current.set(key, { speakerId: event.speakerId, field: event.field, text: event.text });
     if (partialFrameRef.current) return;
@@ -161,7 +165,9 @@ export function WorldCanvas() {
       pendingPartialsRef.current = new Map();
       setPartials((prev) => {
         const next = { ...prev };
-        for (const [key, slice] of pending) next[key] = slice;
+        for (const [key, slice] of pending) {
+          if (!committedStreamKeysRef.current.has(key)) next[key] = slice;
+        }
         return next;
       });
     });
@@ -302,12 +308,14 @@ export function WorldCanvas() {
     setUnseen(0);
   }, []);
 
+  const followLatest = useLatestMessageScroll(scrollerRef);
+  const latestEntryId = entries.length ? entries[entries.length - 1].id : undefined;
   useEffect(() => {
-    if (stickRef.current) {
-      const el = scrollerRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    }
-  }, [entries, partials]);
+    // New rows/stream deltas always follow; prepending older rows does not.
+    stickRef.current = true;
+    setUnseen(0);
+    return followLatest();
+  }, [latestEntryId, partials, followLatest]);
 
   const appendEntry = useCallback((entry: WorldSceneEntry) => {
     visibleQueueRef.current = visibleQueueRef.current.then(async () => {
@@ -321,6 +329,10 @@ export function WorldCanvas() {
         ? partialKeyOf(entryTurnId, entry.sceneId, entry.speakerId ?? null, entry.kind)
         : null;
       const wasStreamed = Boolean(streamKey) && streamedKeysRef.current.has(streamKey!);
+      if (streamKey) {
+        committedStreamKeysRef.current.add(streamKey);
+        pendingPartialsRef.current.delete(streamKey);
+      }
       if (wasStreamed) {
         setPartials((prev) => {
           if (!prev[streamKey!]) return prev;
@@ -774,6 +786,7 @@ export function WorldCanvas() {
             />
             <WorldComposer
               value={text}
+              onFocusInput={() => { stickRef.current = true; setUnseen(0); followLatest(); }}
               onChange={setText}
               onSend={() => void send(text)}
               onOpenControls={() => setSheetOpen(true)}

@@ -398,6 +398,7 @@ export async function finishSceneAndSettle(params: {
   });
 
   const participants = [userRef(params.userId), ...scene.characterIds.map(characterRef)];
+  const historicalActors = [...new Set([...scene.characterIds, ...(scene.state.pastParticipants ?? []).map(p => p.characterId)])];
   const summary = proposal.summary ?? `${scene.title}（${scene.place}）`;
 
   // 1) 舞台世界事件（**真实场景才能产生 stage**：2b-0 起从未伪造过）
@@ -414,7 +415,7 @@ export async function finishSceneAndSettle(params: {
     sourceId: scene.id,
     // 与既有口径一致：这场戏是"你们之间发生的事"，不擅自让全世界角色都知道
     visibility: 'selected',
-    visibleTo: [...scene.characterIds],
+    visibleTo: historicalActors,
     resolved: true,
     tags: ['星域'],
     meta: { place: scene.place, timeLabel: scene.timeLabel, mood: scene.mood, ...(scene.theme ? { theme: scene.theme } : {}) },
@@ -490,6 +491,13 @@ export async function finishSceneAndSettle(params: {
       knowledgeLevel: 'full',
       canMention: true,
     });
+  }
+
+  // Former participants retain their witnessed entries, but do not learn the
+  // final settlement or anything that happened after they left.
+  for (const characterId of historicalActors.filter(id => !scene.characterIds.includes(id))) {
+    await knowledgeRepo.grantForEvent({ userId: params.userId, worldId: scene.worldId,
+      characterId, eventId, knowledgeLevel: 'partial', canMention: true });
   }
 
   // 6) 收尾：场景标记结束 + 挂上事件 + 清空已落地的待结算后果

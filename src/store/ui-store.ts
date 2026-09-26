@@ -63,7 +63,8 @@ interface UIState {
 export const useUIStore = create<UIState>((set) => ({
   activeView: 'chat',
   setActiveView: (activeView) => set({ activeView }),
-  mobileTab: 'chat',
+  // Local mobile preview opens the screen currently being reviewed; installed app remains on Messages.
+  mobileTab: typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('virtugene-preview') === 'mobile' ? 'characters' : 'chat',
   setMobileTab: (mobileTab) => set({ mobileTab }),
   worldTheaterOpen: false,
   setWorldTheaterOpen: (worldTheaterOpen) => set({ worldTheaterOpen }),

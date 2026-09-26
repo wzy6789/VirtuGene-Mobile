@@ -29,6 +29,8 @@ import { worldRepo } from '../../src/db/world-repo';
 import { useAuthStore } from '../../src/store/auth-store';
 import { useChatStore } from '../../src/store/chat-store';
 import { buildCharacterMemoryContext, detectRecallIntent } from '../../src/lib/character-memory';
+import { buildLiveSceneContext } from '../../src/lib/chat-context';
+import { selectLiveSceneMoments, findSceneSegmentHistory } from '../../src/lib/world/scene-recall';
 import { rankConversationMemories, findSpokenMemoryIds } from '../../src/lib/memory-engine';
 import { buildWorldContext, renderCharacterContext, renderWorldBrief, renderWorldLayer } from '../../src/lib/world/world-context';
 import { clearDiarySharing, listMentionableDiaryIds, setDiarySharing } from '../../src/lib/world/diary-visibility';
@@ -105,8 +107,8 @@ async function run() {
     state: { participants: [{ characterId: 'a', goals: [], knowsEventIds: [], secrets: [], entryMemoryMode: 'memory', enteredAt: now - 500_000 }] },
   } as any);
   const longEntries = Array.from({ length: 60 }, (_, index) => ({
-    id: `sc-long-entry-${index}`, sceneId: 'sc-long', index, kind: index % 3 === 0 ? 'dialogue' : 'narration',
-    act: 1, content: index === 3 ? '我跟你说好：下次见面带桂花糕给你' : `普通的第 ${index} 段对白`,
+    id: `sc-long-entry-${index}`, sceneId: 'sc-long', index, kind: index === 40 ? 'user_input' : index % 3 === 0 ? 'dialogue' : 'narration',
+    act: 1, content: index === 3 ? '我跟你说好：下次见面带桂花糕给你' : index === 40 ? '周末我打算去商场。' : `普通的第 ${index} 段对白`,
     witnessedBy: ['a'], createdAt: now - 590_000 + index * 1000,
   }));
   await db.worldSceneEntries.bulkPut(longEntries as any);
@@ -117,6 +119,13 @@ async function run() {
   check(longRecall.sections.historical.includes('桂花糕'), 'the older segment is reported as historical evidence, not as recent chatter');
   check(longRecall.sections.recent.includes('桂花糕') === false, 'the same segment is not part of the recent-steps window');
   check(longRecall.provenance.some((item) => item.source === 'world' && item.learnedBy === 'witnessed'), 'the segment is marked as something the character witnessed');
+  const liveA = await selectLiveSceneMoments({ userId: 'u', worldId: DEFAULT_WORLD, characterId: 'a' });
+  const longLiveA = liveA.find((item) => item.scene.id === 'sc-long');
+  check(longLiveA?.userStatements.some((entry) => entry.content.includes('周末我打算去商场')), 'the same character keeps an older user plan after later scene beats push it out of the recent five');
+  const livePrompt = buildLiveSceneContext(liveA.map(({ scene, entries, userStatements }) => ({
+    title: scene.title, place: scene.place, timeLabel: scene.timeLabel, status: scene.status, entries, userStatements,
+  })));
+  check(livePrompt.includes('周末我打算去商场') && livePrompt.includes('直接回答'), 'private-chat scene context carries the exact plan and tells the character to answer direct follow-ups from it');
   // 场景只决定"此刻适合提起什么"：入场晚的参与者不继承入场前的正文
   await db.worldScenes.update('sc-long', {
     characterIds: ['a', 'c'],
@@ -131,10 +140,56 @@ async function run() {
     topic: '桂花糕还算数吗', worldId: DEFAULT_WORLD, scene: { worldId: DEFAULT_WORLD, sceneId: 'sc-long' },
   });
   check(lateJoiner.text.includes('桂花糕') === false, 'a late joiner who chose "from now on" does not inherit pre-arrival scene text');
+  check((await recall('c', { topic: '商场', worldId: DEFAULT_WORLD })).text.includes('周末我打算去商场') === false, 'the preserved user statement still does not leak to a character who joined after it was said');
   const sharedLate = await recall('a', {
     topic: '桂花糕还算数吗', worldId: DEFAULT_WORLD, scene: { worldId: DEFAULT_WORLD, sceneId: 'sc-long' }, audience: ['c'],
   });
   check(sharedLate.references.every((item) => item.id !== 'sc-long-entry-3'), 'shared context drops a segment one listener is not allowed to read');
+
+  /* ─────────── ②b 已结束星域 → 私聊：具体原话与权限 ─────────── */
+  section('场景二补充：结束后的星域安排仍属于亲历角色自己的记忆');
+  const finishedAt = now + 50_000;
+  await db.worldScenes.put({
+    id: 'sc-finished-plan', userId: 'u', worldId: DEFAULT_WORLD, characterIds: ['a'], status: 'finished',
+    title: '商场约定', place: '商场', timeLabel: '周末', mood: '轻松', worldEventId: 'event-finished-plan',
+    createdAt: finishedAt - 5_000, updatedAt: finishedAt, finishedAt,
+    state: { participants: [{ characterId: 'a', goals: [], knowsEventIds: ['event-finished-plan'], secrets: [], entryMemoryMode: 'memory', enteredAt: finishedAt - 5_000 }] },
+  } as any);
+  await db.worldEvents.put({
+    id: 'event-finished-plan', userId: 'u', worldId: DEFAULT_WORLD, type: 'stage', title: '周末商场',
+    summary: '在商场聊了周末安排', visibility: 'selected', visibleTo: ['a'], createdAt: finishedAt, timestamp: finishedAt, memoryIds: [],
+  } as any);
+  await knowledgeRepo.upsert({ userId: 'u', worldId: DEFAULT_WORLD, characterId: 'a', eventId: 'event-finished-plan', knowledgeLevel: 'full', canMention: true });
+  await db.worldSceneEntries.bulkPut([
+    { id: 'finished-plan-user', sceneId: 'sc-finished-plan', index: 0, kind: 'user_input', content: '我周六要去商场给妈妈买生日礼物，可能会选一条蓝色围巾 FINISHED_PLAN_81', witnessedBy: ['a'], createdAt: finishedAt - 2_000 },
+    { id: 'finished-plan-own', sceneId: 'sc-finished-plan', index: 1, kind: 'dialogue', speakerId: 'a', content: '那你回来告诉我最后挑了哪条，我想听。FINISHED_PROMISE_82', witnessedBy: ['a'], createdAt: finishedAt - 1_000 },
+  ] as any);
+  const ambientFinished = await recall('a', { topic: '我周六准备去哪儿' });
+  check(ambientFinished.text.includes('FINISHED_PLAN_81'), 'a recent finished scene carries the user’s exact plan into ordinary private chat');
+  check(ambientFinished.text.includes('FINISHED_PROMISE_82'), 'the same character’s own recent words also survive the scene boundary');
+  const explicitFinished = await findSceneSegmentHistory({ userId: 'u', worldId: DEFAULT_WORLD, characterId: 'a', sceneId: 'sc-finished-plan', query: '还记得商场买什么吗', includeFinished: true });
+  check(explicitFinished.some((hit) => hit.entryId === 'finished-plan-user'), 'explicit historical lookup can retrieve exact words from a finished scene');
+  check((await findSceneSegmentHistory({ userId: 'u', worldId: DEFAULT_WORLD, characterId: 'a', sceneId: 'sc-finished-plan', query: '商场', includeFinished: false })).length === 0, 'finished scene transcripts are not searched through the active-scene-only path');
+  check(!(await recall('b', { topic: '我周六准备去哪儿' })).text.includes('FINISHED_PLAN_81'), 'another character cannot inherit the finished scene participant’s plan');
+  check(!(await recall('a', { audience: ['b'], topic: '我周六准备去哪儿' })).text.includes('FINISHED_PLAN_81'), 'a shared group prompt fails closed when any listener lacks participation and knowledge');
+  await db.worldEvents.update('event-finished-plan', { visibility: 'private' });
+  check(!(await recall('a', { topic: '我周六准备去哪儿' })).text.includes('FINISHED_PLAN_81'), 'making the finished stage event private immediately withdraws its transcript from ordinary recall');
+  check((await findSceneSegmentHistory({ userId: 'u', worldId: DEFAULT_WORLD, characterId: 'a', sceneId: 'sc-finished-plan', query: '商场', includeFinished: true })).length === 0, 'historical transcript lookup also obeys event visibility');
+  await db.worldEvents.update('event-finished-plan', { visibility: 'selected', visibleTo: ['a'] });
+  await knowledgeRepo.upsert({ userId: 'u', worldId: DEFAULT_WORLD, characterId: 'a', eventId: 'event-finished-plan', knowledgeLevel: 'full', canMention: false });
+  check(!(await recall('a', { topic: '还记得商场吗' })).text.includes('FINISHED_PLAN_81'), 'finished transcripts require canMention, not merely participation or visibility');
+  await knowledgeRepo.upsert({ userId: 'u', worldId: DEFAULT_WORLD, characterId: 'a', eventId: 'event-finished-plan', knowledgeLevel: 'full', canMention: true });
+  await db.worldScenes.update('sc-finished-plan', {
+    characterIds: ['a', 'c'],
+    state: { participants: [
+      { characterId: 'a', goals: [], knowsEventIds: ['event-finished-plan'], secrets: [], entryMemoryMode: 'memory', enteredAt: finishedAt - 5_000 },
+      { characterId: 'c', goals: [], knowsEventIds: ['event-finished-plan'], secrets: [], entryMemoryMode: 'present', enteredAt: finishedAt - 1_500 },
+    ] },
+  } as any);
+  await db.worldEvents.update('event-finished-plan', { visibleTo: ['a', 'c'] });
+  await knowledgeRepo.upsert({ userId: 'u', worldId: DEFAULT_WORLD, characterId: 'c', eventId: 'event-finished-plan', knowledgeLevel: 'full', canMention: true });
+  check(!(await recall('c', { topic: '我周六准备去哪儿' })).text.includes('FINISHED_PLAN_81'), 'a late-arriving character does not inherit pre-entry words even with later event knowledge');
+  check((await findSceneSegmentHistory({ userId: 'u', worldId: DEFAULT_WORLD, characterId: 'a', audience: ['c'], sceneId: 'sc-finished-plan', query: '商场', includeFinished: true })).length === 0, 'shared historical lookup filters out lines a late listener did not witness');
 
   /* ─────────── ③ 朋友圈：看过 / 没看过 ─────────── */
   section('场景三：看过动态的角色与被提起后才查看的角色回答不同');

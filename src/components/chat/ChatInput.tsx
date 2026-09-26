@@ -362,6 +362,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             onFocus={() => onFocusInput?.()}
+            onClick={() => onFocusInput?.()}
             placeholder="发消息…"
             disabled={disabled}
             rows={1}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { GenePoolTab } from './GenePoolTab';
 import { CreateGeneTab } from './CreateGeneTab';
@@ -16,6 +16,7 @@ interface CharacterAddModalProps {
 type Tab = 'pool' | 'create';
 
 export function CharacterAddModal({ open, onClose, editCharacter, onSelected }: CharacterAddModalProps) {
+  const contentRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<Tab>(editCharacter ? 'create' : 'pool');
 
   /** 纯关闭（× / 遮罩）：只关弹窗，不触发 onSelected */
@@ -32,8 +33,8 @@ export function CharacterAddModal({ open, onClose, editCharacter, onSelected }: 
   };
 
   return (
-    <Modal open={open} onClose={handleDismiss} title="基因实验室" width="max-w-2xl" closeOnBackdrop={false}>
-      <div className="flex border-b border-line">
+    <Modal open={open} onClose={handleDismiss} title="基因实验室" width="max-w-2xl" closeOnBackdrop={false} mobileFullHeight>
+      {!editCharacter && <div className="vg-character-editor-tabs flex border-b border-line">
         <button
           className={`flex-1 py-3 text-sm font-medium transition-colors ${
             tab === 'pool'
@@ -54,13 +55,14 @@ export function CharacterAddModal({ open, onClose, editCharacter, onSelected }: 
         >
           创造基因
         </button>
-      </div>
+      </div>}
 
-      <div className="p-6">
-        {tab === 'pool' ? (
-          <GenePoolTab onSelect={handleSuccess} />
+      <div ref={contentRef} className="p-4 sm:p-6">
+        {!editCharacter && tab === 'pool' ? (
+          <GenePoolTab onSelect={handleSuccess} singleScroll />
         ) : (
           <CreateGeneTab
+            key={editCharacter?.id ?? 'new'}
             editCharacter={editCharacter ?? undefined}
             onClose={handleSuccess}
           />

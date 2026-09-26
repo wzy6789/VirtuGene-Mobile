@@ -11,6 +11,7 @@ import { getRelationLevel } from '../../lib/affinity';
 import { Modal } from '../ui/Modal';
 import { SharedStoryEventsModal } from './SharedStoryEventsModal';
 import { DEFAULT_USER_AVATAR, useAuthStore } from '../../store/auth-store';
+import { portraitLayout, portraitRoute } from '../../lib/relationship-layout';
 
 interface RelationNetworkModalProps {
   open: boolean;
@@ -45,23 +46,8 @@ type GraphLink = {
   recorded: boolean;
 };
 
-/** 不规则但可读的星位：避免所有角色挤成一个标准圆环，也给名字留下独立空间。 */
-const CONSTELLATION_SLOTS = [
-  { x: 50, y: 11 }, { x: 24, y: 16 }, { x: 77, y: 16 },
-  { x: 11, y: 36 }, { x: 89, y: 37 }, { x: 25, y: 51 },
-  { x: 76, y: 50 }, { x: 12, y: 69 }, { x: 49, y: 76 },
-  { x: 88, y: 68 }, { x: 29, y: 88 }, { x: 72, y: 86 },
-];
-
-/** 聚焦某个角色时的环带位置：中心留给焦点，底部中央留给 ORIGIN。 */
-const FOCUS_SLOTS = [
-  { x: 50, y: 10 }, { x: 24, y: 15 }, { x: 77, y: 15 },
-  { x: 10, y: 35 }, { x: 90, y: 36 }, { x: 18, y: 54 },
-  { x: 82, y: 53 }, { x: 12, y: 73 }, { x: 88, y: 72 },
-  { x: 35, y: 88 }, { x: 65, y: 88 },
-];
-
-const MAX_NEIGHBORS = 6;
+/** 每组最多八位近邻，更多头像分页展示，避免挤压和重叠。 */
+const MAX_NEIGHBORS = 8;
 
 const BACKDROP_STARS = [
   { x: 8, y: 12, s: 1 }, { x: 17, y: 29, s: 2 }, { x: 38, y: 8, s: 1 },
@@ -79,7 +65,7 @@ function relationColor(link: GraphLink, active = false): { line: string; glow: s
 }
 
 function renderAvatar(avatar: string | undefined, fallback: string, className: string) {
-  if (avatar?.startsWith('data:')) return <img src={avatar} alt="" className={`${className} object-cover`} />;
+  if (avatar && /^(data:|https?:\/\/|blob:)/.test(avatar)) return <img src={avatar} alt="" className={`${className} object-cover`} draggable={false} />;
   return <span className={`${className} flex items-center justify-center`}>{avatar || fallback}</span>;
 }
 
@@ -87,17 +73,7 @@ function linkKey(a: string, b: string) {
   return subjectPairKey(a, b);
 }
 
-/** 用确定性直连保持拓扑关系清晰，避免复杂曲线让用户误读线路。 */
-function directPath(a: GraphNode, b: GraphNode): string {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const length = Math.max(1, Math.hypot(dx, dy));
-  const inset = Math.min(7, length * 0.16);
-  const ux = dx / length;
-  const uy = dy / length;
-  return `M ${a.x + ux * inset} ${a.y + uy * inset} L ${b.x - ux * inset} ${b.y - uy * inset}`;
-}
-
+/** 优先呈现有实际关系和共同经历的航线。 */
 function linkScore(link: GraphLink): number {
   const kindScore = link.kind === 'story' ? 45 : link.kind === 'world' ? 38 : 20;
   const evidenceScore = link.reasons.length * 8 + link.sharedEvents.length * 7;
@@ -123,17 +99,19 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
   const [recentMemory, setRecentMemory] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [focusedRef, setFocusedRef] = useState<string | null>(null);
-  const [showAllNeighbors, setShowAllNeighbors] = useState(false);
   const [eventsByPair, setEventsByPair] = useState<Record<string, SharedStoryEvent[]>>({});
   const [detailPair, setDetailPair] = useState<{ a: Character; b: Character } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [neighborPage, setNeighborPage] = useState(0);
   const userAvatar = useAuthStore((state) => state.avatar) ?? DEFAULT_USER_AVATAR;
 
   useEffect(() => {
     if (open) {
       setSelectedKey(null);
       setFocusedRef(null);
-      setShowAllNeighbors(false);
+      setNeighborPage(0);
     }
   }, [open]);
 
@@ -141,14 +119,16 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
     if (!open || !userId) return;
     let alive = true;
     setLoading(true);
+    setLoadError(false);
     void (async () => {
       try {
-        const world = await worldRepo.ensureDefaultWorld(userId);
+        await worldRepo.ensureDefaultWorld(userId);
+        const worlds = await worldRepo.listByUser(userId);
         const [characterStates, sharedEvents, worldStates, worldEvents] = await Promise.all([
           stateRepo.getAllByUser(userId),
           sharedEventRepo.getAllByUser(userId),
-          relationshipRepo.listStatesByWorld(world.id, 300, userId),
-          relationshipRepo.listEventsByWorld(world.id, 400, userId),
+          Promise.all(worlds.map(world=>relationshipRepo.listStatesByWorld(world.id, 300, userId))).then(rows=>rows.flat()),
+          Promise.all(worlds.map(world=>relationshipRepo.listEventsByWorld(world.id, 400, userId))).then(rows=>rows.flat()),
         ]);
         if (!alive) return;
         setStates(Object.fromEntries(characterStates.map((state) => [state.characterId, {
@@ -161,8 +141,10 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
         const grouped: Record<string, SharedStoryEvent[]> = {};
         for (const event of sharedEvents) {
           if (!Array.isArray(event.characterIds) || event.characterIds.length < 2) continue;
-          const key = pairKey(event.characterIds[0], event.characterIds[1]);
-          (grouped[key] ??= []).push(event);
+          for(let a=0;a<event.characterIds.length;a++) for(let b=a+1;b<event.characterIds.length;b++) {
+            const key = pairKey(event.characterIds[a], event.characterIds[b]);
+            (grouped[key] ??= []).push(event);
+          }
         }
         setEventsByPair(grouped);
         setRelationshipStates(worldStates);
@@ -173,12 +155,13 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
         setEventsByPair({});
         setRelationshipStates([]);
         setRelationshipEvents([]);
+        setLoadError(true);
       } finally {
         if (alive) setLoading(false);
       }
     })();
     return () => { alive = false; };
-  }, [open, userId]);
+  }, [open, userId, reload]);
 
   useEffect(() => {
     const refs = selectedKey?.split('|') ?? [];
@@ -192,11 +175,11 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
     let alive = true;
     void memoryRepo.getRecentActiveByCharacter(characterId, userId, 1).then((items) => {
       if (alive) setRecentMemory(items[0]?.content ?? null);
-    });
+    }).catch(() => { if (alive) setRecentMemory(null); });
     return () => { alive = false; };
   }, [selectedKey, userId]);
 
-  const visible = characters.slice(0, CONSTELLATION_SLOTS.length);
+  const visible = useMemo(()=>characters.filter(character => character.createdBy === userId),[characters,userId]);
   const byCharacterId = useMemo(() => new Map(visible.map((character) => [character.id, character])), [visible]);
   const stateByPair = useMemo(() => new Map(relationshipStates.map((state) => [state.pairKey, state])), [relationshipStates]);
   const worldEventsByPair = useMemo(() => {
@@ -308,6 +291,19 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
         recorded: true,
       });
     }
+    // A real shared experience is also evidence of a connection, even without
+    // a manually assigned relation or a numerical relationship-state row.
+    for(const events of Object.values(eventsByPair)) {
+      const ids=events[0]?.characterIds??[];
+      for(let a=0;a<ids.length;a++) for(let b=a+1;b<ids.length;b++) {
+        if(!byCharacterId.has(ids[a])||!byCharacterId.has(ids[b]))continue;
+        const pairEvents=eventsByPair[pairKey(ids[a],ids[b])];
+        if(!pairEvents?.length)continue;
+        const key=linkKey(characterRef(ids[a]),characterRef(ids[b]));
+        if(merged.has(key))continue;
+        add({left:characterRef(ids[a]),right:characterRef(ids[b]),label:'共同经历',kind:'world',sharedEvents:pairEvents,recorded:true});
+      }
+    }
     return [...merged.values()];
   }, [byCharacterId, eventsByPair, relationshipStates, stateByPair, states, userId, visible, worldEventsByPair]);
 
@@ -316,139 +312,93 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
   const focusLinks = useMemo(() => links
     .filter((link) => link.left === activeFocusRef || link.right === activeFocusRef)
     .sort((a, b) => linkScore(b) - linkScore(a) || a.label.localeCompare(b.label)), [activeFocusRef, links]);
-  const primaryFocusLink = focusLinks.find((link) => link.left === originRef || link.right === originRef);
+  useEffect(()=>{setNeighborPage(page=>Math.min(page,Math.max(0,Math.ceil(focusLinks.length/MAX_NEIGHBORS)-1)));},[focusLinks.length]);
   const displayLinks = useMemo(() => {
-    if (showAllNeighbors || focusLinks.length <= MAX_NEIGHBORS) return focusLinks;
-    const rest = focusLinks.filter((link) => link !== primaryFocusLink);
-    return primaryFocusLink ? [primaryFocusLink, ...rest.slice(0, MAX_NEIGHBORS - 1)] : rest.slice(0, MAX_NEIGHBORS);
-  }, [focusLinks, primaryFocusLink, showAllNeighbors]);
-  const hiddenLinkCount = Math.max(0, focusLinks.length - displayLinks.length);
+    return focusLinks.slice(neighborPage * MAX_NEIGHBORS, (neighborPage + 1) * MAX_NEIGHBORS);
+  }, [focusLinks, neighborPage]);
 
   const nodes = useMemo<GraphNode[]>(() => {
     const focusNode = activeFocusRef === originRef ? null : visible.find((character) => characterRef(character.id) === activeFocusRef);
     const neighborSet = new Set(displayLinks.flatMap((link) => [link.left, link.right]).filter((ref) => ref !== activeFocusRef));
-    // 聚焦角色时固定把“你”放在底部，避免被关系排序挤到普通角色位置。
+    // 用户与角色使用相同大小的头像，位置交给统一布局计算。
     const neighborRefs = [
       ...(neighborSet.has(originRef) ? [originRef] : []),
       ...[...neighborSet].filter((ref) => ref !== originRef),
     ];
-    const neighborNodes = neighborRefs.map((ref, index) => {
-      if (ref === originRef) return { id: ref, ref, name: '你', avatar: userAvatar, x: 50, y: 91, user: true } satisfies GraphNode;
+    const positions = new Map(portraitLayout(activeFocusRef, neighborRefs, links).map(point => [point.ref, point]));
+    const neighborNodes = neighborRefs.map((ref) => {
+      const position = positions.get(ref)!;
+      if (ref === originRef) return { id: ref, ref, name: '你', avatar: userAvatar, x: position.x, y: position.y, user: true } satisfies GraphNode;
       const character = byCharacterId.get(ref.slice(2));
-      const position = activeFocusRef === originRef
-        ? CONSTELLATION_SLOTS[index]
-        : FOCUS_SLOTS[index - (neighborSet.has(originRef) ? 1 : 0)];
-      return { id: ref, ref, name: character?.name ?? '未知角色', avatar: character?.avatar, ...position } satisfies GraphNode;
+      return { id: ref, ref, name: character?.name ?? '未知角色', avatar: character?.avatar, x:position.x,y:position.y } satisfies GraphNode;
     });
     return [
       focusNode
-        ? { id: focusNode.id, ref: activeFocusRef, name: focusNode.name, avatar: focusNode.avatar, x: 50, y: 43 }
-        : { id: originRef, ref: originRef, name: '你', avatar: userAvatar, x: 50, y: 43, user: true },
+        ? { id: focusNode.id, ref: activeFocusRef, name: focusNode.name, avatar: focusNode.avatar, x: 180, y: 200 }
+        : { id: originRef, ref: originRef, name: '你', avatar: userAvatar, x: 180, y: 200, user: true },
       ...neighborNodes,
     ];
-  }, [activeFocusRef, byCharacterId, displayLinks, originRef, userAvatar, visible]);
+  }, [activeFocusRef, byCharacterId, displayLinks, originRef, userAvatar, visible, links]);
 
   const nodesByRef = useMemo(() => new Map(nodes.map((node) => [node.ref, node])), [nodes]);
+  const secondaryLinks = links.filter(link => link.recorded && link.left !== activeFocusRef && link.right !== activeFocusRef
+    && nodesByRef.has(link.left) && nodesByRef.has(link.right)).sort((a,b)=>linkScore(b)-linkScore(a)).slice(0,5);
+  const renderedLinks = [...secondaryLinks, ...displayLinks];
 
-  const selected = displayLinks.find((link) => link.key === selectedKey) ?? null;
+  const selected = renderedLinks.find((link) => link.key === selectedKey) ?? null;
   const selectedRefs = useMemo(() => new Set(selectedKey?.split('|') ?? []), [selectedKey]);
   const selectedNodes = selected ? [nodesByRef.get(selected.left), nodesByRef.get(selected.right)].filter((node): node is GraphNode => Boolean(node)) : [];
   const selectedCharacter = selectedNodes.find((node) => !node.user);
   const selectedReasons = selected ? recentReasons(selected.reasons, 3) : [];
-  const focusedCharacter = activeFocusRef.startsWith('c:') ? byCharacterId.get(activeFocusRef.slice(2)) : undefined;
 
   return (
     <Modal open={open} onClose={onClose} title="关系星图" width="max-w-xl">
       <div className="px-4 pb-5 pt-3 sm:px-5">
-        <div className="mb-3 flex items-end justify-between gap-3 px-1">
-          <div>
-            <p className="text-[11px] font-medium tracking-[0.24em] text-life-cyan">VIRTUGENE / CONSTELLATION</p>
-            <p className="mt-1 text-sm font-medium text-ink">{focusedCharacter ? `正在查看 ${focusedCharacter.name} 的关系` : '每一次相遇，都会改变星图的形状。'}</p>
-          </div>
-          <div className="shrink-0 text-right text-[11px] text-gray-500">
-            <span className="block text-sm font-semibold tabular-nums text-life-cyan">{links.filter((link) => link.recorded).length}</span>
-            条已记录航线
-          </div>
-        </div>
-
-        <section className="relative h-[430px] overflow-hidden rounded-[30px] border border-white/10 bg-[#08091a] shadow-[inset_0_0_70px_rgba(75,61,170,.18)]" aria-label="角色关系星图">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_43%,rgba(0,206,201,.16),transparent_19%),radial-gradient(circle_at_18%_18%,rgba(108,92,231,.18),transparent_34%),radial-gradient(circle_at_88%_78%,rgba(63,38,130,.25),transparent_36%)]" />
-          <div className="absolute inset-0 opacity-40" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px)', backgroundSize: '34px 34px' }} />
-          {BACKDROP_STARS.map((star) => <span key={`${star.x}-${star.y}`} className="absolute rounded-full bg-[#c8c2ff] shadow-[0_0_10px_2px_rgba(167,139,250,.5)]" style={{ left: `${star.x}%`, top: `${star.y}%`, width: `${star.s}px`, height: `${star.s}px` }} />)}
-          <div className="absolute left-1/2 top-[43%] h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full border border-life-cyan/10" />
-          <div className="absolute left-1/2 top-[43%] h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full border border-gene-purple/10 border-dashed" />
-
-          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            {displayLinks.map((link) => {
-              const a = nodesByRef.get(link.left);
-              const b = nodesByRef.get(link.right);
-              if (!a || !b) return null;
-              const active = selectedKey === link.key;
-               const dimmed = Boolean(selectedKey && !active && !selectedRefs.has(a.ref) && !selectedRefs.has(b.ref));
-               const color = relationColor(link, active);
-               const path = directPath(a, b);
-                return (
-                <g key={link.key} className="cursor-pointer" onClick={() => setSelectedKey(link.key)}>
-                  <path d={path} fill="none" stroke={color.glow} strokeWidth={active ? 4 : 2.3} strokeLinecap="round" opacity={dimmed ? .04 : .45} />
-                  <path d={path} fill="none" stroke={color.line} strokeWidth={active ? 1.2 : link.recorded ? .7 : .45} strokeLinecap="round" strokeDasharray={color.dash} opacity={dimmed ? .16 : 1} />
-                </g>
-              );
+        {loadError && <div role="alert" className="mb-3 flex items-center justify-between rounded-xl border border-rose-400/20 p-3 text-sm text-sub">关系暂未读取<button type="button" onClick={()=>setReload(value=>value+1)} className="text-life-cyan">重试</button></div>}
+        <section className="vg-portrait-constellation relative isolate w-full overflow-hidden rounded-[26px] border border-white/10 bg-[#090c1c]" style={{aspectRatio:'360 / 400',containerType:'inline-size'}} aria-label="角色关系星图">
+          <div className="pointer-events-none absolute inset-0" style={{background:'radial-gradient(ellipse at 50% 50%,rgba(96,85,185,.23),transparent 48%),radial-gradient(ellipse at 85% 15%,rgba(33,119,135,.13),transparent 42%)'}} />
+          {BACKDROP_STARS.map(star=><span key={`${star.x}-${star.y}`} className="pointer-events-none absolute rounded-full bg-violet-200/50" style={{left:`${star.x}%`,top:`${star.y}%`,width:star.s,height:star.s}} />)}
+          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 360 400" aria-label="人物关系连线">
+            <defs><radialGradient id="relation-halo"><stop stopColor="#a99bf3" stopOpacity=".16" /><stop offset="1" stopColor="#a99bf3" stopOpacity="0" /></radialGradient></defs>
+            <circle cx="180" cy="200" r="65" fill="url(#relation-halo)" />
+            {renderedLinks.map(link=>{
+              const a=nodesByRef.get(link.left),b=nodesByRef.get(link.right);if(!a||!b)return null;
+              const active=link.key===selectedKey,secondary=secondaryLinks.includes(link),color=relationColor(link,active);
+              const path=portraitRoute(a,b,nodes,secondary);
+              return <g key={link.key} role="button" tabIndex={0} aria-label={`查看${a.name}与${b.name}的关系`}
+                onClick={()=>setSelectedKey(link.key)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setSelectedKey(link.key);}}}
+                className="cursor-pointer outline-none focus:opacity-100" opacity={selectedKey&&!active ? .28 : secondary&&!active ? .5 : 1}>
+                <path d={path} fill="none" stroke="transparent" strokeWidth="18" />
+                {active&&<path d={path} fill="none" stroke={color.glow} strokeWidth="7" opacity=".5" />}
+                <path d={path} fill="none" stroke={color.line} strokeWidth={active?2.2:secondary?1:1.4} strokeDasharray={color.dash} strokeLinecap="round" />
+              </g>;
             })}
           </svg>
-
-          {nodes.map((node) => {
-            const connected = links.filter((link) => link.left === node.ref || link.right === node.ref);
-             const active = selectedRefs.has(node.ref);
-            const highlighted = connected.some((link) => link.recorded);
-            const isCenterNode = node.ref === activeFocusRef;
-             if (node.user) {
-              return (
-                <button key={node.id} type="button" onClick={() => { setSelectedKey(null); setFocusedRef(null); setShowAllNeighbors(false); }} className="absolute -translate-x-1/2 -translate-y-1/2 text-center outline-none" style={{ left: `${node.x}%`, top: `${node.y}%` }} aria-label="你的世界">
-                  <span className="relative mx-auto grid h-12 w-12 place-items-center rounded-[16px] border border-life-cyan/60 bg-[#101d34]/90 shadow-[0_0_28px_rgba(0,206,201,.28)] transition-transform duration-300 hover:scale-105">
-                    <span className="relative z-10 h-8 w-8 overflow-hidden rounded-[10px]">{renderAvatar(node.avatar, '✦', 'h-full w-full')}</span>
-                  </span>
-                </button>
-              );
-            }
-              return (
-                <button key={node.id} type="button" onClick={() => { setSelectedKey(linkKey(userRef(userId), node.ref)); setFocusedRef(node.ref); setShowAllNeighbors(false); }} className={`absolute -translate-x-1/2 -translate-y-1/2 text-center outline-none transition-all duration-300 ${isCenterNode ? 'z-20 scale-[1.12]' : active ? 'z-20 scale-110' : 'z-10'} ${!highlighted ? 'opacity-75' : ''}`} style={{ left: `${node.x}%`, top: `${node.y}%` }} aria-label={`查看 ${node.name} 的关系`}>
-                <span className={`relative mx-auto grid place-items-center border bg-[#13162d]/95 transition-all ${isCenterNode ? 'h-16 w-16 rounded-[20px] border-life-cyan shadow-[0_0_34px_rgba(0,206,201,.48)]' : 'h-12 w-12 rounded-[16px]'} ${!isCenterNode && active ? 'border-life-cyan shadow-[0_0_28px_rgba(0,206,201,.48)]' : !isCenterNode && highlighted ? 'border-gene-purple/65 shadow-[0_0_18px_rgba(167,139,250,.28)]' : !isCenterNode ? 'border-white/15 shadow-[0_0_18px_rgba(255,255,255,.08)]' : ''}`}>
-                  <span className="absolute inset-[3px] rotate-45 rounded-[11px] border border-white/10" />
-                  <span className={`relative z-10 overflow-hidden text-base ${isCenterNode ? 'h-11 w-11 rounded-[14px]' : 'h-8 w-8 rounded-[10px]'}`}>{renderAvatar(node.avatar, '✦', 'h-full w-full')}</span>
-                  {highlighted && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-life-cyan shadow-[0_0_10px_3px_rgba(0,206,201,.45)]" />}
-                </span>
-              </button>
-            );
+          {nodes.map(node=>{
+            const center=node.ref===activeFocusRef,active=selectedRefs.has(node.ref);
+            return <button key={node.ref} type="button" data-portrait-ref={node.ref} data-centered={center||undefined}
+              aria-label={node.user?'以你的视角查看关系':`以${node.name}为中心查看关系`} aria-pressed={center}
+              onClick={()=>{setFocusedRef(node.user?null:node.ref);setSelectedKey(null);setNeighborPage(0);}}
+              className={`absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-[#171a32] p-[3px] outline-none transition-[border-color,box-shadow] duration-300 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-white ${center?'border-life-cyan/80 shadow-[0_0_24px_rgba(91,200,210,.28)]':active?'border-white/80 shadow-[0_0_15px_rgba(180,160,255,.3)]':'border-[#8274ba]/50'}`}
+              style={{left:`${node.x/360*100}%`,top:`${node.y/400*100}%`,width:'clamp(40px, 14cqw, 52px)',height:'clamp(40px, 14cqw, 52px)'}}>
+              <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full text-2xl">{renderAvatar(node.avatar,'✦','h-full w-full')}</span>
+            </button>;
           })}
-
-           {loading && <span className="absolute bottom-4 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full bg-life-cyan shadow-[0_0_12px_4px_rgba(0,206,201,.45)] animate-pulse" role="status" aria-label="正在同步星图" />}
+          {loading&&<span className="absolute bottom-3 left-1/2 h-1.5 w-1.5 -translate-x-1/2 animate-pulse rounded-full bg-life-cyan" role="status" aria-label="正在同步星图" />}
         </section>
-
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-[11px] text-gray-500">
-          <span className="inline-flex items-center gap-1.5"><i className="h-px w-5 bg-life-cyan" />你与角色</span>
-          <span className="inline-flex items-center gap-1.5"><i className="h-px w-5 bg-gene-purple" />角色关系</span>
-          <span className="inline-flex items-center gap-1.5"><i className="h-px w-5 border-t border-dashed border-rose-400" />冲突航线</span>
-          <span className="ml-auto text-gray-600">点星点或航线查看详情</span>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          {activeFocusRef!==originRef?<button type="button" onClick={()=>{setFocusedRef(null);setSelectedKey(null);setNeighborPage(0);}} className="rounded-full border border-line px-4 py-2 text-xs text-sub">回到我的视角</button>:<span />}
+          {focusLinks.length>MAX_NEIGHBORS&&<div className="flex items-center gap-2">
+            <button type="button" aria-label="上一组头像" disabled={neighborPage===0} onClick={()=>{setNeighborPage(p=>p-1);setSelectedKey(null);}} className="h-9 w-9 rounded-full border border-line text-sub disabled:opacity-25">‹</button>
+            <span className="text-xs tabular-nums text-sub">{neighborPage+1}/{Math.ceil(focusLinks.length/MAX_NEIGHBORS)}</span>
+            <button type="button" aria-label="下一组头像" disabled={(neighborPage+1)*MAX_NEIGHBORS>=focusLinks.length} onClick={()=>{setNeighborPage(p=>p+1);setSelectedKey(null);}} className="h-9 w-9 rounded-full border border-line text-sub disabled:opacity-25">›</button>
+          </div>}
         </div>
-
-        {focusedCharacter && (
-          <button type="button" onClick={() => { setFocusedRef(null); setSelectedKey(null); setShowAllNeighbors(false); }} className="mt-3 flex w-full items-center justify-between rounded-xl border border-life-cyan/20 bg-life-cyan/[0.06] px-3 py-2 text-left text-xs text-life-cyan">
-            <span>‹ 回到你的视角</span>
-            <span className="text-[11px] text-life-cyan/60">{displayLinks.length} 条近邻航线</span>
-          </button>
-        )}
-        {hiddenLinkCount > 0 && (
-          <button type="button" onClick={() => setShowAllNeighbors((value) => !value)} className="mt-2 w-full rounded-xl border border-line px-3 py-2 text-center text-xs text-gray-500 transition-colors hover:text-ink">
-            {showAllNeighbors ? '收起较远关系' : `展开另外 ${hiddenLinkCount} 条关系`}
-          </button>
-        )}
-
         {selected && (
           <section className="mt-4 rounded-[24px] border border-life-cyan/20 bg-gradient-to-br from-life-cyan/[0.08] to-gene-purple/[0.08] px-4 py-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[11px] tracking-[0.18em] text-life-cyan/70">SELECTED ROUTE</p>
-                <h3 className="mt-1 truncate text-base font-semibold text-ink">{selectedNodes.map((node) => node.name).join('  ↔  ')}</h3>
+                <div className="flex items-center gap-3" aria-label="所选关系的两个人物">{selectedNodes.map(node=><span key={node.ref} className="h-9 w-9 overflow-hidden rounded-full bg-surface text-xl">{renderAvatar(node.avatar,'✦','h-full w-full')}</span>)}</div>
               </div>
               <button type="button" onClick={() => { setSelectedKey(null); setFocusedRef(null); }} className="shrink-0 rounded-full border border-line px-2 py-1 text-xs text-gray-500">收起</button>
             </div>
@@ -470,7 +420,6 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
           </section>
         )}
 
-        {characters.length > visible.length && <p className="mt-3 px-1 text-[11px] text-gray-500">星图先展示最活跃的 {visible.length} 位角色，更多星点会在筛选视图中展开。</p>}
       </div>
 
       {detailPair && <SharedStoryEventsModal open={!!detailPair} onClose={() => setDetailPair(null)} a={detailPair.a} b={detailPair.b} userId={userId} />}

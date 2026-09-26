@@ -31,15 +31,15 @@ export interface HistoryHit {
 export function queryTerms(query: string): string[] {
   const cleaned = (query ?? '')
     .replace(/[，。！？、；：""''《》（）()\[\]{}?!.,;:"']/g, ' ')
-    .replace(/你还?记得|吗|呢|吧|的是|那次|那个|那件|第一次|我们|你们|他们|一起|以前|上次|当时|怎么|什么|为什么|有没有/g, ' ')
+    .replace(/你还?记得|还记得|记得|吗|呢|吧|的是|那次|那个|那件|第一次|我们|你们|他们|一起|以前|上次|当时|怎么|什么|为什么|有没有/g, ' ')
     .trim();
   const parts = cleaned.split(/\s+/).filter((p) => p.length >= 2);
   const terms = new Set<string>();
   for (const part of parts) {
     terms.add(part);
     // 中文长句：额外切 2 字滑窗，提升"海边/看海"这类短词的命中率
-    if (part.length >= 4) {
-      for (let i = 0; i + 2 <= part.length; i += 2) terms.add(part.slice(i, i + 2));
+    if (part.length >= 3) {
+      for (let i = 0; i + 2 <= part.length; i += 1) terms.add(part.slice(i, i + 2));
     }
   }
   return [...terms].filter((t) => t.length >= 2).slice(0, 12);
@@ -107,7 +107,7 @@ export async function findRelevantHistory(params: {
       if (!isVisibleToCharacter(event, characterId)) return false;
       if (event.sourceType === 'diary') {
         if (!(await isMentionableDiaryEvent(event, characterId, params.userId))) return false;
-      } else if (event.visibility !== 'world' && !mentionableByCharacter.get(characterId)?.has(event.id)) {
+      } else if (!mentionableByCharacter.get(characterId)?.has(event.id)) {
         return false;
       }
     }
@@ -129,7 +129,7 @@ export async function findRelevantHistory(params: {
     if (params.characterId && !isVisibleToCharacter(row, params.characterId)) return;
     if (params.audienceCharacterIds?.some((id) => !isVisibleToCharacter(row, id))) return;
     if (kind === 'memory' && characterIds.some((id) => !isVisibleToCharacter(row, id)
-      || (row.visibility !== 'world' && !allowedMemoryIdsByCharacter.get(id)?.has(row.id)))) return;
+      || !allowedMemoryIdsByCharacter.get(id)?.has(row.id))) return;
     const text = kind === 'event'
       ? `${(row as WorldEvent).title}${(row as WorldEvent).summary ? `：${(row as WorldEvent).summary}` : ''}`
       : `${(row as SharedMemory).title}${(row as SharedMemory).summary ? `：${(row as SharedMemory).summary}` : ''}`;
@@ -159,5 +159,5 @@ function audienceCanMentionSingle(
   mentionableByCharacter: Map<string, Set<string>>,
 ): boolean {
   return isVisibleToCharacter(event, characterId)
-    && (event.visibility === 'world' || mentionableByCharacter.get(characterId)?.has(event.id) === true);
+    && mentionableByCharacter.get(characterId)?.has(event.id) === true;
 }

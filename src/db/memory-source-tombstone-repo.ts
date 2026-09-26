@@ -8,6 +8,8 @@ export interface RecordMemorySourceTombstoneInput {
   sourceId: string;
   sourceRevision?: number;
   status: MemorySourceTombstone['status'];
+  characterId?: string;
+  suppressedMessageIds?: string[];
 }
 
 export function memorySourceTombstoneId(userId: string, sourceType: MemorySourceType, sourceId: string): string {
@@ -37,10 +39,18 @@ export const memorySourceTombstoneRepo = {
       userId: input.userId,
       sourceType: input.sourceType,
       sourceId: input.sourceId,
+      characterId: input.characterId ?? existing?.characterId,
+      suppressedMessageIds: [...new Set([...(existing?.suppressedMessageIds ?? []), ...(input.suppressedMessageIds ?? [])])],
       sourceRevision: Math.max(sourceRevision, existing?.sourceRevision ?? 0),
       status,
       updatedAt: Date.now(),
     });
+  },
+
+  async suppressedMessages(userId: string, characterId: string): Promise<Set<string>> {
+    const rows = await db.memorySourceTombstones.where('userId').equals(userId)
+      .filter(row => row.characterId === characterId).toArray();
+    return new Set(rows.flatMap(row => row.suppressedMessageIds ?? []));
   },
 
   async blocksImport(input: {

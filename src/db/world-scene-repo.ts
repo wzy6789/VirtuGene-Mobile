@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 import { db, type SceneParticipantState, type WorldScene, type WorldSceneEntry, type WorldSceneState } from './index';
 import { worldObjectRepo } from './world-object-repo';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
@@ -58,17 +59,44 @@ export function emptySceneState(sceneGoal?: string): WorldSceneState {
  *   私聊、群聊与既有个人经历（跨模式记忆由 `buildCharacterMemoryContext` 给）。
  * - `amnesiac`（明确标注的失忆设定）：同样从此刻开始，且跨模式记忆也被压掉。
  *
- * 判据是**时间戳**而不是 `witnessedBy`：`witnessedBy` 是写入当刻的在场快照
- * （`appendEntry`），入场后的新行天然包含该角色，因此它无法回答"入场前那条"。
+ * 正文知情先按写入时的见证快照；旧数据才按在场区间兼容。
+ * 携带自己的记忆不代表获准阅读别人在自己入场前说过的话。
  */
 export function participantReadsEntry(
   participant: SceneParticipantState | undefined,
-  entry: Pick<WorldSceneEntry, 'createdAt'>,
+  entry: Pick<WorldSceneEntry, 'createdAt'> & Partial<Pick<WorldSceneEntry, 'witnessedBy'>>,
 ): boolean {
-  // 旧数据/未登记参与者没有 mode：按默认 `memory` 处理（他就在场，且没有要求过"从此刻开始"）。
-  if (!participant) return true;
-  if ((participant.entryMemoryMode ?? 'memory') === 'memory') return true;
-  return participant.enteredAt == null || entry.createdAt >= participant.enteredAt;
+  // Unknown participants fail closed.
+  if (!participant) return false;
+  if (entry.witnessedBy) {
+    if (!entry.witnessedBy.includes(participant.characterId)) return false;
+    return (participant.entryMemoryMode ?? 'memory') === 'memory'
+      || participant.enteredAt == null || entry.createdAt >= participant.enteredAt;
+  }
+  return (participant.enteredAt == null || entry.createdAt >= participant.enteredAt)
+    && (participant.leftAt == null || entry.createdAt <= participant.leftAt);
+}
+
+export function memoryParticipant(scene: WorldScene, characterId: string): SceneParticipantState | undefined {
+  return scene.state.participants.find(p => p.characterId === characterId)
+    ?? [...(scene.state.pastParticipants ?? [])].reverse().find(p => p.characterId === characterId)
+    ?? (scene.characterIds.includes(characterId) ? { characterId, goals: [], knowsEventIds: [], secrets: [] } : undefined);
+}
+
+export function hasSceneHistory(scene: WorldScene, characterId: string): boolean {
+  return Boolean(memoryParticipant(scene, characterId));
+}
+
+/** Snapshot-backed entries are exact; old entries use the union of proven presence intervals. */
+export function sceneEntryKnownBy(scene: WorldScene, characterId: string,
+  entry: Pick<WorldSceneEntry, 'createdAt'> & Partial<Pick<WorldSceneEntry, 'witnessedBy'>>): boolean {
+  const participant = memoryParticipant(scene, characterId);
+  if (!participant) return false;
+  if (entry.witnessedBy || (participant.entryMemoryMode ?? 'memory') !== 'memory') {
+    return participantReadsEntry(participant, entry);
+  }
+  return [participant, ...(scene.state.pastParticipants ?? []).filter(p => p.characterId === characterId)]
+    .some(p => participantReadsEntry(p, entry));
 }
 
 /** 给当前听众筛选舞台正文；每个听众都必须真的在这场戏里，且被允许读到这条。 */
@@ -78,12 +106,11 @@ export function sceneEntriesAvailableToAudience(
   audience: string[],
 ): WorldSceneEntry[] {
   if (!audience.length) return entries;
-  const participants = new Map((scene.state.participants ?? []).map((item) => [item.characterId, item]));
   return entries.filter((entry) => audience.every((characterId) => {
-    const participant = participants.get(characterId);
-    // 共享输出必须 fail-closed：听众不在参与者名单里，就不能把正文给他。
-    if (!participant) return false;
-    return participantReadsEntry(participant, entry);
+    // The director only serves current members. Legacy scenes may have no
+    // state row for a listed member; the witness snapshot remains authoritative.
+    if (!scene.characterIds.includes(characterId)) return false;
+    return sceneEntryKnownBy(scene, characterId, entry);
   }));
 }
 
@@ -105,10 +132,14 @@ export const worldSceneRepo = {
       status: 'draft',
       state: {
         ...emptySceneState(input.sceneGoal),
-        participants: (input.participants ?? []).map((participant) => ({
+        participants: [...new Set(input.characterIds)].map(characterId => {
+          const participant = input.participants?.find(p => p.characterId === characterId)
+            ?? { characterId, goals: [], knowsEventIds: [], secrets: [] };
+          return ({
           ...participant,
           enteredAt: participant.enteredAt ?? now,
-        })),
+          });
+        }),
       },
       ...(input.templateId ? { templateId: input.templateId } : {}),
       ...(input.locationId ? { locationId: input.locationId } : {}),
@@ -151,7 +182,7 @@ export const worldSceneRepo = {
     const all = await db.worldScenes.where('worldId').equals(worldId).toArray();
     return all
       .filter((s) => opts.userId === undefined || s.userId === opts.userId)
-      .filter((s) => s.characterIds.includes(characterId))
+      .filter((s) => hasSceneHistory(s, characterId))
       .filter((s) => (opts.status ? s.status === opts.status : true))
       .sort((a, b) => (b.finishedAt ?? b.updatedAt) - (a.finishedAt ?? a.updatedAt))
       .slice(0, Math.max(1, opts.limit ?? 20));
@@ -215,7 +246,7 @@ export const worldSceneRepo = {
           ...existing.state,
           participants: [...existing.state.participants, participant],
           // 仅带当前状态的角色不能继承之前由旧成员形成的公共对话摘要。
-          ...(options.entryMemoryMode === 'present' ? { conversation: emptyConversationState() } : {}),
+          conversation: emptyConversationState(),
         },
         updatedAt: Date.now(),
       };
@@ -235,6 +266,10 @@ export const worldSceneRepo = {
         state: {
           ...existing.state,
           participants: existing.state.participants.filter((p) => p.characterId !== characterId),
+          pastParticipants: [
+            ...(existing.state.pastParticipants ?? []),
+            ...existing.state.participants.filter(p => p.characterId === characterId).map(p => ({ ...p, leftAt: Date.now() })),
+          ],
         },
         updatedAt: Date.now(),
       };
@@ -339,10 +374,13 @@ export const worldSceneRepo = {
 
   /** 最近的正文，仍按发生顺序返回。不能复用 listEntries：它从最早一条开始截取。 */
   async listRecentEntries(sceneId: string, limit = 200): Promise<WorldSceneEntry[]> {
-    const rows = await db.worldSceneEntries.where('sceneId').equals(sceneId).toArray();
-    return rows
-      .sort((a, b) => a.index - b.index)
-      .slice(-Math.max(1, limit));
+    const rows = await db.worldSceneEntries
+      .where('[sceneId+index]')
+      .between([sceneId, Dexie.minKey], [sceneId, Dexie.maxKey])
+      .reverse()
+      .limit(Math.max(1, limit))
+      .toArray();
+    return rows.reverse();
   },
 
   /** 从当前可见的第一条向前翻页；只返回紧邻它的旧记录。 */
@@ -439,7 +477,7 @@ export const worldSceneRepo = {
    */
   async cleanupForCharacter(userId: string, characterId: string): Promise<number> {
     const scenes = (await db.worldScenes.where('userId').equals(userId).toArray())
-      .filter((s) => s.characterIds.includes(characterId));
+      .filter((s) => hasSceneHistory(s, characterId));
     let touched = 0;
     for (const scene of scenes) {
       const entries = await this.countEntries(scene.id);
@@ -451,7 +489,8 @@ export const worldSceneRepo = {
       await db.worldScenes.put({
         ...scene,
         characterIds: scene.characterIds.filter((id) => id !== characterId),
-        state: { ...scene.state, participants: scene.state.participants.filter((p) => p.characterId !== characterId) },
+        state: { ...scene.state, participants: scene.state.participants.filter((p) => p.characterId !== characterId),
+          pastParticipants: scene.state.pastParticipants?.filter(p => p.characterId !== characterId) },
         updatedAt: Date.now(),
       });
       touched += 1;

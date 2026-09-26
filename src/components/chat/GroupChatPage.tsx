@@ -7,6 +7,8 @@ import { ipc } from '../../lib/ipc-client';
 import { resolveModel } from '../../lib/ai/llm';
 import { Avatar } from '../ui/Avatar';
 import type { Character, Group, Message } from '../../db/index';
+import { IS_MOBILE } from '../../lib/platform';
+import { usePageSwipe } from '../ui/usePageSwipe';
 
 /** 群聊页面：群列表 → 建群 → 群聊窗口 → 群设置（一体，全屏覆盖） */
 export function GroupChatPage({ onClose, initialGroupId }: { onClose: () => void; initialGroupId?: string }) {
@@ -15,6 +17,17 @@ export function GroupChatPage({ onClose, initialGroupId }: { onClose: () => void
   const selectGroup = useGroupStore((s) => s.selectGroup);
   const [view, setView] = useState<'list' | 'chat'>(initialGroupId ? 'chat' : 'list');
   const [creating, setCreating] = useState(false);
+  const goBack = () => { if (creating) setCreating(false); else if (view === 'chat') { setView('list'); void loadGroups(); } else onClose(); };
+  const swipeRef = usePageSwipe(IS_MOBILE && !creating, view, dx => dx > 0, goBack, true);
+  const backRef = useRef(goBack); backRef.current = goBack;
+  useEffect(() => {
+    const handleBack = (event: Event) => {
+      if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+      event.preventDefault(); backRef.current();
+    };
+    window.addEventListener('vg:back-request', handleBack);
+    return () => window.removeEventListener('vg:back-request', handleBack);
+  }, []);
 
   useEffect(() => {
     void loadGroups();
@@ -24,10 +37,11 @@ export function GroupChatPage({ onClose, initialGroupId }: { onClose: () => void
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <div className="fixed inset-0 z-[70] bg-app flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
+  return createPortal(
+    <div ref={swipeRef} data-group-page className="fixed inset-0 z-[70] bg-app flex min-h-0 flex-col overflow-hidden"
+      style={{ touchAction: 'pan-y', paddingTop: IS_MOBILE ? 'max(env(safe-area-inset-top, 0px), 24px)' : 0 }}>
       {view === 'list' && (
-        <div className="h-12 flex items-center gap-2 px-3 border-b border-line shrink-0">
+        <div data-group-header className="min-h-14 flex items-center gap-2 px-3 py-2 border-b border-line shrink-0">
           <button onClick={onClose} aria-label="返回" className="shrink-0 w-8 h-8 -ml-1 flex items-center justify-center rounded-lg text-gray-500 hover:bg-surface transition-colors">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
           </button>
@@ -37,7 +51,7 @@ export function GroupChatPage({ onClose, initialGroupId }: { onClose: () => void
       )}
 
       {view === 'list' ? (
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2">
           {groups.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-8">
               <p className="text-sm text-gray-500">还没有群聊</p>
@@ -67,7 +81,7 @@ export function GroupChatPage({ onClose, initialGroupId }: { onClose: () => void
           }}
         />
       )}
-    </div>
+    </div>, document.body,
   );
 }
 
@@ -155,6 +169,19 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
   /** 群内消息搜索 */
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
+  useEffect(() => {
+    const handleBack = (event: Event) => {
+      if (event.defaultPrevented || document.querySelector('[aria-modal="true"]')) return;
+      if (previewImage) setPreviewImage(null);
+      else if (menu) { setMenu(null); setConfirmDeleteId(null); }
+      else if (settings) setSettings(false);
+      else if (searchOpen) { setSearchOpen(false); setQuery(''); }
+      else return;
+      event.preventDefault();
+    };
+    window.addEventListener('vg:back-request', handleBack, true);
+    return () => window.removeEventListener('vg:back-request', handleBack, true);
+  }, [previewImage, menu, settings, searchOpen]);
   const fileRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -321,16 +348,16 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
   return (
     <>
       {/* 头部：群名 + 成员头像 + 搜索 + 设置 */}
-      <div className="h-14 px-3 border-b border-line shrink-0 flex items-center gap-2">
+      <div data-group-header className="min-h-16 px-3 py-2 border-b border-line shrink-0 flex items-center gap-2">
         <button onClick={onBack} aria-label="返回群聊列表" className="shrink-0 w-8 h-8 -ml-1 flex items-center justify-center rounded-lg text-gray-500 hover:bg-surface transition-colors">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-ink truncate">{group?.name ?? '群聊'}</p>
-          <div className="flex items-center gap-1 mt-1">
+          <div className="flex items-center gap-1 mt-1 h-5" aria-label="群成员头像">
             {members.slice(0, 5).map((m) => (
-              <span key={m.id} className="w-5 h-5 -ml-1 first:ml-0 rounded-full ring-1 ring-app overflow-hidden">
-                <Avatar avatar={m.avatar} size="sm" />
+              <span key={m.id} className="w-5 h-5 shrink-0 rounded-full ring-1 ring-app overflow-hidden">
+                <Avatar avatar={m.avatar} size="xs" />
               </span>
             ))}
           </div>
@@ -401,7 +428,7 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
       )}
 
       {/* 消息 */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
         {messages.length === 0 && (
           <div className="h-full flex items-center justify-center">
             <p className="text-xs text-gray-600">在群里发句话，看看他们会怎么接</p>
@@ -526,6 +553,7 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
       {menu &&
         createPortal(
           <div
+            data-group-dialog
             className="fixed z-[90] min-w-[150px] py-1.5 glass-card rounded-xl shadow-2xl"
             style={{ left: menu.x + 4, top: menu.y + 4 }}
             onClick={(e) => e.stopPropagation()}
@@ -681,7 +709,7 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
 
       {/* 图片大图预览 */}
       {previewImage && (
-        <div className="fixed inset-0 z-[95] bg-black/90 flex items-center justify-center" onClick={() => setPreviewImage(null)}>
+        <div data-group-dialog className="fixed inset-0 z-[95] bg-black/90 flex items-center justify-center" onClick={() => setPreviewImage(null)}>
           <img src={previewImage} alt="图片预览" className="max-w-full max-h-full object-contain" />
         </div>
       )}
@@ -705,7 +733,7 @@ function GroupSettings({ group, members, onClose }: { group: Group; members: Cha
   const memberById = new Map(members.map((m) => [m.id, m]));
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+    <div data-group-dialog className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div className="w-full max-w-sm glass-card rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="px-4 py-3 border-b border-line flex items-center justify-between">
           <span className="text-sm font-medium text-ink">群设置</span>
@@ -870,7 +898,7 @@ function GroupCreateModal({ onClose, onCreated }: { onClose: () => void; onCreat
   };
 
   return (
-    <div className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+    <div data-group-dialog className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div className="w-full max-w-sm glass-card rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="px-4 py-3 border-b border-line flex items-center justify-between">
           <span className="text-sm font-medium text-ink">发起群聊</span>

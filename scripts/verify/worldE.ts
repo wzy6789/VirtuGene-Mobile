@@ -229,7 +229,16 @@ async function run() {
       // 才能把"空 content / 坏 JSON ⇒ 如实失败"和"有正文 ⇒ 保住正文"区分开。
       llm.queue.push(JSON.stringify({ narration: '', speakers: [{ character: '古月娜', intent: '回应', mode: 'both' }], sequential: false, worldChanges: [], shouldSettle: false }));
       llm.queue.push(item.reply);
-      const result = await runWorldTurn({ userId: U, worldId: world.id, sceneId: scene.id, text, characters: chars, call: llm.stub });
+      // This group tests parser recovery. The production disclosure reviewer is
+      // a separate model boundary: provide its safe decision without consuming
+      // the actor/parser response queue. Missing review responses must still fail closed.
+      const parserCall = (async (params: any) => {
+        if (String(params.messages?.[0]?.content).includes('你是一致性守护者')) {
+          return { content: JSON.stringify({ ok: true, issues: [], rewrites: [] }), modelId: 'audit-guard' };
+        }
+        return (llm.stub as any)(params);
+      }) as typeof llm.stub;
+      const result = await runWorldTurn({ userId: U, worldId: world.id, sceneId: scene.id, text, characters: chars, call: parserCall });
       check(`④ [${item.name}] ⇒ ${item.expect === 'completed' ? '这一轮成立' : '如实失败'}`,
         result.status === item.expect, { status: result.status, error: result.error });
       if (item.expect === 'completed') {

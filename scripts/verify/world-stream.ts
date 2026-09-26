@@ -3,6 +3,7 @@ import { gatewayChatStream } from '../../src/lib/ai/gateway';
 import { worldChat } from '../../src/lib/world/world-ai-client';
 import { useAuthStore } from '../../src/store/auth-store';
 import { extractPartialJsonString } from '../../src/lib/world/world-actor';
+import { revealDelayFor } from '../../src/lib/world/world-immersion';
 
 const report = window.fetch.bind(window);
 const encoder = new TextEncoder();
@@ -13,6 +14,9 @@ const noBody = (text: string) => ({ ok: true, status: 200, body: null, text: asy
 async function run() {
   let count = 0;
   const check = (condition: unknown, message: string) => { if (!condition) throw new Error(message); count += 1; };
+  check(revealDelayFor({kind:'dialogue', content:'你好'.repeat(80), speakerId:'a'}, 'a') === 0, 'same speaker does not wait again for already-generated text');
+  check(revealDelayFor({kind:'action', content:'抬头', speakerId:'a'}, 'a') === 0, 'action and dialogue have no artificial gap');
+  check(revealDelayFor({kind:'dialogue', content:'我来了', speakerId:'b'}, 'a') === 180, 'buffered speaker change retains a brief readable pause');
   const chunks = [frame('你').slice(0, -3), frame('你').slice(-3), frame('好'), 'data: [DONE]\r\n\r\n'];
   const sent: RequestInit[] = [];
   window.fetch = ((_: string, init: RequestInit) => {
@@ -128,6 +132,6 @@ async function run() {
   check(gwDenied && gwDeniedCalls === 1, 'streaming endpoint maps 401 to auth:invalid_key without retry');
 
   window.fetch = (() => { throw new Error('unexpected network'); }) as typeof fetch;
-  await report('/result', { method: 'POST', body: `PASS ${count} stream assertions` });
+  await report('/result?suite=world-stream', { method: 'POST', body: `PASS ${count} stream assertions\nALL PASS` });
 }
-run().catch(async (error) => { await report('/result', { method: 'POST', body: `FAIL ${error.stack ?? error}` }); });
+run().catch(async (error) => { await report('/result?suite=world-stream', { method: 'POST', body: `FAIL ${error.stack ?? error}\n1 FAILED` }); });

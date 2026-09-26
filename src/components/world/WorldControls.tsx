@@ -198,6 +198,7 @@ export function WorldComposer(params: {
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
+  onFocusInput?: () => void;
   onOpenControls: () => void;
   busy: boolean;
   /** 当前有没有可用的 AI 服务（§55：没有就明确告诉用户，不让按钮一直转圈） */
@@ -223,6 +224,8 @@ export function WorldComposer(params: {
           ref={ref}
           rows={1}
           value={params.value}
+          onFocus={params.onFocusInput}
+          onClick={params.onFocusInput}
           onChange={(e) => params.onChange(e.target.value)}
           onKeyDown={(e) => {
             // Android WebView：Enter 直接送出，Shift+Enter 换行；中文输入法组合中的 Enter 不拦

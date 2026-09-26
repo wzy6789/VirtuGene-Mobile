@@ -197,7 +197,10 @@ export async function actAsCharacter(params: ActorParams): Promise<ActorBeat> {
         ...(params.onPartial
           ? {
             onDelta: (accumulated: string) => {
-              const dialogue = extractPartialJsonString(accumulated, 'dialogue');
+              const dialogue = extractPartialJsonString(accumulated, 'dialogue')
+                ?? extractPartialJsonString(accumulated, 'speech')
+                ?? extractPartialJsonString(accumulated, 'text')
+                ?? extractPartialJsonString(accumulated, 'content');
               const action = extractPartialJsonString(accumulated, 'action');
               if (dialogue || action) {
                 params.onPartial?.({

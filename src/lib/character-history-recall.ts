@@ -1,5 +1,6 @@
 import { db } from '../db/index';
 import { messageRepo } from '../db/message-repo';
+import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
 
 export interface HistoricalChatHit {
   messageId: string;
@@ -40,6 +41,7 @@ export async function recallHistoricalPrivateChat(params: {
   const terms = queryTerms(params.query);
   if (terms.length === 0) return [];
   const excluded = new Set(params.excludeMessageIds ?? []);
+  for (const id of await memorySourceTombstoneRepo.suppressedMessages(params.userId, params.characterId)) excluded.add(id);
   const sessions = await db.sessions.where('[characterId+userId]')
     .equals([params.characterId, params.userId])
     .filter((session) => session.type !== 'group')
