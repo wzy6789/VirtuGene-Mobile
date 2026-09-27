@@ -131,7 +131,7 @@ await build({
   jsx: 'automatic',
 });
 
-for (const name of ['practical-presets', 'chat-style', 'swipes', 'mobile-refinement', 'guyuena-care', 'group-layout', 'relation-map', 'character-create', 'character-ui', 'character-scroll', 'memory-final', 'worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 'character-memory', 'memory-continuity', 'memory-audit-20260926', 'worldG', 'moments', 'moments-autonomous']) {
+for (const name of ['memory-attention', 'practical-presets', 'chat-style', 'swipes', 'mobile-refinement', 'guyuena-care', 'group-layout', 'relation-map', 'character-create', 'character-ui', 'character-scroll', 'memory-final', 'worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 'character-memory', 'memory-continuity', 'memory-audit-20260926', 'worldG', 'moments', 'moments-autonomous']) {
   await build({
     ...shared,
     entryPoints: [`scripts/verify/${name}.ts`],
@@ -140,4 +140,4 @@ for (const name of ['practical-presets', 'chat-style', 'swipes', 'mobile-refinem
   });
 }
 
-console.log('✅ 验收脚本已打包：phase1 / phase2a / phase2b0 / phase2b1 / phase2b2 / phase2b3 / phase2b4 / phase2b5 / phase2b6 / phase3 / phase3b / phase3c / worldA / worldB / worldC / worldD / worldE / worldF / character-memory / memory-continuity / worldG / moments / moments-autonomous');
+console.log('✅ 验收脚本已打包：phase1 / phase2a / phase2b0 / phase2b1 / phase2b2 / phase2b3 / phase2b4 / phase2b5 / phase2b6 / phase3 / phase3b / phase3c / worldA / worldB / worldC / worldD / worldE / worldF / character-memory / memory-continuity / memory-attention / worldG / moments / moments-autonomous');

@@ -51,7 +51,7 @@ import { buildSummaryBatch, findUncoveredSummaryMessages } from '../../lib/ai/su
 import { memorySourceTombstoneRepo } from '../../db/memory-source-tombstone-repo';
 import { selectRecallableMoments, buildMomentContext, isDirectMomentQuestion, isMomentLikeRequest, isForceMomentLikeRequest, type RecallableMoment } from '../../lib/moments/recall';
 import { momentsRepo } from '../../db/moments-repo';
-import { buildChatConversationStateContext, updateChatConversationState } from '../../lib/chat-conversation-state';
+import { buildChatConversationStateContext, isTopicRelated, updateChatConversationState } from '../../lib/chat-conversation-state';
 import { processMemoryJobs } from '../../lib/memory-jobs';
 import { memoryLedgerRepo } from '../../db/memory-ledger-repo';
 import { db } from '../../db/index';
@@ -570,6 +570,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         content: m.content.slice(0, MAX_HISTORY_MESSAGE_CHARS),
         image: m.image,
       }));
+      const previousUserText = [...history].reverse().find((item) => item.role === 'user')?.content ?? '';
       // 长期记忆（含"用户明确追问旧事时回查原文"）全部由 buildCharacterMemoryContext 取。
       // 这里不再自己写召回意图正则，也不再单独回查旧私聊原文：同一句话在不同入口
       // 曾经召回标准不同，现在统一由服务判断。
@@ -765,7 +766,6 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       // 全程本地读取，不产生任何 AI 调用；读不到就当没有，不影响发送。
       const worldPromise = Promise.resolve(preloadedWorld);
       let recallableMemories: RecallableSharedMemory[] = [];
-      let sharedMemoryContext = '';
       try {
         const world = await worldPromise;
         if (!world) throw new Error('world:unavailable');
@@ -774,7 +774,6 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           worldId: world.id,
           characterId: character.id,
         });
-        sharedMemoryContext = buildSharedMemoryContext(recallableMemories.map((item) => item.memory));
       } catch {
         /* 世界层读不到不影响聊天（与 4.x 各上下文区块同样的容错口径） */
       }
@@ -824,7 +823,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
        */
       let recalledScenes: RecallableScene[] = [];
       let liveSceneMoments: LiveSceneMoment[] = [];
-      let sceneContext = '';
+      let liveSceneContext = '';
       let sceneWorldId: string | undefined;
       try {
         const worldForScene = await worldPromise;
@@ -832,14 +831,6 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         sceneWorldId = worldForScene.id;
         recalledScenes = await selectRecallableScenes({ userId, worldId: worldForScene.id, characterId: character.id });
         liveSceneMoments = await selectLiveSceneMoments({ userId, worldId: worldForScene.id, characterId: character.id });
-        const finishedContext = buildSceneContext(
-          recalledScenes.map((item) => ({
-            title: item.scene.title,
-            place: item.scene.place,
-            timeLabel: item.scene.timeLabel,
-            summary: item.event.summary,
-          })),
-        );
         const liveContext = buildLiveSceneContext(liveSceneMoments.map((item) => ({
           title: item.scene.title,
           place: item.scene.place,
@@ -853,7 +844,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           })),
           userStatements: item.userStatements,
         })));
-        sceneContext = `${finishedContext}${liveContext}`;
+        liveSceneContext = liveContext;
       } catch {
         /* 世界层读不到不影响聊天 */
       }
@@ -923,12 +914,36 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       if ((sessionData?.tempVisionRounds ?? 0) !== tempRounds) {
         await sessionRepo.update(sessionId, { tempVisionRounds: tempRounds });
       }
-      const summaryContext = sessionData?.summary
+      const recallIntent = detectRecallIntent(text);
+      // Work out the new attention before compiling this turn. Persist only after
+      // a successful answer, but never let last turn's topic overrule a new one.
+      const turnAttention = updateChatConversationState(
+        sessionData?.conversation, text, '', undefined, Date.now(), previousUserText,
+      );
+      const freshTopic = turnAttention.userWantsToShift && !recallIntent.explicit;
+      // A remembered event may be known forever without being retold forever.
+      // Offer an unrelated shared experience once; after that only a related
+      // user question (or explicit recall) brings it back into the prompt.
+      const alreadyOfferedShared = new Set(allMsgs.flatMap((message) => message.contextTrace?.sharedMemoryIds ?? []));
+      const sharedMemoriesForPrompt = recallableMemories.filter(({ memory }) =>
+        recallIntent.explicit || isTopicRelated(text, `${memory.title} ${memory.summary}`)
+        || (!freshTopic && !alreadyOfferedShared.has(memory.id)),
+      ).slice(0, 3);
+      const sharedMemoryPrompt = buildSharedMemoryContext(sharedMemoriesForPrompt.map((item) => item.memory));
+      const alreadyOfferedScenes = new Set(allMsgs.flatMap((message) => message.contextTrace?.sceneIds ?? []));
+      const scenesForPrompt = recalledScenes.filter(({ scene, event }) =>
+        recallIntent.explicit || isTopicRelated(text, `${scene.title} ${scene.place} ${event.summary}`)
+        || (!freshTopic && !alreadyOfferedScenes.has(scene.id)),
+      ).slice(0, 3);
+      const scenePrompt = buildSceneContext(scenesForPrompt.map(({ scene, event }) => ({
+          title: scene.title, place: scene.place, timeLabel: scene.timeLabel, summary: event.summary,
+        }))) + liveSceneContext;
+      const summaryContext = sessionData?.summary && (!freshTopic || isTopicRelated(text, sessionData.summary))
         ? `\n\n[早前对话摘要（更早的内容已压缩，不必逐条回忆，若与当前话题相关可自然提及）]\n${sessionData.summary.slice(0, MAX_SUMMARY_CHARS)}`
         : '';
       const uncoveredChatContext = buildUncoveredChatContext(contextMessages, userMsg.id, sessionData);
-      const conversationStateContext = buildChatConversationStateContext(sessionData?.conversation);
-      const characterIntent = planCharacterIntent(text, history, sessionData?.conversation, character);
+      const conversationStateContext = buildChatConversationStateContext(turnAttention);
+      const characterIntent = planCharacterIntent(text, history, turnAttention, character);
       const characterIntentContext = buildCharacterIntentContext(characterIntent);
 
       // 主动话题候选只来自当前角色有权知道的本地数据：
@@ -945,7 +960,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         .filter((value, index, all) => value.length >= 3 && all.indexOf(value) === index)
         .slice(0, 6);
 
-      const proactiveTopicSeeds = buildProactiveTopicSeeds({
+      const proactiveTopicSeeds = freshTopic ? [] : buildProactiveTopicSeeds({
         tags: character.tags,
         signature: character.signature,
         lifeHints,
@@ -953,9 +968,11 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           ...openThreads.map((thread) => thread.title),
           ...sharedEvents.map((event) => event.title),
           ...recalledPulseEvents.map((item) => item.event.title),
-          ...recallableMemories.map((item) => item.memory.summary || item.memory.title),
+          ...sharedMemoriesForPrompt.map((item) => item.memory.summary || item.memory.title),
         ],
-        memories: memories.slice(0, 3).map((memory) => memory.content),
+        // Old extracted memories are for answering a related question, not a
+        // standing source of conversation openers that revives the same topic.
+        memories: [],
       });
 
       /**
@@ -966,7 +983,6 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
        * 同一句话换个入口召回结果就不一样。现在来源集合、跨模式历史的放开条件、
        * 检索排序与篇幅分配都由服务决定，正则只有服务里那一份。
        */
-      const recallIntent = detectRecallIntent(text);
       const memoryRecall = await buildCharacterMemoryContext({
         userId,
         characterId: character.id,
@@ -975,6 +991,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         mode: 'private-chat',
         ...(sceneWorldId ? { scene: { worldId: sceneWorldId } } : {}),
         budget: 2600,
+        // Recent messages are already sent as history; do not copy this same
+        // session into a second "memory" block on every reply.
+        excludeSessionId: sessionId,
         includePrivateCharacterLifeEvents: true,
         withCatalog: true,
         excludeReferences: [
@@ -991,6 +1010,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
        * "旧原文"（旧私聊 + 星域旧片段）走 historical 区块。这样同一件事在提示词里只出现一次。
        */
       const crossChannelMemory = (() => {
+        const alreadyOfferedCross = new Set(allMsgs.flatMap((message) =>
+          (message.contextTrace?.crossChannelReferences ?? []).map((reference) => `${reference.source}:${reference.id}`),
+        ));
         const renderedWorldIds = new Set([
           ...recalledScenes.map(item => item.scene.id),
           ...recallableMemories.map(item => item.memory.id),
@@ -1000,7 +1022,9 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           reference.source === 'group' || reference.source === 'diary' || reference.source === 'todo'
           || ((reference.source === 'world' || reference.source === 'moment')
             && !(reference.source === 'world' && renderedWorldIds.has(reference.id))
-            && !memoryRecall.sections.historical.includes(reference.text)));
+            && !memoryRecall.sections.historical.includes(reference.text)))
+          .filter((reference) => recallIntent.explicit || isTopicRelated(text, reference.text)
+            || (!freshTopic && !alreadyOfferedCross.has(`${reference.source}:${reference.id}`)));
         if (!crossRefs.length) return { ...memoryRecall, references: [], text: '' };
         return {
           ...memoryRecall,
@@ -1011,15 +1035,23 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       // 提示词分区：同一个角色的同一套档案按"此刻适合提起什么"分块，不再由本地
       // 记忆管线各自排序拼装。空分区不占提示词空间。
       const memoryContext = (() => {
-        const lines = memoryRecall.references
+        const offeredMemoryIds = new Set(allMsgs.flatMap((message) => message.contextTrace?.memoryIds ?? []));
+        const knownMemoryIds = new Set(genericMemories.map((memory) => memory.id));
+        const selected = memoryRecall.references
           .filter((reference) => reference.source === 'chat' && !reference.text.includes('你翻到的旧私聊原话'))
+          .filter((reference) => knownMemoryIds.has(reference.id) || !allMemories.some((memory) => memory.id === reference.id))
+          .filter((reference) => !freshTopic || isTopicRelated(text, reference.text))
+          .filter((reference) => recallIntent.explicit || isTopicRelated(text, reference.text)
+            || (knownMemoryIds.has(reference.id) && !offeredMemoryIds.has(reference.id)))
+          .slice(0, 4);
+        const lines = selected
           .map((reference) => `- ${reference.text}`);
-        if (!lines.length) return '';
-        return (
+        if (!lines.length) return { text: '', memories: [] as typeof allMemories };
+        return { text: (
           `\n\n[用户画像与关系记忆（仅供你参考，不向用户展示）]\n${lines.join('\n')}\n` +
           '这些内容只作为背景。标为"用户主动分享"的内容是你后来听用户讲到的资料，不是你与用户共同经历过的回忆。' +
           '当前用户的说法、角色人设和边界优先；除非用户主动问起，不要逐条复述，也不要像报告一样说出来。'
-        );
+        ), memories: genericMemories.filter((memory) => selected.some((reference) => reference.id === memory.id)) };
       })();
       // 用户明确追问旧事时回查到的原文（私聊 / 群聊 / 星域旧片段），由服务统一检索。
       const historicalChatContext = memoryRecall.sections.historical;
@@ -1033,6 +1065,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
             text: buildHumanConversationContext(text, history, character, {
               proactiveTopics: proactiveTopicSeeds,
               lifeHints,
+              turnNumber: turnAttention.turnCount,
             }),
             priority: 99,
           },
@@ -1040,18 +1073,18 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           { key: 'character-intent', text: characterIntentContext, priority: 100 },
           { key: 'relationship', text: relationshipContext, priority: 100 },
           { key: 'story-relationships', text: storyRelationContext, priority: 97 },
-          { key: 'continuity', text: threadContext, priority: 94 },
-          { key: 'shared-memory', text: sharedMemoryContext, priority: 93 },
-          { key: 'cross-channel-memory', text: crossChannelMemory.text, priority: recallIntent.explicit ? 97 : 92 },
-          { key: 'scene', text: sceneContext, priority: 97 },
-          { key: 'world-pulse', text: pulseEventContext, priority: 89 },
-          { key: 'todo', text: todoContext, priority: 86 },
-          { key: 'shared-events', text: sharedEventContext, priority: 88 },
-          { key: 'life', text: lifeContext, priority: 92 },
+          { key: 'continuity', text: freshTopic && !isTopicRelated(text, threadContext) ? '' : threadContext, priority: 94 },
+          { key: 'shared-memory', text: sharedMemoryPrompt, priority: 93 },
+          { key: 'cross-channel-memory', text: freshTopic && !isTopicRelated(text, crossChannelMemory.text) ? '' : crossChannelMemory.text, priority: recallIntent.explicit ? 97 : 92 },
+          { key: 'scene', text: scenePrompt, priority: 97 },
+          { key: 'world-pulse', text: freshTopic && !isTopicRelated(text, pulseEventContext) ? '' : pulseEventContext, priority: 89 },
+          { key: 'todo', text: freshTopic && !isTopicRelated(text, todoContext) ? '' : todoContext, priority: 86 },
+          { key: 'shared-events', text: freshTopic && !isTopicRelated(text, sharedEventContext) ? '' : sharedEventContext, priority: 88 },
+          { key: 'life', text: freshTopic && !isTopicRelated(text, lifeContext) ? '' : lifeContext, priority: 92 },
           { key: 'current-time', text: timeContext, priority: 95 },
           { key: 'scene-time', text: buildSceneTimeContext(sessionData?.sceneTimeOfDay, sessionData?.scenePlace, sessionData?.sceneAtmosphere), priority: 96 },
           { key: 'user-emotion', text: userEmotionContext, priority: 90 },
-          { key: 'memory', text: memoryContext, priority: 90 },
+          { key: 'memory', text: memoryContext.text, priority: 90 },
           // An explicit question about an old conversation must win prompt space
           // over ambient world/mood sections; otherwise retrieval succeeds but
           // compilation drops its result before the model sees it.
@@ -1059,7 +1092,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           { key: 'taught-memory', text: teachContext, priority: 100 },
           { key: 'uncovered-chat', text: uncoveredChatContext, priority: 98 },
           { key: 'summary', text: summaryContext, priority: 94 },
-          { key: 'diary', text: diaryShareContext, priority: 70 },
+          { key: 'diary', text: freshTopic && !isTopicRelated(text, diaryShareContext) ? '' : diaryShareContext, priority: 70 },
           { key: 'diary-mood', text: diaryMoodContext, priority: 65 },
           { key: 'moments', text: momentsContext + momentActionContext, priority: isDirectMomentQuestion(text) || momentActionContext ? 99 : 69 },
           { key: 'day', text: dayContext, priority: 45 },
@@ -1070,7 +1103,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
       // Only count a memory as presented after the compiler actually kept the
       // whole block. Otherwise budget truncation silently cools unseen facts.
       if (compiled.included.includes('memory')) {
-        for (const memory of memories) {
+        for (const memory of memoryContext.memories) {
           void memoryLedgerRepo.syncMemoryItem(memory).then((claimId) => {
             if (!claimId) return;
             return memoryLedgerRepo.recordUsage({
@@ -1136,7 +1169,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         })), ...momentActionReferences);
       }
       if (compiled.included.includes('shared-memory')) {
-        promptReferences.push(...recallableMemories.map(({ memory }) => ({
+        promptReferences.push(...sharedMemoriesForPrompt.map(({ memory }) => ({
           source: 'world' as const,
           id: memory.id,
           at: memory.createdAt,
@@ -1144,7 +1177,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         })));
       }
       if (compiled.included.includes('scene')) {
-        promptReferences.push(...recalledScenes.map(({ scene, event }) => ({
+        promptReferences.push(...scenesForPrompt.map(({ scene, event }) => ({
           source: 'world' as const,
           id: event.id,
           at: event.timestamp,
@@ -1179,12 +1212,12 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         .map(({ id }) => ({ id })),
       todos: injectedTodos,
       compiled,
-      memories,
+      memories: memoryContext.memories,
       continuityThreads: injectedThreads,
       sharedEvents,
-      sharedMemories: recallableMemories.map((item) => item.memory),
+      sharedMemories: sharedMemoriesForPrompt.map((item) => item.memory),
       diaries: knownDiaries,
-      scenes: [...recalledScenes.map((item) => item.scene), ...liveSceneMoments.map((item) => item.scene)],
+      scenes: [...scenesForPrompt.map((item) => item.scene), ...liveSceneMoments.map((item) => item.scene)],
       pulseEvents: recalledPulseEvents.map((item) => item.event),
       moments: recalledMoments.map((item) => item.moment),
     });
@@ -1282,7 +1315,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         const recalledForThisReply = new Set(contextTrace.memoryIds ?? []);
         const spokenMemoryIds = findSpokenMemoryIds(
           result.content,
-          memories.filter((memory) => recalledForThisReply.has(memory.id)),
+          memoryContext.memories.filter((memory) => recalledForThisReply.has(memory.id)),
         );
         const responseTrace = spokenMemoryIds.length
           ? { ...contextTrace, spokenMemoryIds }
@@ -1329,7 +1362,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           addMessage(aiMsg);
           if (i === 0 && spokenMemoryIds.length > 0) {
             void memoryRepo.markSpoken(spokenMemoryIds).catch(() => undefined);
-            for (const memory of memories.filter((item) => spokenMemoryIds.includes(item.id))) {
+            for (const memory of memoryContext.memories.filter((item) => spokenMemoryIds.includes(item.id))) {
               void memoryLedgerRepo.syncMemoryItem(memory).then((claimId) => {
                 if (!claimId) return;
                 return memoryLedgerRepo.recordUsage({
@@ -1369,6 +1402,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           text,
           result.content,
           inferCharacterResponseAction(text, result.content),
+          Date.now(),
+          previousUserText,
         );
         await sessionRepo.update(sessionId, { conversation: nextConversationState });
 

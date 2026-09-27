@@ -1,4 +1,5 @@
 import type { Character } from '../db/index';
+import { detectTopicMove, isTopicRelated } from './chat-conversation-state';
 
 /**
  * 只在本地判断这一轮对话的气质，不调用模型，也不写入数据库。
@@ -30,6 +31,8 @@ export interface HumanConversationOptions {
   proactiveTopics?: string[];
   /** 角色自己的近期生活线，只允许使用已经存在的本地记录。 */
   lifeHints?: string[];
+  /** Persistent conversation turn, so proactive cadence does not reset with the 18-message history window. */
+  turnNumber?: number;
 }
 
 type HumanCharacter = Pick<
@@ -104,26 +107,6 @@ export function buildProactiveTopicSeeds(input: {
       return true;
     })
     .slice(0, 10);
-}
-
-function grams(text: string): Set<string> {
-  const normalized = compact(text).toLocaleLowerCase().replace(/[\s，。！？、,.!?;；:："“”‘’]/g, '');
-  const result = new Set<string>();
-  if (normalized.length <= 2) {
-    if (normalized) result.add(normalized);
-    return result;
-  }
-  for (let i = 0; i < normalized.length - 1; i += 1) result.add(normalized.slice(i, i + 2));
-  return result;
-}
-
-function overlap(a: string, b: string): number {
-  const left = grams(a);
-  const right = grams(b);
-  if (left.size === 0 || right.size === 0) return 0;
-  let shared = 0;
-  for (const item of left) if (right.has(item)) shared += 1;
-  return shared / Math.max(left.size, right.size);
 }
 
 function hasTopicShiftMarker(text: string): boolean {
@@ -202,15 +185,17 @@ export function chooseConversationAction(
   if (signals.mode === 'question') return 'answer-directly';
   if (signals.mode === 'request') return 'finish-request';
 
-  const repeated = repeatedTopics([...recentUserMessages, ...recentAssistantMessages]);
+  // A user repeating a subject is a request to stay with it. Only the
+  // character's own repetition should trigger a fresh angle.
+  const repeated = repeatedTopics(recentAssistantMessages);
   const normalizedUserText = compact(userText);
-  const hasFreshTopic = repeated.some((topic) => !normalizedUserText.includes(topic));
-  const userTurnCount = recentUserMessages.length + 1;
+  const hasFreshTopic = repeated.some((topic) => !isTopicRelated(normalizedUserText, topic));
+  const userTurnCount = options.turnNumber ?? recentUserMessages.length + 1;
   const proactive = character?.proactivity ?? 0.5;
   const hasLifeLine = (options.lifeHints ?? []).some((hint) => compact(hint).length >= 3);
   if (hasFreshTopic) return 'fresh-angle';
   if (hasLifeLine && userTurnCount % (proactive >= 0.72 ? 3 : 5) === 0) return 'share-life';
-  if (recentAssistantMessages.length > 0 && /[？?]s*$/u.test(recentAssistantMessages[recentAssistantMessages.length - 1])) {
+  if (recentAssistantMessages.length > 0 && /[？?]\s*$/u.test(recentAssistantMessages[recentAssistantMessages.length - 1])) {
     return 'react';
   }
   return 'react';
@@ -283,10 +268,7 @@ export function detectHumanTurn(userText: string, recentUserMessages: string[] =
   const inferredShift = Boolean(
     previousUserText &&
       current.length >= 12 &&
-      previousUserText.length >= 12 &&
-      overlap(current, previousUserText) < 0.12 &&
-      !QUESTION_MARKERS.test(current) &&
-      !REQUEST_MARKERS.test(current),
+      detectTopicMove(current, previousUserText),
   );
   const topicShift = explicitShift || inferredShift;
 
@@ -368,8 +350,9 @@ export function buildHumanConversationContext(
     .filter((topic) => !compact(userText).includes(topic))
     // 主动话题也有冷却：候选来自同一条记忆时，最近几轮已经说过就先放下。
     .filter((topic) => topic.length < 5 || !recentAssistantText.includes(topic))
-    .slice(0, 4);
-  const userTurnCount = recentUserMessages.length + 1;
+    .filter((topic) => !isTopicRelated(topic, recentAssistantText))
+    .slice(0, 8);
+  const userTurnCount = options.turnNumber ?? recentUserMessages.length + 1;
   const cadence = character?.proactivity != null && character.proactivity >= 0.72 ? 3 : 5;
   const mayOpenTopic =
     signals.mode === 'casual' &&
@@ -379,7 +362,8 @@ export function buildHumanConversationContext(
     userTurnCount >= cadence && userTurnCount % cadence === 0;
   if (mayOpenTopic) {
     if (candidateTopics.length > 0) {
-      lines.push(`这轮适合由你主动打开一个具体话题。候选只有：${candidateTopics.map((topic) => `「${topic}」`).join('、')}。请只挑一个最符合你性格、又和当前气氛接得上的，自然地说起它；不要把候选列表念出来，不要用“你最近怎么样”这种空问题开场，也不要连续抛问题。`);
+      const topic = candidateTopics[Math.floor(userTurnCount / cadence) % candidateTopics.length];
+      lines.push(`如果眼前的话题已经自然停住，可以由你打开一个具体小话题：「${topic}」。用户仍在说自己的事时先接住，不要生硬转场；不要把候选词当成必须说出的台词。`);
     } else {
       lines.push('这轮适合由你主动带来一点新鲜感。可以分享一个符合你人设的具体偏好、正在想的事或小观察，不要编造用户的现实经历，不要用空泛的“最近怎么样”开场，也不要连续抛问题。');
     }
@@ -435,8 +419,8 @@ export function buildHumanConversationContext(
   lines.push('优先回应一个最有生命力的细节，不要面面俱到。禁止复述用户整句话、总结谈话、连续追问或使用“我理解你的感受”式万能安慰。');
   lines.push('普通回复控制在 1～3 句，通常 18～96 个中文字符；一条消息内部不要换行或留空行。需要补充时用 --- 分成下一条消息。除非用户明确要求详细内容，否则说到自然停顿处就停。');
   const motifs = repeatedMotifs(recentAssistantMessages);
-  const recentTopics = repeatedTopics([...recentUserMessages.slice(-4), ...recentAssistantMessages.slice(-6)])
-    .filter((topic) => !compact(userText).includes(topic));
+  const recentTopics = repeatedTopics(recentAssistantMessages.slice(-6))
+    .filter((topic) => !isTopicRelated(userText, topic));
   const cooldownTopics = [...new Set([...motifs, ...recentTopics])].slice(0, 5);
   if (cooldownTopics.length > 0) {
     lines.push(`这些短语或主题最近已经出现得太频繁：${cooldownTopics.join('、')}。本轮先把它们放下，不要换个说法继续围着同一件事转；除非用户主动重新提起，否则换一个具体的新角度或生活细节。`);

@@ -202,7 +202,7 @@ export async function directWorldTurn(params: DirectorParams): Promise<TurnPlan>
   try {
     const res = await worldChat({
       messages: [
-        { role: 'system', content: `${DIRECTOR_INSTRUCTION}\n${IMMERSION_DIRECTIVE}\n\n${renderWorldBrief(ctx)}\n\n在场的人：${presentNames(ctx)}` },
+        { role: 'system', content: `${DIRECTOR_INSTRUCTION}\n${IMMERSION_DIRECTIVE}\n\n${renderWorldBrief(ctx, 16, params.userText)}\n\n在场的人：${presentNames(ctx)}` },
         { role: 'user', content: actionLine },
       ],
       temperature: 0.7,

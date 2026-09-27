@@ -123,7 +123,7 @@ export function buildActorSystem(params: ActorParams): string {
   const blocks: string[] = [];
   const identity = ctx.perCharacter[speaker.characterId];
   blocks.push(`【你是谁】${identity?.name ?? ctx.nameOf(speaker.characterId)}\n${identity?.persona?.slice(0, 12000) ?? ''}`);
-  blocks.push(renderCharacterContext(ctx, speaker.characterId));
+  blocks.push(renderCharacterContext(ctx, speaker.characterId, params.userText));
   blocks.push(`【这一拍导演希望你】${speaker.intent}`);
   blocks.push(buildConversationFocus(params.userText, ctx.recentEntries));
   const rhythm = directorConversationHints(ctx.conversation);

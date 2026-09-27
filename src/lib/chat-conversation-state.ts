@@ -25,6 +25,8 @@ export interface ChatConversationState {
   lastAction?: ChatReplyAction;
   recentActions: ChatReplyAction[];
   turnsSinceTopicShift: number;
+  /** Successful replies in this session. Older sessions simply start at zero. */
+  turnCount?: number;
   lastUserTurnAt?: number;
   userWantsToShift: boolean;
   preferences: ChatPreferences;
@@ -73,6 +75,42 @@ const ACTION_LABELS: Record<ChatReplyAction, string> = {
 function isTopicShift(text: string): boolean {
   const value = compact(text);
   return /(?:换个话题|换个问题|说点别的|先不说这个|不聊这个了|对了|另外|话说回来)/u.test(value) || /^算了[，,、:：\s]+.{3,}/u.test(value);
+}
+
+const CONTINUATION = /^(?:那|然后|接着|所以|因为|可是|但是|不过|这里|那里|这个|那个|这件事|他|她|它|刚才|还有|为什么|怎么了|真的吗)/u;
+const GENERIC_GRAMS = new Set(['我想', '我们', '你们', '现在', '今天', '这个', '那个', '什么', '怎么', '觉得', '一下', '还是', '可以', '然后', '因为', '所以', '就是', '有点', '知道', '说过', '事情', '问题']);
+
+/** A small, conservative signal for a natural topic change; it never erases history. */
+export function topicTerms(text: string): Set<string> {
+  const terms = new Set<string>();
+  const clean = text.normalize('NFKC').toLocaleLowerCase();
+  for (const chunk of clean.match(/[\u4e00-\u9fff]{2,}|[a-z0-9]{3,}/gu) ?? []) {
+    if (/^[a-z0-9]/.test(chunk)) { terms.add(chunk); continue; }
+    for (let i = 0; i < chunk.length - 1; i += 1) {
+      const gram = chunk.slice(i, i + 2);
+      if (!GENERIC_GRAMS.has(gram)) terms.add(gram);
+    }
+  }
+  return terms;
+}
+
+export function isTopicRelated(current: string, context: string): boolean {
+  const terms = topicTerms(current);
+  if (!terms.size) return false;
+  const known = topicTerms(context);
+  for (const term of terms) if (known.has(term)) return true;
+  return false;
+}
+
+export function detectTopicMove(current: string, previous = ''): boolean {
+  if (isTopicShift(current)) return true;
+  const value = compact(current);
+  if (value.length < 4 || compact(previous).length < 4 || CONTINUATION.test(value)) return false;
+  const currentTerms = topicTerms(value);
+  const oldTerms = topicTerms(previous);
+  if (!currentTerms.size || !oldTerms.size) return false;
+  for (const term of currentTerms) if (oldTerms.has(term)) return false;
+  return true;
 }
 
 function isClosing(text: string): boolean {
@@ -134,13 +172,14 @@ export function updateChatConversationState(
   assistantText = '',
   action?: ChatReplyAction,
   now = Date.now(),
+  previousUserText = '',
 ): ChatConversationState {
   const base = { ...emptyChatConversationState(), ...(previous ?? {}) };
   const previousPreferences = { ...DEFAULT_CHAT_PREFERENCES, ...(previous?.preferences ?? {}) };
   const intent = detectChatIntent(userText);
   const rawLabel = topicLabel(userText);
   const label = rawLabel.length >= 3 ? rawLabel : '';
-  const shifting = intent === 'topic-shift';
+  const shifting = detectTopicMove(userText, previousUserText);
   const oldTopic = base.currentTopic?.trim();
   const pausedTopics = [...(base.pausedTopics ?? [])];
 
@@ -171,6 +210,7 @@ export function updateChatConversationState(
     lastAction: nextAction,
     recentActions,
     turnsSinceTopicShift: shifting ? 0 : Math.min(99, (base.turnsSinceTopicShift ?? 0) + 1),
+    turnCount: Math.min(100_000, (base.turnCount ?? 0) + 1),
     lastUserTurnAt: now,
     userWantsToShift: shifting,
     preferences: updatePreferences(previousPreferences, userText),

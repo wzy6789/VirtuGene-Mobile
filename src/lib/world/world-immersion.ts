@@ -1,5 +1,6 @@
 import type { WorldScene, WorldSceneEntry, WorldSceneState } from '../../db/index';
 import type { CSSProperties } from 'react';
+import { detectTopicMove } from '../chat-conversation-state';
 
 /**
  * 每一拍都会携带的视觉状态。它不是装饰数据：地点、时段、天气和
@@ -77,7 +78,7 @@ export function updateConversationState(
 ): WorldConversationState {
   const state = { ...emptyConversationState(), ...(previous ?? {}) };
   const nextTopic = topicOf(userText);
-  const shifted = looksLikeShift(userText) || Boolean(nextTopic && state.currentTopic && nextTopic !== state.currentTopic && state.turnsSinceTopicShift >= 2);
+  const shifted = looksLikeShift(userText) || detectTopicMove(userText, state.currentTopic);
   const currentTopic = nextTopic ?? state.currentTopic;
   const previousTopics = currentTopic && currentTopic !== state.currentTopic
     ? [state.currentTopic, ...state.previousTopics].filter(Boolean).slice(0, 8) as string[]

@@ -513,6 +513,10 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
 
     // ---- 4) 构建上下文（Stage B，0 次调用）
     let ctx = await buildWorldContext({ userId, worldId, scene: beatScene, characters, userText: text });
+    // The saved conversation state describes the previous beat. Give the
+    // Director and Actors a preview of this user's new focus right now; only
+    // persist it after the turn completes below.
+    ctx = { ...ctx, conversation: updateConversationState(beatScene.state.conversation, text, ctx.recentEntries) };
     canStreamCharacters = ctx.presence.length <= 1 || ctx.presence.every(id => !hasPrivateActorContext(ctx, id));
 
     // 回忆类意图：把"相关但很久以前"的事也捞回来（§60 相关性优先于时间）

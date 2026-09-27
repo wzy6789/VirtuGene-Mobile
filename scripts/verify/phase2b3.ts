@@ -357,13 +357,14 @@ async function run() {
     check('⑩ 每条召回都带得上可溯源的世界事件 id',
       (await selectRecallableSharedMemories({ worldId: world.id, characterId: C1 })).every((r) => r.eventIds.length > 0));
 
-    // 新召回的记忆会真的进入下一轮 prompt（不是只改了排序）
+    // Knowledge remains in the archive; explicit recall must still reach the
+    // live prompt after the new attention gate was added.
     const host2 = mount(createElement(ChatWindow), 900);
     await sleep(900);
     capturedPrompt = '';
     const llmBefore = llmCalls;
-    await sendFromUI(host2, '最近还好吗');
-    check('⑪ 下一轮 prompt 里出现了新的共同记忆', capturedPrompt.includes('最重要的一段经历'), capturedPrompt.slice(capturedPrompt.indexOf('[你和用户一起经历过的事]'), capturedPrompt.indexOf('[你和用户一起经历过的事]') + 200));
+    await sendFromUI(host2, '还记得最重要的一段经历吗？');
+    check('⑪ 用户问起时确实召回共同记忆', capturedPrompt.includes('最重要的一段经历'), capturedPrompt.slice(capturedPrompt.indexOf('[你和用户一起经历过的事]'), capturedPrompt.indexOf('[你和用户一起经历过的事]') + 200));
     check('⑫ 仍然没有私密/不知情的内容', !capturedPrompt.includes(PRIVATE_TITLE) && !capturedPrompt.includes(NO_KNOWLEDGE_TITLE));
     check('⑬ 这次发送同样只调用 1 次 LLM', llmCalls - llmBefore === 1, llmCalls - llmBefore);
     unmount();

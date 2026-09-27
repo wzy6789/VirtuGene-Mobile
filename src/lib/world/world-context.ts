@@ -27,7 +27,8 @@ import { knowledgeRepo } from '../../db/knowledge-repo';
 import { continuityRepo } from '../../db/continuity-repo';
 import { relationshipRepo } from '../../db/relationship-repo';
 import { characterRef, userRef } from './subjects';
-import { buildCharacterMemoryContext, renderCharacterMemoryReferences } from '../character-memory';
+import { buildCharacterMemoryContext, detectRecallIntent, renderCharacterMemoryReferences } from '../character-memory';
+import { isTopicRelated } from '../chat-conversation-state';
 import { describeFacets, FACET_LABEL } from './relationships';
 import { buildHiddenUserProfile } from './user-profile';
 import { worldObjectRepo } from '../../db/world-object-repo';
@@ -55,6 +56,7 @@ export interface CharacterMemory {
   crossChannelMemory?: string;
   /** Same live 4.x character state that private chat reads. */
   characterStateContext?: string;
+  characterLifeContext?: string;
   /** Earlier one-to-one conversation, available only to its own actor alone. */
   privateChatSummary?: string;
   /** 用户明确回忆旧事时，为该角色单独检索且通过认知闸门的历史。 */
@@ -240,8 +242,8 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
         characterStateContext: [
           buildRelationshipContext(characterState.affinity, characterState.mood, characterState.tierNames),
           buildStoryRelationContext(characterState, params.characters),
-          ...(carryMemory ? [buildLifeContext(characterState)] : []),
         ].filter(Boolean).join('\n'),
+        ...(carryMemory ? { characterLifeContext: buildLifeContext(characterState) } : {}),
       } : {}),
       ...(carryMemory && privateSessions.length ? {
         privateChatSummary: privateSessions
@@ -360,9 +362,14 @@ export function renderThreadLayer(ctx: WorldContext): string {
 }
 
 /** L9：最近发生过的事（世界层都知道的） */
-export function renderEventLayer(ctx: WorldContext): string {
+export function renderEventLayer(ctx: WorldContext, currentTopic?: string): string {
   if (ctx.recentEvents.length === 0) return '';
-  return `【最近发生过的事】\n${ctx.recentEvents
+  const explicit = currentTopic != null && detectRecallIntent(currentTopic).explicit;
+  const events = currentTopic === undefined || explicit
+    ? ctx.recentEvents
+    : ctx.recentEvents.filter((event) => isTopicRelated(currentTopic, `${event.title} ${event.summary}`));
+  if (!events.length) return '';
+  return `【最近发生过的事】\n${events
     .slice(0, 6)
     .map((e) => `- ${e.title}${e.summary ? `：${e.summary}` : ''}`)
     .join('\n')}`;
@@ -387,12 +394,12 @@ export function renderRecentLayer(ctx: WorldContext, limit = 16): string {
 }
 
 /** Director 用的完整世界层（不含任何角色的私有信息） */
-export function renderWorldBrief(ctx: WorldContext, recentLimit = 16): string {
+export function renderWorldBrief(ctx: WorldContext, recentLimit = 16, currentTopic?: string): string {
   return [
     renderWorldLayer(ctx),
     renderRelationLayer(ctx),
     renderThreadLayer(ctx),
-    renderEventLayer(ctx),
+    renderEventLayer(ctx, currentTopic),
     renderRecalledHistory(ctx),
     renderObjectLayer(ctx),
     renderRecentLayer(ctx, recentLimit),
@@ -409,9 +416,16 @@ export function renderWorldBrief(ctx: WorldContext, recentLimit = 16): string {
  * 注意这里从不传 `renderWorldLayer`（那一层含全部世界设定），
  * 而是用 `perCharacter[id].facts`（已过可见性闸门）。
  */
-export function renderCharacterContext(ctx: WorldContext, characterId: string): string {
+export function renderCharacterContext(ctx: WorldContext, characterId: string, currentTopic?: string): string {
   const memory = ctx.perCharacter[characterId];
   if (!memory) return '';
+  // With no topic argument this renders the full authorized knowledge view
+  // (archive/audit callers). The live Actor gets a focused view each beat.
+  const explicit = currentTopic != null && detectRecallIntent(currentTopic).explicit;
+  // Inviting characters to talk freely is not a new factual subject. They
+  // still need their own authorized background; it never crosses actor IDs.
+  const freeConversation = currentTopic != null && /(?:自己聊|你们聊|随便聊|接着聊|继续聊)/u.test(currentTopic);
+  const relevant = (value: string) => currentTopic === undefined || explicit || freeConversation || isTopicRelated(currentTopic, value);
   const lines: string[] = [];
   lines.push(`【你此刻在哪里】${ctx.place} · ${ctx.timeLabel} · 气氛：${ctx.mood}`);
   lines.push(`【在场的人】${ctx.presence.map((id) => ctx.nameOf(id)).join('、')}，以及用户`);
@@ -427,28 +441,42 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string): 
     const text = relationText(memory.userRelation);
     if (text) lines.push(`【你和用户现在的关系】${text}`);
   }
-  if (memory.memories.length) {
-    lines.push(`【你们一起经历过的事（你亲身在场）】\n${memory.memories.map((m) => `- ${m.title}${m.summary ? `：${m.summary}` : ''}`).join('\n')}`);
+  const memories = memory.memories.filter((m) => relevant(`${m.title} ${m.summary}`));
+  if (memories.length) {
+    lines.push(`【你们一起经历过的事（你亲身在场）】\n${memories.map((m) => `- ${m.title}${m.summary ? `：${m.summary}` : ''}`).join('\n')}`);
   }
-  if (memory.events.length) {
-    lines.push(`【你知道的其他世界记录】\n${memory.events.map((event) => `- ${event.title}${event.summary ? `：${event.summary}` : ''}`).join('\n')}`);
+  const events = memory.events.filter((event) => relevant(`${event.title} ${event.summary}`));
+  if (events.length) {
+    lines.push(`【你知道的其他世界记录】\n${events.map((event) => `- ${event.title}${event.summary ? `：${event.summary}` : ''}`).join('\n')}`);
   }
-  if (memory.scenes.length) {
-    lines.push(`【你参与过的片段】\n${memory.scenes.map((s) => `- ${s.title}（${s.place}）：${s.summary}`).join('\n')}`);
+  const scenes = memory.scenes.filter((s) => relevant(`${s.title} ${s.place} ${s.summary}`));
+  if (scenes.length) {
+    lines.push(`【你参与过的片段】\n${scenes.map((s) => `- ${s.title}（${s.place}）：${s.summary}`).join('\n')}`);
   }
-  if (memory.diaries.length) {
-    lines.push(`【用户亲口告诉过你的生活】\n${memory.diaries.map((d) => `- ${d.date} ${d.title}：${d.content}`).join('\n')}`);
+  const diaries = memory.diaries.filter((d) => relevant(`${d.title} ${d.content}`));
+  if (diaries.length) {
+    lines.push(`【用户亲口告诉过你的生活】\n${diaries.map((d) => `- ${d.date} ${d.title}：${d.content}`).join('\n')}`);
   }
-  if (memory.threads.length) {
-    lines.push(`【你心里还记着的事】\n${memory.threads.map((t) => `- ${t.title}${t.detail ? `（${t.detail}）` : ''}`).join('\n')}`);
+  const threads = memory.threads.filter((t) => relevant(`${t.title} ${t.detail ?? ''}`));
+  if (threads.length) {
+    lines.push(`【你心里还记着的事】\n${threads.map((t) => `- ${t.title}${t.detail ? `（${t.detail}）` : ''}`).join('\n')}`);
   }
-  if (memory.todos.length) {
-    lines.push(`【用户明确告诉你的待办】\n${memory.todos.map((todo) => `- ${todo.title}${todo.dueDate ? `（${todo.dueDate}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note}` : ''}`).join('\n')}\n只在话题相关时自然提起，不要像任务管理器一样盘问。`);
+  const todos = memory.todos.filter((todo) => relevant(`${todo.title} ${todo.note ?? ''}`));
+  if (todos.length) {
+    lines.push(`【用户明确告诉你的待办】\n${todos.map((todo) => `- ${todo.title}${todo.dueDate ? `（${todo.dueDate}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note}` : ''}`).join('\n')}\n只在话题相关时自然提起，不要像任务管理器一样盘问。`);
   }
   if (memory.characterStateContext) lines.push(memory.characterStateContext);
-  if (memory.privateChatSummary) lines.push(`【你们早前私聊的摘要】\n${memory.privateChatSummary}\n这是你和用户真实聊过的内容；只在当前话题相关时自然使用，不要逐条复述。`);
-  if (memory.userProfile) lines.push(memory.userProfile);
-  if (memory.crossChannelMemory) lines.push(memory.crossChannelMemory);
+  if (memory.characterLifeContext && relevant(memory.characterLifeContext)) lines.push(memory.characterLifeContext);
+  if (memory.privateChatSummary && relevant(memory.privateChatSummary)) lines.push(`【你们早前私聊的摘要】\n${memory.privateChatSummary}\n这是你和用户真实聊过的内容；只在当前话题相关时自然使用，不要逐条复述。`);
+  if (memory.userProfile && relevant(memory.userProfile)) lines.push(memory.userProfile);
+  if (memory.crossChannelMemory) {
+    if (currentTopic === undefined || explicit || freeConversation) lines.push(memory.crossChannelMemory);
+    else {
+      const relevantRows = memory.crossChannelMemory.split('\n')
+        .filter((row) => /^\[(?:chat|group|world|moment|todo|diary)\s/u.test(row) && relevant(row));
+      if (relevantRows.length) lines.push(`【你在不同地方真实知道的事】\n${relevantRows.join('\n')}`);
+    }
+  }
   if (memory.historicalRecall?.length) {
     lines.push(`【你确实知道、而用户正在回忆的旧事】\n${memory.historicalRecall.map((hit) => `- ${hit.date} ${hit.text}`).join('\n')}\n只回应与用户当前问题有关的线索，不要转回无关旧话题。`);
   }
