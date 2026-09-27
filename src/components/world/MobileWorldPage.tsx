@@ -7,6 +7,7 @@ import { worldSceneRepo } from '../../db/world-scene-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import type { WorldEvent, WorldPulse, WorldScene, WorldSceneEntry } from '../../db/index';
 import { SpaceHeading } from '../ui/SpaceHeading';
+import { WorldLifeSignature } from './WorldLifeSignature';
 import { WorldConstellation } from './WorldConstellation';
 import { WorldSceneConstellation } from './WorldSceneConstellation';
 import { ensureWorldKernel, type WorldKernelSnapshot } from '../../lib/world/world-kernel';
@@ -252,13 +253,7 @@ export function MobileWorldPage() {
     <div className="vg-world-page h-full overflow-y-auto px-4 pb-8">
       {!theaterOpen && !selectedScene && (
         <div className="pt-5 vg-world-hero">
-          <svg className="vg-world-helix" viewBox="0 0 120 120" fill="none" aria-hidden="true">
-            <circle cx="60" cy="60" r="49" stroke="currentColor" strokeOpacity=".22" />
-            <circle cx="60" cy="60" r="34" stroke="currentColor" strokeOpacity=".15" strokeDasharray="2 5" />
-            <path d="M39 20C81 32 81 48 39 60S-3 89 80 102M81 20C39 32 39 48 81 60s42 29-41 42" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeOpacity=".56" />
-            <path d="M46 27h28M48 43h24M47 60h26M48 77h24M46 94h28" stroke="currentColor" strokeWidth=".8" strokeOpacity=".35" />
-            <circle cx="81" cy="60" r="3" fill="currentColor" />
-          </svg>
+          <WorldLifeSignature />
           <SpaceHeading eyebrow="" title="世界 Living World" detail="你的生活，与他们的时间在这里相遇。" />
           <nav className="vg-world-life-entries" aria-label="世界入口">
             <button type="button" className="vg-world-life-entry is-moments" onClick={openMoments}>

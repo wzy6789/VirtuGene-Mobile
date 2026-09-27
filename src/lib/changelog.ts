@@ -5,6 +5,12 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.2.5', date: '2026-09-27', notes: [
+    '新增可选聊天记录导入，学习角色说话风格；支持文字与安卓本地截图识别。',
+    '新增程砚、知微、闻川三位实用角色及原创头像。',
+    '精修消息字标、世界光感与星域详情布局，优化继续生活入口。',
+    '手机端隐藏滚动条，保留正常滑动；已有聊天与记忆保持不变。',
+  ] },
   {
     version: '5.2.4',
     date: '2026-09-26',

@@ -6,6 +6,10 @@ import { ipc } from '../../lib/ipc-client';
 import { stateRepo } from '../../db/state-repo';
 import type { Character } from '../../db/index';
 import { getProviderKey, llmChat, resolveModel } from '../../lib/ai/llm';
+import { ChatStyleImport } from './ChatStyleImport';
+import { stylePrompt, stripLearnedStyle, type ChatStyleProfile } from '../../lib/chat-style-import';
+import { memoryRepo } from '../../db/memory-repo';
+import { db } from '../../db/index';
 
 interface CreateGeneTabProps {
   editCharacter?: Character;
@@ -57,12 +61,16 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const [name, setName] = useState(editCharacter?.name ?? '');
   const [avatar, setAvatar] = useState(editCharacter?.avatar ?? '🧬');
   const [systemPrompt, setSystemPrompt] = useState(() => {
-    const original = editCharacter?.systemPrompt ?? '';
+    const original = stripLearnedStyle(editCharacter?.systemPrompt ?? '');
     const oldBoundary = editCharacter?.boundaries?.trim();
     const suffix = oldBoundary ? `[互动边界]\n${oldBoundary}` : '';
     return suffix && original.trimEnd().endsWith(suffix) ? original.trimEnd().slice(0, -suffix.length).trimEnd() : original;
   });
   const [tags, setTags] = useState<string[]>(editCharacter?.tags ?? []);
+  const [learnedStyle, setLearnedStyle] = useState<ChatStyleProfile | undefined>(editCharacter?.learnedSpeechStyle);
+  const [importedMemories, setImportedMemories] = useState<string[]>([]);
+  const memoryImportIds = useRef(new Map<string, string>());
+  const [styleBusy, setStyleBusy] = useState(false);
   const [signature, setSignature] = useState(editCharacter?.signature ?? '');
   const [greeting, setGreeting] = useState(editCharacter?.greeting ?? '');
   const [catchphrase, setCatchphrase] = useState(editCharacter?.catchphrase ?? '');
@@ -152,10 +160,10 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   }, [editCharacter, userId]);
 
   const filledCount = STEP_FIELDS.filter((f) => fields[f.key].trim().length > 0).length;
-  const canGenerate = name.trim().length >= 1 && !isEdit && (
-    mode === 'simple' ? !!(description.trim() || fields.identity.trim()) : filledCount > 0
+  const canGenerate = name.trim().length >= 1 && !isEdit && !styleBusy && (
+    !!learnedStyle?.rules.trim() || (mode === 'simple' ? !!(description.trim() || fields.identity.trim()) : filledCount > 0)
   );
-  const canSave = relationsReady && !!userId && name.trim().length >= 1 && systemPrompt.trim().length > 0;
+  const canSave = relationsReady && !styleBusy && !!userId && name.trim().length >= 1 && systemPrompt.trim().length > 0;
   const relationContext = [
     userIdentity.trim() && `用户的身份：${userIdentity.trim()}`,
     userRelationship.trim() && `你与用户的关系：${userRelationship.trim()}`,
@@ -163,9 +171,9 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     alreadyKnow && sharedPast.trim() && `用户为你们设定的过去（角色背景，不是聊天记录）：${sharedPast.trim()}`,
   ].filter(Boolean).join('\n');
   const composedPrompt = () => [systemPrompt.trim(), boundaries.trim() && `[互动边界]\n${boundaries.trim()}`,
-    !isEdit && `[与你的关系]\n${relationContext}`].filter(Boolean).join('\n\n');
+    !isEdit && `[与你的关系]\n${relationContext}`, stylePrompt(learnedStyle)].filter(Boolean).join('\n\n');
   useEffect(() => { draftEpoch.current++; setPreviewReply(''); setPreviewError(''); },
-    [systemPrompt, boundaries, userIdentity, userRelationship, alreadyKnow, sharedPast, name, fields, description]);
+    [systemPrompt, boundaries, userIdentity, userRelationship, alreadyKnow, sharedPast, name, fields, description, learnedStyle, importedMemories]);
   useEffect(() => () => { draftEpoch.current++; }, []);
   const tryConversation = async () => {
     if (!canSave || !previewInput.trim() || previewLock.current) return;
@@ -177,7 +185,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
       if (!key) throw new Error('请先在设置中配置可用的 API Key。');
       // Preview uses the draft alone; it never imports another character's memory.
       const result = await llmChat({ provider: model.provider, model: model.id, apiKey: key, disableThinking: true,
-        maxTokens: 240, messages: [{ role: 'system', content: `${composedPrompt()}\n像微信私聊一样自然回应，保持人物性格，不写说明和长篇旁白。` },
+        maxTokens: 240, messages: [{ role: 'system', content: `${composedPrompt()}\n${importedMemories.length ? '[用户确认的共同记忆]\n' + importedMemories.join('\n') : ''}\n像微信私聊一样自然回应，保持人物性格，不写说明和长篇旁白。` },
           { role: 'user', content: previewInput.trim() }] });
       if (!result.content?.trim()) throw new Error('暂时没能试聊成功，可以重试或直接创建。');
       if (epoch === draftEpoch.current) setPreviewReply(result.content.trim());
@@ -297,7 +305,10 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     setGenerationProgress(null);
     setCandidates(null);
 
-    const genFields = mode === 'simple' ? { description: description.trim(), identity: fields.identity, supplement: relationContext } : { ...fields, supplement: `${fields.supplement}\n${relationContext}` };
+    const genFields = mode === 'simple' ? { description: description.trim(), identity: fields.identity, supplement: relationContext,
+      speechStyle: learnedStyle?.rules, speechExamples: learnedStyle?.examples.join('\n') }
+      : { ...fields, speechStyle: [fields.speechStyle, learnedStyle?.rules].filter(Boolean).join('\n'),
+          speechExamples: [fields.speechExamples, learnedStyle?.examples.join('\n')].filter(Boolean).join('\n'), supplement: `${fields.supplement}\n${relationContext}` };
     try {
     const result = await ipc.character.generate(
       {
@@ -356,6 +367,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     saveLock.current = true; setIsSaving(true); setSaveError('');
     try {
     const finalSystemPrompt = composedPrompt();
+    if (useAuthStore.getState().userId !== userId) throw new Error('账号已切换');
 
     if (isEdit) {
       await updateCharacter(editCharacter.id, {
@@ -368,6 +380,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         catchphrase: catchphrase.trim() || undefined,
         boundaries: boundaries.trim() || undefined,
         published,
+        learnedSpeechStyle: learnedStyle,
       });
       await stateRepo.replaceStoryRelations(editCharacter.id, userId, relationshipTargets.map((characterId) => ({
         characterId,
@@ -394,7 +407,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
       // to the same character rather than leaving edits behind or creating twice.
       await updateCharacter(created.id, { name: name.trim(), avatar, systemPrompt: finalSystemPrompt,
         tags, signature: signature.trim(), greeting: greeting.trim(), catchphrase: catchphrase.trim() || undefined,
-        boundaries: boundaries.trim() || undefined, published });
+        boundaries: boundaries.trim() || undefined, published, learnedSpeechStyle: learnedStyle });
       await stateRepo.replaceStoryRelations(created.id, userId, relationshipTargets.map((characterId) => ({
         characterId,
         label: relationshipMeta[characterId]?.label ?? '故事关联',
@@ -402,6 +415,20 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
       })));
     }
 
+    const memoryCharacterId = isEdit ? editCharacter.id : savedCharacterId.current;
+    if (importedMemories.length && memoryCharacterId) {
+      const owner = await db.characters.get(memoryCharacterId);
+      if (owner?.createdBy !== userId || useAuthStore.getState().userId !== userId) throw Error('无法为其他账号导入记忆');
+      for (const content of importedMemories) {
+        let id = memoryImportIds.current.get(content);
+        if (!id) { id = crypto.randomUUID(); memoryImportIds.current.set(content, id); }
+        const previous = await db.memories.get(id);
+        if (previous?.content === content) continue;
+        await memoryRepo.create({ id, characterId: memoryCharacterId, userId, content,
+          type: 'auto', pinned: true, memoryKind: 'fact', status: 'active', confidence: 1,
+          createdAt: Date.now(), updatedAt: Date.now() });
+      }
+    }
     onClose();
     } catch { setSaveError('保存未完成，填写内容已保留，请重试。'); }
     finally { saveLock.current = false; setIsSaving(false); }
@@ -592,6 +619,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
       </details>
       </div>
       <div className="space-y-5" hidden={!isEdit && step !== 2}>
+      <ChatStyleImport value={learnedStyle} onChange={setLearnedStyle} memories={importedMemories} onMemoriesChange={setImportedMemories} disabled={isGenerating || isSaving} onBusyChange={setStyleBusy} />
       {/* Create-mode input: toggle between simple description & 6-step guide */}
       {!isEdit && (
         <div className="space-y-3">
@@ -675,7 +703,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         </div>
       )}
 
-      {!isEdit && <button type="button" disabled={!name.trim() || !(description.trim() || filledCount)} onClick={() => {
+      {!isEdit && <button type="button" disabled={styleBusy || !name.trim() || !(description.trim() || filledCount || learnedStyle?.rules.trim())} onClick={() => {
         setSystemPrompt([`你是${name.trim()}。`, ...STEP_FIELDS.map(field => fields[field.key].trim() && `${field.title}：${fields[field.key].trim()}`), description.trim()].filter(Boolean).join('\n'));
         setBoundaries(fields.boundaries.trim()); setCandidates(null); goStep(3);
       }} className="w-full rounded-xl border border-line py-3 text-sm text-sub disabled:opacity-40">直接使用我的设定</button>}

@@ -5,6 +5,7 @@ import { useUIStore } from '../../store/ui-store';
 import { SwipeActionItem } from '../ui/SwipeActionItem';
 import { Avatar } from '../ui/Avatar';
 import { BrandWordmark } from '../ui/BrandWordmark';
+import appIcon from '../../assets/app-icon.png';
 import type { Character } from '../../db/index';
 
 // 群聊是次级视图：与手账/角色页/我的同一套按需加载策略，不进首屏主包，打开时才拉取
@@ -113,7 +114,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
 
   return (
     <div className="vg-conversations h-full flex flex-col">
-      <header className="vg-conversation-brand shrink-0"><BrandWordmark /></header>
+      <header className="vg-conversation-brand shrink-0"><BrandWordmark prominent /><img className="vg-conversation-app-icon" src={appIcon} alt="" width={36} height={36} draggable={false} /></header>
 
       {/* 会话搜索（微信式） */}
       <div className="px-4 pt-2 pb-3 shrink-0">

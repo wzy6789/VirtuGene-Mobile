@@ -47,6 +47,8 @@ export interface Character {
   catchphrase?: string;
   /** 互动边界（用户明确设定的禁区与退出方式） */
   boundaries?: string;
+  /** Reviewed expression only, never raw imported chat records. */
+  learnedSpeechStyle?: import('../lib/chat-style-import').ChatStyleProfile;
 }
 
 /** 用户设定的角色间故事关系。保存于各自的生命状态中，因而只属于当前用户的世界。 */

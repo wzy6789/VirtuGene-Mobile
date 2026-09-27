@@ -1,8 +1,10 @@
 import { characterRepo } from '../db/character-repo';
 import type { Character } from '../db/index';
 import { withGuYueNaCare } from './gu-yue-na-personality';
+import { PRACTICAL_PRESETS } from './practical-presets';
 
 const PRESET_CHARACTERS: Omit<Character, 'createdAt'>[] = [
+  ...PRACTICAL_PRESETS,
   {
     id: 'preset-linshuang',
     name: '林霜',

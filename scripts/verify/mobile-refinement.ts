@@ -3,6 +3,8 @@ import { useLatestMessageScroll } from '../../src/components/ui/useLatestMessage
 import { createRoot } from 'react-dom/client';
 import { MobileChatListPage } from '../../src/components/chat/MobileChatListPage';
 import { MobileWorldPage } from '../../src/components/world/MobileWorldPage';
+import { WorldSceneConstellation } from '../../src/components/world/WorldSceneConstellation';
+import type { WorldScene, WorldSceneEntry } from '../../src/db';
 import { MobileCharacterPage } from '../../src/components/character/MobileCharacterPage';
 import { CharacterProfileModal } from '../../src/components/character/CharacterProfileModal';
 import { MessageBubble } from '../../src/components/chat/MessageBubble';
@@ -21,6 +23,8 @@ useGroupStore.setState({groups:[],loadGroups:async()=>{}});
 document.body.style.cssText='margin:0;background:var(--bg);overflow:auto';
 const host=document.createElement('div');host.className='mobile-layout';host.style.cssText='width:390px;height:760px;margin:0 auto;overflow:hidden';document.body.append(host);
 const root=createRoot(host);const params=new URLSearchParams(location.search);
+const sectorScene={id:'visual-sector',title:'雨后街角',status:'active',characterIds:[c.id],place:'街角咖啡',timeLabel:'傍晚',mood:'雨后的灯光'} as WorldScene;
+const sectorEntries=Array.from({length:3},(_,i)=>({id:`sector-entry-${i}`,kind:i===2?'user_input':'dialogue',speakerId:c.id,content:i===2?'想和她一起逛逛':'脚步停住，侧过半张脸看着你。'+ '这里有一段很长的经历。'.repeat(12)} as WorldSceneEntry));
 function chat() {
  return h('div',{className:'chat-room h-full flex flex-col'},h('header',{className:'chat-header h-14 flex items-center justify-center'},h('strong',null,'星遥')),
  h('div',{className:'chat-thread flex-1 min-h-0 overflow-y-auto'},...['刚看见一朵很像猫的云。','真的，耳朵都翘着。你那边现在是什么天气？','要不要等你忙完，我们去河边走走？'].map((content,i)=>h(MessageBubble,{key:i,avatar:c.avatar,message:{id:`ai-${i}`,role:'assistant',content,createdAt:1,sessionId:'fixture'} as Message})),h(MessageBubble,{avatar:'🌱',message:{id:'u',role:'user',content:'等我下班！',createdAt:1,sessionId:'fixture'} as Message})),
@@ -28,6 +32,10 @@ function chat() {
 }
 async function run(){
  document.documentElement.classList.add('dark');
+ if(params.get('visual')==='sector') {
+  root.render(h('div',{className:'px-4 h-full overflow-y-auto'},h(WorldSceneConstellation,{scene:sectorScene,entries:sectorEntries,characters:[c],entriesLoading:false,onBack:()=>{},onContinue:()=>{}})));
+  return;
+ }
  if(params.has('visual')) {const page=params.get('visual');root.render(page==='chat'?chat():page==='world'?h(MobileWorldPage):page==='characters'?h(MobileCharacterPage,{onSelect:()=>{}}):page==='profile'?h(CharacterProfileModal,{character:{...c,greeting:'今天来得正好。坐一会儿？',tags:['安静','观察细致','有自己的节奏']},userId:'',onClose:()=>{},onAdd:()=>{},onChat:()=>{}}):h(MobileChatListPage,{onSelect:()=>{}}));return;}
  for(const dark of [true,false]) for(const width of [360,390,430]) {
   document.documentElement.classList.toggle('dark',dark);host.style.width=`${width}px`;
@@ -59,6 +67,18 @@ async function run(){
   check([...host.querySelectorAll('.vg-world-life-entry')].every(b=>b.getBoundingClientRect().height>=160),'world entrances comfortable');
   check(host.scrollWidth<=width,'world fits viewport');
   check([...host.querySelectorAll('.vg-world-life-entry strong')].every(b=>getComputedStyle(b).fontSize==='20px'),'consistent world labels');
+ }
+ for(const width of [360,390,430]) {
+  host.style.width=`${width}px`;let entered=0;
+  root.render(h('div',{className:'px-4 h-full overflow-y-auto'},h(WorldSceneConstellation,{scene:sectorScene,entries:sectorEntries,characters:[c],entriesLoading:false,onBack:()=>{},onContinue:()=>{entered++;}})));await wait();
+  const enter=host.querySelector<HTMLButtonElement>('.vg-scene-constellation-continue')!;
+  const facts=host.querySelector('.vg-sector-facts')!.getBoundingClientRect();
+  const recent=host.querySelector('.vg-sector-recent')!.getBoundingClientRect();
+  check(enter.getBoundingClientRect().top>=facts.bottom,'sector entrance below metadata');
+  check(recent.top>=enter.getBoundingClientRect().bottom,'populated recent entries never overlap button');
+  check(host.scrollWidth<=width,'sector detail fits narrow screen');
+  check(host.querySelectorAll('.vg-sector-recent-list p').length===3,'three actual recent entries retained');
+  enter.click();check(entered===1,'redesigned entrance retains action');
  }
  root.render(h('div',{className:'chat-room h-full flex flex-col'},h(ImmersiveSceneCard,{character:c,userId:'fixture',affinity:0,mood:0,onPrompt:()=>{}}),h('div',{className:'chat-thread flex-1 min-h-0','data-fixture-thread':true},'对话原文保持原位')));await wait();
  const trigger=host.querySelector('[aria-haspopup="dialog"]') as HTMLButtonElement;

@@ -16,6 +16,7 @@ import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
 
 import com.virtugene.app.plugins.NativeAudioRecorderPlugin;
+import com.virtugene.app.plugins.ChatTextRecognitionPlugin;
 
 public class MainActivity extends BridgeActivity {
 
@@ -25,6 +26,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // 原生录音插件必须在 super.onCreate() 之前注册（load() 在 onCreate 末尾消费插件列表）
         registerPlugin(NativeAudioRecorderPlugin.class);
+        registerPlugin(ChatTextRecognitionPlugin.class);
 
         super.onCreate(savedInstanceState);
 

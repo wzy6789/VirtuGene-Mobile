@@ -38,6 +38,7 @@ const shared = {
   platform: 'browser',
   format: 'iife',
   logLevel: 'warning',
+  loader: { '.png': 'dataurl' },
   define: {
     'import.meta.env': JSON.stringify({
       VITE_AI_GATEWAY_URL: '',
@@ -130,7 +131,7 @@ await build({
   jsx: 'automatic',
 });
 
-for (const name of ['swipes', 'mobile-refinement', 'guyuena-care', 'group-layout', 'relation-map', 'character-create', 'character-ui', 'character-scroll', 'memory-final', 'worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 'character-memory', 'memory-continuity', 'memory-audit-20260926', 'worldG', 'moments', 'moments-autonomous']) {
+for (const name of ['practical-presets', 'chat-style', 'swipes', 'mobile-refinement', 'guyuena-care', 'group-layout', 'relation-map', 'character-create', 'character-ui', 'character-scroll', 'memory-final', 'worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 'character-memory', 'memory-continuity', 'memory-audit-20260926', 'worldG', 'moments', 'moments-autonomous']) {
   await build({
     ...shared,
     entryPoints: [`scripts/verify/${name}.ts`],
