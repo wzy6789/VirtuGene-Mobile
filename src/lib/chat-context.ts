@@ -121,7 +121,7 @@ export function buildStoryRelationContext(state: CharacterState, characters: Cha
     const character = link.character!;
     return `- ${character.name}：你们是「${link.label}」${link.description ? `（${link.description}）` : ''}`;
   }).join('\n');
-  return `\n\n[你的故事关系]\n${lines}\n这些是用户亲自设定的角色世界观。你清楚这些关系，并会在话题自然相关时体现熟悉、在意、竞争、守护等符合设定的态度；不要凭空补写未设定的共同经历，不要主动把关系当作说明书逐条报出，也不要擅自改变关系。`;
+  return `\n\n[你的故事关系]\n${lines}\n这些是当前角色世界观中的关系，可能来自预设背景或用户设定。你清楚这些关系，并会在话题自然相关时体现熟悉、在意、竞争、守护等符合设定的态度；不要凭空补写未设定的共同经历，不要主动把关系当作说明书逐条报出，也不要擅自改变关系。`;
 }
 
 /** 基因觉醒层：按关系等阶解锁的"本色流露"，越深越不需要伪装 */

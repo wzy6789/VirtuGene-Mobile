@@ -22,6 +22,7 @@ import { useDiaryStore } from './diary-store';
 import { assignVoice } from '../lib/ai/voice-assigner';
 import { sanitizeVoiceProfile, completeVoiceProfile, ALL_VOICES, type VoiceProfile } from '../lib/voice-map';
 import { hasAiGatewayAccess } from '../lib/ai/gateway';
+import { isDouluoPreset, syncDouluoRelations, withDouluoRelations } from '../lib/douluo-relations';
 
 /** 角色声线：创建/首次进入时由 AI 按形象判定并固定（幂等，只执行一次；失败静默不影响聊天） */
 async function assignVoiceIfNeeded(characterId: string, userId: string): Promise<void> {
@@ -536,6 +537,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const userId = useAuthStore.getState().userId ?? '';
     const character: Character = {
       ...data,
+      systemPrompt: data.sourcePresetId ? withDouluoRelations(data.systemPrompt, data.sourcePresetId) : data.systemPrompt,
       id: crypto.randomUUID(),
       published: (data as any).published ?? false,
       createdBy: userId,
@@ -543,6 +545,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       createdAt: now,
     };
     await characterRepo.create(character);
+    if (character.sourcePresetId && isDouluoPreset(character.sourcePresetId)) await syncDouluoRelations();
     await get().loadCharacters();
     get().selectCharacter(character.id);
     // 新角色创建后由 AI 判定声线并固定

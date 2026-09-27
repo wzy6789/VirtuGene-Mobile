@@ -2,6 +2,7 @@ import { characterRepo } from '../db/character-repo';
 import type { Character } from '../db/index';
 import { GU_YUE_NA_MARRIAGE, GU_YUE_NA_NOW, GU_YUE_NA_RECOGNITION, reviseGuYueNaPresetPrompt } from './gu-yue-na-personality';
 import { PRACTICAL_PRESETS } from './practical-presets';
+import { isDouluoPreset, syncDouluoRelations, withDouluoRelations } from './douluo-relations';
 
 const PRESET_CHARACTERS: Omit<Character, 'createdAt'>[] = [
   ...PRACTICAL_PRESETS,
@@ -510,7 +511,9 @@ async function syncPresets(): Promise<void> {
 
   // Upsert presets: update content in place, insert if missing
   for (const char of PRESET_CHARACTERS) {
-    const systemPrompt = char.id === 'preset-guyuena' ? reviseGuYueNaPresetPrompt(char.systemPrompt) : char.systemPrompt;
+    const systemPrompt = withDouluoRelations(
+      char.id === 'preset-guyuena' ? reviseGuYueNaPresetPrompt(char.systemPrompt) : char.systemPrompt, char.id,
+    );
     const exists = await characterRepo.getById(char.id);
     if (exists) {
       await characterRepo.update(char.id, {
@@ -538,4 +541,11 @@ async function syncPresets(): Promise<void> {
     if (updatedPrompt !== old.systemPrompt || greeting !== old.greeting || signature !== old.signature)
       await characterRepo.update(old.id, { systemPrompt: updatedPrompt, greeting, signature });
   }
+  // Re-read after care migration so the family supplement cannot overwrite it.
+  for (const character of await characterRepo.getAll()) {
+    if (!character.sourcePresetId || !isDouluoPreset(character.sourcePresetId)) continue;
+    const systemPrompt = withDouluoRelations(character.systemPrompt, character.sourcePresetId);
+    if (systemPrompt !== character.systemPrompt) await characterRepo.update(character.id, { systemPrompt });
+  }
+  await syncDouluoRelations();
 }

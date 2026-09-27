@@ -700,6 +700,8 @@ export interface CharacterState {
   lifeEvents?: LifeEvent[];
   /** 创建角色时建立的故事关系，与后续聊天和群聊无关。 */
   storyRelations?: StoryRelation[];
+  /** Previously considered preset pairs: user deletion must not recreate them at startup. */
+  presetRelationSeeds?: string[];
   /** 自定义等阶名（key=默认等阶名 → 用户自定义名；等阶名可随便改） */
   tierNames?: Record<string, string>;
   updatedAt: number;
