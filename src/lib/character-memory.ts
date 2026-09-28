@@ -204,7 +204,11 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
   //   moment → 朋友圈历史（追问时扩大候选数量，但不绕过用户的时间窗）
   //   todo   → 已完成的待办（追问时才回溯全部）
   // Natural questions can recall details without a magic remember prefix.
-  const lookupHistory = intent.explicit || /[?？]|是谁|给谁|去哪|哪里|哪儿|什么|多少|几点|几号/u.test(topic);
+  // A statement can continue an old subject too: “桂花糕买好了” must find
+  // who it was for without requiring a question mark or a “remember” command.
+  const topicalHistory = queryTerms(topic).length > 0
+    && !/^(?:你好|您好|早安|晚安|谢谢|好的|好啊|嗯嗯|嗯|哦|哈哈|继续|然后呢)[。！!，,\s]*$/u.test(topic.trim());
+  const lookupHistory = intent.explicit || topicalHistory;
   const explicitGroupHistory = lookupHistory;
   const explicitWorldHistory = lookupHistory;
   const explicitMomentHistory = lookupHistory;

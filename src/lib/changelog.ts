@@ -5,6 +5,10 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.2.8', date: '2026-09-28', notes: [
+    '完善斗罗人物的关系与时间线设定，优化不同场景中的角色记忆衔接。',
+    '重新构建并核验 Android 安装包，确保聊天记录截图识别组件完整打包。',
+  ] },
   { version: '5.2.7', date: '2026-09-27', notes: [
     '补全六位斗罗预置角色的夫妻、亲子、姻亲及师徒关系，角色能在对话中自然理解彼此的背景。',
     '已添加的角色自动接入关系星图，新添加时同步补齐；关系仅在同一用户的角色之间建立。',

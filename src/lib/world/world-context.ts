@@ -470,12 +470,9 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string, c
   if (memory.privateChatSummary && relevant(memory.privateChatSummary)) lines.push(`【你们早前私聊的摘要】\n${memory.privateChatSummary}\n这是你和用户真实聊过的内容；只在当前话题相关时自然使用，不要逐条复述。`);
   if (memory.userProfile && relevant(memory.userProfile)) lines.push(memory.userProfile);
   if (memory.crossChannelMemory) {
-    if (currentTopic === undefined || explicit || freeConversation) lines.push(memory.crossChannelMemory);
-    else {
-      const relevantRows = memory.crossChannelMemory.split('\n')
-        .filter((row) => /^\[(?:chat|group|world|moment|todo|diary)\s/u.test(row) && relevant(row));
-      if (relevantRows.length) lines.push(`【你在不同地方真实知道的事】\n${relevantRows.join('\n')}`);
-    }
+    // Already ranked, permission checked and budgeted by the same service used
+    // in private chat. Filtering again here loses pronoun follow-ups and pins.
+    lines.push(memory.crossChannelMemory);
   }
   if (memory.historicalRecall?.length) {
     lines.push(`【你确实知道、而用户正在回忆的旧事】\n${memory.historicalRecall.map((hit) => `- ${hit.date} ${hit.text}`).join('\n')}\n只回应与用户当前问题有关的线索，不要转回无关旧话题。`);

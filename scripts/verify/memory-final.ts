@@ -37,6 +37,12 @@ async function run() {
   const currentId = await worldSceneRepo.createScene({ userId: U, worldId: other.id, title: '新世界', place: '屋顶', timeLabel: '晚上', mood: '安静', characterIds: [A, B] });
   const current = (await worldSceneRepo.getScene(currentId))!;
   for (const mode of modes) {
+    const recall = await buildCharacterMemoryContext({ userId: U, characterId: A, mode, topic: '桂花糕已经买好了', budget: 3500 });
+    check(`${mode}: declarative follow-up recalls witnessed history without a recall command`, recall.text.includes('FINAL_DESTINATION'));
+    const denied = await buildCharacterMemoryContext({ userId: U, characterId: B, mode, topic: '桂花糕已经买好了', budget: 3500 });
+    check(`${mode}: declarative recall does not grant another character the memory`, !denied.text.includes('FINAL_DESTINATION'));
+  }
+  for (const mode of modes) {
     const recall = await buildCharacterMemoryContext({ userId: U, characterId: A, mode, topic: '桂花糕给谁的？', scene: { worldId: other.id, sceneId: currentId, liveSegments: true }, budget: 3500 });
     check(`${mode}: natural question recalls another world's own witnessed detail`, recall.text.includes('FINAL_DESTINATION'));
     const denied = await buildCharacterMemoryContext({ userId: U, characterId: B, mode, topic: '桂花糕给谁的？', worldId: other.id });

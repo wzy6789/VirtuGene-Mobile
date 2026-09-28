@@ -51,6 +51,9 @@ async function run(): Promise<void> {
   check(renderCharacterContext(ctx, 'a', '还记得海边的约定吗').includes('海边的约定'), 'explicit recall reopens past');
   const actor = buildActorSystem({ ctx, speaker: { characterId: 'a', intent: '回应当前去向', mode: 'dialogue' }, userText: '我要去商场' });
   check(actor.includes('商场采购') && !actor.includes('海边的约定'), 'actual world actor gets focused context');
+  ctx.perCharacter.a.crossChannelMemory = '【你在不同地方真实知道的事】\n[chat 2026-09-28] 用户亲口告诉你：收件人是姐姐。';
+  check(renderCharacterContext(ctx, 'a', '那就给她吧').includes('收件人是姐姐'), 'selected personal memory survives a pronoun follow-up in world actor');
+  check(!renderCharacterContext(ctx, 'b', '那就给她吧').includes('收件人是姐姐'), 'selected personal memory never moves to another actor');
   const worldBefore = updateConversationState(undefined, '我们在海边散步', []);
   const worldAfter = updateConversationState(worldBefore, '我要去商场', []);
   check(worldAfter.userWantsToShift && worldAfter.currentTopic?.includes('商场'), 'world recognizes natural topic move');

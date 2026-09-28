@@ -37,6 +37,7 @@ import { actMarkerContent, shouldAdvanceAct } from './scene-acts';
 import { buildHiddenUserProfile } from './user-profile';
 import { buildCharacterMemoryContext } from '../character-memory';
 import { memoryRepo } from '../../db/memory-repo';
+import { compactDouluoDirectorPersona } from '../douluo-relations';
 
 /** 一次场景推演的结果（供 UI 与验收断言） */
 export interface SceneTurnResult {
@@ -84,7 +85,9 @@ async function buildMembers(scene: WorldScene, userId: string, query = ''): Prom
     members.push({
       characterId,
       name: character.name,
-      persona: (character.systemPrompt ?? '').slice(0, 600),
+      persona: compactDouluoDirectorPersona(
+        character.systemPrompt ?? '', character.sourcePresetId ?? character.id,
+      ),
       ...(privateContextIsIsolated && participant?.goals?.length ? { goal: participant.goals.join('；') } : {}),
       ...(recalled.text ? { knows: recalled.text } : {}),
       ...(privateContextIsIsolated && participant?.secrets?.length ? { secret: participant.secrets.join('；') } : {}),

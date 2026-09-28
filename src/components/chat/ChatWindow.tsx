@@ -1010,9 +1010,6 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
        * "旧原文"（旧私聊 + 星域旧片段）走 historical 区块。这样同一件事在提示词里只出现一次。
        */
       const crossChannelMemory = (() => {
-        const alreadyOfferedCross = new Set(allMsgs.flatMap((message) =>
-          (message.contextTrace?.crossChannelReferences ?? []).map((reference) => `${reference.source}:${reference.id}`),
-        ));
         const renderedWorldIds = new Set([
           ...recalledScenes.map(item => item.scene.id),
           ...recallableMemories.map(item => item.memory.id),
@@ -1020,11 +1017,10 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         ]);
         const crossRefs = memoryRecall.references.filter((reference) =>
           reference.source === 'group' || reference.source === 'diary' || reference.source === 'todo'
+          || (reference.source === 'chat' && reference.text.includes('最近私聊中'))
           || ((reference.source === 'world' || reference.source === 'moment')
             && !(reference.source === 'world' && renderedWorldIds.has(reference.id))
-            && !memoryRecall.sections.historical.includes(reference.text)))
-          .filter((reference) => recallIntent.explicit || isTopicRelated(text, reference.text)
-            || (!freshTopic && !alreadyOfferedCross.has(`${reference.source}:${reference.id}`)));
+            && !memoryRecall.sections.historical.includes(reference.text)));
         if (!crossRefs.length) return { ...memoryRecall, references: [], text: '' };
         return {
           ...memoryRecall,
@@ -1075,7 +1071,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
           { key: 'story-relationships', text: storyRelationContext, priority: 97 },
           { key: 'continuity', text: freshTopic && !isTopicRelated(text, threadContext) ? '' : threadContext, priority: 94 },
           { key: 'shared-memory', text: sharedMemoryPrompt, priority: 93 },
-          { key: 'cross-channel-memory', text: freshTopic && !isTopicRelated(text, crossChannelMemory.text) ? '' : crossChannelMemory.text, priority: recallIntent.explicit ? 97 : 92 },
+          { key: 'cross-channel-memory', text: crossChannelMemory.text, priority: recallIntent.explicit ? 97 : 92 },
           { key: 'scene', text: scenePrompt, priority: 97 },
           { key: 'world-pulse', text: freshTopic && !isTopicRelated(text, pulseEventContext) ? '' : pulseEventContext, priority: 89 },
           { key: 'todo', text: freshTopic && !isTopicRelated(text, todoContext) ? '' : todoContext, priority: 86 },
