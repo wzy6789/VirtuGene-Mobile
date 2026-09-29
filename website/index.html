@@ -19,9 +19,10 @@
   <meta name="twitter:description" content="与有性格的角色相遇，让对话留下记忆，让关系经过时间。">
   <meta name="twitter:image" content="https://wzy6789.github.io/VirtuGene-Mobile/assets/product/world-home.jpg?v=5.1.4">
 
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2305030c'/%3E%3Cpath d='M17 18h9l6 22 6-22h9L37 47h-8z' fill='%239b8bff'/%3E%3C/svg%3E">
-  <link rel="apple-touch-icon" href="./assets/selected/app-icon-192.png">
+  <link rel="icon" type="image/png" href="./assets/selected/app-mark.png">
+  <link rel="apple-touch-icon" href="./assets/selected/app-mark.png">
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./living-light.css?v=1">
 </head>
 <body>
   <a class="skip-link" href="#hero">跳到主要内容</a>
@@ -46,7 +47,7 @@
   <header class="nav" id="nav">
     <div class="nav-inner">
       <a class="nav-brand" href="#hero" aria-label="VirtuGene 首页">
-        <span class="nav-mark" aria-hidden="true">V</span>
+        <img class="nav-mark" src="./assets/selected/app-mark.png" width="36" height="36" alt="">
         <span>VirtuGene</span>
       </a>
 
@@ -85,13 +86,13 @@
 
       <div class="shell hero-inner">
         <div class="hero-copy">
-          <p class="hero-brand reveal-hero" style="--enter-delay:.15s">VirtuGene</p>
+          <p class="hero-brand reveal-hero" style="--enter-delay:.15s"><img src="./assets/selected/app-mark.png" width="40" height="40" alt="">VirtuGene <span>数字生命，与时生长</span></p>
           <h1 id="hero-title" class="hero-title" data-depth="0.10">
             <span class="hero-line reveal-hero" style="--enter-delay:.28s">让数字灵魂</span>
             <span class="hero-line hero-line-accent reveal-hero" style="--enter-delay:.40s">拥有时间。</span>
           </h1>
           <p class="hero-lead reveal-hero" style="--enter-delay:.56s" data-depth="0.16">
-            与有性格的角色相遇。<br>让对话留下记忆，让关系经过时间。
+            从一句话开始，成为彼此生活的一部分。<br>有自己的性格，也有与你一起经历的时间。
           </p>
           <div class="hero-actions reveal-hero" style="--enter-delay:.68s" data-depth="0.20">
             <a class="btn btn-primary" data-download
@@ -100,10 +101,16 @@
             <a class="btn btn-ghost" href="#meet" data-magnetic>看看实际体验</a>
           </div>
           <p class="hero-facts reveal-hero" style="--enter-delay:.80s">Android 7.0+ · 数据本地保存 · 自备模型服务</p>
+          <nav class="life-thread" aria-label="探索数字生命">
+            <a href="#meet"><span>01</span>独立性格</a><i aria-hidden="true"></i>
+            <a href="#memory"><span>02</span>共同记忆</a><i aria-hidden="true"></i>
+            <a href="#world"><span>03</span>持续的世界</a>
+          </nav>
         </div>
 
         <div class="hero-visual" data-depth="0.55">
           <div class="hero-stage">
+            <canvas class="life-filament" id="life-filament" aria-hidden="true"></canvas>
             <div class="hero-glow" aria-hidden="true"></div>
             <div class="hero-rim" aria-hidden="true"></div>
             <img class="hero-image reveal-hero" style="--enter-delay:1.02s"
@@ -113,6 +120,7 @@
             <div class="hero-mist" aria-hidden="true"></div>
             <div class="hero-foreground" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
           </div>
+          <p class="life-caption"><span aria-hidden="true"></span>每一次相遇，都留下回响</p>
         </div>
       </div>
     </section>
@@ -302,6 +310,11 @@
                     <line x1="50" y1="54" x2="21" y2="22" />
                     <line x1="50" y1="54" x2="80" y2="18" />
                     <line x1="50" y1="54" x2="72" y2="84" />
+                  </svg>
+                  <svg class="map-signals" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                    <path d="M50 54 L21 22" pathLength="100" />
+                    <path d="M50 54 L80 18" pathLength="100" />
+                    <path d="M50 54 L72 84" pathLength="100" />
                   </svg>
                   <button class="map-node is-core" type="button" data-node="core" aria-pressed="true">
                     <span class="node-dot" aria-hidden="true"></span>
@@ -598,7 +611,7 @@
 
   <footer class="footer">
     <div class="shell footer-inner">
-      <span class="footer-brand">VirtuGene</span>
+      <span class="footer-brand"><img src="./assets/selected/app-mark.png" width="30" height="30" alt="">VirtuGene</span>
       <p class="footer-line">让数字灵魂拥有时间。</p>
       <nav class="footer-links" aria-label="页脚导航">
         <a href="./privacy.html">隐私说明</a>
@@ -623,6 +636,6 @@
     <span class="lightbox-hint" aria-hidden="true">左右切换 · 下滑关闭 · Esc 退出</span>
   </div>
 
-  <script src="./main.js" defer></script>
+  <script src="./main.js?v=living-light-1" defer></script>
 </body>
 </html>

@@ -56,6 +56,7 @@
     var callbacks = [];
     var running = false;
     var last = 0;
+    var frameId = 0;
     function frame(now) {
       if (!running) return;
       var dt = Math.min(48, now - last || 16);
@@ -63,7 +64,7 @@
       for (var i = 0; i < callbacks.length; i += 1) {
         try { callbacks[i](dt, now); } catch (error) { /* 单个订阅者出错不影响整条循环 */ }
       }
-      window.requestAnimationFrame(frame);
+      frameId = window.requestAnimationFrame(frame);
     }
     return {
       add: function (fn) { callbacks.push(fn); },
@@ -71,9 +72,9 @@
         if (running) return;
         running = true;
         last = performance.now();
-        window.requestAnimationFrame(frame);
+        frameId = window.requestAnimationFrame(frame);
       },
-      stop: function () { running = false; },
+      stop: function () { running = false; window.cancelAnimationFrame(frameId); },
     };
   })();
 
@@ -1042,6 +1043,85 @@
   /* ======================================================================
      启动
      ====================================================================== */
+  // A living filament around the character, sharing the site's single ticker.
+  // Static rendering also works for reduced motion; no extra animation loop.
+  function initLivingLight() {
+    var canvas = document.getElementById('life-filament');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    var hero = document.getElementById('hero');
+    var visible = true;
+    var width = 0, height = 0, elapsed = 0, lastPaint = 0;
+    var segments = Performance.tier === 'high' ? 150 : 84;
+    function point(t, phase, strand) {
+      var angle = t * Math.PI * 3.3 + phase + strand * Math.PI;
+      var envelope = Math.sin(t * Math.PI) * .13 + .22;
+      return {
+        x: width * (.5 + Math.sin(angle) * envelope + (t - .5) * .13),
+        y: height * (.1 + t * .79),
+        depth: (Math.cos(angle) + 1) / 2
+      };
+    }
+    function draw() {
+      if (!width || !height) return;
+      ctx.clearRect(0, 0, width, height);
+      var phase = elapsed * .00016;
+      // Wisps have fixed geometry; motion is a slow rotation rather than flashing.
+      for (var strand = 0; strand < 2; strand++) {
+        for (var j = 1; j <= segments; j++) {
+          var a = point((j - 1) / segments, phase, strand);
+          var b = point(j / segments, phase, strand);
+          var fade = Math.sin(j / segments * Math.PI);
+          ctx.strokeStyle = strand ? 'rgba(174,151,255,' + fade * (.12 + b.depth * .5) + ')' : 'rgba(143,224,255,' + fade * (.14 + b.depth * .55) + ')';
+          ctx.lineWidth = .65 + b.depth * 1.25;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+      }
+      for (var n = 1; n < 21; n++) {
+        var t = n / 21;
+        var p = point(t, phase, 0), q = point(t, phase, 1);
+        ctx.strokeStyle = 'rgba(172,177,247,' + .13 * Math.sin(t * Math.PI) + ')';
+        ctx.lineWidth = .7;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+      }
+      for (var k = 0; k < 9; k++) {
+        var bead = point((k / 9 + elapsed * .000023) % 1, phase, k % 2);
+        var glow = ctx.createRadialGradient(bead.x, bead.y, 0, bead.x, bead.y, 12);
+        glow.addColorStop(0, 'rgba(196,227,255,.7)');
+        glow.addColorStop(.18, 'rgba(168,189,255,.22)');
+        glow.addColorStop(1, 'rgba(168,189,255,0)');
+        ctx.fillStyle = glow; ctx.fillRect(bead.x - 12, bead.y - 12, 24, 24);
+        ctx.fillStyle = '#d6ecff'; ctx.beginPath(); ctx.arc(bead.x, bead.y, 1.1, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    function resize() {
+      var bounds = canvas.getBoundingClientRect();
+      width = bounds.width; height = bounds.height;
+      var dpr = Performance.dpr();
+      canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); draw();
+    }
+    if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas);
+    else window.addEventListener('resize', resize, { passive: true });
+    if (window.IntersectionObserver) {
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          entry.target.classList.toggle('fx-sleep', !entry.isIntersecting);
+          if (entry.target === hero) visible = entry.isIntersecting;
+        });
+      }, { rootMargin: '80px' });
+      document.querySelectorAll('main > section').forEach(function (section) { observer.observe(section); });
+    }
+    Ticker.add(function (dt, now) {
+      if (!visible || document.hidden || motionQuery.matches) return;
+      elapsed += dt;
+      if (now - lastPaint < (Performance.tier === 'high' ? 25 : 40)) return;
+      lastPaint = now; draw();
+    });
+    resize();
+  }
+
   var modules = [
     initAtmosphere,
     initPointerVars,
@@ -1058,6 +1138,7 @@
     initLightbox,
     initScrollerWarmup,
     initAmbient,
+    initLivingLight,
   ];
 
   modules.forEach(function (init) {
@@ -1067,13 +1148,17 @@
   });
 
   Ticker.start();
-  if (Performance.reduced) Ticker.stop();
+  if (Performance.reduced || document.hidden) Ticker.stop();
 
   var onMotionChange = function () {
     var reduced = motionQuery.matches;
     root.classList.toggle('reduced-motion', reduced);
-    if (reduced) Ticker.stop(); else Ticker.start();
+    if (reduced || document.hidden) Ticker.stop(); else Ticker.start();
   };
   if (motionQuery.addEventListener) motionQuery.addEventListener('change', onMotionChange);
   else if (motionQuery.addListener) motionQuery.addListener(onMotionChange);
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden || motionQuery.matches) Ticker.stop();
+    else Ticker.start();
+  });
 })();
