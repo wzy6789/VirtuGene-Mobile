@@ -48,9 +48,22 @@ export function todoNotificationId(todoId: string, occurrenceId: string, remindA
   return 1000000 + ((hash >>> 0) % 1900000000);
 }
 
-export async function cancelTodoNotification(notificationId: number): Promise<void> {
-  if (!IS_CAPACITOR) return;
-  try { await LocalNotifications.cancel({ notifications: [{ id: notificationId }] }); } catch { /* desktop/web no-op */ }
+export async function cancelTodoNotification(notificationId: number): Promise<boolean> {
+  if (!IS_CAPACITOR) return true;
+  try {
+    await LocalNotifications.cancel({ notifications: [{ id: notificationId }] });
+    return !(await LocalNotifications.getPending()).notifications.some(n => n.id === notificationId);
+  } catch { return false; }
+}
+
+export async function todoNotificationPermission(): Promise<boolean> {
+  if (!IS_CAPACITOR) return false;
+  try { return (await LocalNotifications.checkPermissions()).display === 'granted'; } catch { return false; }
+}
+
+export async function pendingTodoNotifications(): Promise<number[]> {
+  if (!IS_CAPACITOR) return [];
+  return (await LocalNotifications.getPending()).notifications.map(n => n.id);
 }
 
 export async function scheduleTodoNotification(todo: Todo, occurrence: TodoOccurrence, remindAt: number): Promise<{ id: number; ok: boolean }> {
@@ -66,6 +79,6 @@ export async function scheduleTodoNotification(todo: Todo, occurrence: TodoOccur
       iconColor: '#6C5CE7',
       extra: { type: 'todo-reminder', todoId: todo.id, occurrenceId: occurrence.id },
     }] });
-    return { id, ok: true };
+    return { id, ok: (await pendingTodoNotifications()).includes(id) };
   } catch { return { id, ok: false }; }
 }

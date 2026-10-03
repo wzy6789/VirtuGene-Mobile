@@ -1,28 +1,20 @@
-import type { Character, WorldAgentState, WorldLocation, WorldObject, WorldPresence, WorldScene } from '../../db/index';
+import type { Character, WorldAgentState, WorldLocation, WorldPresence, WorldScene } from '../../db/index';
 
 export function WorldExplorePanel({
   scene,
   locations,
-  objects,
-  carriedObjects,
   presence,
   agents,
   characters,
   onClose,
-  onInspect,
-  onAct,
   onMove,
 }: {
   scene: WorldScene;
   locations: WorldLocation[];
-  objects: WorldObject[];
-  carriedObjects: WorldObject[];
   presence: WorldPresence[];
   agents: WorldAgentState[];
   characters: Character[];
   onClose: () => void;
-  onInspect: (object: WorldObject) => void;
-  onAct: (object: WorldObject, action: 'take' | 'leave' | 'open') => void;
   onMove: (location: WorldLocation) => void;
 }) {
   const nameOf = (id: string) => characters.find((character) => character.id === id)?.name ?? '某人';
@@ -35,57 +27,10 @@ export function WorldExplorePanel({
         <div>
           <p className="text-[11px] uppercase tracking-[.24em] text-cyan-200/65">现场探索</p>
           <h2 className="mt-1 text-base font-semibold text-white">{scene.place}</h2>
-          <p className="mt-1 text-xs leading-5 text-white/55">先看看这里留下了什么，再决定让世界往哪里走。</p>
+          <p className="mt-1 text-xs leading-5 text-white/55">看看谁在这里，也可以选择接下来去哪里。</p>
         </div>
         <button type="button" onClick={onClose} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/65 active:scale-95">收起</button>
       </div>
-
-      {carriedObjects.length > 0 && (
-        <section className="mt-4 border-t border-white/8 pt-4">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-sm font-medium text-white/85">你带着</h3>
-            <span className="text-[11px] text-white/40">{carriedObjects.length} 件</span>
-          </div>
-          <div className="grid gap-2">
-            {carriedObjects.map((object) => (
-              <div key={object.id} className="flex items-center justify-between gap-3 rounded-2xl border border-cyan-100/10 bg-cyan-200/[.035] px-3 py-3">
-                <span className="min-w-0">
-                  <strong className="block truncate text-sm text-white/90">{object.name}</strong>
-                  <span className="mt-0.5 block text-xs leading-5 text-white/50">{object.lastAction ?? object.description}</span>
-                </span>
-                <button type="button" onClick={() => onAct(object, 'leave')} className="shrink-0 rounded-full border border-cyan-100/15 px-3 py-1.5 text-xs text-cyan-100/80 active:scale-95">放在这里</button>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="mt-4">
-        <div className="mb-2 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-white/85">这里有</h3>
-          <span className="text-[11px] text-white/40">{objects.length} 个细节</span>
-        </div>
-        {objects.length ? (
-          <div className="grid gap-2">
-            {objects.map((object) => (
-              <div key={object.id} className="rounded-2xl border border-white/8 bg-white/[.045] px-3 py-3 transition">
-                <button type="button" onClick={() => onInspect(object)} className="flex w-full items-start gap-3 text-left active:opacity-80">
-                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-cyan-300/10 text-sm text-cyan-100">{object.kind === 'note' ? '⌁' : object.kind === 'door' ? '◫' : object.kind === 'device' ? '⌘' : '✦'}</span>
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm text-white/90">{object.name}</span>
-                    <span className="mt-0.5 block text-xs leading-5 text-white/50">{object.lastAction ? `上次：${object.lastAction}` : object.description}</span>
-                  </span>
-                </button>
-                <div className="mt-2 flex gap-2 pl-10">
-                  {object.state !== 'held' && <button type="button" onClick={() => onAct(object, 'take')} className="rounded-full border border-cyan-100/10 px-2.5 py-1 text-[11px] text-cyan-100/70 active:scale-95">带走</button>}
-                  {object.state === 'held' && <button type="button" onClick={() => onAct(object, 'leave')} className="rounded-full border border-cyan-100/10 px-2.5 py-1 text-[11px] text-cyan-100/70 active:scale-95">放下</button>}
-                  {(object.kind === 'door' || object.kind === 'device') && object.state !== 'moved' && <button type="button" onClick={() => onAct(object, 'open')} className="rounded-full border border-violet-100/10 px-2.5 py-1 text-[11px] text-violet-100/70 active:scale-95">打开</button>}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : <p className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-xs text-white/45">这里暂时没有留下可辨认的细节。</p>}
-      </section>
 
       <section className="mt-4 border-t border-white/8 pt-4">
         <div className="mb-2 flex items-center justify-between">

@@ -1,10 +1,10 @@
+import { avatarImageSrc } from '../../lib/avatar';
 import { useEffect, useMemo, useState } from 'react';
 import { type WorldScene, type WorldSceneEntry } from '../../db/index';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
 import { worldRepo } from '../../db/world-repo';
-import { hasAiGatewayAccess } from '../../lib/ai/gateway';
 import {
   deleteScene,
   finishSceneAndSettle,
@@ -15,7 +15,7 @@ import {
 import { SpaceHeading } from '../ui/SpaceHeading';
 import { Avatar } from '../ui/Avatar';
 import { cleanConstellationTitle } from '../../lib/world/constellation-typography';
-import { worldAiAvailability } from '../../lib/world/world-ai-client';
+import { useAiAvailability } from '../settings/useAiAvailability';
 
 /**
  * 星域资料管理页（世界列表 / 建立新世界 / 回看）。
@@ -43,21 +43,8 @@ export function MobileStagePage() {
   const userId = useAuthStore((s) => s.userId) ?? '';
   const username = useAuthStore((s) => s.username) ?? undefined;
   const apiKey = useAuthStore((s) => s.apiKey) ?? '';
-  const [providerAiAvailable, setProviderAiAvailable] = useState(false);
-  const hasAi = Boolean(apiKey) || hasAiGatewayAccess() || providerAiAvailable;
+  const hasAi = useAiAvailability();
   const characters = useChatStore((s) => s.characters);
-
-  // DeepSeek Key 在登录态里，千问/MiMo Key 在设备加密存储里；不能只看前者，
-  // 否则用户切到其它模型后按钮会被错误地禁用。
-  useEffect(() => {
-    let alive = true;
-    void worldAiAvailability().then((availability) => {
-      if (alive) setProviderAiAvailable(availability.status !== 'UNAVAILABLE');
-    }).catch(() => {
-      if (alive) setProviderAiAvailable(false);
-    });
-    return () => { alive = false; };
-  }, [apiKey]);
 
   const [worldId, setWorldId] = useState<string | null>(null);
   const [scenes, setScenes] = useState<WorldScene[]>([]);
@@ -80,7 +67,7 @@ export function MobileStagePage() {
   const createIntent = useUIStore((s) => s.worldCreateIntent);
   const setCreateIntent = useUIStore((s) => s.setWorldCreateIntent);
 
-  const myCharacters = useMemo(() => characters.filter((c) => c.createdBy === userId), [characters, userId]);
+  const myCharacters = useMemo(() => characters.filter((c) => c.createdBy === userId && c.agentProfile !== 'secretary'), [characters, userId]);
   const nameOf = (id: string) => characters.find((c) => c.id === id)?.name ?? '某人';
   const occupiedByScene = useMemo(() => {
     const map = new Map<string, WorldScene>();
@@ -424,7 +411,7 @@ export function MobileStagePage() {
                           }`}
                           title={occupied ? `正在《${occupied.title}》中，请先结束并保存那段经历` : undefined}
                         >
-                          {c.avatar.startsWith('data:') ? '🙂' : c.avatar} {c.name}{occupied ? ' · 世界中' : ''}
+                          {avatarImageSrc(c.avatar) ? '🙂' : c.avatar} {c.name}{occupied ? ' · 世界中' : ''}
                         </button>
                       );
                     })}

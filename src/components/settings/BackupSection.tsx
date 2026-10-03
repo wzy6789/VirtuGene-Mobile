@@ -78,7 +78,7 @@ export function BackupSection() {
 
   return (
     <div>
-      <h3 className="text-sm font-medium text-ink mb-3">🧬 数据备份 / 恢复</h3>
+      <h3 className="text-sm font-medium text-ink mb-3">数据备份与恢复</h3>
       <div className="p-4 rounded-xl bg-surface border border-line space-y-3">
         <p className="text-[11px] text-gray-500">
           备份会把账号、角色、聊天与日记加密保存到手机存储。卸载重装后可用备份一键恢复，无需重新注册。
@@ -100,24 +100,29 @@ export function BackupSection() {
         {msg && <p className="text-xs text-gray-500 break-all">{msg}</p>}
 
         {/* 备份弹窗 */}
-        <Modal open={backupOpen} onClose={() => { setBackupOpen(false); setMsg(null); }} title="备份数据" width="max-w-sm" closeOnBackdrop={false}>
-          <div className="p-6 space-y-4">
-            <p className="text-xs text-gray-500">设置一个备份密码（独立于登录密码）。备份文件会加密保存，卸载 App 也不丢失。</p>
-            <input type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} placeholder="备份密码（至少 4 位）" className={inputCls} />
-            <input type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} placeholder="确认备份密码" className={inputCls} />
-            {msg && <p className="text-xs text-red-400">{msg}</p>}
-            <div className="flex justify-end gap-2">
+        <Modal panelClassName="vg-settings-panel" open={backupOpen} onClose={() => { setBackupOpen(false); setMsg(null); }} title="备份数据" width="max-w-sm" closeOnBackdrop={false} footer={<div className="vg-settings-design !py-3">            <div className="flex justify-end gap-2">
               <button onClick={() => { setBackupOpen(false); setMsg(null); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
               <button onClick={() => void doBackup()} disabled={busy} className="px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] transition-all disabled:opacity-50">
                 {busy ? '备份中…' : '开始备份'}
               </button>
-            </div>
+            </div></div>}>
+          <div className="vg-settings-design space-y-4">
+            <p className="text-xs text-gray-500">设置一个备份密码（独立于登录密码）。备份文件会加密保存，卸载 App 也不丢失。</p>
+            <input type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} placeholder="备份密码（至少 4 位）" className={inputCls} />
+            <input type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} placeholder="确认备份密码" className={inputCls} />
+            {msg && <p className="text-xs text-red-400">{msg}</p>}
+
           </div>
         </Modal>
 
         {/* 恢复弹窗 */}
-        <Modal open={restoreOpen} onClose={() => { setRestoreOpen(false); setMsg(null); }} title="一键恢复" width="max-w-sm" closeOnBackdrop={false}>
-          <div className="p-6 space-y-4">
+        <Modal panelClassName="vg-settings-panel" open={restoreOpen} onClose={() => { setRestoreOpen(false); setMsg(null); }} title="一键恢复" width="max-w-sm" closeOnBackdrop={false} footer={hasBackupFile ? <div className="vg-settings-design !py-3">                <div className="flex justify-end gap-2">
+                  <button onClick={() => { setRestoreOpen(false); setMsg(null); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
+                  <button onClick={() => void doRestore()} disabled={busy} className="px-4 py-2 rounded-lg text-sm bg-life-cyan text-[#0F0F1A] hover:bg-[#00B8B3] transition-all disabled:opacity-50">
+                    {busy ? '恢复中…' : '一键恢复'}
+                  </button>
+                </div></div> : undefined}>
+          <div className="vg-settings-design space-y-4">
             {!hasBackupFile ? (
               <p className="text-xs text-gray-500">未检测到备份文件。请先在原设备上「立即备份」，并把备份文件保留在同一存储位置。</p>
             ) : (
@@ -125,12 +130,7 @@ export function BackupSection() {
                 <p className="text-xs text-gray-500">检测到备份文件。输入备份密码即可恢复账号与全部数据（当前设备数据会被合并覆盖）。</p>
                 <input type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} placeholder="备份密码" className={inputCls} />
                 {msg && <p className="text-xs text-red-400">{msg}</p>}
-                <div className="flex justify-end gap-2">
-                  <button onClick={() => { setRestoreOpen(false); setMsg(null); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
-                  <button onClick={() => void doRestore()} disabled={busy} className="px-4 py-2 rounded-lg text-sm bg-life-cyan text-[#0F0F1A] hover:bg-[#00B8B3] transition-all disabled:opacity-50">
-                    {busy ? '恢复中…' : '一键恢复'}
-                  </button>
-                </div>
+
               </>
             )}
           </div>

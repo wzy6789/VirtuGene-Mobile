@@ -295,8 +295,9 @@ async function chat(body) {
       model,
       messages: buildMessages(body),
       temperature: Math.max(0, Math.min(1.2, Number(body.temperature ?? 0.8))),
-      max_tokens: body.forceVision ? 900 : 700,
-      thinking: { type: body.forceVision ? 'disabled' : 'enabled' },
+      max_tokens: body.forceVision ? 900 : body.structuredOutput ? Math.max(16, Math.min(4000, Math.round(Number(body.maxTokens ?? 3500)) || 3500)) : 700,
+      thinking: { type: body.forceVision || body.disableThinking || body.structuredOutput ? 'disabled' : 'enabled' },
+      ...(body.structuredOutput ? { response_format: { type: 'json_object' } } : {}),
     }),
     signal: AbortSignal.timeout(60_000),
   });
@@ -349,6 +350,12 @@ async function streamChat(body, intervention, res) {
   const requested = body.sessionModel?.model || body.character?.model?.model;
   const model = typeof requested === 'string' && requested.startsWith('deepseek-v') ? DEFAULT_MODEL : (requested || DEFAULT_MODEL);
   const maxTokens = body.forceVision ? 900 : Math.max(16, Math.min(8000, Math.round(Number(body.maxTokens ?? 700)) || 700));
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  const timer = setTimeout(cancel, 60_000);
+  res.once('close', cancel);
+  let reader;
+  try {
   const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
@@ -361,7 +368,7 @@ async function streamChat(body, intervention, res) {
       stream: true,
       stream_options: { include_usage: true },
     }),
-    signal: AbortSignal.timeout(60_000),
+    signal: controller.signal,
   });
   if (!response.ok) {
     const error = new Error(`provider_${response.status}`);
@@ -370,16 +377,24 @@ async function streamChat(body, intervention, res) {
   }
   writeSseHead(res);
   try {
-    const reader = response.body.getReader();
+    reader = response.body.getReader();
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
-      if (!res.write(value)) await new Promise((resolve) => res.once('drain', resolve));
+      if (done || res.destroyed) break;
+      if (!res.write(value)) await new Promise((resolve) => {
+        const finish = () => { res.removeListener('drain', finish); res.removeListener('close', finish); resolve(); };
+        res.once('drain', finish); res.once('close', finish);
+      });
     }
   } catch {
     // 上游或网络中途断开：客户端侧会保留已收到的正文并标记 interrupted。
   } finally {
     res.end();
+  }
+  } finally {
+    clearTimeout(timer);
+    res.removeListener('close', cancel);
+    try { await reader?.cancel(); } catch { /* Already aborted or closed. */ }
   }
 }
 

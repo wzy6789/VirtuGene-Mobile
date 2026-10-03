@@ -1,0 +1,141 @@
+import { db, type Character, type World } from '../../src/db';
+import { worldRepo } from '../../src/db/world-repo';
+import { worldSceneRepo } from '../../src/db/world-scene-repo';
+import { worldObjectRepo } from '../../src/db/world-object-repo';
+import { knowledgeRepo } from '../../src/db/knowledge-repo';
+import { buildCharacterMemoryContext, type MemoryMode } from '../../src/lib/character-memory';
+import { buildWorldContext, renderCharacterContext, renderWorldBrief } from '../../src/lib/world/world-context';
+import { applyLocalWorldAction } from '../../src/lib/world/world-turn';
+import { ensureCanvasScene, worldNowDate } from '../../src/lib/world/world-canvas';
+import { fallbackInterpret } from '../../src/lib/world/world-actions';
+import { hourOfWorldTime } from '../../src/lib/world/world-time';
+import { deriveWorldVisualState } from '../../src/lib/world/world-immersion';
+import { directSceneTurn } from '../../src/lib/ai/scene-director';
+import { diaryRepo } from '../../src/db/diary-repo';
+import { setDiarySharing } from '../../src/lib/world/diary-visibility';
+import { buildContextTrace } from '../../src/lib/chat-trace';
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { ChatWindow } from '../../src/components/chat/ChatWindow';
+import { useAuthStore } from '../../src/store/auth-store';
+import { useChatStore } from '../../src/store/chat-store';
+import { ipc } from '../../src/lib/ipc-client';
+
+const report = window.fetch.bind(window);
+let count = 0;
+function check(condition: unknown, label: string) { if (!condition) throw new Error(label); count++; }
+const U = 'unified-owner', A = 'unified-a', B = 'unified-b', now = Date.now();
+const character = (id: string): Character => ({ id, name: id, createdBy: U, avatar: '🌙', systemPrompt: '自然交流', tags: [], createdAt: now, isPreset: false, isCustom: true } as Character);
+const modes: MemoryMode[] = ['private-chat', 'group-chat', 'world-scene', 'moments-comment', 'proactive-chat'];
+async function run() {
+  window.fetch = (() => { throw new Error('unexpected network'); }) as typeof fetch;
+  await db.characters.bulkPut([character(A), character(B)]);
+  const original = await worldRepo.ensureDefaultWorld(U);
+  const other = { ...original, id: 'unified-other', isDefault: false } as World;
+  await db.worlds.put(other);
+  await db.memories.put({ id: 'unified-fact', characterId: A, userId: U, content: 'UNIFIED_FACT 用户喜欢桂花糕', type: 'auto', memoryKind: 'preference', status: 'active', pinned: true, createdAt: now } as any);
+  await db.continuityThreads.put({ id: 'unified-promise', characterId: A, userId: U, kind: 'promise', status: 'open', title: 'UNIFIED_PROMISE 一起练习陶艺', createdAt: now, updatedAt: now } as any);
+  const eventId = 'unified-event';
+  await db.worldEvents.put({ id: eventId, userId: U, worldId: original.id, type: 'pulse', title: 'UNIFIED_EVENT 山顶赏月', summary: '一起谈起天文学', participants: [`c:${A}`, `c:${B}`], sourceType: 'user', sourceId: eventId, visibility: 'selected', visibleTo: [A, B], timestamp: now, createdAt: now, updatedAt: now, memoryIds: [], importance: 0.8, tags: [] } as any);
+  for (const id of [A, B]) await knowledgeRepo.grantForEvent({ userId: U, worldId: original.id, characterId: id, eventId, knowledgeLevel: 'full', canMention: true });
+  for (const mode of modes) {
+    const recall = await buildCharacterMemoryContext({ userId: U, characterId: A, topic: '桂花糕、陶艺、山顶赏月', mode, worldId: other.id, budget: 4000, withCatalog: true });
+    check(recall.text.includes('UNIFIED_FACT') && recall.text.includes('UNIFIED_PROMISE') && recall.text.includes('UNIFIED_EVENT'), `${mode}: same character carries facts, promises and events across worlds`);
+    check(recall.catalog?.events.some(row => row.id === eventId), `${mode}: catalog follows character across worlds`);
+    const denied = await buildCharacterMemoryContext({ userId: U, characterId: B, topic: '桂花糕、陶艺', mode });
+    check(!denied.text.includes('UNIFIED_FACT') && !denied.text.includes('UNIFIED_PROMISE'), `${mode}: another character never inherits personal memory`);
+  }
+  const publicRecall = await buildCharacterMemoryContext({ userId: U, characterId: A, audience: [A, B], topic: '山顶赏月', worldId: other.id, mode: 'world-scene', withCatalog: true });
+  check(publicRecall.text.includes('UNIFIED_EVENT') && publicRecall.catalog?.events.some(row => row.id === eventId), 'shared known event survives audience intersection');
+  check(!publicRecall.text.includes('UNIFIED_FACT') && !publicRecall.text.includes('UNIFIED_PROMISE'), 'personal memories stay out of shared prompt');
+  await knowledgeRepo.grantForEvent({ userId: U, worldId: original.id, characterId: B, eventId, knowledgeLevel: 'none', canMention: false });
+  const revoked = await buildCharacterMemoryContext({ userId: U, characterId: A, audience: [A, B], topic: '山顶赏月', withCatalog: true });
+  check(!revoked.text.includes('UNIFIED_EVENT') && !revoked.catalog?.events.some(row => row.id === eventId), 'revoked listener permission removes text and catalog immediately');
+  await db.groups.put({ id: 'unified-group', userId: U, name: '练习组', characterIds: [A, B], createdAt: now, updatedAt: now });
+  await db.sessions.put({ id: 'unified-group-session', userId: U, characterId: '', type: 'group', groupId: 'unified-group', createdAt: now, updatedAt: now } as any);
+  await db.messages.put({ id: 'unified-group-message', sessionId: 'unified-group-session', role: 'user', content: 'UNIFIED_GROUP 明天练习做三明治', witnessedBy: [A, B], createdAt: now } as any);
+  const diaryId = await diaryRepo.create({ userId: U, date: '2026-09-29', title: '做三明治', content: 'UNIFIED_DIARY 一起练习做三明治', tags: [] });
+  await setDiarySharing({ userId: U, diaryId, visibility: 'selected', visibleTo: [A, B] });
+  const sharedSources = await buildCharacterMemoryContext({ userId: U, characterId: A, audience: [A, B], mode: 'group-chat', topic: '三明治练习', budget: 4000 });
+  check(sharedSources.text.includes('UNIFIED_GROUP'), 'shared group prompt recalls jointly witnessed group history from common service');
+  check(sharedSources.text.includes('UNIFIED_DIARY'), 'shared group prompt recalls diary authorized to every listener');
+  const trace = buildContextTrace({ compiled: { included: ['historical-chat'], partial: [], prompt: '', dropped: [] } as any, historicalMemoryReferences: [{ source: 'world', id: 'old-world-entry' }] });
+  check(trace.crossChannelReferences?.some(row => row.source === 'world' && row.id === 'old-world-entry'), 'world originals keep correct provenance in historical chat section');
+
+  const sceneId = await worldSceneRepo.createScene({ userId: U, worldId: other.id, title: '此刻', place: '家里', timeLabel: '斗罗历一万年冬夜', mood: '平静', characterIds: [A] });
+  await worldSceneRepo.setSceneStatus(sceneId, 'active');
+  let scene = (await worldSceneRepo.getScene(sceneId))!;
+  check((await worldObjectRepo.ensureForScene(scene)).length === 0 && await db.worldObjects.count() === 0, 'scene object compatibility method creates no props');
+  await db.worldObjects.put({ id: 'legacy-note', userId: U, worldId: other.id, sceneId, locationId: scene.locationId, name: 'LEGACY_NOTE', description: '遗留字条背景', state: 'present', sourceType: 'scene', sourceId: sceneId, createdAt: now, updatedAt: now } as any);
+  const context = await buildWorldContext({ userId: U, worldId: other.id, scene, characters: [character(A)], userText: '陶艺练习准备好了' });
+  const actor = renderCharacterContext(context, A, '陶艺练习准备好了');
+  check(context.objects.length === 0 && !actor.includes('LEGACY_NOTE') && !renderWorldBrief(context).includes('LEGACY_NOTE'), 'legacy props do not enter actor or director backgrounds');
+  check(actor.includes('UNIFIED_PROMISE'), 'world actor consumes unified promise text');
+  check(!actor.includes('【你心里还记着的事】'), 'actor never duplicates catalog rows after packed service text');
+  check(actor.includes('斗罗历一万年冬夜') && actor.includes('优先于手机时间'), 'actor respects user fictional calendar');
+  check(await db.worldObjects.count() === 1, 'legacy storage is preserved without destructive cleanup');
+
+  const changeTime = async (text: string) => {
+    await applyLocalWorldAction({ action: { intent: 'change_time', raw: text, timeChange: text, by: 'rule' }, scene, characters: [character(A)], userId: U, worldId: other.id });
+    scene = (await worldSceneRepo.getScene(sceneId))!;
+  };
+  await changeTime('时间设为2042年6月15日下午四点半');
+  check(scene.timeLabel === '2042年6月15日下午四点半', 'exact user date and Chinese clock time are preserved');
+  let date = worldNowDate(scene);
+  check(date.getFullYear() === 2042 && date.getMonth() === 5 && date.getDate() === 15 && date.getHours() === 16 && date.getMinutes() === 30, 'numeric metadata follows exact user time');
+  const frozen = date.getTime();
+  check(worldNowDate(scene).getTime() === frozen, 'scene time does not drift with the device clock');
+  await changeTime('三天以后');
+  date = worldNowDate(scene);
+  check(date.getDate() === 18 && date.getHours() === 16 && date.getMinutes() === 30, 'relative time advances from user scene time');
+  check(scene.timeLabel.includes('2042年6月15日') && scene.timeLabel.endsWith('三天以后'), 'relative label retains fictional anchor');
+  await changeTime('两小时以后');
+  check(worldNowDate(scene).getHours() === 18 && worldNowDate(scene).getDate() === 18, 'subsequent duration advances from last scene instant');
+  check(scene.state.visual?.light === 'dusk', 'relative hours update scene lighting immediately');
+  await changeTime('现在是斗罗历一万年冬夜');
+  check(scene.timeLabel === '斗罗历一万年冬夜', 'fictional calendar survives without replacement by real date');
+  check(hourOfWorldTime('凌晨三点半')?.hour === 3 && hourOfWorldTime('晚上十一点十五分')?.minute === 15, 'Chinese exact times are understood');
+  check(deriveWorldVisualState({ ...scene, timeLabel: '16:30' }).light === 'day' && deriveWorldVisualState({ ...scene, timeLabel: '03:30' }).light === 'night', 'visual lighting follows exact user clock');
+  check(fallbackInterpret('三天以后').intent === 'time_skip' && fallbackInterpret('时间设为2042年6月15日下午四点半').intent === 'time_skip', 'offline fallback recognizes relative and exact time settings');
+  await db.worldScenes.update(sceneId, { status: 'finished', finishedAt: now });
+  const continued = await ensureCanvasScene({ userId: U, worldId: other.id, characters: [character(A)] });
+  check(continued.timeLabel === scene.timeLabel && worldNowDate(continued).getTime() === worldNowDate(scene).getTime(), 'new segment inherits user time and frozen clock');
+  check(await db.worldObjects.count() === 1, 'new segment never seeds additional objects');
+  let scenePrompt = '';
+  await directSceneTurn({ apiKey: '', scene: { title: '此刻', place: '家里', timeLabel: '凌晨三点半', mood: '平静' }, state: { currentTension: 0, activeConflicts: [], pendingConsequences: [] }, members: [{ characterId: A, name: A, persona: '自然交流' }], history: [], userAction: '继续' }, async params => {
+    scenePrompt = String(params.messages[0].content);
+    return { content: `{"entries":[{"kind":"dialogue","speaker":"${A}","content":"我还在。"}]}` };
+  });
+  check(scenePrompt.includes('【星域当前时间】凌晨三点半') && !scenePrompt.includes('[当前时间]'), 'legacy scene director uses fictional time without real clock injection');
+  const exactId = await worldSceneRepo.createScene({ userId: U, worldId: other.id, title: '白天', place: '海边', timeLabel: '2042年6月15日16:30', mood: '平静', characterIds: [B] });
+  const exact = (await worldSceneRepo.getScene(exactId))!;
+  check(worldNowDate(exact).getFullYear() === 2042 && worldNowDate(exact).getHours() === 16 && exact.state.visual?.light === 'day', 'new scene initializes clock and lighting from user setting before first turn');
+  // Exercise the actual private-chat send path, including context compilation.
+  const chatId = 'unified-chat';
+  await db.sessions.put({ id: chatId, userId: U, characterId: A, type: 'single', title: '测试', unreadCount: 0, createdAt: now, updatedAt: now } as any);
+  useAuthStore.setState({ userId: U, apiKey: 'sk-verification-only' });
+  useChatStore.setState({ characters: [character(A), character(B)], selectedCharacterId: A, currentSessionId: chatId, messages: [] });
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const originalSend = ipc.chat.send;
+  let chatPrompt = '', resolveSent!: () => void;
+  const sent = new Promise<void>(resolve => { resolveSent = resolve; });
+  ipc.chat.send = async params => { chatPrompt = params.systemPrompt; resolveSent(); return { content: '好，那就照之前说的练习，慢慢来。' }; };
+  try {
+    root.render(createElement(ChatWindow));
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const textarea = host.querySelector('textarea')!;
+    check(Boolean(textarea), 'real chat component mounts');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, '桂花糕和陶艺练习准备好了吗');
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    (host.querySelector('[aria-label="发送消息"]') as HTMLButtonElement).click();
+    await Promise.race([sent, new Promise((_, reject) => setTimeout(() => reject(new Error('private chat send timed out')), 5000))]);
+    check(chatPrompt.includes('UNIFIED_FACT') && chatPrompt.includes('UNIFIED_PROMISE'), 'real private-chat request consumes unified facts and promises');
+    check((chatPrompt.match(/UNIFIED_FACT/g) ?? []).length === 1 && (chatPrompt.match(/UNIFIED_PROMISE/g) ?? []).length === 1, 'real private-chat prompt never duplicates selected references');
+    check(!chatPrompt.includes('LEGACY_NOTE'), 'real private chat never injects automatic scene props');
+    await new Promise(resolve => setTimeout(resolve, 250));
+  } finally { root.unmount(); host.remove(); ipc.chat.send = originalSend; }
+  await report('/result?suite=memory-unified', { method: 'POST', body: `ok ${count} assertions\nALL PASS` });
+}
+run().catch(async error => report('/result?suite=memory-unified', { method: 'POST', body: `FAIL ${String(error?.stack ?? error)}\n1 FAILED` }));

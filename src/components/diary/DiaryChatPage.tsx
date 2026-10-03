@@ -1,3 +1,6 @@
+import { useAiAvailability } from '../settings/useAiAvailability';
+import { avatarImageSrc } from '../../lib/avatar';
+import { TagInput, DIARY_TAGS } from '../ui/PhysicalInteractions';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { FilterSelect } from '../ui/FilterSelect';
@@ -12,23 +15,25 @@ import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
 import { ipc } from '../../lib/ipc-client';
 import { DIARY_MOODS, DIARY_WEATHERS, moodEmoji, moodColor, formatDateFull } from '../../lib/diary-utils';
-import { todayStr } from '../../db/diary-repo';
+import { diaryRepo, todayStr } from '../../db/diary-repo';
 import type { Diary } from '../../db/index';
 
 interface Props {
   date: string;
   onBack: () => void;
+  diaryId?: string;
 }
 
 /**
  * 聊天式写日记：这一天=一篇日记，每段即发即存（追加式）。
  * 写完一段后，AI「灵魂」会回应一句简短的引导（可开关，不写入正文）。
  */
-export function DiaryChatPage({ date, onBack }: Props) {
+export function DiaryChatPage({ date, onBack, diaryId }: Props) {
   const getOrCreateForDate = useDiaryStore((s) => s.getOrCreateForDate);
   const updateDiary = useDiaryStore((s) => s.updateDiary);
   const deleteDiary = useDiaryStore((s) => s.deleteDiary);
-  const apiKey = useAuthStore((s) => s.apiKey);
+  const apiKey = useAuthStore((s) => s.apiKey) ?? '';
+  const hasAiAccess = useAiAvailability();
   const diaryAiEnabled = useSettingsStore((s) => s.diaryAiEnabled);
   const characters = useChatStore((s) => s.characters);
 
@@ -36,13 +41,12 @@ export function DiaryChatPage({ date, onBack }: Props) {
   const [input, setInput] = useState('');
   const [guides, setGuides] = useState<{ id: string; text: string }[]>([]);
   const [busy, setBusy] = useState(false);
-  const [tagInput, setTagInput] = useState('');
   const [showDelete, setShowDelete] = useState(false);
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [extractOpen, setExtractOpen] = useState(false);
   /** 当天 → 默认写作视图；归档日 → 默认正式日记视图（补写需主动点「💬 补写」） */
   const isPastInitial = date < todayStr();
-  const [viewMode, setViewMode] = useState<'write' | 'diary'>(isPastInitial ? 'diary' : 'write');
+  const [viewMode, setViewMode] = useState<'write' | 'diary'>(diaryId || isPastInitial ? 'diary' : 'write');
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [stickToBottom, setStickToBottom] = useState(true);
   const [showNewHint, setShowNewHint] = useState(false);
@@ -63,19 +67,21 @@ export function DiaryChatPage({ date, onBack }: Props) {
   stickRef.current = stickToBottom;
 
   const load = useCallback(async () => {
-    const d = await getOrCreateForDate(date);
+    const owner = useAuthStore.getState().userId;
+    const d = diaryId ? (await diaryRepo.getById(diaryId)) ?? null : await getOrCreateForDate(date);
+    if (diaryId && (!d || d.userId !== owner || d.deletedAt || useAuthStore.getState().userId !== owner)) return;
     diaryRef.current = d;
     setDiary(d);
     // 自动标题：仅当天（写作中的今天）第一篇段落前 24 字；
     // 归档日只读，绝不改动其标题（用户可能故意留空）
-    if (d && date >= todayStr() && !d.title.trim() && d.content.trim()) {
+    if (!diaryId && d && date >= todayStr() && !d.title.trim() && d.content.trim()) {
       const t = d.content.trim().split('\n')[0].slice(0, 24);
       if (t) await updateDiary(d.id, { title: t });
     }
     // AI 回信：翻旧日记（≥7 天）且还没有批注、且未尝试失败过 → 后台生成一条
     // aiNoteAt: 正数=生成时间；负数=上次生成失败（避免反复重试）；undefined=未尝试
     const noteAttempted = d && d.aiNoteAt != null;
-    if (d && date < todayStr() && !d.aiNote && !noteAttempted && d.content.trim().length >= 20 && apiKey) {
+    if (!diaryId && d && date < todayStr() && !d.aiNote && !noteAttempted && d.content.trim().length >= 20 && hasAiAccess) {
       const ageDays = Math.floor((Date.now() - new Date(`${date}T00:00:00`).getTime()) / 86400000);
       if (ageDays >= 7) {
         try {
@@ -99,7 +105,7 @@ export function DiaryChatPage({ date, onBack }: Props) {
         }
       }
     }
-  }, [date, getOrCreateForDate, updateDiary, apiKey]);
+  }, [date, diaryId, getOrCreateForDate, updateDiary, apiKey, hasAiAccess]);
 
   useEffect(() => {
     void load();
@@ -175,7 +181,7 @@ export function DiaryChatPage({ date, onBack }: Props) {
     patch(patchPayload);
 
     // AI 灵魂引导（可开关，不写入正文；不阻塞正文发送——引导进行中跳过本次引导，避免并发乱序）
-    if (diaryAiEnabled && apiKey && !busy) {
+    if (diaryAiEnabled && hasAiAccess && !busy) {
       setBusy(true);
       try {
         const r = await ipc.diary.assist({ apiKey, mode: 'guide', text: newContent.slice(-800) });
@@ -353,12 +359,6 @@ export function DiaryChatPage({ date, onBack }: Props) {
     }
   };
 
-  const addTag = () => {
-    const t = tagInput.trim().replace(/^#/, '');
-    if (!t || !diary) return;
-    if (!(diary.tags ?? []).includes(t)) patch({ tags: [...(diary.tags ?? []), t] });
-    setTagInput('');
-  };
 
   if (!diary) {
     return <div className="h-full flex items-center justify-center text-gray-500">正在打开日记…</div>;
@@ -421,8 +421,8 @@ export function DiaryChatPage({ date, onBack }: Props) {
           >
             {linkedChar ? (
               <span className="flex items-center gap-1.5 min-w-0">
-                {linkedChar.avatar.startsWith('data:') ? (
-                  <img src={linkedChar.avatar} alt="" className="w-4 h-4 rounded object-cover shrink-0" />
+                {avatarImageSrc(linkedChar.avatar) ? (
+                  <img src={avatarImageSrc(linkedChar.avatar)} alt="" className="w-4 h-4 rounded object-cover shrink-0" />
                 ) : (
                   <span className="shrink-0">{linkedChar.avatar}</span>
                 )}
@@ -449,8 +449,8 @@ export function DiaryChatPage({ date, onBack }: Props) {
                     onClick={() => { patch({ characterId: c.id }); setRoleMenuOpen(false); }}
                     className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                   >
-                    {c.avatar.startsWith('data:') ? (
-                      <img src={c.avatar} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
+                    {avatarImageSrc(c.avatar) ? (
+                      <img src={avatarImageSrc(c.avatar)} alt="" className="w-5 h-5 rounded object-cover shrink-0" />
                     ) : (
                       <span className="shrink-0 text-base">{c.avatar}</span>
                     )}
@@ -666,22 +666,7 @@ export function DiaryChatPage({ date, onBack }: Props) {
             />
 
             {/* 标签 */}
-            <div className="flex items-center gap-1 flex-wrap">
-              {(diary.tags ?? []).map((t) => (
-                <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gene-purple/15 text-gene-purple text-[11px]">
-                  #{t}
-                  <button onClick={() => patch({ tags: (diary.tags ?? []).filter((x) => x !== t) })} className="hover:text-red-400">×</button>
-                </span>
-              ))}
-              <input
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
-                onBlur={addTag}
-                placeholder="+ 标签"
-                className="bg-transparent text-xs text-ink outline-none w-14 placeholder:text-gray-400"
-              />
-            </div>
+            <TagInput value={diary.tags ?? []} onChange={tags => patch({ tags })} suggestions={DIARY_TAGS} label="日记标签" placeholder="添加标签" />
           </div>
 
           {/* AI 辅助 */}

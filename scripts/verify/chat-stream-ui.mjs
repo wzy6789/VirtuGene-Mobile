@@ -1,0 +1,191 @@
+import { build } from 'esbuild';
+import { createRequire } from 'node:module';
+import { dirname, join, basename } from 'node:path';
+import { readFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { createServer } from 'node:http';
+const { chromium } = createRequire(join(dirname(process.execPath), 'package.json'))('playwright');
+const bundle = await build({ entryPoints: ['scripts/verify/chat-stream-ui.tsx'], bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', loader: { '.png': 'dataurl', '.webp': 'dataurl', '.css': 'empty' }, define: { 'import.meta.env': '{"DEV":true,"VITE_AI_GATEWAY_URL":""}', __APP_VERSION__: '"test"' } });
+const assets = 'dist/renderer/assets';
+const css = readdirSync(assets).filter(file => file.endsWith('.css')).map(file => `<link rel="stylesheet" href="/assets/${file}">`).join('');
+const server = createServer((req, res) => {
+  if (req.url === '/test.js') { res.setHeader('Content-Type', 'text/javascript'); res.end(bundle.outputFiles[0].text); }
+  else if (req.url.startsWith('/assets/')) { try { res.setHeader('Content-Type', req.url.endsWith('.css') ? 'text/css' : 'font/woff2'); res.end(readFileSync(join(assets, basename(req.url)))); } catch { res.writeHead(404); res.end(); } }
+  else { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(`<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1">${css}<style>html,body,#app{height:100%;margin:0;background:var(--bg);color:var(--text)}</style></head><body><div id="app" class="mobile-layout"></div><script src="/test.js"></script></body></html>`); }
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+let checks = 0;
+try {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.waitForFunction(() => !!window.chatStreamUi);
+  const test = (name, ...args) => page.evaluate(({ name, args }) => window.chatStreamTest[name](...args), { name, args });
+  const check = (ok, label) => { if (!ok) throw new Error(label); checks++; console.log(`ok ${label}`); };
+  const ready = async (history = 0) => { await test('setup', history); await page.getByRole('textbox', { name: '消息内容' }).waitFor(); await page.waitForTimeout(80); };
+  const send = async text => { await test('submit', text); await page.waitForFunction(() => window.chatStreamTest.requests().length === 1); };
+  const done = async () => { await page.getByRole('button', { name: '停止生成', exact: true }).waitFor({ state: 'hidden' }); await page.waitForTimeout(80); };
+  const out = '.tmp-preview/chat-stream-ui'; mkdirSync(out, { recursive: true });
+  const waitLatest = () => page.waitForFunction(() => { const el = document.querySelector('.chat-thread'); return el.scrollHeight - el.scrollTop - el.clientHeight < 8; }, undefined, { timeout: 1500 });
+  await ready();
+  await page.evaluate(() => { window.sendNode = document.querySelector('.chat-composer-send'); });
+  await send('今天的天气怎么样？');
+  check(await page.getByRole('status', { name: '正在准备回复' }).count() === 1, 'waiting state is announced once without token narration');
+  const stop = await page.getByRole('button', { name: '停止生成', exact: true }).boundingBox();
+  check(stop.width >= 44 && stop.height >= 44, 'stop generation remains a full touch target');
+  await page.evaluate(() => { window.waitingBubble = document.querySelector('.vg-typing-row .vg-message-bubble'); window.waitingIdentity = document.querySelector('.vg-typing-row .vg-chat-identity'); });
+  await page.screenshot({ path: `${out}/preparing-dark.png` });
+  const waitingWidth = (await page.locator('.vg-typing-row .vg-message-bubble').boundingBox()).width;
+  await test('push', 0, '今'); await page.locator('[data-streaming-reply]').waitFor();
+  check(Math.abs((await page.locator('[data-streaming-reply] .vg-message-bubble').boundingBox()).width - waitingWidth) < 1, 'single first character does not collapse the waiting bubble');
+  await page.screenshot({ path: `${out}/first-token-dark.png` });
+  await test('push', 0, '天的风很轻，'); await page.waitForTimeout(45);
+  check(await page.locator('.vg-stream-caret').count() === 1, 'first text has one inline caret');
+  check(await page.evaluate(() => window.waitingBubble === document.querySelector('[data-streaming-reply] .vg-message-bubble') && window.waitingIdentity === document.querySelector('[data-streaming-reply] .vg-chat-identity')), 'first token reuses the waiting bubble and avatar');
+  check(await page.evaluate(() => window.sendNode === document.querySelector('.chat-composer-send')), 'send-to-stop transition keeps the same button node');
+  await page.evaluate(() => { window.draftNode = document.querySelector('[data-streaming-reply] .vg-message-bubble'); window.streamAnimations = 0; document.addEventListener('animationstart', e => { if (e.target.closest?.('[data-streaming-reply]')) window.streamAnimations++; }, true); });
+  await page.waitForTimeout(180);
+  const starts = await page.evaluate(() => window.streamAnimations);
+  check(await page.locator('.vg-streaming-part').first().evaluate(el => getComputedStyle(el).transform) === 'none', 'finished part arrival releases its compositing transform');
+  for (const text of ['阳光', '从窗边', '一点点落下来。']) { await test('push', 0, text); await page.waitForTimeout(45); }
+  check(await page.evaluate(starts => window.draftNode === document.querySelector('[data-streaming-reply] .vg-message-bubble') && window.streamAnimations === starts, starts), 'token append preserves DOM and never restarts entrance animation');
+  check(await page.locator('[data-streaming-reply]').getAttribute('aria-live') === 'off', 'screen reader does not announce every token');
+  await test('push', 0, '---适合出门散散步。'); await page.waitForTimeout(70);
+  check(await page.locator('[data-streaming-reply] .vg-message-bubble').count() === 2 && await page.locator('.vg-stream-caret').count() === 1 && await page.locator('[data-streaming-reply] .vg-message-bubble').last().locator('.vg-stream-caret').count() === 1, 'only the actively growing part carries a caret');
+  check(await page.locator('[data-streaming-reply] button').count() === 0, 'unfinished parts expose no premature copy or speech actions');
+  await page.screenshot({ path: `${out}/streaming-dark.png` });
+  const before = await page.locator('[data-streaming-reply] .vg-message-bubble').evaluateAll(els => els.map(el => ({ text: el.textContent, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height })));
+  await test('finish', 0); await done();
+  check(await page.evaluate(() => window.sendNode === document.querySelector('.chat-composer-send')), 'completion retains the composer button node');
+  const after = await page.locator('.is-character .vg-message-bubble').evaluateAll(els => els.map(el => ({ text: el.querySelector('.vg-message-text').textContent, top: el.getBoundingClientRect().top, width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height })));
+  check(JSON.stringify(before.map(x => x.text)) === JSON.stringify(after.map(x => x.text)) && before.every((x, i) => Math.abs(x.width - after[i].width) < 1 && Math.abs(x.height - after[i].height) < 1 && Math.abs(x.top - after[i].top) < 1.5), 'saving the stream retains exact text and bubble geometry');
+  check(await page.locator('.is-character.animate-message-in, .is-character .animate-message-sweep, .vg-stream-caret').count() === 0, 'handoff clears the caret without replaying arrival or sweep');
+  await page.screenshot({ path: `${out}/completed-dark.png` });
+  const record = (await test('records')).find(m => m.role === 'assistant');
+  const row = page.locator(`[data-message-id="${record.id}"]`);
+  const font = await row.locator('.vg-message-text').evaluate(el => getComputedStyle(el).fontSize);
+  await page.evaluate(id => window.chatStreamUi.audio(id, false), record.id);
+  check(await row.locator('.vg-message-text').innerText() === record.content && await row.locator('.vg-message-text').evaluate(el => getComputedStyle(el).fontSize) === font, 'speech synthesis retains the full-size streamed text');
+  const voiceHeight = (await row.locator('.vg-stream-voice').boundingBox()).height;
+  await page.evaluate(id => window.chatStreamUi.audio(id, true), record.id);
+  await row.getByRole('button', { name: '播放语音', exact: true }).waitFor();
+  check(await row.getByRole('button', { name: '播放语音', exact: true }).count() === 1 && Math.abs((await row.locator('.vg-stream-voice').boundingBox()).height - voiceHeight) < 1, 'audio readiness changes only its reserved controls');
+  await page.screenshot({ path: `${out}/voice-dark.png` });
+  await ready(40); await send('多说一些'); await test('push', 0, '今天路过书店。'.repeat(80)); await page.locator('[data-streaming-reply]').waitFor(); await page.waitForTimeout(180);
+  const gap = () => page.locator('.chat-thread').evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight);
+  check(await gap() < 8, 'real mobile layout follows long streaming text');
+  await page.locator('.chat-thread').evaluate(el => { el.dispatchEvent(new WheelEvent('wheel', { deltaY: -400 })); el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+  await test('push', 0, '后来又看了一场展览。'.repeat(60)); await page.waitForTimeout(100);
+  check(await page.locator('.chat-thread').evaluate(el => el.scrollTop) < 8, 'streaming respects history reading');
+  await page.getByRole('button', { name: '回到最新消息', exact: true }).tap(); await page.waitForTimeout(100);
+  check(await gap() > 8 && await page.locator('.chat-thread').evaluate(el => el.scrollTop) > 0, 'return to latest travels through the real conversation instead of teleporting');
+  check(await page.locator('.vg-latest-message-anchor').evaluate(el => el.inert && el.getAttribute('aria-hidden') === 'true' && el.querySelector('button').tabIndex === -1), 'departing latest button immediately leaves touch and keyboard interaction');
+  await waitLatest();
+  check(await gap() < 8, 'touching return to latest resumes following');
+  await page.locator('.chat-thread').evaluate(el => { el.dispatchEvent(new WheelEvent('wheel', { deltaY: -400 })); el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+  await page.getByRole('button', { name: '回到最新消息', exact: true }).focus(); await page.keyboard.press('Enter'); await page.waitForTimeout(70);
+  check(await page.locator('.chat-thread').evaluate(el => document.activeElement === el), 'keyboard return moves focus to the scrollable conversation');
+  await page.keyboard.press('Escape'); await page.waitForTimeout(50);
+  const pausedPosition = await page.locator('.chat-thread').evaluate(el => el.scrollTop);
+  await page.waitForTimeout(450);
+  check(Math.abs(await page.locator('.chat-thread').evaluate(el => el.scrollTop) - pausedPosition) < 8 && await page.getByRole('button', { name: '回到最新消息', exact: true }).count() === 1, 'Escape interrupts return and restores the latest affordance');
+  await page.getByRole('button', { name: '回到最新消息', exact: true }).tap(); await waitLatest();
+  for (const width of [320, 390, 430, 1024]) {
+    await page.setViewportSize({ width, height: 844 }); await page.waitForTimeout(90);
+    const unchanged = await page.locator('.vg-stream-caret').evaluate(el => {
+      const bubble = el.closest('.vg-message-bubble'); const before = bubble.getBoundingClientRect(); el.style.display = 'none'; const after = bubble.getBoundingClientRect(); el.style.display = ''; return Math.abs(before.width - after.width) < 1 && Math.abs(before.height - after.height) < 1;
+    });
+    check(unchanged && await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `caret costs no extra line or horizontal overflow at ${width}px`);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '停止生成', exact: true }).tap(); await done();
+  check(await page.locator('.vg-stream-caret').count() === 0 && await page.getByText('已停止生成', { exact: true }).count() === 1, 'stopping retains text and replaces the caret with truthful status');
+  await page.screenshot({ path: `${out}/stopped-dark.png` });
+  check(await page.locator('.vg-message-generation-status svg').count() === 1, 'stopped reply has a quiet distinct status icon');
+  await ready(40); await send('继续说'); await test('push', 0, '这次先收到一段。'); await page.locator('[data-streaming-reply]').waitFor(); await page.waitForTimeout(180);
+  await page.locator('.chat-thread').evaluate(el => { el.dispatchEvent(new WheelEvent('wheel', { deltaY: -400 })); el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
+  await page.getByRole('button', { name: '回到最新消息', exact: true }).tap(); await page.waitForTimeout(60); await test('finish', 0); await done();
+  await waitLatest();
+  check(await gap() < 8 && await page.locator('[data-streaming-reply]').count() === 0, 'reply completion during return preserves the active scroll and reaches its new target');
+  for (const motion of ['system', 'app']) {
+    await ready(); await send('安静一点');
+    if (motion === 'system') await page.emulateMedia({ reducedMotion: 'reduce' });
+    else await page.evaluate(() => { document.documentElement.dataset.vgReducedMotion = 'true'; });
+    await test('push', 0, '我在这里。'); await page.locator('[data-streaming-reply]').waitFor();
+    check(await page.locator('.vg-streaming-part').evaluate(el => getComputedStyle(el).animationName) === 'none' && await page.locator('.vg-stream-caret').count() === 1, `${motion} reduced motion keeps steady streaming feedback`);
+    check(await page.locator('.vg-stream-text-arrive').evaluate(el => getComputedStyle(el).animationName) === 'none' && await page.locator('.vg-composer-icon.is-stop').evaluate(el => getComputedStyle(el).transitionDuration) === '0s', `${motion} quiet mode settles text and icon transitions immediately`);
+    await test('finish', 0); await done();
+    await page.emulateMedia({ reducedMotion: 'no-preference' }); await page.evaluate(() => { delete document.documentElement.dataset.vgReducedMotion; });
+  }
+  await ready(); await page.evaluate(() => document.documentElement.classList.remove('dark')); await send('你好'); await test('push', 0, '你好，我在这里。'); await page.locator('[data-streaming-reply]').waitFor();
+  check(await page.locator('.vg-stream-caret').evaluate(el => getComputedStyle(el, '::after').backgroundColor) === 'rgb(20, 127, 136)', 'light theme uses its darker legible caret');
+  await page.screenshot({ path: `${out}/streaming-light.png` }); await test('finish', 0); await done();
+  await ready(); await page.setViewportSize({ width: 1024, height: 768 });
+  await page.evaluate(() => { document.documentElement.classList.add('dark'); document.querySelector('#app').classList.remove('mobile-layout'); });
+  await send('桌面聊天'); await test('push', 0, '我在这里，慢慢说。'); await page.locator('[data-streaming-reply]').waitFor();
+  check(await page.locator('[data-streaming-reply] .vg-chat-message-content').evaluate(el => getComputedStyle(el).animationName) === 'none', 'desktop streaming does not animate its text container');
+  check(await page.locator('[data-streaming-reply] .vg-message-bubble').evaluate(el => getComputedStyle(el).textWrap) === 'wrap', 'growing paragraphs use stable line wrapping');
+  await page.locator('[data-streaming-reply] .vg-message-bubble').click({ button: 'right' });
+  check(await page.locator('.vg-message-context-menu').count() === 0, 'streaming long-press menu stays disabled');
+  await test('finish', 0); await done();
+  check(await page.locator('.is-character .vg-chat-message-content').evaluate(el => getComputedStyle(el).animationName) === 'none' && await page.locator('.is-character.animate-message-in, .is-character .animate-message-sweep').count() === 0, 'fast desktop completion never replays text or row entrance');
+  await page.locator('.is-character .vg-message-bubble').click({ button: 'right' });
+  await page.locator('.vg-message-context-menu').waitFor();
+  check(await page.locator('.vg-message-context-menu').getByRole('button', { name: '复制', exact: true }).count() === 1, 'saved reply restores normal bubble actions');
+  await page.keyboard.press('Escape'); await page.locator('.chat-header').click();
+  await page.screenshot({ path: `${out}/completed-desktop.png` });
+  await page.evaluate(() => window.chatStreamUi.mountScrollProbe());
+  await page.waitForFunction(() => !!window.chatStreamUi.scroll); await page.waitForTimeout(450);
+  const sample = async height => page.evaluate(async height => {
+    const probe = window.chatStreamUi.scroll, node = probe.element;
+    const before = node.scrollTop, commits = window.chatStreamUi.commits;
+    probe.grow(height);
+    const frames = [];
+    const started = performance.now();
+    while (performance.now() - started < 240) { await new Promise(requestAnimationFrame); frames.push(node.scrollTop); }
+    return { before, frames, target: node.scrollHeight - node.clientHeight, commits: window.chatStreamUi.commits - commits };
+  }, height);
+  const eased = await sample(1024);
+  check(eased.frames.some(top => top > eased.before && top < eased.target - 1) && Math.abs(eased.frames.at(-1) - eased.target) < 1 && eased.frames.every((top, index) => !index || top >= eased.frames[index - 1]), 'one streamed line settles over monotonic frames without overshoot');
+  check(eased.commits === 0, 'smooth following produces no per-frame React commits');
+  const takeover = await page.evaluate(async () => {
+    const { element: node, grow } = window.chatStreamUi.scroll; grow(1048);
+    await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame);
+    node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 99 }));
+    node.scrollTop -= 90; const position = node.scrollTop;
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const stable = node.scrollTop === position;
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 99 }));
+    return stable;
+  });
+  check(takeover, 'touch takeover cancels a streaming scroll from its current position');
+  const returnFrames = await page.evaluate(async () => {
+    const probe = window.chatStreamUi.scroll, node = probe.element;
+    node.dispatchEvent(new WheelEvent('wheel', { deltaY: -400 })); node.scrollTop = 120; node.dispatchEvent(new Event('scroll'));
+    const commits = window.chatStreamUi.commits;
+    probe.smooth(); const frames = [], started = performance.now();
+    while (performance.now() - started < 480) { await new Promise(requestAnimationFrame); frames.push(node.scrollTop); }
+    return { frames, target: node.scrollHeight - node.clientHeight, commits: window.chatStreamUi.commits - commits };
+  });
+  check(returnFrames.frames.some(top => top > 120 && top < returnFrames.target - 1) && returnFrames.frames.every((top, index) => top <= returnFrames.target && (!index || top >= returnFrames.frames[index - 1])) && returnFrames.frames.at(-1) === returnFrames.target, 'explicit return is monotonic and settles without overshoot');
+  check(returnFrames.commits === 0, 'explicit return controller has no per-frame React commits');
+  const returnInterrupted = await page.evaluate(async () => {
+    const probe = window.chatStreamUi.scroll, node = probe.element;
+    node.dispatchEvent(new WheelEvent('wheel', { deltaY: -400 })); node.scrollTop = 120; node.dispatchEvent(new Event('scroll')); probe.smooth();
+    await new Promise(resolve => setTimeout(resolve, 70));
+    node.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 98 }));
+    const position = node.scrollTop;
+    await new Promise(resolve => setTimeout(resolve, 500));
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 98 }));
+    return Math.abs(node.scrollTop - position) < 1;
+  });
+  check(returnInterrupted, 'touch takeover freezes explicit return at its current pose');
+  await page.evaluate(() => { window.chatStreamUi.scroll.latest(); document.documentElement.dataset.vgReducedMotion = 'true'; });
+  await page.waitForTimeout(450);
+  const quiet = await sample(1072);
+  check(!quiet.frames.some(top => top > quiet.before && top < quiet.target - 1) && quiet.frames.at(-1) === quiet.target, 'quiet mode follows streamed lines without intermediate movement');
+  check(await page.evaluate(() => { const probe = window.chatStreamUi.scroll, node = probe.element; node.scrollTop = 120; node.dispatchEvent(new Event('scroll')); probe.smooth(); return node.scrollTop === node.scrollHeight - node.clientHeight; }), 'quiet mode returns to latest immediately');
+  await page.evaluate(() => { delete document.documentElement.dataset.vgReducedMotion; window.chatStreamUi.disposeScrollProbe(); });
+  check(await test('extraNetwork') === 0 && errors.length === 0, 'UI scenarios make no paid calls or uncaught errors');
+  console.log(`PASS chat-stream-ui: ${checks} checks`);
+} finally { await browser.close(); server.close(); }

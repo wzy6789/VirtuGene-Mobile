@@ -9,7 +9,8 @@
  * 这里把两者都补上——只影响验收产物，不影响真实构建。
  */
 import { build } from 'esbuild';
-import { readFileSync, readdirSync, copyFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { copyRendererStyles } from './copy-renderer-styles.mjs';
 
 const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'));
 
@@ -23,7 +24,7 @@ try {
   if (existsSync(assets)) {
     const css = readdirSync(assets).filter((f) => f.endsWith('.css')).sort().pop();
     if (css) {
-      copyFileSync(new URL(css, assets), new URL('./verify.css', import.meta.url));
+      copyRendererStyles();
       console.log(`✅ 已复制真实构建 CSS（${css}）供 worldD 验证布局`);
     }
   } else {
@@ -38,7 +39,7 @@ const shared = {
   platform: 'browser',
   format: 'iife',
   logLevel: 'warning',
-  loader: { '.png': 'dataurl' },
+  loader: { '.png': 'dataurl', '.webp': 'dataurl' },
   define: {
     'import.meta.env': JSON.stringify({
       VITE_AI_GATEWAY_URL: '',
@@ -131,7 +132,7 @@ await build({
   jsx: 'automatic',
 });
 
-for (const name of ['douluo-relations', 'memory-attention', 'practical-presets', 'chat-style', 'swipes', 'mobile-refinement', 'guyuena-care', 'group-layout', 'relation-map', 'character-create', 'character-ui', 'character-scroll', 'memory-final', 'worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 'character-memory', 'memory-continuity', 'memory-audit-20260926', 'worldG', 'moments', 'moments-autonomous']) {
+for (const name of ['ui-polish', 'mobile-soul', 'douluo-relations', 'memory-attention', 'memory-unified', 'practical-presets', 'chat-style', 'swipes', 'mobile-refinement', 'guyuena-care', 'group-layout', 'relation-map', 'character-create', 'character-ui', 'character-scroll', 'memory-final', 'worldA', 'worldB', 'worldC', 'worldD', 'worldE', 'worldF', 'character-memory', 'memory-continuity', 'memory-audit-20260926', 'worldG', 'moments', 'moments-autonomous']) {
   await build({
     ...shared,
     entryPoints: [`scripts/verify/${name}.ts`],

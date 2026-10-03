@@ -15,6 +15,7 @@ import { worldChat, type WorldLlmCaller } from './world-ai-client';
 import { renderWorldBrief, type WorldContext } from './world-context';
 import { extractPartialJsonString } from './world-actor';
 import type { WorldAction } from './world-actions';
+import { WORLD_OBJECT_TOPIC_RULE } from './world-attention';
 
 export const NARRATOR_INSTRUCTION = `你是一段共同生活里的旁白。只写**看得见、听得见**的东西。
 
@@ -25,7 +26,8 @@ export const NARRATOR_INSTRUCTION = `你是一段共同生活里的旁白。只�
 2. **不要**写任何角色的内心想法、不要写"她其实在想……"。
 3. **不要**替用户说话或行动。
 4. 不要总结、不要抒情排比、不要用"仿佛""似乎"堆砌。短、具体、克制。
-5. 不要输出 JSON 以外的任何文字。`;
+5. ${WORLD_OBJECT_TOPIC_RULE}
+6. 不要输出 JSON 以外的任何文字。`;
 
 export interface NarrateParams {
   ctx: WorldContext;
@@ -71,7 +73,7 @@ export async function narrateWorldBeat(params: NarrateParams): Promise<NarrateRe
   try {
     const res = await worldChat({
       messages: [
-        { role: 'system', content: `${NARRATOR_INSTRUCTION}\n\n${renderWorldBrief(params.ctx, 8)}` },
+        { role: 'system', content: `${NARRATOR_INSTRUCTION}\n\n${renderWorldBrief(params.ctx, 8, params.userText)}` },
         { role: 'user', content: trigger },
       ],
       temperature: 0.85,

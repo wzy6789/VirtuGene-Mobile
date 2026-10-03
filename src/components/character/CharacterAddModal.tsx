@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { GenePoolTab } from './GenePoolTab';
 import { CreateGeneTab } from './CreateGeneTab';
 import type { Character } from '../../db/index';
+import { useAuthStore } from '../../store/auth-store';
+import { useChatStore } from '../../store/chat-store';
+const SecretaryManagementModal = lazy(() => import('../secretary/SecretaryManagementModal').then(m => ({ default: m.SecretaryManagementModal })));
 
 interface CharacterAddModalProps {
   open: boolean;
@@ -16,6 +19,8 @@ interface CharacterAddModalProps {
 type Tab = 'pool' | 'create';
 
 export function CharacterAddModal({ open, onClose, editCharacter, onSelected }: CharacterAddModalProps) {
+  const userId = useAuthStore(s => s.userId);
+  const assistant = useChatStore(s => s.characters.find(c => c.agentProfile === 'secretary' && c.createdBy === userId));
   const contentRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<Tab>(editCharacter ? 'create' : 'pool');
 
@@ -32,8 +37,10 @@ export function CharacterAddModal({ open, onClose, editCharacter, onSelected }: 
     onSelected?.();
   };
 
+  if (editCharacter?.agentProfile === 'secretary') return <Suspense fallback={<div role="status">正在打开助理管理…</div>}><SecretaryManagementModal key={editCharacter.id} character={editCharacter} open={open} onClose={onClose} /></Suspense>;
+
   return (
-    <Modal open={open} onClose={handleDismiss} title="基因实验室" width="max-w-2xl" closeOnBackdrop={false} mobileFullHeight>
+    <Modal open={open} onClose={handleDismiss} title={editCharacter ? '角色设置' : '基因实验室'} panelClassName={editCharacter ? 'vg-settings-panel' : undefined} width="max-w-2xl" closeOnBackdrop={false} mobileFullHeight>
       {!editCharacter && <div className="vg-character-editor-tabs flex border-b border-line">
         <button
           className={`flex-1 py-3 text-sm font-medium transition-colors ${
@@ -57,7 +64,8 @@ export function CharacterAddModal({ open, onClose, editCharacter, onSelected }: 
         </button>
       </div>}
 
-      <div ref={contentRef} className="p-4 sm:p-6">
+      <div ref={contentRef} className={editCharacter ? 'vg-settings-design' : 'p-4 sm:p-6'}>
+        {!editCharacter && <button type="button" onClick={() => { handleDismiss(); window.dispatchEvent(new Event('virtugene:open-secretary')); }} className="mb-4 w-full min-h-12 rounded-xl border border-gene-purple/25 bg-gene-purple/5 px-4 text-left text-sm text-ink">{assistant && assistant.secretaryStatus !== 'dismissed' ? `🗂️ 管理生活助理 · ${assistant.name}` : '🗂️ 聘用生活助理 · 你来取名'}</button>}
         {!editCharacter && tab === 'pool' ? (
           <GenePoolTab onSelect={handleSuccess} singleScroll />
         ) : (

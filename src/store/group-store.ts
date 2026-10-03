@@ -1,3 +1,4 @@
+import { canUseAi } from '../lib/ai/availability';
 import { create } from 'zustand';
 import { db, type Group, type Session, type Message } from '../db/index';
 import { groupRepo } from '../db/group-repo';
@@ -5,7 +6,6 @@ import { sessionRepo } from '../db/session-repo';
 import { messageRepo } from '../db/message-repo';
 import { characterRepo } from '../db/character-repo';
 import { memoryRepo } from '../db/memory-repo';
-import { todoRepo } from '../db/todo-repo';
 import { worldRepo } from '../db/world-repo';
 import { buildCharacterMemoryContext } from '../lib/character-memory';
 import { buildRelationshipToneContext } from '../lib/chat-context';
@@ -120,11 +120,11 @@ function groupPromptTrace(briefs: GroupMemberBrief[], session: Session | undefin
 async function buildBriefs(group: Group, userId: string, query = ''): Promise<GroupMemberBrief[]> {
   const world = await worldRepo.ensureDefaultWorld(userId).catch(() => null);
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
-    (c): c is NonNullable<typeof c> => !!c,
+    (c): c is NonNullable<typeof c> => !!c && c.agentProfile !== 'secretary',
   );
   return Promise.all(
     members.map(async (c) => {
-      const [shared, personal, personalTodos, characterState] = await Promise.all([
+      const [shared, personal, characterState] = await Promise.all([
         // 共享提示词：听众是**全体成员**，服务因此只返回所有成员都有权知道的内容。
         // 来源集合不再由调用方拼；跨模式历史何时放开也由服务按话题判断。
         buildCharacterMemoryContext({
@@ -140,12 +140,8 @@ async function buildBriefs(group: Group, userId: string, query = ''): Promise<Gr
           includePrivateCharacterLifeEvents: true,
           budget: 1800,
         }),
-        todoRepo.visibleOccurrencesForCharacter(userId, c.id, 4, true).catch(() => []),
         stateRepo.get(c.id, userId).catch(() => undefined),
       ]);
-      const personalTodoText = personalTodos.length
-        ? `\n\n【只分享给你的未完成事项，供你自己记得】\n${personalTodos.map(({ todo, occurrence }) => `- ${todo.title}${occurrence.dueDate !== '9999-12-31' ? `（${occurrence.dueDate}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note.slice(0, 80)}` : ''}`).join('\n')}`
-        : '';
       return {
         id: c.id,
         name: c.name,
@@ -155,7 +151,7 @@ async function buildBriefs(group: Group, userId: string, query = ''): Promise<Gr
         publicPersona: [c.signature, ...(c.tags ?? []).slice(0, 5)].filter(Boolean).join('；').slice(0, 220),
         memory: shared.text || undefined,
         memoryReferences: shared.references.map(({ source, id }) => ({ source, id })),
-        privateMemory: `${personal.text}${personalTodoText}`.trim() || undefined,
+        privateMemory: personal.text.trim() || undefined,
         relationshipContext: characterState
           ? buildRelationshipToneContext(characterState.affinity, characterState.mood, characterState.tierNames)
           : undefined,
@@ -330,7 +326,7 @@ async function generateProactiveTurn(
   mode: 'proactive' | 'banter' = 'proactive',
 ): Promise<{ turns: GroupTurn[]; error?: string; contextTrace?: Message['contextTrace'] }> {
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
-    (c): c is NonNullable<typeof c> => !!c,
+    (c): c is NonNullable<typeof c> => !!c && c.agentProfile !== 'secretary',
   );
   // 鲁棒性：成员不足不调 API
   if (members.length < 2) return { turns: [], error: '群成员不足' };
@@ -422,9 +418,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
   sendGroupMessage: async (text, opts) => {
     const trimmed = text.trim();
     const { currentGroup, currentSessionId } = get();
-    const apiKey = useAuthStore.getState().apiKey;
+    const apiKey = useAuthStore.getState().apiKey ?? '';
     const userId = useAuthStore.getState().userId ?? '';
-    if ((!trimmed && !opts?.image) || !currentGroup || !currentSessionId || !apiKey) return;
+    if ((!trimmed && !opts?.image) || !currentGroup || !currentSessionId || !canUseAi()) return;
     // 鲁棒性：同步置位发送中，堵住"快速连点两次"的竞态（第二个请求进来时已为 true）
     if (get().groupSending) return;
     set({ groupSending: true, groupError: null });
@@ -452,7 +448,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         return;
       }
       const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
-        (c): c is NonNullable<typeof c> => !!c,
+        (c): c is NonNullable<typeof c> => !!c && c.agentProfile !== 'secretary',
       );
       // 鲁棒性：成员不足（角色被删光/只剩 1 个）不调 API，直接提示（省 token + 防死循环）
       if (members.length < 2) {
@@ -522,9 +518,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
 
   proactiveGroupTurn: async () => {
     const { currentGroup, currentSessionId, groupSending, lastProactiveAt } = get();
-    const apiKey = useAuthStore.getState().apiKey;
+    const apiKey = useAuthStore.getState().apiKey ?? '';
     const userId = useAuthStore.getState().userId ?? '';
-    if (!currentGroup || !currentSessionId || !apiKey || groupSending) return;
+    if (!currentGroup || !currentSessionId || !canUseAi() || groupSending) return;
     const now = Date.now();
     // 防刷屏：距上次主动发言至少冷却时长
     if (now - lastProactiveAt < PROACTIVE_COOLDOWN_MS) return;
@@ -581,9 +577,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
 
   proactiveBackground: async () => {
     const { groups, groupSending, lastProactiveAt, currentGroupId } = get();
-    const apiKey = useAuthStore.getState().apiKey;
+    const apiKey = useAuthStore.getState().apiKey ?? '';
     const userId = useAuthStore.getState().userId ?? '';
-    if (!apiKey || groupSending || groups.length === 0) return;
+    if (!canUseAi() || groupSending || groups.length === 0) return;
     const now = Date.now();
     // 省 token：后台冷却更长（30 分钟），且每次最多挑一个群
     if (now - lastProactiveAt < PROACTIVE_BG_COOLDOWN_MS) return;
@@ -643,9 +639,9 @@ export const useGroupStore = create<GroupState>((set, get) => ({
 
   backgroundGroupBanter: async () => {
     const { groups, groupSending, lastBanterAt, currentGroupId } = get();
-    const apiKey = useAuthStore.getState().apiKey;
+    const apiKey = useAuthStore.getState().apiKey ?? '';
     const userId = useAuthStore.getState().userId ?? '';
-    if (!apiKey || groupSending || groups.length === 0) return;
+    if (!canUseAi() || groupSending || groups.length === 0) return;
     const now = Date.now();
     // 群聊自运转限频：4 小时冷却 + 每天最多 BANTER_DAILY_MAX 次（省 token）
     if (now - lastBanterAt < BANTER_COOLDOWN_MS) return;

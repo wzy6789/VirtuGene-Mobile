@@ -222,13 +222,14 @@ export async function invalidateSessionSummaryMemory(userId: string, sessionId: 
 export const memoryRepo = {
   /** 获取一个用户最近留下的记忆，用于生命回顾等跨角色视图。 */
   async getRecentByUser(userId: string, limit = 60): Promise<MemoryItem[]> {
+    const assistantIds = new Set((await db.characters.where('createdBy').equals(userId).filter(c => c.agentProfile === 'secretary').toArray()).map(c => c.id));
     const items = await db.memories
       .where('userId')
       .equals(userId)
       .toArray()
     const repaired = await retireDetachedPinnedSessionSummaries(items);
     return repaired
-      .filter((item) => (item.status ?? 'active') === 'active')
+      .filter((item) => (item.status ?? 'active') === 'active' && !assistantIds.has(item.characterId))
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, limit);
   },
@@ -239,7 +240,8 @@ export const memoryRepo = {
    */
   async importRecentUserMemories(characterId: string, userId: string, limit = 12, selectedIds?: string[]): Promise<number> {
     const target = await db.characters.get(characterId);
-    if (!target || target.createdBy !== userId) throw new Error('memory:invalid_target');
+    if (!target || target.createdBy !== userId || target.agentProfile === 'secretary') throw new Error('memory:invalid_target');
+    const assistantIds = new Set((await db.characters.where('createdBy').equals(userId).filter(c => c.agentProfile === 'secretary').toArray()).map(c => c.id));
     const candidates = selectedIds
       ? (await db.memories.bulkGet([...new Set(selectedIds)])).filter((memory): memory is MemoryItem =>
           !!memory && memory.userId === userId && (memory.status ?? 'active') === 'active' && memory.characterId !== characterId)
@@ -247,6 +249,7 @@ export const memoryRepo = {
     const imported = await db.memories.where('characterId').equals(characterId).filter(m => m.userId === userId).toArray();
     const seen = new Set<string>();
     const selected = candidates
+      .filter((memory) => !assistantIds.has(memory.characterId))
       .filter((memory) => memory.content.trim().length > 0)
         .filter((memory) => !imported.some(row => row.importedFromMemoryId === memory.id))
       .filter((memory) => {
@@ -418,7 +421,7 @@ export const memoryRepo = {
     if (!next || next === current.content) return;
     await invalidateSessionSummariesForMemory(current);
     await memoryLedgerRepo.forgetMemoryItem(current);
-    const updatedAt = Date.now();
+    const updatedAt = Math.max(Date.now(), (current.updatedAt ?? current.createdAt) + 1);
     await memorySourceTombstoneRepo.record({
       userId: current.userId,
       sourceType: 'memory',

@@ -31,7 +31,7 @@ export function AuthPage() {
 
       {/* Content */}
       <div
-        className="flex-1 flex items-center justify-center"
+        className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center"
         style={IS_MOBILE ? { paddingTop: 'calc(env(safe-area-inset-top, 0px) + 24px)' } : undefined}
       >
         {/* Subtle glow */}
@@ -41,7 +41,7 @@ export function AuthPage() {
         </div>
 
         {/* Card — no frame; form floats over the glow background (WeChat style) */}
-        <div className="relative z-10 px-4 py-8 w-[320px]">
+        <div className="relative z-10 px-4 py-8 w-full max-w-[360px] my-auto shrink-0">
           {mode === 'login' ? (
             <LoginCard onSwitch={() => setMode('register')} />
           ) : (

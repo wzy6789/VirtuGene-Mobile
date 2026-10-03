@@ -17,6 +17,7 @@ import { RecallModal } from '../components/diary/RecallModal';
 import { PersonaModal } from '../components/diary/PersonaModal';
 import { YearTableModal } from '../components/diary/YearTableModal';
 import { InsightModal } from '../components/diary/InsightModal';
+import { DiaryPreferences } from '../components/settings/DiaryPreferences';
 import { DiaryLockScreen, PinSettingsModal } from '../components/diary/DiaryLock';
 import { sha256 } from '../store/settings-store';
 import { FilterSelect } from '../components/ui/FilterSelect';
@@ -43,9 +44,7 @@ export function DiaryPage() {
   const diaryPin = useSettingsStore((s) => s.diaryPin);
   const setDiaryPin = useSettingsStore((s) => s.setDiaryPin);
   const diaryReminderEnabled = useSettingsStore((s) => s.diaryReminderEnabled);
-  const setDiaryReminderEnabled = useSettingsStore((s) => s.setDiaryReminderEnabled);
   const diaryReminderTime = useSettingsStore((s) => s.diaryReminderTime);
-  const setDiaryReminderTime = useSettingsStore((s) => s.setDiaryReminderTime);
   const apiKey = useAuthStore((s) => s.apiKey);
   const trash = useDiaryStore((s) => s.trash);
   const restoreDiary = useDiaryStore((s) => s.restoreDiary);
@@ -53,6 +52,16 @@ export function DiaryPage() {
 
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [writingDate, setWritingDate] = useState<string | null>(null);
+  const [focusedDiaryId, setFocusedDiaryId] = useState<string | undefined>();
+  const lifeRecordFocus = useUIStore(s => s.lifeRecordFocus);
+  useEffect(() => {
+    if (lifeRecordFocus?.kind !== 'diary') return;
+    if (lifeRecordFocus.userId === useAuthStore.getState().userId && lifeRecordFocus.date) {
+      setWritingDate(lifeRecordFocus.date);
+      setFocusedDiaryId(lifeRecordFocus.id);
+    }
+    useUIStore.setState({ lifeRecordFocus: null });
+  }, [lifeRecordFocus]);
   const [exporting, setExporting] = useState(false);
   const [exportMsg, setExportMsg] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -84,6 +93,9 @@ export function DiaryPage() {
 
   useEffect(() => {
     void load();
+    const refresh = (event: Event) => { if ((event as CustomEvent).detail?.userId === useAuthStore.getState().userId) void load(); };
+    window.addEventListener('virtugene:diaries-updated', refresh);
+    return () => window.removeEventListener('virtugene:diaries-updated', refresh);
   }, [load]);
 
   // 筛选（多词 AND：空格分隔的关键词需全部命中）
@@ -414,7 +426,7 @@ export function DiaryPage() {
                   onClick={() => { setReminderModal(true); setMoreOpen(false); }}
                   className="w-full flex items-center justify-between gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  <span>🔔 写日记提醒</span>
+                  <span>日记设置</span>
                   <span className={`text-[11px] ${diaryReminderEnabled ? 'text-gene-purple' : 'text-gray-400'}`}>{diaryReminderEnabled ? diaryReminderTime : '关'}</span>
                 </button>
                 <div className="my-1 mx-3 h-px bg-line" />
@@ -446,7 +458,7 @@ export function DiaryPage() {
       )}
 
       {writingDate ? (
-        <DiaryChatPage date={writingDate} onBack={() => setWritingDate(null)} />
+        <DiaryChatPage key={`${writingDate}:${focusedDiaryId ?? ''}`} date={writingDate} diaryId={focusedDiaryId} onBack={() => { setWritingDate(null); setFocusedDiaryId(undefined); }} />
       ) : (
         <>
         {/* 左下角返回聊天（管理器视图；手机端底部已有「聊天」tab，隐藏以免冗余） */}
@@ -746,34 +758,7 @@ export function DiaryPage() {
         }}
       />
       {/* 每日写日记提醒设置 */}
-      <Modal open={reminderModal} onClose={() => setReminderModal(false)} title="🔔 每日写日记提醒" width="max-w-sm" closeOnBackdrop={false}>
-        <div className="p-6 space-y-4">
-          <p className="text-xs text-gray-500">到设定时间后，如果当天还没写过日记，会弹一条系统通知提醒你。每天最多一次。</p>
-          <label className="flex items-center justify-between gap-3">
-            <span className="text-sm text-sub">开启提醒</span>
-            <button
-              onClick={() => setDiaryReminderEnabled(!diaryReminderEnabled)}
-              className={`relative w-11 h-6 rounded-full transition-colors ${diaryReminderEnabled ? 'bg-gene-purple' : 'bg-gray-300'}`}
-            >
-              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${diaryReminderEnabled ? 'left-[22px]' : 'left-0.5'}`} />
-            </button>
-          </label>
-          <label className="flex items-center justify-between gap-3">
-            <span className="text-sm text-sub">提醒时间</span>
-            <input
-              type="time"
-              value={diaryReminderTime}
-              onChange={(e) => setDiaryReminderTime(e.target.value)}
-              className="bg-surface border border-line rounded-lg px-3 py-1.5 text-sm text-ink outline-none focus:border-gene-purple"
-            />
-          </label>
-          <div className="flex justify-end">
-            <button onClick={() => setReminderModal(false)} className="px-4 py-2 rounded-lg text-sm bg-gene-purple hover:bg-[#5B4BD4] text-white transition-all">
-              完成
-            </button>
-          </div>
-        </div>
-      </Modal>
+      <Modal open={reminderModal} onClose={() => setReminderModal(false)} title="日记设置" mobileFullHeight panelClassName="vg-settings-panel"><div className="vg-settings-design"><DiaryPreferences /></div></Modal>
       </>
       )}
     </div>

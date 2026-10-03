@@ -1,3 +1,5 @@
+import { taskChat } from './task-client';
+
 const GENERATOR_INSTRUCTION =
   '你是 VirtuGene 的"基因序列架构师"，职责是孵化有血有肉、让人一眼记住的数字灵魂。用户会给你角色名和若干可选设定，你要一次性输出一个 JSON 对象，作为这个角色的完整性格基因。\n\n' +
   '【硬性输出】只输出一个合法 JSON 对象，不要任何解释、前后缀或 Markdown 代码块，包含 4 个字段：\n' +
@@ -101,39 +103,10 @@ export async function generateCharacterPrompt(params: GeneratePromptParams): Pro
     { role: 'user', content: userMessage },
   ];
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120000);
+  const result = await taskChat({
+    apiKey, messages, maxTokens: 2500, temperature: .9,
+    jsonMode: true, disableThinking: true, timeoutMs: 120_000,
+  });
+  return parseResult(result.content);
 
-  try {
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'deepseek-v4-flash',
-        messages,
-        max_tokens: 2500,
-        temperature: 0.9,
-        response_format: { type: 'json_object' },
-      }),
-      signal: controller.signal,
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      return parseResult(data.choices[0].message.content);
-    }
-
-    if (response.status === 401) throw new Error('auth:invalid_key');
-    if (response.status === 402) throw new Error('billing:insufficient');
-    if (response.status === 429) throw new Error('rate:limited');
-    throw new Error('server:error');
-  } catch (err: any) {
-    if (err.name === 'AbortError') throw new Error('server:error');
-    throw err;
-  } finally {
-    clearTimeout(timeout);
-  }
 }

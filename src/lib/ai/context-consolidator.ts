@@ -1,5 +1,5 @@
-import { fetchWithTimeout } from './http';
-import { gatewayChat, hasAiGatewayAccess } from './gateway';
+import { taskChat, taskUsesGateway } from './task-client';
+import { gatewayChat } from './gateway';
 import { boundAuxiliaryHistory } from './history-window';
 
 /**
@@ -98,45 +98,17 @@ export async function consolidateContext(params: ContextSettleParams): Promise<C
 
   // 与聊天及情绪分析保持一致：登录了 VirtuGene 网关但没有本地 Key 时，
   // 结算也走网关，避免“聊天能用、结算却显示链接中断”。
-  if (!apiKey.trim()) {
-    if (!hasAiGatewayAccess()) return { error: 'auth:invalid_key' };
-    return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
-  }
+  if (taskUsesGateway(apiKey)) return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
 
   try {
-    const response = await fetchWithTimeout(
-      'https://api.deepseek.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'deepseek-v4-flash',
-          messages,
-          max_tokens: 1600,
-          temperature: 0.3,
-        }),
-      },
-      30_000,
-    );
-
-    if (!response.ok) {
-      if (response.status === 401) return { error: 'auth:invalid_key' };
-      if (response.status === 402) return { error: 'billing:insufficient' };
-      if (response.status === 429) return { error: 'rate:limited' };
-      if (hasAiGatewayAccess()) return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
-      return { error: 'server:error' };
-    }
-
-    const data = await response.json();
-    const text: string = data.choices?.[0]?.message?.content ?? '';
+    const result = await taskChat({ apiKey, messages, maxTokens: 1600, temperature: .3, jsonMode: true, disableThinking: true, timeoutMs: 30_000 });
+    const text = result.content;
     const parsed = parseSettleJSON(text, history.length);
-    if (parsed.error === 'server:error' && hasAiGatewayAccess()) return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
+    if (parsed.error === 'server:error' && taskUsesGateway('')) return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
     return parsed;
-  } catch {
-    if (hasAiGatewayAccess()) return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
+  } catch (error) {
+    if (error instanceof Error && ['auth:invalid_key', 'billing:insufficient', 'rate:limited'].includes(error.message)) return { error: error.message };
+    if (taskUsesGateway('')) return settleViaGateway('请根据上面的带编号对话完成结算，并严格输出 JSON。', history);
     return { error: 'server:error' };
   }
 }

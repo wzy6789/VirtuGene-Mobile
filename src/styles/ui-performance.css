@@ -1,0 +1,125 @@
+/* Opaque mobile chrome does not need to blur the scrolling surface underneath.
+   Keeping these layers cheap leaves more of the frame budget for chat and gestures. */
+.mobile-layout :is(.chat-header,.chat-composer,.vg-navigation) {
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+
+/* One calm touch language across navigation, chat and the existing settings.
+   Only the decoration moves, so labels and hit rectangles stay steady. */
+.mobile-layout :is(.vg-navigation button,.chat-header button,.chat-composer button,.vg-conversation-row,.vg-character-shortcuts button,.vg-latest-message-button) {
+  position:relative; isolation:isolate; overflow:hidden; touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+}
+.mobile-layout :is(.vg-navigation button,.chat-header button,.chat-composer button,.vg-conversation-row,.vg-character-shortcuts button,.vg-latest-message-button)::after {
+  content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background:radial-gradient(ellipse 130px 90px at var(--vg-touch-x,50%) var(--vg-touch-y,50%),color-mix(in srgb,var(--vg-accent,#ad9bff) 12%,transparent),transparent 85%);
+  opacity:0; transition:opacity 260ms cubic-bezier(.16,1,.3,1);
+}
+.mobile-layout :is(.vg-navigation button,.chat-header button,.chat-composer button,.vg-conversation-row,.vg-character-shortcuts button,.vg-latest-message-button)[data-touch-pressed]::after { opacity:1; transition-duration:60ms; }
+.mobile-layout .chat-header button > svg { transition:transform 240ms cubic-bezier(.16,1,.3,1); }
+.mobile-layout .chat-header button[data-touch-pressed] > svg { transform:scale(.92); }
+.mobile-layout button[data-press-cancelled] { opacity:.8; }
+.mobile-layout button.vg-latest-message-button { position:absolute; }
+.mobile-layout :is(.chat-thread,.vg-conversation-scroll,.vg-canvas-scroll) { overscroll-behavior-y:contain; }
+.chat-thread:focus-visible { outline:2px solid var(--vg-accent,#ad9bff); outline-offset:-3px; }
+.vg-latest-message-anchor .vg-latest-message-button {
+  animation:none; opacity:1; visibility:visible; transform:none;
+  transition:opacity 180ms ease-out,transform 240ms cubic-bezier(.16,1,.3,1),visibility 0s;
+}
+.vg-latest-message-anchor[data-visible='false'] .vg-latest-message-button {
+  opacity:0; visibility:hidden; transform:translateY(5px); pointer-events:none;
+  transition:opacity 150ms ease-out,transform 180ms ease-out,visibility 0s 180ms;
+}
+.vg-message-generation-status {
+  display:flex; align-items:center; gap:5px; margin:6px 0 0;
+  font-size:11px; line-height:20px; color:var(--text-secondary);
+  animation:vg-generation-status-arrive 220ms cubic-bezier(.16,1,.3,1) backwards;
+}
+.vg-message-generation-status svg { flex-shrink:0; color:var(--vg-accent,#ad9bff); opacity:.8; }
+.vg-message-generation-status.is-interrupted svg { color:var(--vg-cyan,#00cec9); }
+@keyframes vg-generation-status-arrive { from { opacity:.5; transform:translateY(2px); } to { opacity:1; transform:none; } }
+html[data-vg-reduced-motion='true'] .vg-message-generation-status { animation:none; }
+html[data-vg-reduced-motion='true'] .vg-latest-message-anchor .vg-latest-message-button { transition:none; }
+@media (prefers-reduced-motion:reduce) {
+  .vg-message-generation-status { animation:none; }
+  .vg-latest-message-anchor .vg-latest-message-button { transition:none; }
+}
+
+/* Shared waiting/first-text bubble keeps its avatar and layout anchor alive. */
+.vg-chat-message-row[data-streamed] .vg-message-bubble { min-width:66px; }
+.vg-reply-waiting-dots { display:inline-flex; align-items:center; gap:5px; vertical-align:middle; height:1em; }
+.vg-reply-waiting-dots i {
+  width:4px; height:4px; border-radius:50%; background:var(--vg-cyan,#00cec9);
+  animation:vg-reply-breathe 1200ms ease-in-out infinite;
+}
+.vg-reply-waiting-dots i:nth-child(2) { animation-delay:140ms; }
+.vg-reply-waiting-dots i:nth-child(3) { animation-delay:280ms; }
+@keyframes vg-reply-breathe { 0%,100% { opacity:.3; } 50% { opacity:.9; } }
+.vg-stream-text-arrive { animation:vg-reply-text-settle 220ms cubic-bezier(.16,1,.3,1) backwards; }
+@keyframes vg-reply-text-settle { from { opacity:.65; } to { opacity:1; } }
+.vg-chat-message-row[data-streamed] .vg-message-bubble {
+  transition:border-color 240ms ease-out;
+}
+.vg-chat-message-row[data-streamed] .vg-message-bubble[data-streaming] {
+  border-color:color-mix(in srgb,var(--vg-cyan,#00cec9) 25%,var(--vg-edge,var(--border)));
+}
+
+/* Crossfade only the icons. Button position, focus and hit rectangle stay fixed. */
+.chat-composer-send { position:relative; transition:opacity 180ms ease-out,background-color 220ms ease-out; }
+.vg-composer-icon {
+  position:absolute; inset:0; display:grid; place-items:center; pointer-events:none;
+  transition:opacity 150ms ease-out,transform 280ms cubic-bezier(.16,1,.3,1);
+}
+.vg-composer-icon.is-send { opacity:1; transform:translate3d(0,0,0) scale(1) rotate(0); }
+.vg-composer-icon.is-stop { opacity:0; transform:translate3d(0,5px,0) scale(.72); }
+.chat-composer-send[data-generating='true'] .is-send { opacity:0; transform:translate3d(0,-5px,0) scale(.8) rotate(-12deg); }
+.chat-composer-send[data-generating='true'] .is-stop { opacity:1; transform:translate3d(0,0,0) scale(1); }
+.vg-chat-presence .vg-animated-value { display:inline-block; }
+html[data-vg-reduced-motion='true'] :is(.vg-stream-text-arrive,.vg-reply-waiting-dots i) { animation:none; }
+html[data-vg-reduced-motion='true'] :is(.vg-composer-icon,.chat-composer-send,.vg-chat-message-row[data-streamed] .vg-message-bubble) { transition:none; }
+@media (prefers-reduced-motion:reduce) {
+  :is(.vg-stream-text-arrive,.vg-reply-waiting-dots i) { animation:none; }
+  :is(.vg-composer-icon,.chat-composer-send,.vg-chat-message-row[data-streamed] .vg-message-bubble) { transition:none; }
+}
+
+/* A covered atmosphere keeps its pose rather than restarting when a sheet closes. */
+.vg-soul-field[data-motion-paused] *,
+.vg-soul-field[data-motion-paused] *::before,
+.vg-soul-field[data-motion-paused] *::after {
+  animation-play-state:paused !important;
+}
+html[data-vg-background] :is(.mobile-layout,.vg-modal-panel) *,
+html[data-vg-background] :is(.mobile-layout,.vg-modal-panel) *::before,
+html[data-vg-background] :is(.mobile-layout,.vg-modal-panel) *::after {
+  animation-play-state:paused !important;
+}
+
+/* Frozen frames contain the same opaque mobile chrome and need no live blur pass. */
+.vg-motion-snapshot :is(.chat-header,.chat-composer,.vg-navigation) {
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+}
+
+/* The in-app setting uses the same quiet mode as the operating system. Instant
+   pressed, selected, loading and focus states still communicate every action. */
+html[data-vg-reduced-motion='true'] :is(.mobile-layout,.vg-modal-panel,.vg-settings-design,.vg-secretary-ui,.scene-settings-overlay,.scene-settings-panel),
+html[data-vg-reduced-motion='true'] :is(.mobile-layout,.vg-modal-panel,.vg-settings-design,.vg-secretary-ui,.scene-settings-overlay,.scene-settings-panel) *,
+html[data-vg-reduced-motion='true'] :is(.mobile-layout,.vg-modal-panel,.vg-settings-design,.vg-secretary-ui,.scene-settings-overlay,.scene-settings-panel) *::before,
+html[data-vg-reduced-motion='true'] :is(.mobile-layout,.vg-modal-panel,.vg-settings-design,.vg-secretary-ui,.scene-settings-overlay,.scene-settings-panel) *::after,
+html[data-vg-reduced-motion='true'] :is(.vg-filter-chip,.vg-chip-check,.vg-tag-field,.vg-edit-tag,.vg-tag-suggestions,.vg-font-ruler,.vg-voice-tools,.vg-voice-plus,.vg-press-card,.vg-press-glow) {
+  animation:none !important;
+  transition-duration:0ms !important;
+  scroll-behavior:auto !important;
+}
+html[data-vg-reduced-motion='true'] .vg-press-card[data-pressed] {
+  transform:none !important;
+}
+html[data-vg-reduced-motion='true'] :is(.vg-wordmark-reflection,.vg-wordmark-rail,.vg-profile-primary)::after,
+html[data-vg-reduced-motion='true'] .vg-wordmark-reflection::before,
+html[data-vg-reduced-motion='true'] .vg-world-helix-signal {
+  opacity:0;
+}
+html[data-vg-reduced-motion='true'] .mobile-layout .vg-world-life-entry:is(:hover,:active),
+html[data-vg-reduced-motion='true'] .mobile-layout .vg-character-shortcuts > button:active {
+  transform:none;
+}

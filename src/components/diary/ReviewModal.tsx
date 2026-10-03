@@ -1,3 +1,4 @@
+import { useAiAvailability } from '../settings/useAiAvailability';
 import { useEffect, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { useAuthStore } from '../../store/auth-store';
@@ -12,7 +13,8 @@ interface Props {
 
 /** 「本周灵魂回顾」：把本周日记交给 AI 串成一篇回顾，可复制或存为今天的日记 */
 export function ReviewModal({ open, onClose }: Props) {
-  const apiKey = useAuthStore((s) => s.apiKey);
+  const apiKey = useAuthStore((s) => s.apiKey) ?? '';
+  const hasAiAccess = useAiAvailability();
   const getOrCreateForDate = useDiaryStore((s) => s.getOrCreateForDate);
   const updateDiary = useDiaryStore((s) => s.updateDiary);
 
@@ -22,8 +24,8 @@ export function ReviewModal({ open, onClose }: Props) {
   const [copied, setCopied] = useState(false);
 
   const run = async () => {
-    if (!apiKey) {
-      setError('未检测到 API Key，无法生成');
+    if (!hasAiAccess) {
+      setError('请先在设置的 AI 连接中配置当前模型');
       return;
     }
     setLoading(true);

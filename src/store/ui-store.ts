@@ -29,7 +29,11 @@ export const WORLD_OVERLAY_VIEWS: ActiveView[] = ['diary', 'todo', 'moments', 'r
 export const IMMERSIVE_VIEWS: ActiveView[] = ['canvas'];
 
 interface UIState {
+  /** The user's record to open from a completed secretary task. */
+  lifeRecordFocus: { userId: string; kind: 'diary' | 'todo' | 'moments'; id: string; date?: string } | null;
   activeView: ActiveView;
+  momentsSettingsRequested: boolean;
+  setMomentsSettingsRequested: (value: boolean) => void;
   setActiveView: (view: ActiveView) => void;
   /** 手机端底部 tab */
   mobileTab: MobileTab;
@@ -61,7 +65,10 @@ interface UIState {
 
 /** 主内容区视图切换 + 手机端底部 tab + 世界空间入口 */
 export const useUIStore = create<UIState>((set) => ({
+  lifeRecordFocus: null,
   activeView: 'chat',
+  momentsSettingsRequested: false,
+  setMomentsSettingsRequested: (momentsSettingsRequested) => set({ momentsSettingsRequested }),
   setActiveView: (activeView) => set({ activeView }),
   // Local mobile preview opens the screen currently being reviewed; installed app remains on Messages.
   mobileTab: typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('virtugene-preview') === 'mobile' ? 'characters' : 'chat',

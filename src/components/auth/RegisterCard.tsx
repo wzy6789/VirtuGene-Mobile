@@ -28,8 +28,8 @@ export function RegisterCard({ onSwitch }: Props) {
     e.preventDefault();
     setError('');
 
-    if (!username.trim() || !password || !confirmPassword || !apiKey.trim()) {
-      setError('请填写所有字段，基因序列不能有缺失');
+    if (!username.trim() || !password || !confirmPassword) {
+      setError('请填写用户名和两次密码');
       return;
     }
 
@@ -62,7 +62,7 @@ export function RegisterCard({ onSwitch }: Props) {
     setStep('validating');
     setLoading(true);
     try {
-      const result = await ipc.key.validate(apiKey.trim());
+      const result = apiKey.trim() ? await ipc.key.validate(apiKey.trim()) : { valid: true };
       if (!result.valid) {
         setError(result.error ?? '基因序列验证失败，请检查 API Key');
         setStep('form');
@@ -171,7 +171,7 @@ export function RegisterCard({ onSwitch }: Props) {
             type={showKey ? 'text' : 'password'}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder="DeepSeek API Key (sk-...)"
+            placeholder="DeepSeek API Key（可稍后配置）"
             autoComplete="off"
             className="w-full px-1 py-3 pr-10 bg-transparent border-b border-line-strong text-ink text-sm placeholder-gray-500 focus:outline-none focus:border-life-cyan transition-colors"
           />
@@ -183,6 +183,7 @@ export function RegisterCard({ onSwitch }: Props) {
             {showKey ? '隐藏' : '显示'}
           </button>
         </div>
+        <p className="text-xs leading-relaxed text-sub pt-2">可以先创建账号，进入「设置 → AI 连接」选择 OpenAI、Claude、Gemini 或其他服务商。</p>
       </div>
 
       <button

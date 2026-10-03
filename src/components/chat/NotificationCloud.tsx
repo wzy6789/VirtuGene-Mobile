@@ -1,3 +1,4 @@
+import { avatarImageSrc } from '../../lib/avatar';
 import { useEffect } from 'react';
 import { useNotificationStore } from '../../store/notification-store';
 import { useChatStore } from '../../store/chat-store';
@@ -57,8 +58,8 @@ export function NotificationCloud() {
             <div className="relative shrink-0">
               <div className="absolute inset-0 rounded-full bg-gradient-to-br from-gene-purple to-life-cyan opacity-50 blur-[4px]" />
               <div className="relative w-10 h-10 rounded-full bg-panel flex items-center justify-center text-2xl overflow-hidden ring-2 ring-gene-purple/30">
-                {item.avatar.startsWith('data:') ? (
-                  <img src={item.avatar} alt={item.characterName} className="w-full h-full object-cover" />
+                {avatarImageSrc(item.avatar) ? (
+                  <img src={avatarImageSrc(item.avatar)} alt={item.characterName} className="w-full h-full object-cover" />
                 ) : (
                   item.avatar
                 )}

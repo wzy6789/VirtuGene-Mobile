@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { avatarImageSrc } from '../../lib/avatar';
 import type { Character, CharacterState, RelationshipEvent, RelationshipState, SharedStoryEvent } from '../../db/index';
 import { stateRepo } from '../../db/state-repo';
 import { memoryRepo } from '../../db/memory-repo';
@@ -12,6 +13,7 @@ import { Modal } from '../ui/Modal';
 import { SharedStoryEventsModal } from './SharedStoryEventsModal';
 import { DEFAULT_USER_AVATAR, useAuthStore } from '../../store/auth-store';
 import { portraitLayout, portraitRoute } from '../../lib/relationship-layout';
+import { isStoryCharacter } from '../../lib/character-domain';
 
 interface RelationNetworkModalProps {
   open: boolean;
@@ -65,7 +67,8 @@ function relationColor(link: GraphLink, active = false): { line: string; glow: s
 }
 
 function renderAvatar(avatar: string | undefined, fallback: string, className: string) {
-  if (avatar && /^(data:|https?:\/\/|blob:)/.test(avatar)) return <img src={avatar} alt="" className={`${className} object-cover`} draggable={false} />;
+  const image = avatarImageSrc(avatar);
+  if (image) return <img src={image} alt="" className={`${className} object-cover`} draggable={false} />;
   return <span className={`${className} flex items-center justify-center`}>{avatar || fallback}</span>;
 }
 
@@ -179,7 +182,7 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
     return () => { alive = false; };
   }, [selectedKey, userId]);
 
-  const visible = useMemo(()=>characters.filter(character => character.createdBy === userId),[characters,userId]);
+  const visible = useMemo(()=>characters.filter(character => isStoryCharacter(character) && character.createdBy === userId),[characters,userId]);
   const byCharacterId = useMemo(() => new Map(visible.map((character) => [character.id, character])), [visible]);
   const stateByPair = useMemo(() => new Map(relationshipStates.map((state) => [state.pairKey, state])), [relationshipStates]);
   const worldEventsByPair = useMemo(() => {

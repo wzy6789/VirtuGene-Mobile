@@ -85,7 +85,7 @@ export async function setDiarySharing(input: SetDiarySharingInput): Promise<SetD
       status: 'withdrawn',
     });
     const selected = await db.characters.bulkGet(visibleTo);
-    if (selected.some((character) => !character || character.createdBy !== input.userId)) {
+    if (selected.some((character) => !character || character.createdBy !== input.userId || character.agentProfile === 'secretary')) {
       throw new Error('diary-visibility: 授权对象无效');
     }
 

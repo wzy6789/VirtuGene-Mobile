@@ -1,6 +1,6 @@
-import { fetchWithTimeout } from './http';
+import { taskChat, taskUsesGateway } from './task-client';
 import { boundAuxiliaryHistory } from './history-window';
-import { gatewayAux, hasAiGatewayAccess } from './gateway';
+import { gatewayAux } from './gateway';
 
 /**
  * 长会话滚动摘要：把「超出保留窗口」的早期对话压缩成一段摘要，
@@ -75,47 +75,18 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
     },
   ];
 
-  if (!apiKey.trim()) {
-    if (!hasAiGatewayAccess()) return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
-    return summarizeViaGateway(history, previousSummary, protectedMemories);
-  }
+  if (taskUsesGateway(apiKey)) return summarizeViaGateway(history, previousSummary, protectedMemories);
 
   try {
-    const response = await fetchWithTimeout(
-      'https://api.deepseek.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'deepseek-v4-flash',
-          messages,
-          max_tokens: 1_600,
-          temperature: 0.3,
-        }),
-      },
-      30_000,
-    );
-
-    if (!response.ok) {
-      if (response.status === 401) return { error: 'auth:invalid_key' };
-      if (response.status === 402) return { error: 'billing:insufficient' };
-      if (response.status === 429) return { error: 'rate:limited' };
-      if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary, protectedMemories);
-      return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
-    }
-
-    const data = await response.json();
-    const text: string = data.choices?.[0]?.message?.content ?? '';
+    const result = await taskChat({ apiKey, messages, maxTokens: 1600, temperature: .3, disableThinking: true, timeoutMs: 30_000 });
+    const text = result.content;
     const summary = text.trim();
     if (summary.length > 2_400) return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
     if (summary.length > 0) return { summary, complete: true };
-    if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary, protectedMemories);
+    if (taskUsesGateway('')) return summarizeViaGateway(history, previousSummary, protectedMemories);
     return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
   } catch {
-    if (hasAiGatewayAccess()) return summarizeViaGateway(history, previousSummary, protectedMemories);
+    if (taskUsesGateway('')) return summarizeViaGateway(history, previousSummary, protectedMemories);
     return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };
   }
 }

@@ -274,7 +274,10 @@ export function fallbackInterpret(text: string): WorldAction {
   const t = text.trim();
   if (!t) return freeformAction(t, 'fallback');
   const timeSkip = /^(直接|现在)?\s*(到|跳到|快进到)\s*(第二天|明天|后天|晚上|早上|早晨|中午|下午|黄昏|夜里|深夜|一周后|一个月后)/.exec(t);
-  if (timeSkip) {
+  const timeSetting = /^(?:时间(?:设为|设定为|设置为|改为|是)|设定时间为|把时间(?:设为|设置为|改为))\s*.+/u.test(t)
+    || /^现在是.{0,30}(?:\d|[一二两三四五六七八九十]点|凌晨|深夜|早晨|清晨|早上|上午|中午|下午|黄昏|傍晚|晚上|夜晚|冬夜|春天|夏天|秋天|冬天)/u.test(t);
+  const relativeSkip = /^(?:直接|快进|跳)?(?:到)?\s*(?:\d+|[一二两三四五六七八九十]+)(?:个)?(?:天|周|月|年|小时|分钟)(?:以?后|之后)/u.test(t);
+  if (timeSkip || timeSetting || relativeSkip || /^(?:过一会儿|稍后)$/u.test(t)) {
     return { intent: 'time_skip', raw: t, by: 'fallback', timeChange: t.slice(0, 60), requiresCharacterResponse: true, requiresNarration: true };
   }
   if (/^(其实|实际上)?\s*(我们)?(从来)?(没|没有)(去过|发生|说过)/.test(t)) {

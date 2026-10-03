@@ -4,7 +4,8 @@
  * - AI 输出 JSON 数组 [{"speaker":"角色名","content":"..."}]，speaker 硬校验必须在群成员内
  * - 非流式（项目铁律）；群聊用全局默认对话模型（成员各自模型 P1）
  */
-import { resolveModel, getProviderKey, findModel, llmChat, type LLMModel, type LLMChatResult } from './llm';
+import { resolveModel, findModel, getAvailableModels, type LLMModel, type LLMChatResult } from './llm';
+import { taskChat } from './task-client';
 import { stripRoleplayActions } from './text';
 import { buildTimeContext } from '../chat-context';
 import { containsPrivateMemoryEcho } from '../memory-disclosure';
@@ -69,8 +70,9 @@ export interface GroupTurnParams {
 }
 
 export async function generateGroupTurn(params: GroupTurnParams): Promise<{ turns: GroupTurn[]; error?: string }> {
-  // 图片回合 → DeepSeek 视觉模型看图；否则用全局默认模型；失败/空结果自动切 deepseek-v4-flash 兜底一次
-  const model = params.image ? findModel('deepseek-v4-flash-vision-exp')! : resolveModel();
+  const selected = resolveModel();
+  const model = params.image && !selected.vision ? getAvailableModels(selected.provider).find(item => item.vision) : selected;
+  if (!model) return { turns: [], error: '当前服务商没有配置支持图片的模型，请在 AI 连接中添加。' };
   const fallback = findModel('deepseek-v4-flash')!;
 
   const first = await attemptTurn(params, model);
@@ -79,8 +81,8 @@ export async function generateGroupTurn(params: GroupTurnParams): Promise<{ turn
     return { turns: turns.length ? turns : first.turns };
   }
 
-  // 默认模型失败 → 兜底 flash（仅当不是同一个模型）
-  if (model.id !== fallback.id) {
+  // Existing DeepSeek retries stay within the explicitly selected provider.
+  if (model.provider === 'deepseek' && model.id !== fallback.id) {
     const fb = await attemptTurn(params, fallback);
     if (fb.turns.length > 0) {
       const turns = await generateActorTurns(params, fb.turns, fallback);
@@ -163,13 +165,9 @@ async function callMemberText(params: {
   history: GroupTurnParams['history'];
   userContent: unknown;
 }): Promise<string> {
-  const key = params.model.provider === 'deepseek' ? params.apiKey : await getProviderKey(params.model.provider);
-  if (!key) return '';
   try {
-    const result = await llmChat({
-      provider: params.model.provider,
-      model: params.model.id,
-      apiKey: key,
+    const result = await taskChat({
+      apiKey: params.apiKey,
       messages: [
         { role: 'system', content: params.system },
         ...mergeHistory(params.history),
@@ -179,7 +177,7 @@ async function callMemberText(params: {
       disableThinking: true,
       maxTokens: 420,
       timeoutMs: 90_000,
-    });
+    }, params.model);
     return stripRoleplayActions(result.content).replace(/[\r\n]+/g, ' ').trim().slice(0, 500);
   } catch (error) {
     console.warn('[group-chat] actor generation failed:', (error as Error)?.message ?? error);
@@ -245,9 +243,6 @@ async function attemptTurn(
   jsonMode = true,
 ): Promise<{ turns: GroupTurn[]; error?: string }> {
   try {
-    const key = model.provider === 'deepseek' ? params.apiKey : await getProviderKey(model.provider);
-    if (!key) throw new Error('auth:invalid_key（未配置该服务商 Key）');
-
     const membersDesc = params.members
       .map((m) => {
         const mem = m.memory ? `\n　· 可以在当前群里提起的真实记忆：${m.memory}` : '';
@@ -302,10 +297,8 @@ async function attemptTurn(
       system += '\n\n群聊背景摘要（较早聊天的压缩内容，粗略参考，不要复述）：\n' + params.summary;
     }
 
-    const res = await llmChat({
-      provider: model.provider,
-      model: model.id,
-      apiKey: key,
+    const res = await taskChat({
+      apiKey: params.apiKey,
       messages: [
         { role: 'system', content: system },
         ...history,
@@ -318,11 +311,11 @@ async function attemptTurn(
       // 大提示词（多人设+记忆+历史）需要更高输出上限，防止 JSON 被截断成残缺片段
       maxTokens: 1500,
       timeoutMs: 90_000,
-    });
+    }, model);
 
     // 关键诊断日志：原始模型输出原样打到 console（Android 上 adb logcat 可查），
     // 无论是否成功都留痕，便于下次仍失败时精准定位是"格式"还是"发言人"问题。
-    console.warn(`[group-chat] 模型输出(${model.id}${jsonMode ? '·jsonMode' : ''}${res.truncated ? '·截断' : ''}):`, res.content);
+    console.warn('[group-chat] response', { provider: model.provider, model: model.id, characters: res.content.length, truncated: res.truncated === true });
 
     const parsed = parseTurns(res.content, params.members, maxTurns);
     console.warn(

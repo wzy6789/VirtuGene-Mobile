@@ -14,6 +14,7 @@ param(
     'character-memory', 'memory-continuity', 'memory-audit-20260926', 'worldG', 'moments', 'moments-autonomous'
   ),
   [int]$TimeoutSec = 150,
+  [int]$Port = 17899,
   [string]$Chrome = 'C:\Program Files\Google\Chrome\Application\chrome.exe'
 )
 
@@ -37,7 +38,7 @@ foreach ($suite in $Suites) {
 
   $proc = Start-Process -FilePath $Chrome -WindowStyle Hidden -PassThru -ArgumentList @(
     '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-    "--user-data-dir=$profile", "http://127.0.0.1:17899/$suite.html"
+    "--user-data-dir=$profile", "http://127.0.0.1:$Port/$suite.html"
   )
 
   $waited = 0

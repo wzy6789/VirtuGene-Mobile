@@ -21,6 +21,7 @@
  *    用户不必面对长时间纯 loading；看到角色回复后即可继续输入。
  * 3. **事务队列**（§58）：同一个世界的轮次串行执行，下一轮不会读到半完成状态。
  */
+import { worldTimeOffset, worldTimeChangeLabel, hourOfWorldTime } from './world-time';
 import type { Character, WorldScene, WorldSceneEntry } from '../../db/index';
 import { sceneEntriesAvailableToAudience, worldSceneRepo } from '../../db/world-scene-repo';
 import { worldTurnRepo } from '../../db/world-turn-repo';
@@ -43,7 +44,6 @@ import type { WorldAction } from './world-actions';
 import type { WorldTurn, WorldTurnStatus } from '../../db/index';
 import { worldLocationRepo } from '../../db/world-location-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
-import { worldObjectRepo } from '../../db/world-object-repo';
 import { deriveWorldVisualState, updateConversationState, type WorldBeatMeta } from './world-immersion';
 
 /* ------------------------------------------------------------------ *
@@ -106,26 +106,7 @@ function dayPart(dayLabel: string, period: string): string {
 
 /** 把"第二天早上"这类自由文本粗略换算成偏移量（只用于时钟，不伪造历史） */
 export function offsetForTimeChange(text: string, currentOffsetMs: number, now = Date.now()): number {
-  const t = text ?? '';
-  let days = 0;
-  if (/第二天|明天|次日/.test(t)) days = 1;
-  else if (/后天/.test(t)) days = 2;
-  else if (/一周后|下周/.test(t)) days = 7;
-  else if (/一个月后/.test(t)) days = 30;
-  let targetHour: number | null = null;
-  if (/早上|早晨|清晨/.test(t)) targetHour = 7;
-  else if (/中午/.test(t)) targetHour = 12;
-  else if (/下午/.test(t)) targetHour = 15;
-  else if (/黄昏|傍晚/.test(t)) targetHour = 18;
-  else if (/晚上|夜晚|夜里/.test(t)) targetHour = 21;
-  else if (/深夜/.test(t)) targetHour = 1;
-
-  const base = now + currentOffsetMs;
-  if (days === 0 && targetHour == null) return currentOffsetMs;
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
-  if (targetHour != null) d.setHours(targetHour, 0, 0, 0);
-  return d.getTime() - now;
+  return worldTimeOffset(text, currentOffsetMs, now);
 }
 
 /**
@@ -181,7 +162,7 @@ export async function applyLocalWorldAction(params: {
     const location = movedScene ? await worldLocationRepo.ensureFromScene(movedScene) : undefined;
     const world = await db.worlds.get(worldId);
     if (location && movedScene) {
-      await worldObjectRepo.ensureForScene({ ...movedScene, locationId: location.id });
+
       await Promise.all(movedScene.characterIds.map((characterId) => worldAgentRepo.moveCharacter({
         userId,
         worldId,
@@ -218,10 +199,15 @@ export async function applyLocalWorldAction(params: {
   // 4) 时间跳跃 / 换时间点（只改时钟，不伪造历史）
   if ((action.intent === 'time_skip' || action.intent === 'change_time')) {
     const text = action.timeChange ?? action.raw;
-    const offset = offsetForTimeChange(text, scene.state.timeOffsetMs ?? 0);
-    const label = timeLabelFor(offset);
+    const anchor = scene.state.timeAnchorMs ?? scene.startedAt;
+    const offset = worldTimeOffset(text, scene.state.timeOffsetMs ?? 0, anchor, scene.timeLabel);
+    let label = worldTimeChangeLabel(text, scene.timeLabel);
+    if (/(?:小时|分钟)(?:以?后|之后)/u.test(text) && hourOfWorldTime(scene.timeLabel)) {
+      const advanced = new Date(anchor + offset);
+      label += `（当前${String(advanced.getHours()).padStart(2, '0')}:${String(advanced.getMinutes()).padStart(2, '0')}）`;
+    }
     await worldSceneRepo.updateScene(scene.id, { timeLabel: label });
-    await worldSceneRepo.patchSceneState(scene.id, { timeOffsetMs: offset });
+    await worldSceneRepo.patchSceneState(scene.id, { timeOffsetMs: offset, timeAnchorMs: anchor });
     entries.push({ kind: 'system', content: `时间：${label}` });
     changes.push(`时间到了${label}`);
     handled = true;
@@ -368,6 +354,7 @@ function snapshotOf(scene: WorldScene) {
     timeLabel: scene.timeLabel,
     mood: scene.mood,
     timeOffsetMs: scene.state.timeOffsetMs ?? 0,
+    timeAnchorMs: scene.state.timeAnchorMs ?? scene.startedAt,
     characterIds: [...scene.characterIds],
   };
 }
@@ -386,6 +373,7 @@ function buildTranscript(entries: WorldSceneEntry[], nameOf: (id: string) => str
 }
 
 export function runWorldTurn(params: RunWorldTurnParams): Promise<WorldTurnResult> {
+  params = { ...params, characters: params.characters.filter(c => c.agentProfile !== 'secretary') };
   if (params.bypassQueue) return runWorldTurnInner(params);
   return enqueueWorldTurn(params.worldId, () => runWorldTurnInner(params));
 }
@@ -398,6 +386,10 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
   const scene = await worldSceneRepo.getScene(sceneId);
   if (!scene || scene.userId !== userId || scene.worldId !== worldId) {
     return { turnId: '', status: 'failed', beats: [], suggestions: [], entries: [], llmCalls: 0, error: '这一片段不存在' };
+  }
+  const sceneMembers = await db.characters.bulkGet(scene.characterIds);
+  if (sceneMembers.some(c => c?.agentProfile === 'secretary')) {
+    return { turnId: '', status: 'failed', beats: [], suggestions: [], entries: [], llmCalls: 0, error: '生活助理不参与星域剧情，请先从此片段移出助理。' };
   }
   if (scene.status === 'finished') {
     return { turnId: '', status: 'failed', beats: [], suggestions: [], entries: [], llmCalls: 0, error: '这个世界已经结束了' };
@@ -897,13 +889,20 @@ export async function retryWorldTurn(params: {
   call?: WorldLlmCaller;
   onEvent?: (event: WorldTurnEvent) => void;
 }): Promise<WorldTurnResult | null> {
+  const original = await worldTurnRepo.getById(params.turnId);
+  if (!original) return null;
+  const scene = await worldSceneRepo.getScene(original.sceneId);
+  const members = await db.characters.bulkGet([...new Set([...original.characterIds, ...(scene?.characterIds ?? [])])]);
+  if (members.some(c => c?.agentProfile === 'secretary')) {
+    return { turnId: original.id, status: 'failed', beats: [], suggestions: [], entries: [], llmCalls: 0, error: '含助理的旧轮次不能重演；移出助理后请发起新一轮。' };
+  }
   const turn = await worldTurnRepo.markRetrying(params.turnId);
   if (!turn) return null;
   // 关键：**不再插入一条用户输入**。把这一轮已经落下的正文档位之后，
   // 直接以原话重跑生成阶段（用户原话仍在世界流里，不会被重复写第二遍）。
   return enqueueWorldTurn(turn.worldId, () => rerunAfterUserEntry({
     turn,
-    characters: params.characters,
+    characters: params.characters.filter(c => c.agentProfile !== 'secretary'),
     ...(params.call ? { call: params.call } : {}),
     ...(params.onEvent ? { onEvent: params.onEvent } : {}),
   }));

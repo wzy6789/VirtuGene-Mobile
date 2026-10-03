@@ -15,6 +15,7 @@
  */
 import { llmChat, llmChatStream, resolveModel, getProviderKey, type LLMChatParams, type LLMChatResult, type ProviderId } from '../ai/llm';
 import { gatewayChat, gatewayChatStream, hasAiGatewayAccess } from '../ai/gateway';
+import { getProviderConfig, providerRequiresKey } from '../ai/provider-config';
 
 /** 可注入的 LLM 边界（验收用；生产走 llmChat / gatewayChat） */
 export type WorldLlmCaller = typeof llmChat;
@@ -63,8 +64,9 @@ export function classifyWorldAiError(err: unknown): { status: WorldAiStatus; mes
 /** 统一可用性判断（UI 在"进入世界"之前就应该问它一次） */
 export async function worldAiAvailability(): Promise<WorldAiAvailability> {
   const model = resolveModel();
+  if (!getProviderConfig(model.provider).enabled) return { status: 'UNAVAILABLE', provider: model.provider, modelId: model.id, route: 'none', detail: '当前服务商已停用，请在 AI 连接中启用。' };
   const key = await getProviderKey(model.provider);
-  if (key) {
+  if (key || !providerRequiresKey(model.provider)) {
     return { status: 'AVAILABLE', provider: model.provider, modelId: model.id, route: 'byok', detail: '' };
   }
   // 当前自建网关只代理 DeepSeek；其他提供商必须由设备上的对应 Key 直连。
@@ -131,12 +133,13 @@ export async function worldChat(params: WorldChatParams, call?: WorldLlmCaller):
     return { ...res, route: 'byok' };
   }
 
+  if (!getProviderConfig(model.provider).enabled) throw new Error('provider:disabled');
   const key = await getProviderKey(model.provider);
-  if (key) {
+  if (key || !providerRequiresKey(model.provider)) {
     const llmParams: LLMChatParams = {
       provider: model.provider,
       model: model.id,
-      apiKey: key,
+      apiKey: key ?? '',
       messages: params.messages,
       ...(params.temperature != null ? { temperature: params.temperature } : {}),
       ...(params.jsonMode ? { jsonMode: true } : {}),

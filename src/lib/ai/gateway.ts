@@ -114,12 +114,16 @@ export async function deleteGatewayAccount(): Promise<void> {
   }
 }
 
-export async function gatewayChat(params: ChatParams): Promise<ChatResult> {
-  if (!GATEWAY_URL) throw new Error('server:error');
+export async function gatewayChat(params: ChatParams, options: { baseUrl?: string } = {}): Promise<ChatResult> {
+  const baseUrl = (options.baseUrl ?? GATEWAY_URL).replace(/\/$/, '');
+  if (!baseUrl) throw new Error('server:error');
   const controller = new AbortController();
+  const cancel = () => controller.abort(params.signal?.reason);
+  if (params.signal?.aborted) cancel();
+  else params.signal?.addEventListener('abort', cancel, { once: true });
   const timeout = window.setTimeout(() => controller.abort(), params.timeoutMs ?? 65_000);
   try {
-    const response = await fetch(`${GATEWAY_URL}/v1/chat`, {
+    const response = await fetch(`${baseUrl}/v1/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -135,6 +139,8 @@ export async function gatewayChat(params: ChatParams): Promise<ChatResult> {
         character: params.character,
         sessionModel: params.sessionModel,
         forceVision: params.forceVision,
+        ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
+        ...(params.structuredOutput ? { disableThinking: true, structuredOutput: true } : {}),
       }),
       signal: controller.signal,
     });
@@ -143,15 +149,17 @@ export async function gatewayChat(params: ChatParams): Promise<ChatResult> {
     if (!data || typeof data.content !== 'string') throw new Error('server:error');
     return data;
   } catch (error) {
+    if (params.signal?.aborted) throw params.signal.reason ?? new DOMException('Cancelled', 'AbortError');
     if (error instanceof Error && error.name === 'AbortError') throw new Error('timeout');
     throw error instanceof Error ? error : new Error('server:error');
   } finally {
     window.clearTimeout(timeout);
+    params.signal?.removeEventListener('abort', cancel);
   }
 }
 
 /**
- * 星域流式网关调用：独立端点 `/v1/chat/stream`，与私聊的 `/v1/chat` 互不影响。
+ * 世界与私聊共用的流式网关端点 `/v1/chat/stream`。
  *
  * - 请求体与 gatewayChat 相同（外加可选 maxTokens/disableThinking，供世界管线控制预算），
  *   网关把 DeepSeek 的 SSE 帧原样转发，因此这里复用 BYOK 的共享 SSE 解析器，
@@ -170,6 +178,9 @@ export async function gatewayChatStream(
   const baseUrl = (options.baseUrl ?? GATEWAY_URL).replace(/\/$/, '');
   if (!baseUrl) throw new Error('server:error');
   const controller = new AbortController();
+  const cancel = () => controller.abort(params.signal?.reason);
+  if (params.signal?.aborted) cancel();
+  else params.signal?.addEventListener('abort', cancel, { once: true });
   const timeout = window.setTimeout(() => controller.abort(), params.timeoutMs ?? 65_000);
   try {
     const response = await fetch(`${baseUrl}/v1/chat/stream`, {
@@ -193,6 +204,13 @@ export async function gatewayChatStream(
       }),
       signal: controller.signal,
     });
+    // A deployed older gateway may expose only the original JSON endpoint.
+    // This fallback happens before any text has been received, never after a cut.
+    if (response.status === 404 || response.status === 405) {
+      const result = await gatewayChat(params, { baseUrl });
+      if (result.content) params.onDelta(result.content, result.content);
+      return result;
+    }
     if (!response.ok) throw gatewayError(response.status);
     const outcome = await readSseResponse(response, params.onDelta);
     const truncated = outcome.truncated || outcome.interrupted;
@@ -203,10 +221,12 @@ export async function gatewayChatStream(
       ...(outcome.usage ? { usage: outcome.usage } : {}),
     };
   } catch (error) {
+    if (params.signal?.aborted) throw params.signal.reason ?? new DOMException('Cancelled', 'AbortError');
     if (error instanceof Error && error.name === 'AbortError') throw new Error('timeout');
     throw error instanceof Error ? error : new Error('server:error');
   } finally {
     window.clearTimeout(timeout);
+    params.signal?.removeEventListener('abort', cancel);
   }
 }
 

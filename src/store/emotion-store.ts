@@ -10,7 +10,7 @@ import { stateRepo } from '../db/state-repo';
 import { continuityRepo } from '../db/continuity-repo';
 import { ipc } from '../lib/ipc-client';
 import { computeAffinityDelta } from '../lib/affinity';
-import { hasAiGatewayAccess } from '../lib/ai/gateway';
+import { canUseAi } from '../lib/ai/availability';
 import { boundAuxiliaryHistory } from '../lib/ai/history-window';
 import { prepareMemoryMetadata } from '../lib/memory-engine';
 import type { EmotionSnapshot } from '../db/index';
@@ -52,8 +52,8 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
   clearSettleNotice: () => set({ settleNotice: null }),
 
   analyzeCurrentSession: async (characterId, sessionId, characterName) => {
-    const apiKey = useAuthStore.getState().apiKey;
-    if (!apiKey && !hasAiGatewayAccess()) {
+    const apiKey = useAuthStore.getState().apiKey ?? '';
+    if (!canUseAi()) {
       set({ analysisError: '基因序列验证失败，请检查 API Key' });
       return;
     }
@@ -150,8 +150,8 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
 
   /** 每 5 条用户消息触发一次：合并「情绪分析 + 记忆提取 + 好感度结算」为一次 API 调用 */
   settle: async (characterId, sessionId, characterName) => {
-    const apiKey = useAuthStore.getState().apiKey;
-    if (!apiKey && !hasAiGatewayAccess()) return;
+    const apiKey = useAuthStore.getState().apiKey ?? '';
+    if (!canUseAi()) return;
 
     const msgs = await messageRepo.getBySession(sessionId);
     if (msgs.filter((m) => m.role === 'user').length < 3) return;

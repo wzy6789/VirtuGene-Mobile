@@ -1,3 +1,5 @@
+import { avatarImageSrc } from '../../lib/avatar';
+
 interface AvatarProps {
   avatar: string;
   size?: 'xs' | 'sm' | 'md' | 'lg';
@@ -19,10 +21,11 @@ export function Avatar({ avatar, size = 'md', className = '' }: AvatarProps) {
   const cls = `${SIZES[size]} rounded-full shrink-0 overflow-hidden ${className}`;
   // 空字符串也要有东西可看：旧账号/演示账号可能没有头像，直接渲染会留下一个空圆圈。
   const glyph = avatar.trim() || '🧬';
-  if (glyph.startsWith('data:')) {
+  const image = avatarImageSrc(glyph);
+  if (image) {
     return (
       <img
-        src={glyph}
+        src={image}
         alt=""
         className={`${cls} object-cover`}
         style={{ imageRendering: 'auto' }}

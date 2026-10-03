@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ipc } from '../../lib/ipc-client';
 import { hashPassword, decryptApiKey } from '../../lib/crypto';
-import { persistApiKey } from '../../lib/api-key-storage';
+import { persistApiKey, clearPersistedApiKey } from '../../lib/api-key-storage';
 import { userRepo } from '../../db/user-repo';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
 import { LegalNoticeModal, type LegalDocument } from '../compliance/LegalNoticeModal';
@@ -51,13 +51,10 @@ export function LoginCard({ onSwitch }: Props) {
         ? await decryptApiKey(user.apiKeyIv, user.apiKeyCiphertext, password, saltBytes)
         : null;
 
-      if (!key) {
-        setError('该账号没有保存 API Key，请重新注册并填写 API Key');
-        return;
-      }
       login(user.id, user.username, key, user.avatar ?? DEFAULT_USER_AVATAR);
       // 同一台手机「记住登录」：API Key 加密持久化，下次启动自动恢复
-      void persistApiKey(key);
+      if (key) void persistApiKey(key);
+      else clearPersistedApiKey();
       ipc.window.setSize(1200, 800);
     } catch {
       setError('唤醒数字灵魂失败，请重试');

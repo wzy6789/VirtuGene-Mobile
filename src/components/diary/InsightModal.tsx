@@ -1,3 +1,4 @@
+import { useAiAvailability } from '../settings/useAiAvailability';
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { useAuthStore } from '../../store/auth-store';
@@ -29,7 +30,8 @@ function loadCached(): { text: string; count: number; generatedAt: number } | nu
 
 /** 「情绪周期洞察」：AI 从心情记录里找出真实存在的情绪规律 */
 export function InsightModal({ open, onClose }: Props) {
-  const apiKey = useAuthStore((s) => s.apiKey);
+  const apiKey = useAuthStore((s) => s.apiKey) ?? '';
+  const hasAiAccess = useAiAvailability();
   const diaries = useDiaryStore((s) => s.diaries);
 
   const [data, setData] = useState(loadCached());
@@ -37,7 +39,7 @@ export function InsightModal({ open, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const generate = async () => {
-    if (!apiKey) { setError('未检测到 API Key，无法生成'); return; }
+    if (!hasAiAccess) { setError('请先在设置的 AI 连接中配置当前模型'); return; }
     setLoading(true);
     setError(null);
     try {

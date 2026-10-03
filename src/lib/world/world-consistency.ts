@@ -172,7 +172,7 @@ async function guardWorldBeatOnce(params: GuardParams, privateActorCharacterId?:
   ].filter(Boolean).join('\n');
 
   const privateActorContext = privateActorCharacterId
-    ? `【${ctx.nameOf(privateActorCharacterId)}仅自己知道的资料；只用于检查这位角色的发言是否泄露】\n${renderCharacterContext(ctx, privateActorCharacterId).slice(0, 9000)}`
+    ? `【${ctx.nameOf(privateActorCharacterId)}仅自己知道的资料；只用于检查这位角色的发言是否泄露】\n${renderCharacterContext(ctx, privateActorCharacterId, action.raw ?? '').slice(0, 9000)}`
     : '';
   const guardSystem = [
     GUARD_INSTRUCTION,

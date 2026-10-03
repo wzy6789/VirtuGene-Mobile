@@ -1,6 +1,8 @@
 import type { WorldScene, WorldSceneEntry, WorldSceneState } from '../../db/index';
 import type { CSSProperties } from 'react';
 import { detectTopicMove } from '../chat-conversation-state';
+import { hourOfWorldTime } from './world-time';
+import { repeatedWorldMotifs } from './world-attention';
 
 /**
  * 每一拍都会携带的视觉状态。它不是装饰数据：地点、时段、天气和
@@ -57,15 +59,6 @@ function looksLikeShift(text: string): boolean {
   return /换个话题|说点别的|先不说这个|不聊这个|对了|突然想起|另外|顺便问|聊聊别的/.test(text);
 }
 
-function motifOf(entries: WorldSceneEntry[]): string | undefined {
-  const recent = entries.filter((entry) => entry.kind === 'dialogue').slice(-8).map((entry) => topicOf(entry.content)).filter(Boolean) as string[];
-  if (recent.length < 3) return undefined;
-  const counts = new Map<string, number>();
-  for (const value of recent) counts.set(value, (counts.get(value) ?? 0) + 1);
-  const repeated = [...counts.entries()].find(([, count]) => count >= 3);
-  return repeated?.[0];
-}
-
 export function emptyConversationState(): WorldConversationState {
   return { previousTopics: [], exhaustedMotifs: [], unansweredQuestions: [], userWantsToShift: false, turnsSinceTopicShift: 0 };
 }
@@ -83,14 +76,11 @@ export function updateConversationState(
   const previousTopics = currentTopic && currentTopic !== state.currentTopic
     ? [state.currentTopic, ...state.previousTopics].filter(Boolean).slice(0, 8) as string[]
     : state.previousTopics.slice(0, 8);
-  const exhausted = new Set(state.exhaustedMotifs);
-  const repeated = motifOf(entries);
-  if (repeated) exhausted.add(repeated);
   return {
     ...state,
     ...(currentTopic ? { currentTopic } : {}),
     previousTopics,
-    exhaustedMotifs: [...exhausted].slice(-12),
+    exhaustedMotifs: repeatedWorldMotifs(entries),
     userWantsToShift: shifted,
     turnsSinceTopicShift: shifted ? 0 : state.turnsSinceTopicShift + 1,
     lastUserTurnAt: now,
@@ -98,6 +88,8 @@ export function updateConversationState(
 }
 
 function lightFor(timeLabel: string): WorldVisualState['light'] {
+  const clock = hourOfWorldTime(timeLabel);
+  if (clock) return clock.hour < 5 ? 'night' : clock.hour < 8 ? 'dawn' : clock.hour < 17 ? 'day' : clock.hour < 19 ? 'dusk' : 'night';
   if (/清晨|早上|黎明/.test(timeLabel)) return 'dawn';
   if (/上午|中午|下午|白天/.test(timeLabel)) return 'day';
   if (/黄昏|傍晚/.test(timeLabel)) return 'dusk';
@@ -155,7 +147,6 @@ export function directorConversationHints(state: WorldConversationState | undefi
   const lines = [
     state.currentTopic ? `当前话题：${state.currentTopic}` : '',
     state.userWantsToShift ? '用户正在换话题：立刻跟随新话题，不要把上一件事拉回来。' : '',
-    state.exhaustedMotifs.length ? `近期已经反复出现、不要再用同一意象绕圈：${state.exhaustedMotifs.slice(-5).join('、')}` : '',
     state.turnsSinceTopicShift >= 4 ? '已经连续几轮对话：可以由角色主动抛出一个与现场有关的新话题，但只给一个小切口。' : '',
   ];
   return lines.filter(Boolean).join('\n');

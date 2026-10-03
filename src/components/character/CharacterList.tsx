@@ -1,3 +1,4 @@
+import { avatarImageSrc } from '../../lib/avatar';
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useChatStore } from '../../store/chat-store';
 import { useAuthStore } from '../../store/auth-store';
@@ -6,6 +7,8 @@ import { getRelationLevel } from '../../lib/affinity';
 import { CharacterAddModal } from './CharacterAddModal';
 import { Modal } from '../ui/Modal';
 import type { Character } from '../../db/index';
+import { isStoryCharacter } from '../../lib/character-domain';
+import { SecretaryWorkspaceCard } from '../secretary/SecretaryWorkspaceCard';
 
 interface Props {
   collapsed: boolean;
@@ -58,8 +61,8 @@ export function CharacterList({ collapsed }: Props) {
   const sorted = useMemo(() => {
     const kw = search.trim().toLowerCase();
     const filtered = kw
-      ? characters.filter((c) => c.name.toLowerCase().includes(kw))
-      : characters;
+      ? characters.filter((c) => isStoryCharacter(c) && c.name.toLowerCase().includes(kw))
+      : characters.filter(isStoryCharacter);
     return [...filtered].sort((a, b) => {
       const aPin = a.pinned ? 1 : 0;
       const bPin = b.pinned ? 1 : 0;
@@ -91,10 +94,10 @@ export function CharacterList({ collapsed }: Props) {
                 : 'hover:bg-surface hover:shadow-[inset_2px_0_0_0_rgba(108,92,231,0.20)]'
           }`}
         >
-          {char.avatar.startsWith('data:') ? (
+          {avatarImageSrc(char.avatar) ? (
             <div className="relative shrink-0">
               <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-gene-purple to-life-cyan opacity-40 blur-[3px]" />
-              <img src={char.avatar} alt={char.name} className="relative w-8 h-8 rounded-xl object-cover ring-1 ring-gene-purple/20" />
+              <img src={avatarImageSrc(char.avatar)} alt={char.name} className="relative w-8 h-8 rounded-xl object-cover ring-1 ring-gene-purple/20" />
             </div>
           ) : (
             <div className="relative shrink-0">
@@ -168,6 +171,7 @@ export function CharacterList({ collapsed }: Props) {
   if (collapsed) {
     return (
       <div className="space-y-0.5 px-2">
+        <button type="button" aria-label="打开生活助理" onClick={() => window.dispatchEvent(new Event('virtugene:open-secretary'))} className="min-h-11 w-full rounded-xl bg-gene-purple/10 text-lg">🗂️</button>
         {sorted.map((char) => {
           const unread = unreadByCharacter[char.id] ?? 0;
           return (
@@ -179,8 +183,8 @@ export function CharacterList({ collapsed }: Props) {
                 selectedId === char.id ? 'bg-gene-purple/20 shadow-[0_2px_12px_rgba(108,92,231,0.25)]' : 'hover:bg-surface'
               }`}
             >
-              {char.avatar.startsWith('data:') ? (
-                <img src={char.avatar} alt={char.name} className="w-7 h-7 rounded-lg object-cover ring-1 ring-gene-purple/20" />
+              {avatarImageSrc(char.avatar) ? (
+                <img src={avatarImageSrc(char.avatar)} alt={char.name} className="w-7 h-7 rounded-lg object-cover ring-1 ring-gene-purple/20" />
               ) : (
                 <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#2A2A48] to-[#0A0A14] flex items-center justify-center text-base">
                   {char.avatar}
@@ -201,6 +205,7 @@ export function CharacterList({ collapsed }: Props) {
   return (
     <>
       <div>
+        <SecretaryWorkspaceCard compact />
         {/* Search */}
         <div className="px-3 pt-2 pb-2">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface border border-transparent focus-within:border-gene-purple/40 focus-within:shadow-[0_0_0_3px_rgba(108,92,231,0.10),0_0_12px_rgba(108,92,231,0.15)] transition-all">

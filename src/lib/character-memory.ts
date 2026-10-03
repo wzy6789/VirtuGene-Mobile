@@ -14,6 +14,8 @@ import { historyWindowCutoff } from './moments/preferences';
 import { knowledgeRepo } from '../db/knowledge-repo';
 import { isMentionableDiaryEvent } from '../db/world-event-repo';
 import { worldEventRepo } from '../db/world-event-repo';
+import { coolingWorldMotifs } from './world/world-attention';
+import { sharedEventRepo } from '../db/shared-event-repo';
 import { continuityRepo } from '../db/continuity-repo';
 import { recallHistoricalPrivateChat } from './character-history-recall';
 import { isVisibleToCharacter } from './world/visibility';
@@ -24,14 +26,15 @@ export type MemorySource = 'chat' | 'group' | 'world' | 'moment' | 'todo' | 'dia
 
 /**
  * 取用场景。**调用方只说"我在哪里、对谁说话"，不再自己拼长期记忆规则**：
- * 默认查哪些来源、哪些来源必须等用户明确问起、默认预算多少，都由服务决定。
+ * 各入口查同一套来源；知情边界、当前话题与篇幅由服务统一处理。
  *
- * - `private-chat`    一对一私聊。群聊/朋友圈/星域等跨模式资料按需（用户问起）才查。
+ * - `private-chat`    一对一私聊，沿用这个角色自己的跨模式经历。
  * - `group-chat`      群聊。听众 > 1 时只返回所有听众都有权知道的内容（共享提示词安全）。
  * - `world-scene`     星域（含进行中的片段）。
  * - `moments-comment` 朋友圈自主评论：角色可用自己的私有经历判断语气，公开发言前另有披露审查。
+ * - `proactive-chat`  主动问候，同一入口按近期对话取用，不另选一个固定追问事项。
  */
-export type MemoryMode = 'private-chat' | 'group-chat' | 'world-scene' | 'moments-comment';
+export type MemoryMode = 'private-chat' | 'group-chat' | 'world-scene' | 'moments-comment' | 'proactive-chat';
 
 /**
  * 意图检测：**这是全系统唯一的一份**。
@@ -64,31 +67,8 @@ export function detectRecallIntent(topic: string | undefined): RecallIntent {
   return { explicit, group: explicit && group, world: explicit && world, moment: explicit && moment, todo: explicit && todo, diary: explicit && diary };
 }
 
-/**
- * 模式决定默认查哪些来源。调用方不再自己拼来源列表。
- *
- * 共同点：**平常的闲聊只带"此刻真的会自然想起"的东西**（本模式的内容 +
- * 跨模式里最近发生、权限允许的部分）；凡是可能把很久以前的事挖出来的查询
- * （日记、星域旧事、跨模式历史）都要等用户明确问起——这与
- * `packCharacterMemory` 的优先级一致：用户明确要求记住的 > 当前问题命中的旧事
- * > 未完成的约定 > 最近对话。
- */
-function sourcesForMode(mode: MemoryMode | undefined, explicitSources: MemorySource[] | undefined, multiListener: boolean): MemorySource[] {
-  if (explicitSources) return explicitSources;
-  switch (mode) {
-    case 'group-chat':
-      // 共享提示词（听众 > 1）会被所有成员看到：只放所有成员都有权知道的内容。
-      // 单个发言者的私有档案仍然是他的全部来源——多人生成时每个角色单独取自己的档案。
-      return multiListener ? ['world', 'moment', 'todo'] : ['chat', 'group', 'world', 'moment', 'todo', 'diary'];
-    case 'world-scene':
-      return ['chat', 'group', 'world', 'moment', 'todo', 'diary'];
-    case 'moments-comment':
-      return ['chat', 'group', 'world', 'moment', 'todo', 'diary'];
-    case 'private-chat':
-    default:
-      return ['chat', 'group', 'moment', 'todo', 'world', 'diary'];
-  }
-}
+/** Every entrance reads the same sources. Audience and permissions determine what may be used. */
+const MEMORY_SOURCES: MemorySource[] = ['chat', 'group', 'world', 'moment', 'todo', 'diary'];
 
 export interface MemoryReference { source: MemorySource; id: string; text: string; at: number; pinned?: boolean; ledgerClaimId?: string; memoryKind?: import('./memory-engine').ConversationMemory['memoryKind'] }
 
@@ -97,6 +77,8 @@ export interface CharacterMemoryRequest {
   characterId: string;
   /** 当前话题（用户这轮说的话、星域里的动作、朋友圈动态文本）。 */
   topic?: string;
+  /** Current conversation only: avoid retelling exhausted subjects without erasing knowledge. */
+  recentConversation?: Pick<import('../db/index').WorldSceneEntry, 'kind' | 'content'>[];
   /** @deprecated 用 `topic`；保留以兼容旧调用方。 */
   query?: string;
   /** 所有可能听见本轮回复的角色；多人场合只注入听众共同获准的资料。 */
@@ -189,15 +171,13 @@ export interface MemoryProvenance {
 async function readCharacterMemory(p: CharacterMemoryRequest): Promise<CharacterMemoryContext> {
   const empty: CharacterMemoryContext = { text: '', references: [], sections: { profile: '', episodes: '', promises: '', crossChannel: '', recent: '', historical: '' }, provenance: [] };
   const character = await db.characters.get(p.characterId);
-  if (!character || character.createdBy !== p.userId) return empty;
+  if (!character || character.createdBy !== p.userId || character.agentProfile === 'secretary') return empty;
   const audience = [...new Set([p.characterId, ...(p.audience ?? [])])];
   const audienceRows = await db.characters.bulkGet(audience);
-  if (audienceRows.some(c => !c || c.createdBy !== p.userId)) return empty;
+  if (audienceRows.some(c => !c || c.createdBy !== p.userId || c.agentProfile === 'secretary')) return empty;
   const topic = p.topic ?? p.query ?? '';
   const intent = detectRecallIntent(topic);
-  const multiListener = audience.length > 1;
-  const catalogWorldId = p.worldId ?? p.scene?.worldId;
-  const sources = new Set(sourcesForMode(p.mode, p.sources, multiListener));
+  const sources = new Set(p.sources ?? MEMORY_SOURCES);
   // 跨模式历史只在以下几件事上"等用户明确问起"，其余按目录自然带入：
   //   group  → 群聊历史（追问时才翻全部会话）
   //   world  → 星域旧事（追问时才按关键词检索旧事件/旧片段）
@@ -218,7 +198,7 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
     // Use the same read path as private chat so legacy detached summaries are
     // retired before any other channel can recall them.
     const rows = await memoryRepo.getByCharacter(p.characterId, p.userId);
-    for (const m of rankConversationMemories(rows, topic, new Set(), 6)) {
+    for (const m of rankConversationMemories(rows.filter(row => !(row.type === 'summary' && p.excludeSessionId && row.sourceSessionId === p.excludeSessionId)), topic, new Set(), 6)) {
       items.push({
         source: 'chat',
         id: m.id,
@@ -229,6 +209,17 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
       });
     }
     const sessions = await db.sessions.where('[characterId+userId]').equals([p.characterId, p.userId]).filter(s => s.type !== 'group' && s.id !== p.excludeSessionId).toArray();
+    for (const session of [...sessions].sort((a, b) => b.updatedAt - a.updatedAt).filter(row => row.summary?.trim()).slice(0, 2)) {
+      const sourceIds = session.summarySourceMessageIds ?? [];
+      const originals = await db.messages.bulkGet(sourceIds);
+      if (originals.some((row, index) => !row || row.sessionId !== session.id || row.failed
+        || (session.summarySourceMessageRevisions?.[sourceIds[index]] !== undefined
+          && (row.revision ?? 1) !== session.summarySourceMessageRevisions[sourceIds[index]]))) continue;
+      const suppressed = await memorySourceTombstoneRepo.suppressedMessages(p.userId, p.characterId);
+      if (sourceIds.some(id => suppressed.has(id))) continue;
+      items.push({ source: 'chat', id: session.id, at: session.summaryUpdatedAt ?? session.updatedAt,
+        memoryKind: 'summary', text: `你们早前私聊的摘要（不是新的现场）：${session.summary!.trim().slice(0, 900)}` });
+    }
     const latest = sessions.sort((a,b) => b.updatedAt-a.updatedAt)[0];
     const recentMessageIds: string[] = [];
     if (latest) for (const m of await messageRepo.getPage(latest.id, { limit: 6 })) {
@@ -267,7 +258,16 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
       }
     }
   }
+  if (sources.has('chat') && audience.length === 1) {
+    const threads = await continuityRepo.getOpenByCharacter(p.characterId, p.userId);
+    for (const thread of threads) items.push({ source: 'chat', id: thread.id, at: thread.updatedAt,
+      memoryKind: 'promise', text: `你与用户尚未完成的约定「${thread.title}」${thread.detail ? `：${thread.detail}` : ''}；只在相关时承接，不反复追问。` });
+  }
   if (sources.has('world')) {
+    const sharedStories = await sharedEventRepo.getByCharacter(p.characterId, p.userId);
+    for (const story of sharedStories.filter(row => audience.every(id => row.characterIds.includes(id)))) {
+      items.push({ source: 'world', id: story.id, at: story.createdAt, text: `你亲历的人物共同事件「${story.title}」${story.detail ? `：${story.detail}` : ''}` });
+    }
     const liveEntryIds = new Set<string>();
     const worlds = await db.worlds.where('userId').equals(p.userId).toArray();
     for (const world of worlds.sort((a, b) => b.updatedAt - a.updatedAt)) {
@@ -277,6 +277,13 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
           audienceCharacterIds: audience, query: topic, limit: 6,
         });
         for (const hit of hits) items.push({ source: 'world', id: hit.id, at: hit.timestamp, text: `星域旧事：${hit.date} ${hit.text}` });
+      }
+      const knownByAudience = await Promise.all(audience.map(id => knowledgeRepo.listKnownBy(id, world.id, { minLevel: 'full', limit: 500, userId: p.userId })));
+      const knownEvents = await worldEventRepo.getByIds(knownByAudience[0].filter(row => row.canMention).map(row => row.eventId));
+      for (const event of knownEvents) {
+        if (event.userId !== p.userId || event.worldId !== world.id || event.sourceType === 'diary') continue;
+        if (!audience.every((id, index) => isVisibleToCharacter(event, id) && knowledgeRowAllows(knownByAudience[index], id, event.id))) continue;
+        items.push({ source: 'world', id: event.id, at: event.timestamp, text: `你知道的星域事件「${event.title}」${event.summary ? `：${event.summary}` : ''}` });
       }
       const perActor = await Promise.all(audience.map(async characterId => ({
         shared: await selectRecallableSharedMemories({ userId: p.userId, worldId: world.id, characterId, limit: 8 }),
@@ -354,7 +361,7 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
     // 动态权限独立于世界权限；不依赖生成模块，避免记忆层与朋友圈生成形成循环。
     const contacts = await db.momentContacts.where('userId').equals(p.userId).toArray();
     // 主动生活片段只归创建它的角色自己回忆；其他角色必须通过看见朋友圈或共同事件获得知识。
-    // 角色自己的生活只进入该角色的一对一私聊；群聊/多人场景的提示词会被所有发言人共用。
+    // 自己的生活可进入该角色单独的私聊或 Actor 请求；多人共享提示词不带入。
     if (audience.length === 1) {
       const ownLifeEvents = await db.characterLifeEvents.where('[userId+characterId]').equals([p.userId, p.characterId]).toArray();
       for (const event of ownLifeEvents
@@ -442,8 +449,10 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
   }
   const excluded = new Set((p.excludeReferences ?? []).map(r => `${r.source}:${r.id}`));
   const suppressions = await Promise.all(audience.map(id => memorySourceTombstoneRepo.suppressedMessages(p.userId, id)));
+  const cooling = coolingWorldMotifs(topic, p.recentConversation ?? [], [character.name]);
   const packed = packCharacterMemory(items.filter(r => !excluded.has(`${r.source}:${r.id}`)
-    && !suppressions.some(ids => ids.has(r.id))), topic, p.budget ?? 2600);
+    && !suppressions.some(ids => ids.has(r.id))
+    && !cooling.some(motif => r.text.includes(motif))), topic, p.budget ?? 2600);
   // The ledger only learns from references that passed the same source-level
   // visibility checks and survived prompt packing. It never widens visibility.
   const references: MemoryReference[] = [];
@@ -468,7 +477,7 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
     references,
     sections: renderSections(references),
     provenance: references.map(describeProvenance),
-    ...(p.withCatalog ? { catalog: await buildCatalog(p, audience, catalogWorldId) } : {}),
+    ...(p.withCatalog ? { catalog: await buildCatalog(p, audience) } : {}),
   };
 }
 
@@ -476,7 +485,7 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
  * 结构化档案：与提示词用的是**同一批闸门**，只是不做相关性裁剪、按用途分组。
  * 星域的世界页/角色页需要"逐条列出他记得什么"，这里给它一份一致的读数。
  */
-async function buildCatalog(p: CharacterMemoryRequest, audience: string[], worldId?: string): Promise<CharacterMemoryCatalog> {
+async function buildCatalog(p: CharacterMemoryRequest, audience: string[]): Promise<CharacterMemoryCatalog> {
   const [memories, threads, todos] = await Promise.all([
     memoryRepo.getByCharacter(p.characterId, p.userId).then((rows) => rows
       .filter((row) => (row.status ?? 'active') === 'active')
@@ -530,16 +539,14 @@ async function buildCatalog(p: CharacterMemoryRequest, audience: string[], world
     .slice(0, 3)
     .map((diary) => ({ id: diary.id, date: diary.date, title: diary.title, content: diary.content.slice(0, 400) }));
   // 他知道且可提起、且不是"世界公开"的事件（世界公开的部分由共享层渲染）
-  if (!worldId) return catalog;
-  const knownRows = await knowledgeRepo.listKnownBy(p.characterId, worldId, { minLevel: 'partial', limit: 30, userId: p.userId });
-  catalog.events = knownRows.length
-    ? (await worldEventRepo.getByIds(knownRows.filter((row) => row.canMention).map((row) => row.eventId)))
-      .filter((event) => event.userId === p.userId && event.worldId === worldId
-        && event.visibility !== 'world' && isVisibleToCharacter(event, p.characterId)
-        && audience.every((id) => isVisibleToCharacter(event, id) && knowledgeRowAllows(knownRows, id, event.id)))
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, 6)
-    : [];
+  const eventRows = await Promise.all(worlds.map(async world => {
+    const known = await Promise.all(audience.map(id => knowledgeRepo.listKnownBy(id, world.id, { minLevel: 'full', limit: 500, userId: p.userId })));
+    const events = await worldEventRepo.getByIds(known[0].filter(row => row.canMention).map(row => row.eventId));
+    return events.filter(event => event.userId === p.userId && event.worldId === world.id
+      && event.visibility !== 'world' && event.sourceType !== 'diary'
+      && audience.every((id, index) => isVisibleToCharacter(event, id) && knowledgeRowAllows(known[index], id, event.id)));
+  }));
+  catalog.events = eventRows.flat().sort((a, b) => b.timestamp - a.timestamp).slice(0, 6);
   return catalog;
 }
 

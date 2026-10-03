@@ -1,3 +1,4 @@
+import { avatarImageSrc } from '../../lib/avatar';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat-store';
 import { useGroupStore } from '../../store/group-store';
@@ -5,8 +6,12 @@ import { useUIStore } from '../../store/ui-store';
 import { SwipeActionItem } from '../ui/SwipeActionItem';
 import { Avatar } from '../ui/Avatar';
 import { BrandWordmark } from '../ui/BrandWordmark';
+import { Modal } from '../ui/Modal';
+import { ConnectionEmptyState } from '../ui/ConnectionEmptyState';
 import appIcon from '../../assets/app-icon.png';
 import type { Character } from '../../db/index';
+import { SecretaryWorkspaceCard } from '../secretary/SecretaryWorkspaceCard';
+import { isStoryCharacter } from '../../lib/character-domain';
 
 // 群聊是次级视图：与手账/角色页/我的同一套按需加载策略，不进首屏主包，打开时才拉取
 const GroupChatPage = lazy(() => import('./GroupChatPage').then((m) => ({ default: m.GroupChatPage })));
@@ -63,7 +68,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
   /** 过滤隐藏项 + 搜索 + 置顶优先 + 按时间/名字排序 */
   const sorted = useMemo(() => {
     const kw = search.trim().toLowerCase();
-    const visible = characters.filter((c) => !c.chatListHidden && (!kw || c.name.toLowerCase().includes(kw)));
+    const visible = characters.filter((c) => isStoryCharacter(c) && !c.chatListHidden && (!kw || c.name.toLowerCase().includes(kw)));
     return [...visible].sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       const ta = charPreviews[a.id]?.createdAt ?? 0;
@@ -100,6 +105,12 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
       longPressRef.current = null;
     }
   };
+  useEffect(() => {
+    const hidden = () => { if (document.hidden) cancelLongPress(); };
+    window.addEventListener('blur', cancelLongPress);
+    document.addEventListener('visibilitychange', hidden);
+    return () => { cancelLongPress(); window.removeEventListener('blur', cancelLongPress); document.removeEventListener('visibilitychange', hidden); };
+  }, []);
 
   const handleItemClick = (c: Character) => {
     // 长按刚触发 → 抑制本次点击，避免同时进聊天
@@ -124,13 +135,14 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
             <path d="m21 21-4.3-4.3" />
           </svg>
           <input
+            aria-label="搜索聊天"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索聊天"
             className="flex-1 bg-transparent text-sm text-ink placeholder:text-gray-500 outline-none min-w-0"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="text-gray-400 hover:text-ink transition-colors">
+            <button aria-label="清空搜索" onClick={() => setSearch('')} className="vg-search-clear text-gray-400 hover:text-ink transition-colors">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M18 6 6 18M6 6l12 12" />
               </svg>
@@ -140,6 +152,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto vg-conversation-scroll">
+      <div className="px-3 pb-2"><SecretaryWorkspaceCard onOpen={onSelect} /></div>
       {/* 群聊和私聊共享滚动容器，群聊较多时不会挤走私聊。 */}
       {groups.length > 0 && (
         <div className="px-3 pt-2 shrink-0">
@@ -197,20 +210,12 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
       {/* 会话列表 */}
       <div className="py-1">
         {sorted.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-500 px-8 text-center">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-50">
-              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-            </svg>
-            <p className="text-sm">{search ? '没有找到匹配的角色' : '还没有角色，先去「角色」页选一个开始对话吧'}</p>
-            {!search && (
-              <button
-                onClick={() => useUIStore.getState().setMobileTab('characters')}
-                className="mt-1 px-4 py-2 rounded-full text-sm bg-gene-purple text-white shadow-[0_2px_12px_rgba(108,92,231,0.35)]"
-              >
-                去选角色
-              </button>
-            )}
-          </div>
+          <ConnectionEmptyState searching={!!search}
+            title={search ? '没有找到匹配的角色' : '从一句话，开始一段连接'}
+            detail={search ? '换个名字试试，或清空搜索看看所有对话。' : '去认识一个新的灵魂，让今天的故事有个听众。'}
+            action={<button onClick={() => search ? setSearch('') : useUIStore.getState().setMobileTab('characters')}>
+              {search ? '清空搜索' : '去选角色'}
+            </button>} />
         ) : (
           <div className="px-3 py-1 space-y-2">
             {sorted.map((c) => {
@@ -250,10 +255,11 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
                     }}
                     onTouchEnd={cancelLongPress}
                     onTouchMove={cancelLongPress}
+                    onTouchCancel={cancelLongPress}
                     className="vg-conversation-row w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-transparent transition-colors active:bg-surface-strong"
                   >
-                    {c.avatar.startsWith('data:') ? (
-                      <img src={c.avatar} alt={c.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                    {avatarImageSrc(c.avatar) ? (
+                      <img src={avatarImageSrc(c.avatar)} alt={c.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />
                     ) : (
                       <span className="w-12 h-12 rounded-xl bg-panel border border-line flex items-center justify-center text-2xl shrink-0">
                         {c.avatar}
@@ -292,15 +298,8 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
 
       {/* 长按操作菜单 */}
       {menu && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />
-          <div
-            className="fixed z-50 min-w-[150px] py-1.5 glass-card rounded-xl shadow-xl animate-fade-in"
-            style={{
-              left: Math.min(menu.x, window.innerWidth - 170),
-              top: Math.min(menu.y, window.innerHeight - 150),
-            }}
-          >
+        <Modal open onClose={() => setMenu(null)} title={menu.char.name}>
+          <div className="vg-conversation-actions">
             <button
               onClick={() => {
                 void togglePin(menu.char.id);
@@ -330,7 +329,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
             </button>
             <p className="px-4 pt-1.5 pb-1 text-[10px] text-gray-400">删除仅隐藏列表项，角色与聊天记录保留</p>
           </div>
-        </>
+        </Modal>
       )}
 
       {/* 长按「从聊天列表删除」提示：仅隐藏列表项，记录保留（无需确认弹窗） */}

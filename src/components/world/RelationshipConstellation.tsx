@@ -1,3 +1,4 @@
+import { avatarImageSrc } from '../../lib/avatar';
 import type { Character, RelationshipEvent, RelationshipState } from '../../db/index';
 import { useState } from 'react';
 import { characterRef, userRef } from '../../lib/world/subjects';
@@ -60,6 +61,7 @@ export function RelationshipConstellation({
   states: RelationshipState[];
   events: RelationshipEvent[];
 }) {
+  characters = characters.filter(c => c.agentProfile !== 'secretary');
   const userAvatar = useAuthStore((state) => state.avatar) ?? DEFAULT_USER_AVATAR;
   const userNode: GraphNode = { id: `u:${userId}`, ref: userRef(userId), name: '你', avatar: userAvatar, x: CENTER.x, y: CENTER.y, user: true };
   const characterNodes: GraphNode[] = characters.map((character, index) => ({
@@ -200,7 +202,7 @@ export function RelationshipConstellation({
                 {node.user ? (
                   <>
                     <path d={`M ${node.x} ${node.y - 18} L ${node.x + 18} ${node.y} L ${node.x} ${node.y + 18} L ${node.x - 18} ${node.y} Z`} fill="#101d34" stroke="#82e8e3" strokeWidth="1.2" />
-                    {node.avatar?.startsWith('data:') ? <image href={node.avatar} x={node.x - 11} y={node.y - 11} width="22" height="22" preserveAspectRatio="xMidYMid slice" /> : <text x={node.x} y={node.y + 5} textAnchor="middle" fill="#f0edff" fontSize="16">{node.avatar || '🧬'}</text>}
+                    {avatarImageSrc(node.avatar) ? <image href={avatarImageSrc(node.avatar)} x={node.x - 11} y={node.y - 11} width="22" height="22" preserveAspectRatio="xMidYMid slice" /> : <text x={node.x} y={node.y + 5} textAnchor="middle" fill="#f0edff" fontSize="16">{node.avatar || '🧬'}</text>}
                   </>
                 ) : (
                   <>

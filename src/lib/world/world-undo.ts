@@ -193,7 +193,7 @@ export async function undoLastTurn(params: { userId: string; worldId: string; tu
       timeLabel: turn.before.timeLabel,
       mood: turn.before.mood,
     });
-    await worldSceneRepo.patchSceneState(turn.sceneId, { timeOffsetMs: turn.before.timeOffsetMs });
+    await worldSceneRepo.patchSceneState(turn.sceneId, { timeOffsetMs: turn.before.timeOffsetMs, timeAnchorMs: turn.before.timeAnchorMs });
     const scene = await worldSceneRepo.getScene(turn.sceneId);
     if (scene) {
       await db.worldScenes.put({

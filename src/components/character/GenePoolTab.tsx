@@ -1,3 +1,4 @@
+import { avatarImageSrc } from '../../lib/avatar';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat-store';
 import { useAuthStore } from '../../store/auth-store';
@@ -291,8 +292,8 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
                   <span className="absolute top-2 right-2 text-gene-purple text-xs">✓</span>
                 )}
                 <div className="flex items-start gap-3">
-                  {char.avatar.startsWith('data:') ? (
-                    <img src={char.avatar} alt={char.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                  {avatarImageSrc(char.avatar) ? (
+                    <img src={avatarImageSrc(char.avatar)} alt={char.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
                   ) : (
                     <span className="text-3xl shrink-0">{char.avatar}</span>
                   )}
@@ -351,8 +352,8 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
                         isSelected ? 'bg-gene-purple/10' : ''
                       }`}
                     >
-                      {char.avatar.startsWith('data:') ? (
-                        <img src={char.avatar} alt={char.name} className="w-8 h-8 rounded-lg object-cover shrink-0" />
+                      {avatarImageSrc(char.avatar) ? (
+                        <img src={avatarImageSrc(char.avatar)} alt={char.name} className="w-8 h-8 rounded-lg object-cover shrink-0" />
                       ) : (
                         <span className="text-xl shrink-0">{char.avatar}</span>
                       )}

@@ -3,6 +3,7 @@ import { db, type SceneParticipantState, type WorldScene, type WorldSceneEntry, 
 import { worldObjectRepo } from './world-object-repo';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import { deriveWorldVisualState, emptyConversationState } from '../lib/world/world-immersion';
+import { worldTimeOffset } from '../lib/world/world-time';
 
 /**
  * 场景仓库（World Stage）：
@@ -116,6 +117,8 @@ export function sceneEntriesAvailableToAudience(
 
 export const worldSceneRepo = {
   async createScene(input: NewSceneInput): Promise<string> {
+    const participants = await db.characters.bulkGet(input.characterIds);
+    if (participants.some(c => c?.agentProfile === 'secretary')) throw new Error('生活助理不能加入星域剧情，请选择普通角色。');
     const now = Date.now();
     const id = crypto.randomUUID();
     const scene: WorldScene = {
@@ -125,13 +128,16 @@ export const worldSceneRepo = {
       // 场景标题是星图上的短标签，统一限制为五个字，避免移动端布局被长标题挤坏。
       title: input.title.trim().slice(0, 5),
       place: input.place.trim().slice(0, 80),
-      timeLabel: input.timeLabel.trim().slice(0, 40),
+      timeLabel: input.timeLabel.trim().slice(0, 200),
       mood: input.mood.trim().slice(0, 40),
       ...(input.theme ? { theme: input.theme.trim().slice(0, 80) } : {}),
       characterIds: [...new Set(input.characterIds)],
       status: 'draft',
       state: {
         ...emptySceneState(input.sceneGoal),
+        timeAnchorMs: now,
+        timeOffsetMs: worldTimeOffset(input.timeLabel, 0, now),
+        visual: deriveWorldVisualState(input),
         participants: [...new Set(input.characterIds)].map(characterId => {
           const participant = input.participants?.find(p => p.characterId === characterId)
             ?? { characterId, goals: [], knowsEventIds: [], secrets: [] };
@@ -194,7 +200,11 @@ export const worldSceneRepo = {
     const safePatch = patch.title === undefined
       ? patch
       : { ...patch, title: patch.title.trim().slice(0, 5) };
-    await db.worldScenes.put({ ...existing, ...safePatch, updatedAt: Date.now() });
+    const next = { ...existing, ...safePatch, updatedAt: Date.now() };
+    if (patch.timeLabel !== undefined || patch.place !== undefined || patch.mood !== undefined) {
+      next.state = { ...next.state, visual: deriveWorldVisualState(next, next.state.visual) };
+    }
+    await db.worldScenes.put(next);
   },
 
   /** 状态补丁（浅合并；participants 传入时整体替换） */
@@ -227,9 +237,10 @@ export const worldSceneRepo = {
     characterId: string,
     options: { entryMemoryMode?: 'memory' | 'present' | 'amnesiac' } = {},
   ): Promise<WorldScene | undefined> {
-    return db.transaction('rw', db.worldScenes, async () => {
+    return db.transaction('rw', db.worldScenes, db.characters, async () => {
       const existing = await db.worldScenes.get(sceneId);
       if (!existing) return undefined;
+      if ((await db.characters.get(characterId))?.agentProfile === 'secretary') throw new Error('生活助理不能加入星域剧情，请选择普通角色。');
       if (existing.characterIds.includes(characterId)) return existing;
       const participant: SceneParticipantState = {
         characterId,

@@ -37,11 +37,14 @@ interface VirtuGeneAPI {
       character?: { model?: { provider: string; model: string } } | null;
       sessionModel?: { provider: string; model: string } | null;
       forceVision?: boolean;
+      onDelta?: (accumulated: string, delta: string) => void;
+      signal?: AbortSignal;
     }) => Promise<{
       content?: string;
       error?: string;
       truncated?: boolean;
       degraded?: boolean;
+      interrupted?: boolean;
       usage?: { inputTokens: number; outputTokens: number };
       modelId?: string;
     }>;
@@ -93,6 +96,7 @@ interface VirtuGeneAPI {
       lastMessageAt?: number;
       kind?: 'morning' | 'night';
       followUp?: string;
+      memoryContext?: string;
       lifeHints?: string[];
     }) => Promise<{ content?: string; error?: string }>;
   };

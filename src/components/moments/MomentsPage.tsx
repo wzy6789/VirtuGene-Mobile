@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ImagePreview } from '../ui/ImagePreview';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
+import { useUIStore } from '../../store/ui-store';
 import { momentsRepo, type MomentWithMedia } from '../../db/moments-repo';
 import {
   AUDIENCE_MODE_LABELS,
@@ -20,6 +22,8 @@ import {
 } from '../../lib/moments/preferences';
 import type { Moment, MomentNotification, MomentReaction } from '../../db/index';
 import { Avatar } from '../ui/Avatar';
+import { Modal } from '../ui/Modal';
+import { SettingsChoices, SettingsGroup, SettingsRow, SettingsSwitch } from '../settings/SettingsUI';
 
 type AudienceMode = Moment['visibility'];
 
@@ -71,6 +75,7 @@ function audienceLabel(moment: Moment): string {
 }
 
 export function MomentsPage() {
+  const lifeRecordFocus = useUIStore(s => s.lifeRecordFocus);
   const userId = useAuthStore((state) => state.userId) ?? '';
   const username = useAuthStore((state) => state.username) ?? '我';
   const avatar = useAuthStore((state) => state.avatar) ?? '🧬';
@@ -101,7 +106,18 @@ export function MomentsPage() {
   const [notificationSheetOpen, setNotificationSheetOpen] = useState(false);
   const [likesMomentId, setLikesMomentId] = useState<string | null>(null);
   const [detailMomentId, setDetailMomentId] = useState<string | null>(null);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  useEffect(() => {
+    if (lifeRecordFocus?.kind !== 'moments') return;
+    if (lifeRecordFocus.userId !== userId) {
+      useUIStore.setState({ lifeRecordFocus: null });
+      return;
+    }
+    if (loading) return;
+    document.getElementById(`moment-${lifeRecordFocus.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    useUIStore.setState({ lifeRecordFocus: null });
+  }, [lifeRecordFocus, userId, loading, rows]);
+  const [previewImage, setPreviewImage] = useState<{ images: string[]; index: number; owner: string } | null>(null);
+  useEffect(() => { setPreviewImage(null); }, [userId]);
   // 右上角设置入口直接打开总设置；细项在同一面板内查找。
   const [audienceSheetOpen, setAudienceSheetOpen] = useState(false);
   const [preferences, setPreferences] = useState<MomentsPreferences>(DEFAULT_MOMENTS_PREFERENCES);
@@ -109,6 +125,10 @@ export function MomentsPage() {
   const [prefDraftSelected, setPrefDraftSelected] = useState<string[]>([]);
   const [mutedIds, setMutedIds] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRequested = useUIStore(s => s.momentsSettingsRequested);
+  useEffect(() => {
+    if (settingsRequested) { setSettingsOpen(true); useUIStore.getState().setMomentsSettingsRequested(false); }
+  }, [settingsRequested]);
   const [mutedSheetOpen, setMutedSheetOpen] = useState(false);
   const [historySheetOpen, setHistorySheetOpen] = useState(false);
   const [deleteComment, setDeleteComment] = useState<{ momentId: string; reactionId: string } | null>(null);
@@ -140,7 +160,7 @@ export function MomentsPage() {
       const [nextRows, nextContacts, settings] = await Promise.all([momentsRepo.list(userId), momentsRepo.contacts(userId), momentsRepo.contactSettings(userId)]);
       if (useAuthStore.getState().userId !== userId) return;
       setRows(nextRows);
-      setContacts(nextContacts);
+      setContacts(nextContacts.filter(c => c.agentProfile !== 'secretary'));
       setBlockedIds(settings.filter((item) => item.blocked).map((item) => item.characterId));
       // 前台恢复时处理已到期的角色互动；任务有版本校验，撤回权限不会迟到泄露。
       void momentsRepo.processJobs(userId).then(async () => {
@@ -546,7 +566,7 @@ export function MomentsPage() {
             <div className="vg-moment-body">
               <strong className="vg-moment-name">{postName}</strong>
               {moment.text && <p className="vg-moment-text">{moment.text}</p>}
-              {media.length > 0 && <div className={`vg-moment-media count-${Math.min(media.length, 9)}`}>{media.map((image) => <button type="button" key={image.id} onClick={() => setPreviewImage(image.dataUrl)} aria-label="查看动态图片"><img src={image.dataUrl} alt="动态图片" loading="lazy" /></button>)}</div>}
+              {media.length > 0 && <div className={`vg-moment-media count-${Math.min(media.length, 9)}`}>{media.map((image, index) => <button type="button" key={image.id} onClick={() => setPreviewImage({ images: media.map(item => item.dataUrl), index, owner: userId })} aria-label="查看动态图片"><img src={image.dataUrl} alt="动态图片" loading="lazy" /></button>)}</div>}
               <div className="vg-moment-meta"><span>{timeLabel(moment.createdAt)}</span><span>{moment.authorCharacterId ? '角色动态' : audienceLabel(moment)}</span></div>
               {moment.lifeThreadId && visibleRows.some((row) => row.moment.lifeThreadId === moment.lifeThreadId && row.moment.createdAt > moment.createdAt) && (
                   <button type="button" className="vg-moment-thread-link" onClick={() => {
@@ -609,22 +629,24 @@ export function MomentsPage() {
 
       {detailMomentId && <div className="vg-moment-sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setDetailMomentId(null); }}><section className="vg-moment-sheet vg-moment-detail-sheet"><header><strong>动态评论</strong><button type="button" onClick={() => setDetailMomentId(null)}>关闭</button></header><p className="vg-moment-detail-preview">{rows.find((item) => item.moment.id === detailMomentId)?.moment.text || '图片动态'}</p>{(reactionMap[detailMomentId] ?? []).filter((item) => item.type === 'comment' && item.status === 'active').map((item) => { const target = (reactionMap[detailMomentId] ?? []).find((row) => row.id === item.replyToId); return <button type="button" className="vg-moment-detail-comment" key={item.id} onClick={() => { setReplyingTo(item); setCommenting(detailMomentId); setDetailMomentId(null); requestAnimationFrame(() => document.getElementById(`moment-${detailMomentId}`)?.scrollIntoView({ block: 'center' })); }}><Avatar avatar={actorAvatar(item.characterId)} size="sm" /><span><strong>{actorName(item.characterId)}{replyTargetName(item, target) ? ` 回复 ${replyTargetName(item, target)}` : ''}</strong><span>{item.content}</span><small>{timeLabel(item.createdAt)}</small></span></button>; })}</section></div>}
 
-      {previewImage && <div className="vg-moment-image-overlay" onClick={() => setPreviewImage(null)} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Escape') setPreviewImage(null); }}><button type="button" onClick={() => setPreviewImage(null)} aria-label="关闭大图">×</button><img src={previewImage} alt="动态图片大图" /></div>}
+      {previewImage?.owner === userId && <ImagePreview images={previewImage.images} initialIndex={previewImage.index} onClose={() => setPreviewImage(null)} />}
 
-      {audienceSheetOpen && <div className="vg-moment-sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setAudienceSheetOpen(false); }}><section className="vg-moment-sheet vg-moment-audience-sheet"><header><strong>默认可见范围</strong><button type="button" onClick={() => setAudienceSheetOpen(false)}>取消</button></header><p>新动态默认用这个范围；发布时仍然可以单独改这一条。</p><div className="vg-moment-audience"><span>新动态默认</span><div>{AUDIENCE_MODES.map((mode) => <button type="button" key={mode} className={prefDraftMode === mode ? 'is-selected' : ''} onClick={() => setPrefDraftMode(mode)}>{AUDIENCE_MODE_LABELS[mode]}</button>)}</div>{(prefDraftMode === 'selected' || prefDraftMode === 'excluded') && <div className="vg-moment-contact-picker">{contacts.map((contact) => <label key={contact.id}><input type="checkbox" checked={prefDraftSelected.includes(contact.id)} onChange={(event) => setPrefDraftSelected((current) => event.target.checked ? [...current, contact.id] : current.filter((id) => id !== contact.id))} />{contact.name}</label>)}</div>}{prefDraftSelected.length > 0 && (prefDraftMode === 'selected' || prefDraftMode === 'excluded') && <small>{prefDraftMode === 'selected' ? '可见' : '不可见'}：{contacts.filter((c) => prefDraftSelected.includes(c.id)).map((c) => c.name).join('、')}</small>}</div><button type="button" className="vg-moment-publish" onClick={saveAudienceDefault}>保存默认范围</button></section></div>}
-      {contactSheetOpen && <div className="vg-moment-sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setContactSheetOpen(false); }}><section className="vg-moment-sheet vg-moment-privacy-sheet"><header><strong>朋友圈屏蔽</strong><button type="button" onClick={() => setContactSheetOpen(false)}>完成</button></header><p>被屏蔽的角色不会看到新动态，也不会参与未完成的互动。</p>{contacts.length === 0 ? <div className="vg-moments-empty">还没有可设置的角色。</div> : <div className="vg-moment-block-list">{contacts.map((contact) => <label key={contact.id}><span><Avatar avatar={contact.avatar} size="sm" /><b>{contact.name}</b></span><input type="checkbox" checked={blockedIds.includes(contact.id)} onChange={(event) => { const next = event.target.checked ? [...blockedIds, contact.id] : blockedIds.filter((id) => id !== contact.id); setBlockedIds(next); void momentsRepo.block(userId, contact.id, event.target.checked); }} /></label>)}</div>}</section></div>}
+      <Modal open={audienceSheetOpen} onClose={() => setAudienceSheetOpen(false)} onBack={() => { setAudienceSheetOpen(false); setSettingsOpen(true); }} title="默认可见范围" mobileFullHeight panelClassName="vg-settings-panel" footer={<div className="vg-settings-design !py-3"><button type="button" className="vg-moment-publish" onClick={saveAudienceDefault}>保存默认范围</button></div>}><div className="vg-settings-design vg-moment-settings-detail vg-moment-audience-sheet"><p>新动态默认用这个范围；发布时仍然可以单独改这一条。</p><div className="vg-moment-audience"><span>新动态默认</span><div>{AUDIENCE_MODES.map((mode) => <button type="button" key={mode} className={prefDraftMode === mode ? 'is-selected' : ''} onClick={() => setPrefDraftMode(mode)}>{AUDIENCE_MODE_LABELS[mode]}</button>)}</div>{(prefDraftMode === 'selected' || prefDraftMode === 'excluded') && <div className="vg-moment-contact-picker">{contacts.map((contact) => <label key={contact.id}><input type="checkbox" checked={prefDraftSelected.includes(contact.id)} onChange={(event) => setPrefDraftSelected((current) => event.target.checked ? [...current, contact.id] : current.filter((id) => id !== contact.id))} />{contact.name}</label>)}</div>}{prefDraftSelected.length > 0 && (prefDraftMode === 'selected' || prefDraftMode === 'excluded') && <small>{prefDraftMode === 'selected' ? '可见' : '不可见'}：{contacts.filter((c) => prefDraftSelected.includes(c.id)).map((c) => c.name).join('、')}</small>}</div></div></Modal>
+      <Modal open={contactSheetOpen} onClose={() => setContactSheetOpen(false)} onBack={() => { setContactSheetOpen(false); setSettingsOpen(true); }} title="朋友圈屏蔽" mobileFullHeight panelClassName="vg-settings-panel"><div className="vg-settings-design vg-moment-settings-detail vg-moment-privacy-sheet"><p>被屏蔽的角色不会看到新动态，也不会参与未完成的互动。</p>{contacts.length === 0 ? <div className="vg-moments-empty">还没有可设置的角色。</div> : <div className="vg-moment-block-list">{contacts.map((contact) => <label key={contact.id}><span><Avatar avatar={contact.avatar} size="sm" /><b>{contact.name}</b></span><input type="checkbox" checked={blockedIds.includes(contact.id)} onChange={(event) => { const next = event.target.checked ? [...blockedIds, contact.id] : blockedIds.filter((id) => id !== contact.id); setBlockedIds(next); void momentsRepo.block(userId, contact.id, event.target.checked); }} /></label>)}</div>}</div></Modal>
 
-      {settingsOpen && <div className="vg-moment-sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setSettingsOpen(false); }}><section className="vg-moment-sheet vg-moment-settings-sheet"><header><strong>朋友圈设置</strong><button type="button" onClick={() => setSettingsOpen(false)}>完成</button></header>
-
-        <p className="vg-moment-setting-title">消息与提醒</p>
-        <button type="button" className="vg-moment-setting-row" onClick={() => { setSettingsOpen(false); openNotifications(); }}><span>互动消息<small>{unreadInteractions > 0 ? `${unreadInteractions} 条未读` : `${notifications.length} 条记录`}</small></span><i aria-hidden="true">›</i></button>
-        <div className="vg-moment-setting-row is-static"><span>新互动红点<small>关掉后互动条与世界入口都不再提示未读</small></span><button type="button" role="switch" aria-checked={preferences.showUnreadBadge} className={`vg-moment-toggle ${preferences.showUnreadBadge ? 'is-on' : ''}`} onClick={() => applyPreferences({ showUnreadBadge: !preferences.showUnreadBadge })}>{preferences.showUnreadBadge ? '已开启' : '已关闭'}</button></div>
-        <div className="vg-moment-setting-row is-static"><span>发布后提示<small>发布成功时弹一条说明</small></span><button type="button" role="switch" aria-checked={preferences.notifyAfterPublish} className={`vg-moment-toggle ${preferences.notifyAfterPublish ? 'is-on' : ''}`} onClick={() => applyPreferences({ notifyAfterPublish: !preferences.notifyAfterPublish })}>{preferences.notifyAfterPublish ? '已开启' : '已关闭'}</button></div>
-        <div className="vg-moment-setting-actions"><button type="button" disabled={unreadInteractions === 0} onClick={() => void markAllRead()}>全部已读</button><button type="button" disabled={notifications.length === 0} onClick={() => void clearNotifications()}>清空记录</button></div>
-
-        <p className="vg-moment-setting-title">好友近况</p>
-        <div className="vg-moment-setting-row is-static"><span>允许好友主动分享<small>他们会聊自己的生活，也可以选择安静</small></span><button type="button" role="switch" aria-checked={preferences.autonomousPostsEnabled} className={`vg-moment-toggle ${preferences.autonomousPostsEnabled ? 'is-on' : ''}`} onClick={() => applyPreferences({ autonomousPostsEnabled: !preferences.autonomousPostsEnabled })}>{preferences.autonomousPostsEnabled ? '已开启' : '已关闭'}</button></div>
-        <div className="vg-moment-setting-row is-static"><span>默认分享节奏<small>打开软件时优先更新；活跃约半天、自然约一天、安静约两天</small></span><span className="vg-moment-setting-buttons">{(['quiet', 'natural', 'active'] as MomentPostFrequency[]).map((mode) => <button type="button" key={mode} className={preferences.postFrequency === mode ? 'is-selected' : ''} onClick={() => applyPreferences({ postFrequency: mode })}>{MOMENT_POST_FREQUENCY_LABELS[mode]}</button>)}</span></div>
+      <Modal open={settingsOpen} onClose={() => setSettingsOpen(false)} title="朋友圈设置" mobileFullHeight panelClassName="vg-settings-panel">
+        <div className="vg-settings-design vg-moment-preferences vg-moment-settings-sheet">
+          <p className="vg-settings-intro">决定分享的节奏、可见范围，以及哪些事需要提醒你。</p>
+          <SettingsGroup title="消息与提醒" scope="当前账号">
+            <SettingsRow title="互动消息" icon="account" value={unreadInteractions > 0 ? `${unreadInteractions} 条未读` : `${notifications.length} 条记录`} onClick={() => { setSettingsOpen(false); openNotifications(); }} />
+            <SettingsSwitch title="新互动红点" detail="同时控制动态流与世界入口的未读提示" checked={preferences.showUnreadBadge} onChange={value => applyPreferences({ showUnreadBadge: value })} />
+            <SettingsSwitch title="发布后提示" detail="发布成功时显示一条说明" checked={preferences.notifyAfterPublish} onChange={value => applyPreferences({ notifyAfterPublish: value })} />
+            <div className="vg-moment-setting-actions"><button type="button" disabled={unreadInteractions === 0} onClick={() => void markAllRead()}>全部已读</button><button type="button" disabled={notifications.length === 0} onClick={() => void clearNotifications()}>清空记录</button></div>
+          </SettingsGroup>
+          <SettingsGroup title="好友分享">
+            <SettingsSwitch title="允许好友主动分享" detail="他们会分享自己的生活，也可以选择安静" checked={preferences.autonomousPostsEnabled} onChange={value => applyPreferences({ autonomousPostsEnabled: value })} />
+            <p className="vg-settings-intro px-4 pt-3 mb-0">默认分享节奏 · 打开软件时优先更新</p>
+            <SettingsChoices label="默认分享节奏" value={preferences.postFrequency} onChange={value => applyPreferences({ postFrequency: value })} options={[{ value: 'quiet', title: MOMENT_POST_FREQUENCY_LABELS.quiet, detail: '约两天分享一次' }, { value: 'natural', title: MOMENT_POST_FREQUENCY_LABELS.natural, detail: '约一天分享一次' }, { value: 'active', title: MOMENT_POST_FREQUENCY_LABELS.active, detail: '约半天分享一次' }]} />
         <details className="vg-moment-post-contact-settings">
           <summary>单独调整好友</summary>
           {contacts.length === 0 ? <p>还没有可设置的角色。</p> : contacts.map((contact) => {
@@ -638,23 +660,26 @@ export function MomentsPage() {
             }}>{(['quiet', 'natural', 'active'] as MomentPostFrequency[]).map((item) => <option value={item} key={item}>{MOMENT_POST_FREQUENCY_LABELS[item]}</option>)}</select></div>;
           })}
         </details>
+          </SettingsGroup>
+          <SettingsGroup title="可见范围">
+            <SettingsRow title="不让谁看我的朋友圈" icon="privacy" value={blockedIds.length ? `${blockedIds.length} 位` : '未设置'} detail="屏蔽对方查看你的新动态" onClick={() => { setSettingsOpen(false); setContactSheetOpen(true); }} />
+            <SettingsRow title="不看他（她）的朋友圈" icon="account" value={mutedIds.length ? `${mutedIds.length} 位` : '未设置'} detail="只调整你看到的动态" onClick={() => { setSettingsOpen(false); setMutedSheetOpen(true); }} />
+            <SettingsRow title="允许角色查看我的历史动态" icon="clock" value={HISTORY_WINDOW_LABELS[preferences.historyWindow]} onClick={() => { setSettingsOpen(false); setHistorySheetOpen(true); }} />
+          </SettingsGroup>
+          <SettingsGroup title="发布与显示">
 
-        <p className="vg-moment-setting-title">谁能看 · 我能看</p>
-        <button type="button" className="vg-moment-setting-row" onClick={() => { setSettingsOpen(false); setContactSheetOpen(true); }}><span>朋友圈屏蔽<small>{blockedIds.length > 0 ? `已屏蔽 ${blockedIds.length} 位角色` : '不让他（她）看我的朋友圈'}</small></span><i aria-hidden="true">›</i></button>
-        <button type="button" className="vg-moment-setting-row" onClick={() => { setSettingsOpen(false); setMutedSheetOpen(true); }}><span>不看他（她）的朋友圈<small>{mutedIds.length > 0 ? `已隐藏 ${mutedIds.length} 位角色` : '只影响我这边看到的动态'}</small></span><i aria-hidden="true">›</i></button>
-        <button type="button" className="vg-moment-setting-row" onClick={() => { setSettingsOpen(false); setHistorySheetOpen(true); }}><span>允许角色查看我的历史动态<small>{HISTORY_WINDOW_LABELS[preferences.historyWindow]}</small></span><i aria-hidden="true">›</i></button>
-
-        <p className="vg-moment-setting-title">发布</p>
         <button type="button" className="vg-moment-setting-row" onClick={() => { setSettingsOpen(false); openAudienceSheet(); }}><span>默认可见范围<small>{AUDIENCE_MODE_LABELS[preferences.audience.mode]}</small></span><i aria-hidden="true">›</i></button>
 
         <p className="vg-moment-setting-title">展示</p>
         <div className="vg-moment-setting-row is-static"><span>朋友圈封面<small>{preferences.cover ? '已自定义' : '默认渐变'}</small></span><span className="vg-moment-setting-buttons"><button type="button" onClick={() => coverRef.current?.click()}>更换</button>{preferences.cover && <button type="button" onClick={() => applyPreferences({ cover: '' })}>恢复默认</button>}</span></div>
         <div className="vg-moment-setting-row is-static"><span>列表密度<small>紧凑档压缩封面与间距，同屏能看到更多</small></span><span className="vg-moment-setting-buttons">{(['comfortable', 'compact'] as MomentsDensity[]).map((mode) => <button type="button" key={mode} className={preferences.density === mode ? 'is-selected' : ''} onClick={() => applyPreferences({ density: mode })}>{DENSITY_LABELS[mode]}</button>)}</span></div>
-      </section></div>}
+          </SettingsGroup>
+        </div>
+      </Modal>
 
-      {mutedSheetOpen && <div className="vg-moment-sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setMutedSheetOpen(false); }}><section className="vg-moment-sheet vg-moment-muted-sheet"><header><strong>不看他（她）的朋友圈</strong><button type="button" onClick={() => setMutedSheetOpen(false)}>完成</button></header><p>被隐藏的角色仍然能看到你的动态、也照常互动，只是他们的动态不会出现在你的列表里。</p>{contacts.length === 0 ? <div className="vg-moments-empty">还没有可设置的角色。</div> : <div className="vg-moment-block-list">{contacts.map((contact) => <label key={contact.id}><span><Avatar avatar={contact.avatar} size="sm" /><b>{contact.name}</b></span><input type="checkbox" checked={mutedIds.includes(contact.id)} onChange={(event) => toggleMute(contact.id, event.target.checked)} /></label>)}</div>}</section></div>}
+      <Modal open={mutedSheetOpen} onClose={() => setMutedSheetOpen(false)} onBack={() => { setMutedSheetOpen(false); setSettingsOpen(true); }} title="不看他（她）的朋友圈" mobileFullHeight panelClassName="vg-settings-panel"><div className="vg-settings-design vg-moment-settings-detail vg-moment-muted-sheet"><p>被隐藏的角色仍然能看到你的动态、也照常互动，只是他们的动态不会出现在你的列表里。</p>{contacts.length === 0 ? <div className="vg-moments-empty">还没有可设置的角色。</div> : <div className="vg-moment-block-list">{contacts.map((contact) => <label key={contact.id}><span><Avatar avatar={contact.avatar} size="sm" /><b>{contact.name}</b></span><input type="checkbox" checked={mutedIds.includes(contact.id)} onChange={(event) => toggleMute(contact.id, event.target.checked)} /></label>)}</div>}</div></Modal>
 
-      {historySheetOpen && <div className="vg-moment-sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setHistorySheetOpen(false); }}><section className="vg-moment-sheet vg-moment-history-sheet"><header><strong>允许角色查看我的历史动态</strong><button type="button" onClick={() => setHistorySheetOpen(false)}>关闭</button></header><p>超出范围的动态对角色不存在：他们看不到，也不会再被它触发回忆。只约束角色，不影响你自己翻看。</p><div className="vg-moment-audience"><div>{HISTORY_WINDOWS.map((window) => <button type="button" key={window} className={preferences.historyWindow === window ? 'is-selected' : ''} onClick={() => { applyPreferences({ historyWindow: window as MomentsHistoryWindow }); setHistorySheetOpen(false); setToast(`角色只能看到「${HISTORY_WINDOW_LABELS[window]}」的动态`); }}>{HISTORY_WINDOW_LABELS[window]}</button>)}</div></div></section></div>}
+      <Modal open={historySheetOpen} onClose={() => setHistorySheetOpen(false)} onBack={() => { setHistorySheetOpen(false); setSettingsOpen(true); }} title="角色可看的历史动态" mobileFullHeight panelClassName="vg-settings-panel"><div className="vg-settings-design vg-moment-settings-detail vg-moment-history-sheet"><p>超出范围的动态对角色不存在：他们看不到，也不会再被它触发回忆。只约束角色，不影响你自己翻看。</p><div className="vg-moment-audience"><div>{HISTORY_WINDOWS.map((window) => <button type="button" key={window} className={preferences.historyWindow === window ? 'is-selected' : ''} onClick={() => { applyPreferences({ historyWindow: window as MomentsHistoryWindow }); setHistorySheetOpen(false); setToast(`角色只能看到「${HISTORY_WINDOW_LABELS[window]}」的动态`); }}>{HISTORY_WINDOW_LABELS[window]}</button>)}</div></div></div></Modal>
 
       {deleteComment && <div className="vg-moment-sheet-backdrop" onMouseDown={(event) => { if (event.currentTarget === event.target) setDeleteComment(null); }}><section className="vg-moment-sheet vg-moment-delete-sheet"><header><strong>删除这条评论？</strong><button type="button" onClick={() => setDeleteComment(null)}>取消</button></header><p>评论会从这条动态下消失；角色已经记住的内容不会因此被抹掉。</p><button type="button" className="vg-moment-publish is-danger" onClick={() => void confirmDeleteComment()}>删除评论</button></section></div>}
 

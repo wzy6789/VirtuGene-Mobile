@@ -1,3 +1,4 @@
+import { avatarImageSrc } from '../../lib/avatar';
 import { useEffect, useMemo, useState } from 'react';
 import { diaryRepo } from '../../db/diary-repo';
 import { memoryRepo } from '../../db/memory-repo';
@@ -160,7 +161,7 @@ export function WeeklyLifeReviewModal({ open, onClose }: { open: boolean; onClos
                     return (
                       <div key={item.id} className="flex items-start gap-3">
                         <div className="relative mt-0.5 h-8 w-8 shrink-0 overflow-hidden rounded-xl border border-line bg-surface text-center leading-8 text-sm">
-                          {String(avatarFor(character)).startsWith('data:') ? <img src={String(avatarFor(character))} alt="" className="h-full w-full object-cover" /> : avatarFor(character)}
+                          {avatarImageSrc(String(avatarFor(character))) ? <img src={avatarImageSrc(String(avatarFor(character)))} alt="" className="h-full w-full object-cover" /> : avatarFor(character)}
                         </div>
                         <div className="min-w-0 flex-1 border-b border-line/70 pb-2.5 last:border-b-0">
                           <div className="flex items-center justify-between gap-2">

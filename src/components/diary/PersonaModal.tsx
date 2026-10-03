@@ -1,3 +1,4 @@
+import { useAiAvailability } from '../settings/useAiAvailability';
 import { useEffect, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { useAuthStore } from '../../store/auth-store';
@@ -40,7 +41,8 @@ interface Props {
 
 /** 「数字人格画像」：AI 从全部日记提炼性格关键词 / 高频话题 / 情绪倾向，以 DNA 基因图谱展示 */
 export function PersonaModal({ open, onClose }: Props) {
-  const apiKey = useAuthStore((s) => s.apiKey);
+  const apiKey = useAuthStore((s) => s.apiKey) ?? '';
+  const hasAiAccess = useAiAvailability();
   const diaries = useDiaryStore((s) => s.diaries);
 
   const [persona, setPersona] = useState<DiaryPersona | null>(loadCached);
@@ -48,7 +50,7 @@ export function PersonaModal({ open, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const generate = async () => {
-    if (!apiKey) { setError('未检测到 API Key，无法生成'); return; }
+    if (!hasAiAccess) { setError('请先在设置的 AI 连接中配置当前模型'); return; }
     setLoading(true);
     setError(null);
     try {

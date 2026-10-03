@@ -16,7 +16,6 @@
 import { db, type WorldScene, type WorldSceneEntry } from '../../db/index';
 import { sceneEntriesAvailableToAudience, worldSceneRepo } from '../../db/world-scene-repo';
 import { worldLocationRepo } from '../../db/world-location-repo';
-import { worldObjectRepo } from '../../db/world-object-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
@@ -34,9 +33,7 @@ import {
 } from '../ai/scene-director';
 import { validateSettlement } from './scene-consequences';
 import { actMarkerContent, shouldAdvanceAct } from './scene-acts';
-import { buildHiddenUserProfile } from './user-profile';
 import { buildCharacterMemoryContext } from '../character-memory';
-import { memoryRepo } from '../../db/memory-repo';
 import { compactDouluoDirectorPersona } from '../douluo-relations';
 
 /** 一次场景推演的结果（供 UI 与验收断言） */
@@ -52,7 +49,7 @@ export interface SceneTurnResult {
   llmCalls: number;
 }
 
-async function buildMembers(scene: WorldScene, userId: string, query = ''): Promise<SceneDirectorMember[]> {
+async function buildMembers(scene: WorldScene, userId: string, query = '', recent: WorldSceneEntry[] = []): Promise<SceneDirectorMember[]> {
   const members: SceneDirectorMember[] = [];
   for (const characterId of scene.characterIds) {
     const character = await characterRepo.getById(characterId);
@@ -65,7 +62,7 @@ async function buildMembers(scene: WorldScene, userId: string, query = ''): Prom
     // 多人场景里共享导演一次看到所有成员，因此只传"所有在场者都有权知道"的内容
     // （audience 取全场 ⇒ 服务按交集返回），个人档案留给各自的 Actor 调用。
     const recalled = carryMemory ? await buildCharacterMemoryContext({
-      userId, characterId, topic: query, audience: scene.characterIds,
+      userId, characterId, topic: query, recentConversation: recent, audience: scene.characterIds,
       mode: 'world-scene',
       scene: { worldId: scene.worldId, sceneId: scene.id },
       excludeSceneId: scene.id,
@@ -74,14 +71,6 @@ async function buildMembers(scene: WorldScene, userId: string, query = ''): Prom
     // Scene Director sees every member in one request. Per-character history, goals and secrets
     // cannot be isolated inside that shared prompt, so only inject them in a single-actor scene.
     const privateContextIsIsolated = scene.characterIds.length === 1;
-    const userMemories = carryMemory && privateContextIsIsolated
-      ? await memoryRepo.getByCharacter(characterId, userId)
-        .then((rows) => rows
-          .filter((row) => (row.status ?? 'active') === 'active')
-          .sort((a, b) => b.createdAt - a.createdAt)
-          .slice(0, 18))
-      : [];
-    const userProfile = buildHiddenUserProfile(userMemories, query);
     members.push({
       characterId,
       name: character.name,
@@ -91,7 +80,6 @@ async function buildMembers(scene: WorldScene, userId: string, query = ''): Prom
       ...(privateContextIsIsolated && participant?.goals?.length ? { goal: participant.goals.join('；') } : {}),
       ...(recalled.text ? { knows: recalled.text } : {}),
       ...(privateContextIsIsolated && participant?.secrets?.length ? { secret: participant.secrets.join('；') } : {}),
-      ...(userProfile ? { userProfile } : {}),
     });
   }
   return members;
@@ -153,7 +141,7 @@ export async function startScene(params: {
   const scene = await worldSceneRepo.getScene(sceneId);
   if (scene) {
     const location = await worldLocationRepo.ensureFromScene(scene);
-    await worldObjectRepo.ensureForScene({ ...scene, locationId: location.id });
+
     const world = await db.worlds.get(params.worldId);
     const worldTime = world?.clock?.worldAt ?? Date.now();
     await Promise.all(params.characterIds.map((characterId) => worldAgentRepo.moveCharacter({
@@ -226,6 +214,7 @@ export async function runSceneTurn(params: {
   if (scene.status === 'finished') return { entries: [], error: '这场戏已经结束了', llmCalls: 0 };
 
   const characters = await Promise.all(scene.characterIds.map((id) => characterRepo.getById(id)));
+  if (characters.some(c => c?.agentProfile === 'secretary')) return { entries: [], error: '生活助理不参与星域剧情，请先从片段移出助理。', llmCalls: 0 };
   const nameOf = (id: string) => characters.find((c) => c?.id === id)?.name ?? '某人';
 
   // 1) 用户动作通常已由 UI 在等待模型前落库；旧调用方仍可直接调用 runtime，
@@ -251,7 +240,7 @@ export async function runSceneTurn(params: {
 
   // 2) 一次调用出多条
   const history = sceneEntriesAvailableToAudience(await worldSceneRepo.listRecentEntries(params.sceneId, 200), scene, scene.characterIds);
-  const members = await buildMembers(scene, params.userId, params.userAction);
+  const members = await buildMembers(scene, params.userId, params.userAction, history);
   const directorParams: SceneDirectorParams = {
     apiKey: params.apiKey,
     scene: { title: scene.title, place: scene.place, timeLabel: scene.timeLabel, mood: scene.mood, ...(scene.theme ? { theme: scene.theme } : {}) },
@@ -368,6 +357,7 @@ export async function finishSceneAndSettle(params: {
 
   const entries = sceneEntriesAvailableToAudience(await worldSceneRepo.listRecentEntries(params.sceneId, 400), scene, scene.characterIds);
   const characters = await Promise.all(scene.characterIds.map((id) => characterRepo.getById(id)));
+  if (characters.some(c => c?.agentProfile === 'secretary')) return { ...empty, error: '生活助理不参与星域结算，请先从片段移出助理。' };
   const names = scene.characterIds.map((id) => ({ characterId: id, name: characters.find((c) => c?.id === id)?.name ?? '某人' }));
   const nameOf = (id: string) => names.find((n) => n.characterId === id)?.name ?? '某人';
   const transcript = entries

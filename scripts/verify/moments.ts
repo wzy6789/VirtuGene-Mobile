@@ -73,9 +73,9 @@ function buttonWith(text: string, scope?: ParentNode | null): HTMLButtonElement 
   return (list as HTMLButtonElement[]).find((b) => (b.textContent ?? '').trim().includes(text));
 }
 function clickText(text: string, scope?: ParentNode | null): boolean {
-  const target = buttonWith(text, scope);
+  const target = buttonWith(text, scope) ?? (text === '完成' ? scope?.querySelector('button[aria-label="关闭"]') ?? (scope as HTMLElement | null)?.closest('[role="dialog"]')?.querySelector('button[aria-label="关闭"]') : null);
   if (!target) return false;
-  target.click();
+  (target as HTMLButtonElement).click();
   return true;
 }
 function readPref(): { audience?: { mode?: string; contactIds?: string[] }; density?: string; showUnreadBadge?: boolean; cover?: string; historyWindow?: string } | null {
@@ -95,6 +95,8 @@ function makeCharacter(id: string, name: string): Character {
 }
 /** 当前打开的面板（sheet）标题，没有面板时返回空串 */
 function openSheetTitle(): string {
+  const dialog = document.querySelector('[role="dialog"]');
+  if (dialog) return dialog.querySelector('h2')?.textContent?.trim() ?? '';
   const sheet = host?.querySelector('.vg-moment-sheet');
   if (!sheet) return '';
   return (sheet.querySelector('header strong')?.textContent ?? '').trim();
@@ -209,10 +211,10 @@ async function run(): Promise<void> {
   // ---------- A2. 一点即进入全部设置 ----------
   settingsButton?.click();
   await sleep(200);
-  const settingsOverview = (host?.querySelector('.vg-moment-settings-sheet') as HTMLElement | null)?.innerText ?? '';
+  const settingsOverview = (document.querySelector('.vg-moment-settings-sheet') as HTMLElement | null)?.innerText ?? '';
   check('④ 点击齿轮直接进入包含全部分类的朋友圈设置', openSheetTitle() === '朋友圈设置'
-    && ['消息与提醒', '好友近况', '谁能看 · 我能看', '发布', '展示'].every((group) => settingsOverview.includes(group)));
-  clickText('完成', host?.querySelector('.vg-moment-settings-sheet') ?? null);
+    && ['消息与提醒', '好友分享', '可见范围', '发布与显示'].every((group) => settingsOverview.includes(group)));
+  clickText('完成', document.querySelector('.vg-moment-settings-sheet') ?? null);
 
   // ---------- B. 互动条：位置 + 常驻 + 未读 ----------
   const inbox = host?.querySelector('.vg-moments-inbox') ?? null;
@@ -276,17 +278,17 @@ async function run(): Promise<void> {
   const openedSettings = Boolean(host?.querySelector('.vg-moments-settings'));
   (host?.querySelector('.vg-moments-settings') as HTMLButtonElement | null)?.click();
   await sleep(400);
-  const settingsText = openSheetTitle() === '朋友圈设置' && host ? (host.querySelector('.vg-moment-settings-sheet') as HTMLElement).innerText.replace(/\s+/g, ' ') : '';
-  const settingGroups = ['消息与提醒', '好友近况', '谁能看 · 我能看', '发布', '展示'];
-  const settingRows = ['互动消息', '新互动红点', '发布后提示', '允许好友主动分享', '默认分享节奏', '单独调整好友', '朋友圈屏蔽', '不看他（她）的朋友圈', '允许角色查看我的历史动态', '默认可见范围', '朋友圈封面', '列表密度'];
-  check('⑭ 齿轮直接打开完整朋友圈设置，五个分组齐全',
+  const settingsText = openSheetTitle() === '朋友圈设置' && host ? (document.querySelector('.vg-moment-settings-sheet') as HTMLElement).innerText.replace(/\s+/g, ' ') : '';
+  const settingGroups = ['消息与提醒', '好友分享', '可见范围', '发布与显示'];
+  const settingRows = ['互动消息', '新互动红点', '发布后提示', '允许好友主动分享', '默认分享节奏', '单独调整好友', '不让谁看我的朋友圈', '不看他（她）的朋友圈', '允许角色查看我的历史动态', '默认可见范围', '朋友圈封面', '列表密度'];
+  check('⑭ 齿轮直接打开完整朋友圈设置，四个分组齐全',
     openedSettings && openSheetTitle() === '朋友圈设置' && settingGroups.every((group) => settingsText.includes(group)), { openedSettings, title: openSheetTitle(), settingsText: settingsText.slice(0, 160) });
   check('⑮ 设置项齐全（消息/红点/提示/屏蔽/不看/历史/默认范围/封面/密度）',
     settingRows.every((row) => settingsText.includes(row)), settingRows.filter((row) => !settingsText.includes(row)));
   check('⑯「全部已读」「清空记录」两个动作都在', settingsText.includes('全部已读') && settingsText.includes('清空记录'), settingsText.slice(0, 200));
 
   // ---------- E. 密度开关立刻生效并落盘 ----------
-  const densityClicked = clickText('紧凑', host?.querySelector('.vg-moment-settings-sheet') ?? null);
+  const densityClicked = clickText('紧凑', document.querySelector('.vg-moment-settings-sheet') ?? null);
   await sleep(250);
   const page = host?.querySelector('.vg-moments-page') as HTMLElement | null;
   check('⑰ 选「紧凑」后页面 data-density=compact 且写进本机偏好',
@@ -298,7 +300,7 @@ async function run(): Promise<void> {
     && compactAvatar.top >= compactCover.top && compactAvatar.bottom <= compactCover.bottom));
 
   // ---------- E2. 红点开关 ----------
-  const badgeToggle = buttonWith('已开启', host?.querySelector('.vg-moment-settings-sheet') ?? null);
+  const badgeToggle = document.querySelector<HTMLButtonElement>('[role="switch"][aria-label="新互动红点"]');
   if (badgeToggle) badgeToggle.click();
   await sleep(250);
   await render();
@@ -313,9 +315,9 @@ async function run(): Promise<void> {
   const charPostVisibleBefore = (host?.innerText ?? '').includes('今晚的云压得很低。');
   (host?.querySelector('.vg-moments-settings') as HTMLButtonElement | null)?.click();
   await sleep(350);
-  clickText('不看他（她）的朋友圈', host?.querySelector('.vg-moment-settings-sheet') ?? null);
+  clickText('不看他（她）的朋友圈', document.querySelector('.vg-moment-settings-sheet') ?? null);
   await sleep(400);
-  const mutedSheet = host?.querySelector('.vg-moment-muted-sheet') ?? null;
+  const mutedSheet = document.querySelector('.vg-moment-muted-sheet') ?? null;
   const mutedTitleOk = openSheetTitle() === '不看他（她）的朋友圈';
   const firstMuted = mutedSheet ? (Array.from(mutedSheet.querySelectorAll('.vg-moment-block-list label'))
     .find((label) => label.textContent?.includes(char1.name))?.querySelector('input[type="checkbox"]') as HTMLInputElement | null) : null;
@@ -406,7 +408,7 @@ async function run(): Promise<void> {
   // ---------- J. 清空互动记录 ----------
   (host?.querySelector('.vg-moments-settings') as HTMLButtonElement | null)?.click();
   await sleep(350);
-  const cleared = clickText('清空记录', host?.querySelector('.vg-moment-settings-sheet') ?? null);
+  const cleared = clickText('清空记录', document.querySelector('.vg-moment-settings-sheet') ?? null);
   await sleep(400);
   check('㉛ 清空记录后互动消息清空，但动态与评论都还在',
     cleared && (await momentsRepo.notifications(U)).length === 0

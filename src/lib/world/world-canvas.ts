@@ -14,7 +14,6 @@ import { db } from '../../db/index';
 import { worldSceneRepo } from '../../db/world-scene-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { worldLocationRepo } from '../../db/world-location-repo';
-import { worldObjectRepo } from '../../db/world-object-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { knowledgeRepo } from '../../db/knowledge-repo';
@@ -36,7 +35,7 @@ export interface CanvasView {
 
 /** 世界时钟：真实时间 + 这一段的偏移量（时间跳跃只改偏移，不伪造历史） */
 export function worldNowDate(scene: WorldScene): Date {
-  return new Date(Date.now() + (scene.state.timeOffsetMs ?? 0));
+  return new Date((scene.state.timeAnchorMs ?? scene.startedAt) + (scene.state.timeOffsetMs ?? 0));
 }
 
 export function worldTimeLabel(scene: WorldScene): string {
@@ -82,7 +81,7 @@ export async function moveSceneToLocation(params: {
     locationId: location.id,
     updatedAt: Date.now(),
   };
-  await worldObjectRepo.ensureForScene(moved);
+
   return moved;
 }
 
@@ -101,7 +100,7 @@ export async function ensureCanvasScene(params: {
   const open = await worldSceneRepo.listScenes(worldId, { status: 'active', limit: 1, userId });
   if (open[0]) {
     const location = await worldLocationRepo.ensureFromScene(open[0]);
-    await worldObjectRepo.ensureForScene({ ...open[0], locationId: location.id });
+
     return (await worldSceneRepo.getScene(open[0].id)) ?? { ...open[0], locationId: location.id };
   }
   const paused = await worldSceneRepo.listScenes(worldId, { status: 'paused', limit: 1, userId });
@@ -109,30 +108,34 @@ export async function ensureCanvasScene(params: {
     await worldSceneRepo.setSceneStatus(paused[0].id, 'active');
     const resumed = (await worldSceneRepo.getScene(paused[0].id)) ?? paused[0];
     const location = await worldLocationRepo.ensureFromScene(resumed);
-    await worldObjectRepo.ensureForScene({ ...resumed, locationId: location.id });
+
     return (await worldSceneRepo.getScene(resumed.id)) ?? { ...resumed, locationId: location.id };
   }
 
   // 新建：延续上一段的地点到"此刻"，让世界感觉是连续的
   const recent = await worldSceneRepo.listScenes(worldId, { limit: 1, userId });
   const previous = recent[0];
-  const owned = params.characters.filter((c) => c.createdBy === userId);
+  const owned = params.characters.filter((c) => c.createdBy === userId && c.agentProfile !== 'secretary');
   const participants = (previous?.characterIds.length ? previous.characterIds : owned.slice(0, 2).map((c) => c.id))
-    .filter((id) => params.characters.some((c) => c.id === id));
+    .filter((id) => params.characters.some((c) => c.id === id && c.agentProfile !== 'secretary'));
   const now = Date.now();
   const id = await worldSceneRepo.createScene({
     userId,
     worldId,
     title: '此刻',
     place: previous?.place || '你们常在的地方',
-    timeLabel: timeLabelFor(0, now),
+    timeLabel: previous?.timeLabel || timeLabelFor(0, now),
     mood: previous?.mood || '安静',
     characterIds: participants,
+  });
+  await worldSceneRepo.patchSceneState(id, {
+    timeAnchorMs: previous?.state.timeAnchorMs ?? previous?.startedAt ?? now,
+    timeOffsetMs: previous?.state.timeOffsetMs ?? 0,
   });
   await worldSceneRepo.setSceneStatus(id, 'active');
   const created = (await worldSceneRepo.getScene(id))!;
   const location = await worldLocationRepo.ensureFromScene(created);
-  await worldObjectRepo.ensureForScene({ ...created, locationId: location.id });
+
   return (await worldSceneRepo.getScene(id)) ?? { ...created, locationId: location.id };
 }
 

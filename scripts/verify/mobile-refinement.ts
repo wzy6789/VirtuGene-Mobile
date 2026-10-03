@@ -51,10 +51,11 @@ async function run(){
   const shell=host.querySelector('.vg-conversation-shell') as HTMLElement;
   const actions=shell.previousElementSibling as HTMLElement;
   check(getComputedStyle(actions).visibility==='hidden','closed swipe actions do not bleed through corners');
-  const touch=(type:string,x:number)=>{const event=new Event(type,{bubbles:true});Object.defineProperty(event,'touches',{value:[{clientX:x,clientY:200}]});shell.dispatchEvent(event);};
-  touch('touchstart',200);touch('touchmove',100);await wait();touch('touchend',100);await wait();
+  shell.setPointerCapture=()=>{};shell.hasPointerCapture=()=>false;
+  const pointer=(type:string,x:number)=>shell.dispatchEvent(new PointerEvent(type,{bubbles:true,cancelable:true,pointerId:1,isPrimary:true,button:0,clientX:x,clientY:200}));
+  pointer('pointerdown',200);pointer('pointermove',100);await wait();pointer('pointerup',100);await wait();
   check(getComputedStyle(actions).visibility==='visible','swipe still reveals actions');
-  await new Promise(r=>setTimeout(r,270));shell.click();await wait();check(getComputedStyle(actions).visibility==='hidden','tap closes swipe actions');
+  await new Promise(r=>setTimeout(r,300));shell.click();await new Promise(r=>setTimeout(r,300));check(getComputedStyle(actions).visibility==='hidden','tap closes swipe actions');
   root.render(chat());await wait();
   check(host.querySelectorAll('.vg-chat-identity').length===4,'each consecutive bubble retains avatar');
   check([...host.querySelectorAll('.vg-message-bubble')].every(b=>getComputedStyle(b).fontSize==='14px'),'original chat size');
@@ -112,17 +113,17 @@ async function run(){
  function ScrollFixture({ count }: { count:number }) {
   const ref=useRef<HTMLDivElement>(null);const latest=useLatestMessageScroll(ref);
   useEffect(()=>latest(),[count,latest]);
-  return h('div',null,h('div',{ref,'data-scroll-fixture':true,style:{height:120,overflow:'auto'}},h('div',{style:{height:800+count*100}},'latest')),h('input',{'data-focus-fixture':true,onFocus:()=>latest(),onClick:()=>latest()}));
+  return h('div',null,h('div',{ref,'data-scroll-fixture':true,style:{height:120,overflow:'auto'}},h('div',{style:{height:800+count*100}},'latest')),h('input',{'data-focus-fixture':true,onFocus:()=>latest(true),onClick:()=>latest(true)}));
  }
  root.render(h(ScrollFixture,{count:1}));await new Promise(r=>setTimeout(r,400));
  const scrollBox=host.querySelector('[data-scroll-fixture]') as HTMLElement;
  const isBottom=()=>Math.abs(scrollBox.scrollHeight-scrollBox.clientHeight-scrollBox.scrollTop)<2;
  scrollBox.scrollTop=0;(host.querySelector('[data-focus-fixture]') as HTMLInputElement).focus();await wait();
  check(isBottom(),'input focus positions newest content above composer');
- scrollBox.scrollTop=0;window.visualViewport?.dispatchEvent(new Event('resize'));await wait();
- check(isBottom(),'visual viewport keyboard resize follows latest');
- scrollBox.scrollTop=0;root.render(h(ScrollFixture,{count:2}));await wait();
- check(isBottom(),'new content follows latest even after reading earlier messages');
+ scrollBox.scrollTop=0;scrollBox.dispatchEvent(new Event('scroll'));window.visualViewport?.dispatchEvent(new Event('resize'));await wait();
+ check(scrollBox.scrollTop===0,'viewport resize preserves an explicitly chosen historical position');
+ scrollBox.scrollTop=0;scrollBox.dispatchEvent(new Event('scroll'));root.render(h(ScrollFixture,{count:2}));await wait();
+ check(scrollBox.scrollTop===0,'new content preserves history reading until the user returns to latest');
  root.unmount();await new Promise(r=>setTimeout(r,400));
  await fetch('/result?suite=mobile-refinement',{method:'POST',body:`PASS ${checks} mobile visual layout checks\nALL PASS`});
 }

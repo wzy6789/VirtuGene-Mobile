@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
 import { OnboardingModal } from './OnboardingModal';
 import { IS_MOBILE } from '../../lib/platform';
+import { SecretarySetupModal } from './SecretarySetupModal';
+import { findSecretary, SECRETARY_INTRO_PREFIX } from '../../lib/secretary/character';
 
 const ONBOARDED_PREFIX = 'virtugene:onboarded:';
 
@@ -107,11 +109,31 @@ function GuideTip({ targetId, placement, icon, step, title, desc, onClose }: Gui
  * 新手引导：欢迎弹窗 → 基因实验室 → 情绪图谱 → 我的手账（日记）。
  * 气泡位置由目标元素 id 实测锚定，箭头尖角指向目标中心。
  */
-export function OnboardingGuide() {
+export function OnboardingGuide({ blocked = false }: { blocked?: boolean }) {
   const userId = useAuthStore((s) => s.userId) ?? '';
   const onboardedKey = ONBOARDED_PREFIX + userId;
   const [showWelcome, setShowWelcome] = useState(() => userId !== '' && localStorage.getItem(onboardedKey) == null);
   const [tipStep, setTipStep] = useState<0 | 1 | 2 | 3>(0);
+  const [showSecretary, setShowSecretary] = useState(false);
+
+  useEffect(() => {
+    if (!userId || showWelcome) return;
+    let alive = true;
+    if (localStorage.getItem(SECRETARY_INTRO_PREFIX + userId) == null) {
+      void findSecretary(userId).then(character => {
+        if (!alive) return;
+        if (!character) setShowSecretary(true);
+        else localStorage.setItem(SECRETARY_INTRO_PREFIX + userId, '1');
+      }).catch(() => undefined);
+    }
+    return () => { alive = false; };
+  }, [userId, showWelcome]);
+
+  useEffect(() => {
+    const open = () => { setTipStep(0); setShowSecretary(true); };
+    window.addEventListener('virtugene:open-secretary', open);
+    return () => window.removeEventListener('virtugene:open-secretary', open);
+  }, []);
 
   useEffect(() => {
     const reopen = () => {
@@ -130,7 +152,8 @@ export function OnboardingGuide() {
 
   return (
     <>
-      <OnboardingModal open={showWelcome} onClose={closeWelcome} />
+      <OnboardingModal open={showWelcome && !blocked} onClose={closeWelcome} />
+      <SecretarySetupModal open={showSecretary && !showWelcome && !blocked} onClose={() => setShowSecretary(false)} />
 
       {/* 1/3 基因实验室：气泡在按钮右侧，箭头朝左指向按钮 */}
       {tipStep === 1 && (

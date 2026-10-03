@@ -1,8 +1,8 @@
 /**
  * 基因融合（灵魂杂交）：把两个角色的"性格基因"交给 AI 融合，孵化一个新的数字灵魂。
- * 单次 DeepSeek 调用、强制 JSON；失败返回 error，不影响主流程。
+ * 单次默认模型调用、强制 JSON；失败返回 error，不影响主流程。
  */
-import { findModel, llmChat } from './llm';
+import { taskChat } from './task-client';
 import { useAuthStore } from '../../store/auth-store';
 
 export interface FusionSource {
@@ -31,12 +31,8 @@ const FUSION_INSTRUCTION =
 export async function fuseSouls(a: FusionSource, b: FusionSource): Promise<{ data?: FusionResult; error?: string }> {
   try {
     const apiKey = useAuthStore.getState().apiKey;
-    if (!apiKey) return { error: 'auth:invalid_key' };
-    const model = findModel('deepseek-v4-flash')!;
-    const res = await llmChat({
-      provider: model.provider,
-      model: model.id,
-      apiKey,
+    const res = await taskChat({
+      apiKey: apiKey ?? '',
       messages: [
         { role: 'system', content: FUSION_INSTRUCTION },
         {

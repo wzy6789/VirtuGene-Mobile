@@ -1,0 +1,1352 @@
+[
+  {
+    "id": "g001",
+    "category": "affirmative",
+    "request": "添加待办：准备报告",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g002",
+    "category": "affirmative",
+    "request": "请添加待办：准备报告",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g003",
+    "category": "affirmative",
+    "request": "帮我添加待办：准备报告",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g004",
+    "category": "affirmative",
+    "request": "麻烦添加待办：准备报告",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g005",
+    "category": "affirmative",
+    "request": "给我添加待办：准备报告",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g006",
+    "category": "negative",
+    "request": "不要添加待办：准备报告",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g007",
+    "category": "negative",
+    "request": "不用添加待办：准备报告",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g008",
+    "category": "negative",
+    "request": "不必添加待办：准备报告",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g009",
+    "category": "quoted",
+    "request": "朋友说“添加待办：准备报告”，是什么意思？",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g010",
+    "category": "quoted",
+    "request": "朋友说\"添加待办：准备报告\"，是什么意思？",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g011",
+    "category": "affirmative",
+    "request": "新增待办：周末买菜",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g012",
+    "category": "affirmative",
+    "request": "请新增待办：周末买菜",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g013",
+    "category": "affirmative",
+    "request": "帮我新增待办：周末买菜",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g014",
+    "category": "affirmative",
+    "request": "麻烦新增待办：周末买菜",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g015",
+    "category": "affirmative",
+    "request": "给我新增待办：周末买菜",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g016",
+    "category": "negative",
+    "request": "不要新增待办：周末买菜",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g017",
+    "category": "negative",
+    "request": "不用新增待办：周末买菜",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g018",
+    "category": "negative",
+    "request": "不必新增待办：周末买菜",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g019",
+    "category": "quoted",
+    "request": "朋友说“新增待办：周末买菜”，是什么意思？",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g020",
+    "category": "quoted",
+    "request": "朋友说\"新增待办：周末买菜\"，是什么意思？",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g021",
+    "category": "affirmative",
+    "request": "创建待办：核对材料",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g022",
+    "category": "affirmative",
+    "request": "请创建待办：核对材料",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g023",
+    "category": "affirmative",
+    "request": "帮我创建待办：核对材料",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g024",
+    "category": "affirmative",
+    "request": "麻烦创建待办：核对材料",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g025",
+    "category": "affirmative",
+    "request": "给我创建待办：核对材料",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g026",
+    "category": "negative",
+    "request": "不要创建待办：核对材料",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g027",
+    "category": "negative",
+    "request": "不用创建待办：核对材料",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g028",
+    "category": "negative",
+    "request": "不必创建待办：核对材料",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g029",
+    "category": "quoted",
+    "request": "朋友说“创建待办：核对材料”，是什么意思？",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g030",
+    "category": "quoted",
+    "request": "朋友说\"创建待办：核对材料\"，是什么意思？",
+    "action": {
+      "kind": "todo.create"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g031",
+    "category": "affirmative",
+    "request": "写日记：今天散步了",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g032",
+    "category": "affirmative",
+    "request": "请写日记：今天散步了",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g033",
+    "category": "affirmative",
+    "request": "帮我写日记：今天散步了",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g034",
+    "category": "affirmative",
+    "request": "麻烦写日记：今天散步了",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g035",
+    "category": "affirmative",
+    "request": "给我写日记：今天散步了",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g036",
+    "category": "negative",
+    "request": "不要写日记：今天散步了",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g037",
+    "category": "negative",
+    "request": "不用写日记：今天散步了",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g038",
+    "category": "negative",
+    "request": "不必写日记：今天散步了",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g039",
+    "category": "quoted",
+    "request": "朋友说“写日记：今天散步了”，是什么意思？",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g040",
+    "category": "quoted",
+    "request": "朋友说\"写日记：今天散步了\"，是什么意思？",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g041",
+    "category": "affirmative",
+    "request": "保存日记：今天整理了房间",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g042",
+    "category": "affirmative",
+    "request": "请保存日记：今天整理了房间",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g043",
+    "category": "affirmative",
+    "request": "帮我保存日记：今天整理了房间",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g044",
+    "category": "affirmative",
+    "request": "麻烦保存日记：今天整理了房间",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g045",
+    "category": "affirmative",
+    "request": "给我保存日记：今天整理了房间",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g046",
+    "category": "negative",
+    "request": "不要保存日记：今天整理了房间",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g047",
+    "category": "negative",
+    "request": "不用保存日记：今天整理了房间",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g048",
+    "category": "negative",
+    "request": "不必保存日记：今天整理了房间",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g049",
+    "category": "quoted",
+    "request": "朋友说“保存日记：今天整理了房间”，是什么意思？",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g050",
+    "category": "quoted",
+    "request": "朋友说\"保存日记：今天整理了房间\"，是什么意思？",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g051",
+    "category": "affirmative",
+    "request": "追加日记：今天看完一本书",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g052",
+    "category": "affirmative",
+    "request": "请追加日记：今天看完一本书",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g053",
+    "category": "affirmative",
+    "request": "帮我追加日记：今天看完一本书",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g054",
+    "category": "affirmative",
+    "request": "麻烦追加日记：今天看完一本书",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g055",
+    "category": "affirmative",
+    "request": "给我追加日记：今天看完一本书",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g056",
+    "category": "negative",
+    "request": "不要追加日记：今天看完一本书",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g057",
+    "category": "negative",
+    "request": "不用追加日记：今天看完一本书",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g058",
+    "category": "negative",
+    "request": "不必追加日记：今天看完一本书",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g059",
+    "category": "quoted",
+    "request": "朋友说“追加日记：今天看完一本书”，是什么意思？",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g060",
+    "category": "quoted",
+    "request": "朋友说\"追加日记：今天看完一本书\"，是什么意思？",
+    "action": {
+      "kind": "diary.save"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g061",
+    "category": "affirmative",
+    "request": "写朋友圈文案：晚霞很好看",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g062",
+    "category": "affirmative",
+    "request": "请写朋友圈文案：晚霞很好看",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g063",
+    "category": "affirmative",
+    "request": "帮我写朋友圈文案：晚霞很好看",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g064",
+    "category": "affirmative",
+    "request": "麻烦写朋友圈文案：晚霞很好看",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g065",
+    "category": "affirmative",
+    "request": "给我写朋友圈文案：晚霞很好看",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g066",
+    "category": "negative",
+    "request": "不要写朋友圈文案：晚霞很好看",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g067",
+    "category": "negative",
+    "request": "不用写朋友圈文案：晚霞很好看",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g068",
+    "category": "negative",
+    "request": "不必写朋友圈文案：晚霞很好看",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g069",
+    "category": "quoted",
+    "request": "朋友说“写朋友圈文案：晚霞很好看”，是什么意思？",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g070",
+    "category": "quoted",
+    "request": "朋友说\"写朋友圈文案：晚霞很好看\"，是什么意思？",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g071",
+    "category": "affirmative",
+    "request": "起草朋友圈：散步回来",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g072",
+    "category": "affirmative",
+    "request": "请起草朋友圈：散步回来",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g073",
+    "category": "affirmative",
+    "request": "帮我起草朋友圈：散步回来",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g074",
+    "category": "affirmative",
+    "request": "麻烦起草朋友圈：散步回来",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g075",
+    "category": "affirmative",
+    "request": "给我起草朋友圈：散步回来",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g076",
+    "category": "negative",
+    "request": "不要起草朋友圈：散步回来",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g077",
+    "category": "negative",
+    "request": "不用起草朋友圈：散步回来",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g078",
+    "category": "negative",
+    "request": "不必起草朋友圈：散步回来",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g079",
+    "category": "quoted",
+    "request": "朋友说“起草朋友圈：散步回来”，是什么意思？",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g080",
+    "category": "quoted",
+    "request": "朋友说\"起草朋友圈：散步回来\"，是什么意思？",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g081",
+    "category": "affirmative",
+    "request": "润色朋友圈文案：今天看了日落",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g082",
+    "category": "affirmative",
+    "request": "请润色朋友圈文案：今天看了日落",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g083",
+    "category": "affirmative",
+    "request": "帮我润色朋友圈文案：今天看了日落",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g084",
+    "category": "affirmative",
+    "request": "麻烦润色朋友圈文案：今天看了日落",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g085",
+    "category": "affirmative",
+    "request": "给我润色朋友圈文案：今天看了日落",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g086",
+    "category": "negative",
+    "request": "不要润色朋友圈文案：今天看了日落",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g087",
+    "category": "negative",
+    "request": "不用润色朋友圈文案：今天看了日落",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g088",
+    "category": "negative",
+    "request": "不必润色朋友圈文案：今天看了日落",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g089",
+    "category": "quoted",
+    "request": "朋友说“润色朋友圈文案：今天看了日落”，是什么意思？",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g090",
+    "category": "quoted",
+    "request": "朋友说\"润色朋友圈文案：今天看了日落\"，是什么意思？",
+    "action": {
+      "kind": "moment.draft"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g091",
+    "category": "affirmative",
+    "request": "发朋友圈：今天的晚霞",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g092",
+    "category": "affirmative",
+    "request": "请发朋友圈：今天的晚霞",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g093",
+    "category": "affirmative",
+    "request": "帮我发朋友圈：今天的晚霞",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g094",
+    "category": "affirmative",
+    "request": "麻烦发朋友圈：今天的晚霞",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g095",
+    "category": "affirmative",
+    "request": "给我发朋友圈：今天的晚霞",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g096",
+    "category": "negative",
+    "request": "不要发朋友圈：今天的晚霞",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g097",
+    "category": "negative",
+    "request": "不用发朋友圈：今天的晚霞",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g098",
+    "category": "negative",
+    "request": "不必发朋友圈：今天的晚霞",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g099",
+    "category": "quoted",
+    "request": "朋友说“发朋友圈：今天的晚霞”，是什么意思？",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g100",
+    "category": "quoted",
+    "request": "朋友说\"发朋友圈：今天的晚霞\"，是什么意思？",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g101",
+    "category": "affirmative",
+    "request": "发布朋友圈：今天去散步",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g102",
+    "category": "affirmative",
+    "request": "请发布朋友圈：今天去散步",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g103",
+    "category": "affirmative",
+    "request": "帮我发布朋友圈：今天去散步",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g104",
+    "category": "affirmative",
+    "request": "麻烦发布朋友圈：今天去散步",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g105",
+    "category": "affirmative",
+    "request": "给我发布朋友圈：今天去散步",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g106",
+    "category": "negative",
+    "request": "不要发布朋友圈：今天去散步",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g107",
+    "category": "negative",
+    "request": "不用发布朋友圈：今天去散步",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g108",
+    "category": "negative",
+    "request": "不必发布朋友圈：今天去散步",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g109",
+    "category": "quoted",
+    "request": "朋友说“发布朋友圈：今天去散步”，是什么意思？",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g110",
+    "category": "quoted",
+    "request": "朋友说\"发布朋友圈：今天去散步\"，是什么意思？",
+    "action": {
+      "kind": "moment.publish"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g111",
+    "category": "affirmative",
+    "request": "把开会待办改到后天",
+    "action": {
+      "kind": "todo.reschedule"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g112",
+    "category": "affirmative",
+    "request": "请把开会待办改到后天",
+    "action": {
+      "kind": "todo.reschedule"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g113",
+    "category": "affirmative",
+    "request": "帮我把开会待办改到后天",
+    "action": {
+      "kind": "todo.reschedule"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g114",
+    "category": "affirmative",
+    "request": "麻烦把开会待办改到后天",
+    "action": {
+      "kind": "todo.reschedule"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g115",
+    "category": "affirmative",
+    "request": "给我把开会待办改到后天",
+    "action": {
+      "kind": "todo.reschedule"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g116",
+    "category": "negative",
+    "request": "不要把开会待办改到后天",
+    "action": {
+      "kind": "todo.reschedule"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g117",
+    "category": "negative",
+    "request": "不用把开会待办改到后天",
+    "action": {
+      "kind": "todo.reschedule"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g118",
+    "category": "negative",
+    "request": "不必把开会待办改到后天",
+    "action": {
+      "kind": "todo.reschedule"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g119",
+    "category": "quoted",
+    "request": "朋友说“把开会待办改到后天”，是什么意思？",
+    "action": {
+      "kind": "todo.reschedule"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g120",
+    "category": "quoted",
+    "request": "朋友说\"把开会待办改到后天\"，是什么意思？",
+    "action": {
+      "kind": "todo.reschedule"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g121",
+    "category": "affirmative",
+    "request": "修改待办开会的优先级",
+    "action": {
+      "kind": "todo.update"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g122",
+    "category": "affirmative",
+    "request": "请修改待办开会的优先级",
+    "action": {
+      "kind": "todo.update"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g123",
+    "category": "affirmative",
+    "request": "帮我修改待办开会的优先级",
+    "action": {
+      "kind": "todo.update"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g124",
+    "category": "affirmative",
+    "request": "麻烦修改待办开会的优先级",
+    "action": {
+      "kind": "todo.update"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g125",
+    "category": "affirmative",
+    "request": "给我修改待办开会的优先级",
+    "action": {
+      "kind": "todo.update"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g126",
+    "category": "negative",
+    "request": "不要修改待办开会的优先级",
+    "action": {
+      "kind": "todo.update"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g127",
+    "category": "negative",
+    "request": "不用修改待办开会的优先级",
+    "action": {
+      "kind": "todo.update"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g128",
+    "category": "negative",
+    "request": "不必修改待办开会的优先级",
+    "action": {
+      "kind": "todo.update"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g129",
+    "category": "quoted",
+    "request": "朋友说“修改待办开会的优先级”，是什么意思？",
+    "action": {
+      "kind": "todo.update"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g130",
+    "category": "quoted",
+    "request": "朋友说\"修改待办开会的优先级\"，是什么意思？",
+    "action": {
+      "kind": "todo.update"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g131",
+    "category": "affirmative",
+    "request": "取消待办开会",
+    "action": {
+      "kind": "todo.cancel"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g132",
+    "category": "affirmative",
+    "request": "请取消待办开会",
+    "action": {
+      "kind": "todo.cancel"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g133",
+    "category": "affirmative",
+    "request": "帮我取消待办开会",
+    "action": {
+      "kind": "todo.cancel"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g134",
+    "category": "affirmative",
+    "request": "麻烦取消待办开会",
+    "action": {
+      "kind": "todo.cancel"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g135",
+    "category": "affirmative",
+    "request": "给我取消待办开会",
+    "action": {
+      "kind": "todo.cancel"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g136",
+    "category": "negative",
+    "request": "不要取消待办开会",
+    "action": {
+      "kind": "todo.cancel"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g137",
+    "category": "negative",
+    "request": "不用取消待办开会",
+    "action": {
+      "kind": "todo.cancel"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g138",
+    "category": "negative",
+    "request": "不必取消待办开会",
+    "action": {
+      "kind": "todo.cancel"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g139",
+    "category": "quoted",
+    "request": "朋友说“取消待办开会”，是什么意思？",
+    "action": {
+      "kind": "todo.cancel"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g140",
+    "category": "quoted",
+    "request": "朋友说\"取消待办开会\"，是什么意思？",
+    "action": {
+      "kind": "todo.cancel"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g141",
+    "category": "affirmative",
+    "request": "打开待办页",
+    "action": {
+      "kind": "app.open"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g142",
+    "category": "affirmative",
+    "request": "请打开待办页",
+    "action": {
+      "kind": "app.open"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g143",
+    "category": "affirmative",
+    "request": "帮我打开待办页",
+    "action": {
+      "kind": "app.open"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g144",
+    "category": "affirmative",
+    "request": "麻烦打开待办页",
+    "action": {
+      "kind": "app.open"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g145",
+    "category": "affirmative",
+    "request": "给我打开待办页",
+    "action": {
+      "kind": "app.open"
+    },
+    "allowed": true
+  },
+  {
+    "id": "g146",
+    "category": "negative",
+    "request": "不要打开待办页",
+    "action": {
+      "kind": "app.open"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g147",
+    "category": "negative",
+    "request": "不用打开待办页",
+    "action": {
+      "kind": "app.open"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g148",
+    "category": "negative",
+    "request": "不必打开待办页",
+    "action": {
+      "kind": "app.open"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g149",
+    "category": "quoted",
+    "request": "朋友说“打开待办页”，是什么意思？",
+    "action": {
+      "kind": "app.open"
+    },
+    "allowed": false
+  },
+  {
+    "id": "g150",
+    "category": "quoted",
+    "request": "朋友说\"打开待办页\"，是什么意思？",
+    "action": {
+      "kind": "app.open"
+    },
+    "allowed": false
+  }
+]

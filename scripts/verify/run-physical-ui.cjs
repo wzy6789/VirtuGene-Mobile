@@ -1,0 +1,66 @@
+const {createRequire}=require('module');
+const path=require('path');
+const runtimeRequire=createRequire(path.join(path.dirname(process.execPath),'package.json'));
+const {chromium}=runtimeRequire('playwright');
+const fs=require('fs');
+const assert=require('assert/strict');
+(async()=>{
+ const browser=await chromium.launch({channel:'chrome',headless:true});
+ const page=await browser.newPage({viewport:{width:390,height:844}});
+ const errors=[];page.on('pageerror',e=>{errors.push(e.message);console.error('BROWSER ERROR',e.stack);});
+ let count=0;const pass=(name)=>{count++;console.log('PASS '+name);};
+ try {
+ await page.goto('http://127.0.0.1:17901/physical-ui.html');
+ await page.waitForTimeout(500);
+ await page.getByRole('button',{name:'温柔',exact:true}).waitFor();
+ const chip=page.getByRole('button',{name:'温柔',exact:true});const width=(await chip.boundingBox()).width;
+ await chip.click();await page.waitForTimeout(320);
+ assert.equal(await chip.getAttribute('aria-pressed'),'true');assert.ok((await chip.boundingBox()).width>width+18);pass('selected chip expands with a check');
+ await page.getByRole('button',{name:'冷静',exact:true}).click();assert.equal(await page.locator('.vg-filter-count').textContent(),'2');pass('multi-select count');
+ await page.getByRole('button',{name:'已选 2 项，清除筛选'}).click();assert.equal(await page.locator('#selected').textContent(),'[]');pass('clear filters');
+ const input=page.getByRole('combobox',{name:'性格标签'});
+ await page.getByRole('button',{name:'删除标签 温柔',exact:true}).click();
+ await input.fill('新标签');await page.getByRole('button',{name:'添加标签 新标签'}).click();await page.waitForTimeout(300);
+ const tags=JSON.parse(await page.locator('#tags').textContent());assert.ok(tags.includes('新标签')&&!tags.includes('温柔'));pass('remove + insert race keeps latest tags');
+ await input.fill('温');await page.getByRole('option',{name:'温柔'}).click();assert.ok(JSON.parse(await page.locator('#tags').textContent()).includes('温柔'));assert.equal(await page.getByRole('listbox').count(),0);pass('caret suggestion inserts and closes');
+ await input.fill('活');await input.evaluate(el=>el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true})));assert.equal(await input.inputValue(),'活');pass('IME confirmation does not insert a tag');
+ await input.press('Escape');await input.fill('');
+ const before=(await page.locator('.vg-tag-field').boundingBox()).height;
+ for(const t of ['细心','可靠','幽默','坦率','冷静','温柔']) { const b=page.getByRole('button',{name:'删除标签 '+t,exact:true});if(await b.count())await b.click(); }
+ await page.waitForTimeout(600);assert.deepEqual(JSON.parse(await page.locator('#tags').textContent()),['新标签']);assert.ok((await page.locator('.vg-tag-field').boundingBox()).height<before);pass('deletions shrink the field and keep the remaining tag');
+ const card=page.getByRole('button',{name:'日记 留下今天的故事'});const rect=await card.boundingBox();
+ await page.mouse.move(rect.x+rect.width*.8,rect.y+rect.height*.25);await page.mouse.down();assert.equal(await card.getAttribute('data-pressed'),'');await page.mouse.up();await page.waitForTimeout(500);assert.equal(await card.getAttribute('data-pressed'),null);assert.equal(await page.locator('#card-clicks').textContent(),'1');pass('touchpoint tilt resets and normal tap still navigates');
+ await page.mouse.move(rect.x+30,rect.y+30);await page.mouse.down();await page.mouse.move(rect.x+30,rect.y+65);await page.mouse.up();assert.equal(await page.locator('#card-clicks').textContent(),'1');assert.equal(await card.getAttribute('data-pressed'),null);pass('dragging a card releases tilt without opening it');
+ const textarea=page.getByPlaceholder('发消息…');await textarea.fill('保留这段草稿');await textarea.focus();
+ const slider=page.getByRole('slider',{name:'聊天字号'});await slider.waitFor();
+ assert.equal(await page.locator('#font-size').textContent(),'14');
+ await slider.evaluate(el=>{el.scrollLeft=160;});await page.waitForTimeout(500);assert.equal(await page.locator('#font-size').textContent(),'17');
+ assert.equal(await page.locator('.vg-message-bubble').evaluate(el=>getComputedStyle(el).fontSize),'17px');pass('ruler changes real message font immediately');
+ const sr=await slider.boundingBox();await page.mouse.move(sr.x+sr.width/2,sr.y+sr.height/2);await page.mouse.down();await page.mouse.move(sr.x+sr.width/2-96,sr.y+sr.height/2,{steps:10});await page.mouse.up();await page.waitForTimeout(400);assert.equal(await page.locator('#font-size').textContent(),'20');assert.ok(Math.abs(await slider.evaluate(el=>el.scrollLeft)-256)<2);pass('drag ruler snaps to a tick');
+ assert.equal(await textarea.inputValue(),'保留这段草稿');pass('font adjustment preserves draft');
+ const mic=page.getByRole('button',{name:'长按录音，也可点击开始'});const mr=await mic.boundingBox();
+ await page.mouse.move(mr.x+20,mr.y+20);await page.mouse.down();await page.waitForTimeout(1350);assert.equal(await page.locator('.vg-voice-tools.is-recording').count(),1);assert.ok(await page.locator('.vg-voice-tools').evaluate(el=>el.offsetWidth>240));
+ assert.ok(await page.locator('.vg-voice-wave i').first().evaluate(el=>parseFloat(el.style.height)>3));await page.mouse.up();await page.waitForTimeout(400);
+ assert.equal(await page.evaluate(()=>window.physicalResults.voices.length),1);assert.equal(await textarea.inputValue(),'保留这段草稿');pass('hold morphs, live native amplitude drives waveform, release sends once');
+ await page.getByRole('button',{name:'长按录音，也可点击开始'}).click();await page.waitForTimeout(100);await page.getByRole('button',{name:'取消录音',exact:true}).click();await page.waitForTimeout(100);assert.equal(await page.evaluate(()=>window.physicalResults.voices.length),1);pass('cancel restores tools without sending');
+ await page.evaluate(()=>window.voiceMock.permissionDelay=800);const starts=await page.evaluate(()=>window.voiceMock.starts);
+ const m2=await mic.boundingBox();await page.mouse.move(m2.x+20,m2.y+20);await page.mouse.down();await page.waitForTimeout(400);await page.mouse.up();await page.waitForTimeout(950);
+ assert.equal(await page.evaluate(()=>window.voiceMock.starts),starts);assert.equal(await page.evaluate(()=>window.physicalResults.voices.length),1);pass('release before permission returns never starts recording');
+ await page.evaluate(()=>{window.voiceMock.permissionDelay=0;window.voiceMock.startDelay=800;});const cancels=await page.evaluate(()=>window.voiceMock.cancels);
+ const beforeStart=await page.evaluate(()=>window.voiceMock.starts);const m3=await mic.boundingBox();
+ await page.mouse.move(m3.x+20,m3.y+20);await page.mouse.down();await page.waitForFunction(n=>window.voiceMock.starts>n,beforeStart);await page.mouse.up();await page.waitForTimeout(950);assert.ok(await page.evaluate(()=>window.voiceMock.cancels)>cancels);assert.equal(await page.evaluate(()=>window.physicalResults.voices.length),1);pass('late native recorder start is cancelled after release');
+ await page.evaluate(()=>window.voiceMock.startDelay=0);
+ await page.evaluate(()=>window.voiceMock.granted=false);const deniedStarts=await page.evaluate(()=>window.voiceMock.starts);await mic.click();await page.waitForTimeout(150);assert.equal(await page.evaluate(()=>window.voiceMock.starts),deniedStarts);assert.equal(await page.locator('.vg-voice-tools.is-recording').count(),0);pass('denied permission leaves microphone idle');await page.evaluate(()=>window.voiceMock.granted=true);
+ await textarea.fill('中文消息');await textarea.evaluate(el=>el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true})));assert.equal(await page.evaluate(()=>window.physicalResults.messages.length),0);await textarea.press('Enter');assert.deepEqual(await page.evaluate(()=>window.physicalResults.messages),['中文消息']);pass('real composer still respects IME and sends text');
+ await page.reload();await page.locator('#font-size').waitFor();assert.equal(await page.locator('#font-size').textContent(),'20');pass('font preference persists after reload');
+ for(const width of [320,360,390,430]) { await page.setViewportSize({width,height:844});await page.waitForTimeout(150);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)); }
+ pass('320–430 px screens do not overflow horizontally');
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(require('os').tmpdir(),'vg-physical-ui.png'),fullPage:true});
+ await page.emulateMedia({reducedMotion:'reduce'});await chip.click();assert.equal(await chip.evaluate(el=>getComputedStyle(el).transitionDuration),'0s');pass('reduced motion disables chip animation');
+ assert.deepEqual(errors,[]);pass('no browser errors');
+ await page.emulateMedia({reducedMotion:'no-preference'});
+ await page.evaluate(()=>window.voiceMock.startDelay=800);const oldStarts=await page.evaluate(()=>window.voiceMock.starts);await mic.click();await page.waitForFunction(n=>window.voiceMock.starts>n,oldStarts);
+ await page.locator('#remount-composer').evaluate(el=>el.click());await page.getByRole('button',{name:'长按录音，也可点击开始'}).click();await page.waitForTimeout(50);assert.equal(await page.evaluate(()=>window.voiceMock.starts),oldStarts+1);await page.waitForTimeout(950);await page.evaluate(()=>window.voiceMock.startDelay=0);await mic.click();await page.waitForTimeout(100);assert.equal(await page.evaluate(()=>window.voiceMock.starts),oldStarts+2);await page.getByRole('button',{name:'取消录音',exact:true}).click();assert.equal(await page.evaluate(()=>window.physicalResults.voices.length),0);pass('switching composers while startup is pending cannot overlap native recorders');
+ console.log(`ALL PASS: ${count} checks`);
+ } finally {await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

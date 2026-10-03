@@ -17,6 +17,7 @@ import { entryLine, renderCharacterContext, type WorldContext } from './world-co
 import type { TurnSpeaker } from './world-director';
 import { buildConversationFocus } from './user-profile';
 import { directorConversationHints } from './world-immersion';
+import { WORLD_OBJECT_TOPIC_RULE } from './world-attention';
 
 export interface ActorParams {
   ctx: WorldContext;
@@ -107,7 +108,7 @@ export const ACTOR_INSTRUCTION = `你现在**只扮演一个角色**，在一次
 5. 不要替用户说话、不要替用户做决定、不要描写用户的心理。
 6. 台词要短、像真人说话（1~2 句，通常 15~80 字）；动作要具体、克制（通常不超过 45 字）。
 7. 你可以保持沉默（dialogue 留空，只做一个动作），也可以拒绝、可以离开——但要符合这个角色。
-8. 用户换话题时要跟随当前话题，不要揪着旧问题反复追问；未完成事项只有在用户主动继续或现场自然相关时才提。
+8. 用户换话题时要跟随当前话题，不要揪着旧问题反复追问；未完成事项只有在用户主动继续或现场自然相关时才提。现场物件、旧线索和自己的目标不是每轮必做的任务；没有新信息时不要反复查看、猜测或追问同一件东西，用户说“继续”也不等于要求你重讲旧悬念。可以放下它，自然回应眼前的人或安静相处。
 9. 每次必须让人认出是**这个角色**在回应：从 TA 的偏好、措辞、关注点、小脾气或关系距离里自然露出至少一项，但不要背诵人设。
 10. 允许不赞同、误解后改口、短暂停顿、岔开一句或说到一半停住；不要永远正确、永远温柔、永远追问。
 11. 禁止“我理解你的感受”“听起来你……”这类通用安慰开场；不要连续用同一个句式开头，不要把每轮结尾都写成问题。
@@ -115,6 +116,7 @@ export const ACTOR_INSTRUCTION = `你现在**只扮演一个角色**，在一次
 
 const ACTOR_IMMERSION_NOTE = `
 这不是客服问答。角色可以把注意力放在另一位在场者身上，回应对方的动作或话题；只有自然时才看向用户。每次只给一小段真实反应，先接住眼前的人、动作或情绪，再决定要不要展开。日常对话可以有玩笑、偏见、生活细节和不完整的句子；严肃时也不自动进入心理咨询口吻。动作必须能被别人看见，不能用动作偷写内心。不要替其他角色说话，也不要把长篇总结塞进一次回应。
+${WORLD_OBJECT_TOPIC_RULE}
 `;
 
 /** 把角色私有上下文 + 当前这一拍拼成 Actor 的 system */

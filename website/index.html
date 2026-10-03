@@ -21,8 +21,8 @@
 
   <link rel="icon" type="image/png" href="./assets/selected/app-mark.png">
   <link rel="apple-touch-icon" href="./assets/selected/app-mark.png">
-  <link rel="stylesheet" href="./styles.css">
-  <link rel="stylesheet" href="./living-light.css?v=1">
+  <link rel="stylesheet" href="./styles.css?v=design-2">
+  <link rel="stylesheet" href="./living-light.css?v=design-2">
 </head>
 <body>
   <a class="skip-link" href="#hero">跳到主要内容</a>
@@ -52,7 +52,7 @@
       </a>
 
       <nav class="nav-links" aria-label="主导航">
-        <a href="#hero">理念</a>
+        <a href="#hero">首页</a>
         <a href="#meet">对话</a>
         <a href="#memory">记忆</a>
         <a href="#world">世界</a>
@@ -69,7 +69,7 @@
     </div>
 
     <nav class="nav-menu" id="nav-menu" aria-label="移动端导航" hidden>
-      <a href="#hero">理念</a>
+      <a href="#hero">首页</a>
       <a href="#meet">对话</a>
       <a href="#memory">记忆</a>
       <a href="#world">世界</a>
@@ -86,21 +86,21 @@
 
       <div class="shell hero-inner">
         <div class="hero-copy">
-          <p class="hero-brand reveal-hero" style="--enter-delay:.15s"><img src="./assets/selected/app-mark.png" width="40" height="40" alt="">VirtuGene <span>数字生命，与时生长</span></p>
+          <p class="hero-brand reveal-hero" style="--enter-delay:.15s"><span class="status-dot" aria-hidden="true"></span>数字生命，与时生长</p>
           <h1 id="hero-title" class="hero-title" data-depth="0.10">
             <span class="hero-line reveal-hero" style="--enter-delay:.28s">让数字灵魂</span>
             <span class="hero-line hero-line-accent reveal-hero" style="--enter-delay:.40s">拥有时间。</span>
           </h1>
           <p class="hero-lead reveal-hero" style="--enter-delay:.56s" data-depth="0.16">
-            从一句话开始，成为彼此生活的一部分。<br>有自己的性格，也有与你一起经历的时间。
+            与有性格的 AI 角色相遇，让对话留下记忆。<br>从今天的小事，走进一起经历的世界。
           </p>
           <div class="hero-actions reveal-hero" style="--enter-delay:.68s" data-depth="0.20">
             <a class="btn btn-primary" data-download
                href="https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v5.2.8/app-release.apk"
-               rel="noreferrer" data-magnetic data-spotlight>下载 Android</a>
+               rel="noreferrer" data-magnetic data-spotlight>下载 Android <span aria-hidden="true">↗</span></a>
             <a class="btn btn-ghost" href="#meet" data-magnetic>看看实际体验</a>
           </div>
-          <p class="hero-facts reveal-hero" style="--enter-delay:.80s">Android 7.0+ · 数据本地保存 · 自备模型服务</p>
+          <p class="hero-facts reveal-hero" style="--enter-delay:.80s"><span>Android 7.0+</span><span>数据本地保存</span><span>自备模型服务</span></p>
           <nav class="life-thread" aria-label="探索数字生命">
             <a href="#meet"><span>01</span>独立性格</a><i aria-hidden="true"></i>
             <a href="#memory"><span>02</span>共同记忆</a><i aria-hidden="true"></i>
@@ -131,14 +131,14 @@
       <div class="shell">
         <div class="meet-body">
           <div class="section-head">
-            <p class="eyebrow">对话</p>
+            <p class="eyebrow"><span class="chapter-index">01</span>对话 · 从相遇开始</p>
             <h2 id="meet-title">有自己的语气，<br><em>也记得你的话。</em></h2>
             <p class="section-lead">它会接住今天的小事，也会在合适的时候想起以前发生过什么。</p>
             <ul class="meet-points">
-              <li>有稳定的性格和表达方式</li>
-              <li>能自然地延续共同经历</li>
+              <li><strong>独立的性格</strong><span>每个角色，都有自己的语气和表达方式。</span></li>
+              <li><strong>延续的对话</strong><span>今天的聊天，可以接着昨天的故事继续。</span></li>
             </ul>
-            <p class="principle"><span class="principle-tag">理念 01</span>角色有自己的性格和表达方式，不是一个等着被提问的搜索框。</p>
+            <p class="principle"><span class="principle-tag">相处的意义</span>从一次问候，到渐渐熟悉彼此。</p>
           </div>
 
           <figure class="shot meet-shot">
@@ -165,7 +165,7 @@
       <div class="memory-motes" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
       <div class="shell">
         <div class="section-head">
-          <p class="eyebrow">记忆</p>
+          <p class="eyebrow"><span class="chapter-index">02</span>记忆 · 把时间留下来</p>
           <h2 id="memory-title">有些话，<br><em>会留到下一次见面。</em></h2>
           <p class="section-lead">关系的变化来自真实发生过的事，而不是一个进度条。</p>
         </div>
@@ -280,8 +280,8 @@
     <section class="section world" id="world" data-atmos="cosmos" aria-labelledby="world-title">
       <div class="shell">
         <div class="section-head">
-          <p class="eyebrow">世界</p>
-          <h2 id="world-title">故事，<br><em>可以有不止一条轨道。</em></h2>
+          <p class="eyebrow"><span class="chapter-index">03</span>世界 · 让经历相连</p>
+          <h2 id="world-title">你们的故事，<br><em>有自己的时间与轨道。</em></h2>
           <p class="section-lead">每个世界都有自己的时间、地点和参与者。<br>角色离开一段经历时，也会带走属于自己的记忆。</p>
         </div>
 
@@ -401,13 +401,13 @@
       <div class="section-fog fog-right" aria-hidden="true"></div>
       <div class="shell">
         <div class="section-head">
-          <p class="eyebrow">界面</p>
+          <p class="eyebrow"><span class="chapter-index">04</span>界面 · 看见真实的产品</p>
           <h2 id="gallery-title">真正的 VirtuGene，<br><em>已经在运行。</em></h2>
-          <p class="section-lead">下面每一张都是当前手机端 v5.2.3 的真实界面，用的是演示账号与演示内容。</p>
+          <p class="section-lead">对话、关系、记忆与日常，都有自己的空间。<br>以下为手机端实拍，使用演示账号与演示内容；点击可放大。</p>
         </div>
 
         <div class="gallery-grid">
-          <figure class="shot gallery-card is-feature">
+          <figure class="shot gallery-card">
             <button class="shot-open" type="button" data-tilt data-lightbox
                     data-full="./assets/product/source/world-home.png?v=5.1.4"
                     data-caption="世界 · 生活入口：朋友圈 / 日记 / 待办 / 星域（演示数据）">
@@ -417,7 +417,7 @@
                 <span class="device-sheen" aria-hidden="true"></span>
               </span>
             </button>
-            <figcaption><span>世界星图</span><span class="shot-hint">世界正在展开</span></figcaption>
+            <figcaption><span>世界首页</span><span class="shot-hint">生活从这里展开</span></figcaption>
           </figure>
 
           <figure class="shot gallery-card">
@@ -446,7 +446,7 @@
             <figcaption><span>共同记忆</span><span class="shot-hint">留下过的片段</span></figcaption>
           </figure>
 
-          <figure class="shot gallery-card is-wide">
+          <figure class="shot gallery-card">
             <button class="shot-open" type="button" data-tilt data-lightbox
                     data-full="./assets/product/source/chat.png"
                     data-caption="真实对话 · 角色有自己的语气（演示数据）">
@@ -455,16 +455,19 @@
                      alt="VirtuGene 聊天界面">
                 <span class="device-sheen" aria-hidden="true"></span>
               </span>
-              <span class="wide-copy">
-                <span class="wide-title">真实对话</span>
-                <span class="wide-desc">它会接住今天的小事，也会在合适的时候想起以前发生过什么。</span>
-              </span>
             </button>
             <figcaption><span>真实对话</span><span class="shot-hint">有自己的语气</span></figcaption>
           </figure>
         </div>
 
-        <div class="gallery-rail" data-gallery-rail aria-label="更多真实界面">
+        <div class="gallery-toolbar">
+          <p>更多生活片段 <span>左右滑动，慢慢看</span></p>
+          <div class="rail-controls" hidden>
+            <button class="rail-nav" type="button" data-rail-prev aria-controls="gallery-rail" aria-label="查看前面的界面">←</button>
+            <button class="rail-nav" type="button" data-rail-next aria-controls="gallery-rail" aria-label="查看更多界面">→</button>
+          </div>
+        </div>
+        <div class="gallery-rail" id="gallery-rail" data-gallery-rail tabindex="0" aria-label="更多真实界面，可左右滚动">
           <figure class="shot rail-card">
             <button class="shot-open" type="button" data-tilt data-lightbox
                     data-full="./assets/product/source/scene.png?v=5.1.4"
@@ -578,13 +581,14 @@
       <div class="download-glow" aria-hidden="true"></div>
       <div class="shell">
         <div class="section-head">
-          <p class="eyebrow">开始</p>
+          <p class="eyebrow"><span class="chapter-index">05</span>开始 · 选择你的空间</p>
           <h2 id="download-title">从一次相遇开始。</h2>
-          <p class="section-lead">选择你的平台下载。第一次打开时创建角色，之后它会记住你们之间发生的事。</p>
+          <p class="section-lead">在手机上随时聊聊，或在电脑前慢慢相处。<br>下载应用，配置模型服务，开始你们的第一段对话。</p>
         </div>
 
         <div class="platforms">
           <div class="platform is-primary">
+            <span class="platform-label">随身的数字世界</span>
             <span class="platform-head"><span class="platform-name">Android</span><span class="platform-version">v5.2.8</span></span>
             <span class="platform-meta">约 46 MB · Android 7.0 及以上</span>
             <a class="btn btn-primary platform-cta" data-download
@@ -592,6 +596,7 @@
                rel="noreferrer" data-spotlight>下载 APK</a>
           </div>
           <div class="platform is-secondary">
+            <span class="platform-label">电脑上的相处空间</span>
             <span class="platform-head"><span class="platform-name">Windows</span><span class="platform-version">v2.1.0</span></span>
             <span class="platform-meta">EXE 安装程序 · 约 81 MB · Windows 10 及以上</span>
             <a class="btn btn-ghost platform-cta" data-download
@@ -601,7 +606,7 @@
         </div>
 
         <div class="download-notes">
-          <p>第一次使用时需要填入一个 AI 模型服务的 API Key（DeepSeek）。它只会加密保存在你的设备本地，VirtuGene 不接收也不托管。</p>
+          <p><strong>开始前准备</strong>一个 AI 模型服务的 API Key（如 DeepSeek）。密钥加密保存在你的设备本地；模型服务可能另行计费。</p>
           <p>安装包发布在 GitHub Releases：<a href="https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v5.2.8" rel="noreferrer">Android v5.2.8 ↗</a> · <a href="https://github.com/wzy6789/virtugene/releases" rel="noreferrer">Windows 版本记录 ↗</a></p>
           <p><a href="./privacy.html">隐私说明</a> · <a href="./terms.html">使用条款</a></p>
         </div>
@@ -636,6 +641,6 @@
     <span class="lightbox-hint" aria-hidden="true">左右切换 · 下滑关闭 · Esc 退出</span>
   </div>
 
-  <script src="./main.js?v=living-light-1" defer></script>
+  <script src="./main.js?v=design-2" defer></script>
 </body>
 </html>

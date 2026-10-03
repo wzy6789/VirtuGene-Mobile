@@ -1,10 +1,24 @@
 # VirtuGene 5.0.0 验收脚本（Phase 1 / 2a / 2b-0 … 2b-6 / Phase 3 / 3b / 3c / Living World A–E）
 
+2026-10-03 助理评审整改：1050项数据 + 139项界面；助理记忆76项 + 窄屏4项；界面精修21项；角色创建19项、朋友圈40项、统一记忆46项、记忆注意力64项，共1459项通过。新增共享授权规则、150项固定中文授权语料、V2原话依据强制校验、批量读取/单轮提醒合并、保留记忆的轻量闲聊，以及直接和派生日记来源的收件箱/召回/执行保护。完整实现、兼容说明和多设备未闭合边界见 `docs/ASSISTANT-REVIEW-REMEDIATION-2026-10-03.md`。真实模型工具 `node scripts/eval/run-assistant-live.cjs` 默认零联网；显式 `--live` 才运行60项合成账号样本，配置和门槛见上述文档，尚未执行真实模型评测。
+
 在**真实浏览器 + 真实 IndexedDB**（多数套件还加上**真实渲染组件**与**真实业务流程**）上验证 5.0 的每一项声称。
 不是模拟、不是 mock：Phase 1 与 worldE 会先用 **旧的 v15 / v17 schema** 建库写入旧形态数据，
 再用应用真实的 `db`（v25）打开，从而触发 Dexie 真实的升级与幂等迁移。
 
 ## 运行（推荐：一键全量回归）
+
+流式气泡 UI（2026-10-03）：生产构建后执行 `node scripts/verify/chat-stream-ui.mjs`。49 项真实 ChatWindow / MessageBubble 检查覆盖共享等待/首字气泡、单个正文末尾光标、追加不重播动画、预览转正式气泡的位置与尺寸、语音文字保留、发送/停止按钮复用与触点、历史阅读、320–1024px、深浅色、桌面动作恢复及系统/应用减少动态效果。新增逐帧滚动、无逐帧 React 提交、触摸接管、键盘焦点/Escape、返回按钮退出交互范围、生成结束时的落点追踪与动画变换释放检查。隔离服务使用模拟 SSE，不调用付费模型；截图保存在 `.tmp-preview/chat-stream-ui/`。说明见 `docs/CHAT-STREAM-UI-2026-10-03.md`。
+
+私聊流式输出（2026-10-03）：先构建生产前端，再执行 `npm run verify:chat-stream`（需要含 Playwright 的测试运行环境，Codex 内置 Node 可用）。44 项真实浏览器、组件和 IndexedDB 检查覆盖首字显示、片段合并、停止、断流、重试、会话/账号切换、长回复滚动及 320–430px 布局。脚本自建并关闭临时服务，模型边界使用测试响应；不访问用户的实际数据库。范围及额外旧套件差异见 `docs/CHAT-STREAMING-2026-10-03.md`。
+
+模型接入与整体精修（2026-10-02）：`node scripts/verify/providers.mjs` 验证 310 项协议和真实辅助功能路由；生产构建后运行 `node scripts/verify/build-models-ui.mjs` / `node scripts/verify/run-models-ui.cjs` 验证 66 项服务商配置界面。`node scripts/verify/run-motion-preferences.cjs` 验证真实减少动态效果开关、持久化和正在运行的动画取消。Vite 预览启动后，`node scripts/verify/run-api-onboarding.cjs` 在隔离浏览器内验证无 DeepSeek 密钥注册、本地模型选择、重启登录和主密钥替换；默认连接 5173，也可通过 `VG_APP_URL` 指定预览地址。所有模型请求使用测试响应，完整范围见 `docs/UI-API-REFINEMENT-2026-10-02.md`。
+
+七种交互专项（2026-10-02）：生产构建后执行 `node scripts/verify/run-advanced-interactions.cjs`，脚本自建并关闭隔离服务。26 项检查覆盖滑出取消、边缘返回撤回、动画接管、局部数字过渡、字号落点与边界、大图方向锁定及下拉关闭。落地场景与平台边界见 `docs/ADVANCED-INTERACTIONS-2026-10-02.md`。
+
+动画精修专项（2026-10-02）：`node scripts/verify/run-modal-motion.cjs`、`node scripts/verify/run-page-motion.cjs`、`node scripts/verify/run-secretary-disclosure.cjs` 使用独立临时服务；设置/助理真实页面动画先构建对应 fixture 并启动 17899 服务，再运行 `run-settings-motion.cjs` / `run-secretary-motion.cjs`。覆盖快速反向、逐帧手势交接、弹窗遮罩衔接、滚动保持、动态尺寸和减少动态效果。实施与限制见 `docs/MOBILE-MOTION-POLISH-2026-10-02.md`。
+
+设置界面专项（2026-10-02）：生产构建后运行 `node scripts/verify/build-settings-ui.mjs`，启动 `node scripts/verify/serve.cjs`，再运行 `node scripts/verify/run-settings-ui.cjs`。55 项检查覆盖真实主题/字号/语音/模型/提醒状态、搜索返回、嵌套窗口、固定保存区、320–430px 和短视口、减少动态效果。截图与结果位于 `.tmp-preview/settings-ui-20261002/`；范围和边界见 `docs/SETTINGS-IMPLEMENTATION-2026-10-02.md`。
 
 ```powershell
 $env:PATH = "C:\Program Files\Lenovo\AIAgent\mcp\node-v22.16.0-win-x64;$env:PATH"
@@ -323,3 +337,79 @@ LLM 边界（`llmChat`）**可注入**，因此可以逐轮数"花了几次调�
 
 12 项真实数据库检查：预设和已有副本同步关心规则、直接相信自称舞麟、对家人与其他人的差别、
 保留用户个性化设定、重复启动不重复追加。快照核对聊天、摘要、记忆、ledger 和关系状态完全不变。
+
+### 手指交互（physical-ui.html）
+
+先构建 Vite，再运行 `node scripts/verify/build-physical-ui.mjs`。此页面挂载真实筛选、标签、字号刻度、卡片、消息气泡与聊天输入组件；仅原生录音/识别接口被替换，不读取用户实际数据。
+
+在一个 PowerShell 窗口运行 `$env:VERIFY_PORT='17901'; node scripts/verify/serve.cjs`，再用本机 Codex 自带 Node 运行 `node scripts/verify/run-physical-ui.cjs`（需要同运行时内的 Playwright 和本机 Chrome）。
+
+23 项检查覆盖多选与计数、删除/插入竞争、标签联想、中文输入法、容器收缩、卡片拖动不误开、字号实时生效/吸附/保存、录音松手/取消/拒绝权限/异步启动/切页互斥、草稿保留、320–430px 布局与减少动态设置。
+
+Android 真机仍需检查首次授权、按住说话/上滑取消、真实麦克风电平、松手转写、切后台，以及系统键盘上方的字号刻度；浏览器原生接口替身不证明这些设备行为已通过。
+
+### 统一记忆与星域时间（memory-unified.html）
+
+46 项真实数据库、提示词与私聊组件发送检查：跨入口/跨世界的个人事实、约定和已知事件；全听众的知情交集与撤权；群聊共同见证和已授权日记；停止默认物件生成与旧存档背景注入；精确日期、中文时间、三天后及两小时后的连续推进；光线、冻结时钟和新片段时间延续；旧舞台时间约束；真实 ChatWindow 发送中统一记忆仅注入一次。模型调用使用替身。
+
+运行 `node scripts/verify/build.mjs` 后，使用 `run-all.ps1 -Suites memory-unified,memory-attention,memory-final,memory-continuity,character-memory,worldA,worldB,worldE,worldF`。
+
+并行检查可使用独立端口：服务器设置 `VERIFY_PORT`，运行器传相同的 `-Port`，默认均为 17899。
+
+### 私人秘书（secretary.html）
+
+2026-10-03 最新功能续做：875项数据与139项界面通过，新增多事项同轮选择与补充、分项取消零写入、未选不默认套入第一项、同聊天及跨聊天剩余补问、结果卡取消接续及旧组刷新。界面精修21项、记忆与窄屏80项、默认三组回归105项通过，共1220项。多事项新增28项数据与5项界面检查；记忆回归也有扩展，总数不直接作功能增量。实现及复跑见 `docs/ASSISTANT-MULTI-OPERATION-2026-10-03.md`；真实模型和Android真机仍未验收。
+
+2026-10-02 收件箱续办：847项数据与134项界面通过，新增收件箱暂停事项选择、跨聊天续办、来源/任期保护、补问中的记录模式和重复/优先级改口、一次多字段补齐及日期冲突保留。界面精修21项、记忆与窄屏64项、默认三组回归105项通过，共1171项。实现及复跑见 `docs/ASSISTANT-CONTINUATION-2026-10-02.md`。
+
+2026-10-02 本次质量整改续做：733项真实数据库和128项实际界面检查通过，加默认105项回归、60项助理记忆与4项窄屏检查，共1030项。覆盖控制优先与取消零写入、暂停恢复、重复字段和改口、日期依据、待办/日记/草稿/查询的持久接续、多事项和依赖重试、真实列表序号修改、来源和目标版本、v30增量检索及旧历史128条分批回填、原生通知接口替身的安排/取消/替换/失败恢复、当前版本回执、按需展开与用户自选主动帮助。完整实现和限制见 `docs/ASSISTANT-QUALITY-REFORM-PROGRESS.md`。用户暂不要求完整验收；真实模型、Android 真机、系统键盘与长历史设备压测均不计作通过。
+
+下列较早轮次的数量保留为历史记录；当前运行器以最终 `ALL PASS` 统计为准。
+
+回复真实性收尾：问号不能绕过过滤，实际持久化聊天消息与已执行收据一致；假提醒/保存/发布/完成声明、无操作承诺、含“已经”的情绪句、省略主语记事、叫一声的明确提醒、缺日期/时间/事项的具体补问、连续补齐、否定和只读、多个独立事项，均有真实数据库或聊天组件验收。当前460项数据、117项UI及默认105项回归通过；`node scripts/verify/run-secretary-regressions.cjs secretary-memory`另通过60项记忆与4项窄屏检查，总计746项。模型使用替身，未验证真实模型与 Android 通知。截图 `secretary-truthful-reply.png`。
+
+自然表达与状态反馈整改：补测三种无需“待办”关键词的明确记事说法、那个挪到后天的真实单项续办、否定/查询/日记范围、模型一句回应保留、虚假成功与通知承诺过滤、日记重锁、各操作状态标签，以及实际创建卡片的已添加与待办未完成同时展示。当前433项数据与115项UI，默认回归105项，共653项；模型使用替身，不代表真实模型自然表达、通知或速度验证。
+
+先运行 `node node_modules/typescript/bin/tsc --noEmit` 和 `node node_modules/vite/bin/vite.js build`，再运行 `node scripts/verify/build-secretary.mjs --with-regressions`。
+
+使用同运行时包含 Playwright 的 Node 和本机 Chrome，运行 `node scripts/verify/run-secretary.cjs`。运行器自行启动临时端口服务；460 项真实数据库检查与117项组件/界面检查覆盖用户命名、新旧引导、v29头像迁移、唯一工作区、解雇与聘用、版本冲突、旧任期迟到回复拦截、记录保留、草稿及事项手动交接、旧备份防复活与新聘用同步、14类操作、连续补充、序号指代、否定指令、受众与隐私锁、失败重试、自动恢复、真实记录跳转、五档性格及偏好、十套二次元头像、办事收件箱、在职改名、空缺时禁止发送、历任记录与手机布局。只替换模型 HTTP 响应，不读取用户实际数据。结果写入 `.last-result-secretary.txt`，截图包含 `secretary-review-choices.png`、`secretary-review-progress.png`、`secretary-steps.png`、`secretary-work-preferences.png`、`secretary-capabilities.png`、`secretary-personality.png`、`secretary-employment.png`、`secretary-inbox.png`、`secretary-daily-review.png`、`secretary-home.png` 与 `secretary-home-workspace.png`。
+
+内部能力扩展覆盖：日记/朋友圈所有者与原作者隔离、回收站与删除过滤、关键词和日期、只读查询不补建 occurrence、锁定/解锁立即更新已挂载摘要、来源编辑隐藏旧摘要、误选写入工具时只读请求不会保存或发布、修改未来周期系列、保留未指定字段、改名与清空备注、优先级、每月/间隔天数重复、提前提醒和旧通知取消、过去的单次提醒先补充时间、一年以上的未来重复安排、取消整项及撤销、候选歧义与版本冲突、8个内部页面白名单与直达卡片、缺失时间/重复间隔补充、备份恢复不执行、能力目录及窄屏布局。
+
+2026-10-02 办事习惯与连续修改：格式/文风进入真实规划请求、默认优先级与已请求的提醒实际写入、明确值优先、不默认新增提醒、任务快照与连续补充保持原设置、简单修改不再调用模型、中文提前分钟、原创建收据保留、改名及备注保留空格、缺时间卡片补充、相对日期改期、否定与多个目标不误改、后续编辑版本冲突、撤销单次修改、旧设置页冲突与重新读取、换助理保留、备份与独立偏好时间戳合并、非法导入回滚、账号隔离、重开保存及320/390/430px界面。该轮专项423项，加默认三组回归105项，合计528项。
+
+2026-10-02 待办步骤：实际清单创建、规范化去重追加并保留旧状态、无需模型的连续完成/恢复、名称匹配与明确序号、模型不能跳过重名步骤、父待办/步骤两层独立选择、源请求撤回与记录版本变化、只建议及否定指令、错误父待办工具拦截、父待办不自动完成、撤销仅恢复清单且后续编辑不覆盖、超限整项回滚、重复系列不误记为每日完成、明确转单次、步骤不补建实例与重排提醒、查询真实进度、备份清单与恢复收据不执行、跨账号隔离、实际聊天和卡片按钮及实时进度刷新。该轮专项475项，加默认三组回归105项，合计580项。
+
+2026-10-02 按需整理与办事进展：旧请求与归档格式兼容、输出范围校验与固定顺序、未选类型过滤、执行和恢复再次拦截、仅勾选步骤不能生成当日事实、真实父待办/当前步骤/次日安排分离、历史日期及重复系列不引用当前步骤、旧长清单的真实计数、只读预览不补建实例、来源步骤修改后采用失败、选择范围随备份恢复、至少选择一种、实际单类型生成、每组列表展开、实时刷新、原待办跳转、日记重锁/解锁及账号切换、320/390/430px无横向溢出。当前专项518项，加默认三组回归105项，合计623项；截图新增 `secretary-review-choices.png` 和 `secretary-review-progress.png`。
+
+每日整理覆盖：日记主动勾选、日期校验、个人事实与角色剧情隔离、按真实完成日期归类、预览不补建 occurrence、生成不写入生活记录、编辑后逐项采用、固定次日日期、重复采用及同名待办拦截、原文保留与撤销、来源变化拒绝、日记重新锁定后衍生内容隐藏、待办页补建记录兼容、账号/任期隔离、备份恢复不执行、重新聘用后手动交接，以及320/390/430px布局。
+
+独立体系覆盖：首页保留一张助理工作台卡片、角色搜索期间入口可用、真实数量与只读计数、完成待办和修改请求后刷新、空缺时保留记录、新用户聘用、账号切换清除姓名及计数、专属办事菜单、旧角色编辑入口转助理管理、群聊及星域仓库拒绝助理、旧混合星域生成／结算停止、普通角色自主移动仍可提交、普通角色发布与删除保护、停止角色式主动消息与声线推断、角色记忆提炼及旧任务隔离、朋友圈自动互动和日记授权边界。
+
+涉及角色与星域权限时，可运行 `node scripts/verify/build-secretary.mjs --with-regressions --with-domain-regressions`，随后运行 `node scripts/verify/run-secretary-regressions.cjs character-create moments memory-unified worldF worldG worldA worldC character-memory memory-final memory-continuity`。回归依次为19、40、46、28、13、59、57、141、47、77项，共527项；上一轮体系分离时加助理专项326项合计853项通过。本轮只重新运行与内部能力扩展相关的默认三组回归。运行器等待最终报告，阶段进度不作为完成结果。
+
+运行 `node scripts/verify/run-secretary-regressions.cjs` 验证原有角色创建（19项）、朋友圈（40项）和统一记忆（46项）；结果写入对应 `.last-result-*.txt`。真实模型生成质量及 Android 系统通知仍需实际账号与设备验证。
+
+### 助理连续记忆（secretary-memory.html）
+
+2026-10-03 召回优化：本套件现有76项数据/请求/组件检查，加4项窄屏检查。新增无关事实过滤、冷却不从旧原话绕回、短句重新提起、表达偏好、否定式遗忘、重复任务回执去重、实际记录和日期实例生成期间变化、原请求撤回及日记重锁。复跑命令不变；说明见 `docs/ASSISTANT-MEMORY-OPTIMIZATION-2026-10-03.md`。以下60项为首轮记录。
+
+2026-10-02 补问连续对话整改：助理专项638项数据、122项界面，默认回归105项及助理记忆60项/窄屏4项通过，共929项。新增真实输入框的零操作补问接续、跨会话/重开/暂停、完整来源版本链、导入不激活，以及四种回复模式的虚假闹钟声明对抗。实现范围及限制见 `docs/ASSISTANT-QUALITY-REFORM-PROGRESS.md`；模型使用替身，未认定真实模型及真机提醒验收完成。
+
+构建 `node scripts/verify/build-secretary.mjs --with-regressions --with-domain-regressions` 后，运行 `node scripts/verify/run-secretary-regressions.cjs secretary-memory memory-unified memory-attention memory-final memory-continuity character-memory character-create`，并运行原有 `node scripts/verify/run-secretary.cjs`。
+
+新增60条真实数据库、模型请求与React交互检查，以及4项320–430px布局检查：原话证据与修订、无需模型的明确记住、自动提炼、拒绝记录与引用/虚构过滤、跨会话召回、更正/忘记与旧同步防复活、来源删除/改写、任务和步骤实际进度、未发布草稿、日记衍生资料锁定与解锁、旧交流检索、重新聘用延续、继承与账号隔离、迟到回复拦截、实际纠正和忘记按钮、数据库重开。截图 `secretary-memory.png`；模型响应仍使用替身。维护说明见 `docs/ASSISTANT-MEMORY-2026-10-02.md`。
+
+### 星域设置与触控
+
+2026-10-03 流畅度收尾：生产构建后执行 `node scripts/verify/run-touch-fluidity.cjs`，独立服务器验证 31 项真实组件行为，覆盖侧滑无逐帧 React 提交、速度判断、边界阻尼、中途接管、捕获交接、键盘、减少动态效果和历史阅读位置。完整聊天入口另由 `run-secretary-motion.cjs` 验证；记录见 `docs/UI-FINAL-2026-10-03.md`。
+
+`node scripts/verify/build-settings-ui.mjs` 同时构建手机预览和生产桌面平台分支；启动 `node scripts/verify/serve.cjs` 后运行 `node scripts/verify/run-settings-motion.cjs`。覆盖触点柔光、滑出取消/滑回确认、松手清理、浏览器实际触摸滚动、48px 热区、键盘操作、快速进退、滚动恢复、敏感页禁留影、原生折叠、减少动态效果，以及桌面深浅色布局。截图位于 `.tmp-preview/settings-motion-20261002/`，说明见 `docs/STARFIELD-SETTINGS-TOUCH-2026-10-02.md`。
+
+### 助理界面精修
+
+2026-10-02 最新收尾：821项助理数据、131项实际界面、21项界面精修、60项助理记忆/4项窄屏，以及角色创建19项、朋友圈40项、统一记忆46项、记忆关注64项，共1206项通过。新增否定控制词误写、暂停恢复、跨聊天内联继续、自然序号选择、明确字段负面标题、切换账号后的迟到原生调度补偿、主动协助实际展示/每日限额/显式延后验收。先构建Vite再构建验收资产，避免旧CSS影响真实布局；复跑与剩余实测门槛见 `docs/ASSISTANT-QUALITY-FINAL-2026-10-02.md`。以下各轮数字为历史记录。
+
+2026-10-02 质量整改契约：新增情境枚举、本地五性格回应和共享收据读模型。当前助理582项数据与120项界面检查，加105项默认回归、60项助理记忆及4项窄屏检查，共871项通过；类型检查与生产构建通过。模型使用替身；完整阶段进展及未验收项见 `docs/ASSISTANT-QUALITY-REFORM-PROGRESS.md`。
+
+完成 renderer 构建和 `node scripts/verify/build-secretary.mjs` 后，运行 `node scripts/verify/run-secretary-ui-polish.cjs`。运行器使用自有临时服务器与隔离数据，21条检查覆盖320/390/430/768px、首页默认条目尺寸、收件箱分类滚动、工作台记录入口与长表单固定操作、习惯选择反复修改及保存重开、每日整理选项、浅色兼容和减少动画模式，以及浏览器实际使用本地中文字体和离线后的按钮字形。验收 CSS 和 WOFF2 会同步到运行器，不依赖在线字体。深色实际截图写入 `.tmp-preview/secretary-ui-polish-20261002/`。设计与验证记录见 `docs/ASSISTANT-UI-POLISH-2026-10-02.md` 和 `docs/ASSISTANT-TYPOGRAPHY-2026-10-02.md`。

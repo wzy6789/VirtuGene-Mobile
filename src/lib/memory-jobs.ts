@@ -3,7 +3,7 @@ import { memoryLedgerRepo } from '../db/memory-ledger-repo';
 import { invalidateUnpinnedMemoriesForMessages, memoryRepo } from '../db/memory-repo';
 import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
 import { extractMemories } from './ai/memory-consolidator';
-import { hasAiGatewayAccess } from './ai/gateway';
+import { canUseAi } from './ai/availability';
 import { prepareMemoryMetadata } from './memory-engine';
 
 const runningUsers = new Set<string>();
@@ -11,6 +11,7 @@ const runningUsers = new Set<string>();
 async function jobSourcesAreCurrent(userId: string, job: import('../db').MemoryJob): Promise<boolean> {
   const currentJob = await db.memoryJobs.get(job.id);
   if (currentJob?.status !== 'running') return false;
+  if ((await db.characters.bulkGet(job.characterIds)).some(c => c?.agentProfile === 'secretary')) return false;
   const suppressed = await Promise.all(job.characterIds.map(id => memorySourceTombstoneRepo.suppressedMessages(userId, id)));
   for (const sourceId of job.sourceIds) {
     const source = await db.messages.get(sourceId);
@@ -30,7 +31,7 @@ async function jobSourcesAreCurrent(userId: string, job: import('../db').MemoryJ
  * with the source message, never the current group membership.
  */
 export async function processMemoryJobs(userId: string, apiKey: string | null, maxBatches = 2): Promise<number> {
-  if (!userId || (!apiKey?.trim() && !hasAiGatewayAccess()) || runningUsers.has(userId)) return 0;
+  if (!userId || !canUseAi() || runningUsers.has(userId)) return 0;
   runningUsers.add(userId);
   let completed = 0;
   try {
@@ -52,6 +53,10 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
         const validJobIds = new Set<string>();
 
         for (const job of activeJobs) {
+          if ((await db.characters.bulkGet(job.characterIds)).some(c => c?.agentProfile === 'secretary')) {
+            await memoryLedgerRepo.cancelJob(job.id, { reason: 'assistant-workspace-is-not-role-memory' });
+            continue;
+          }
           let jobValid = true;
           const jobSlices: typeof slices = [];
           const suppressed = await Promise.all(job.characterIds.map(id => memorySourceTombstoneRepo.suppressedMessages(userId, id)));
@@ -133,7 +138,7 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
         const extracted = [...new Set((result.memories ?? []).map((value) => value.trim()).filter(Boolean))].slice(0, 20);
         for (const characterId of activeJobs[0].characterIds) {
           const character = await db.characters.get(characterId);
-          if (!character || character.createdBy !== userId) continue;
+          if (!character || character.createdBy !== userId || character.agentProfile === 'secretary') continue;
           // Repeated genuine evidence must be merged, rather than silently discarded.
           const fresh = extracted;
           if (!fresh.length) continue;

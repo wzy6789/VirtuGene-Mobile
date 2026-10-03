@@ -1,3 +1,4 @@
+import { useAiAvailability } from '../settings/useAiAvailability';
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { FilterSelect } from '../ui/FilterSelect';
@@ -33,7 +34,8 @@ async function collectConversationsForDate(userId: string, dateStr: string): Pro
 
 /** 「补记助手」：给没写日记的过去日期，基于当天与角色的对话补记一篇日记草稿 */
 export function RecallModal({ open, onClose }: Props) {
-  const apiKey = useAuthStore((s) => s.apiKey);
+  const apiKey = useAuthStore((s) => s.apiKey) ?? '';
+  const hasAiAccess = useAiAvailability();
   const diaries = useDiaryStore((s) => s.diaries);
   const getOrCreateForDate = useDiaryStore((s) => s.getOrCreateForDate);
   const updateDiary = useDiaryStore((s) => s.updateDiary);
@@ -61,7 +63,7 @@ export function RecallModal({ open, onClose }: Props) {
   const [saving, setSaving] = useState(false);
 
   const run = async () => {
-    if (!apiKey) { setError('未检测到 API Key，无法生成'); return; }
+    if (!hasAiAccess) { setError('请先在设置的 AI 连接中配置当前模型'); return; }
     if (!date) { setError('请先选择日期'); return; }
     setLoading(true);
     setError(null);
@@ -139,7 +141,7 @@ export function RecallModal({ open, onClose }: Props) {
           />
           <button
             onClick={() => void run()}
-            disabled={!date || !apiKey || loading}
+            disabled={!date || !hasAiAccess || loading}
             className="px-4 py-2 rounded-lg text-sm bg-gene-purple hover:bg-[#5B4BD4] text-white transition-all disabled:opacity-40 shrink-0"
           >
             {loading ? '生成中…' : '✨ 生成草稿'}

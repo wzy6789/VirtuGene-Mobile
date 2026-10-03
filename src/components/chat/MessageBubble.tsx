@@ -1,3 +1,4 @@
+import { useSettingsStore } from '../../store/settings-store';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Message } from '../../db/index';
@@ -73,6 +74,12 @@ function WaveBars({ seed, active }: { seed: string; active: boolean }) {
 
 interface Props {
   message: Message;
+  streaming?: boolean;
+  /** Earlier parts remain pending, but only the last part is still receiving text. */
+  streamingActive?: boolean;
+  /** Saved content which has already been visible in the streaming preview. */
+  streamed?: boolean;
+  waiting?: boolean;
   avatar: string;
   animate?: boolean;
   /** 是否为会话最新一条消息（触发一次性光晕扫过） */
@@ -100,7 +107,8 @@ interface Props {
   onShowBasis?: (message: Message) => void;
 }
 
-export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, showIdentity = true, onRemember, onCollectMemory, collected, onShowBasis }: Props) {
+export function MessageBubble({ message, avatar, streaming, streamingActive = streaming, streamed, waiting, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, showIdentity = true, onRemember, onCollectMemory, collected, onShowBasis }: Props) {
+  const fontSize = useSettingsStore(s => s.chatFontSize);
   const isUser = message.role === 'user';
   // 历史消息也走同一层清洗，避免旧数据里的换行继续破坏手机端气泡。
   const displayContent = normalizeBubbleText(message.content);
@@ -120,7 +128,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
   }, [menu, previewImage]);
   const [voicePlaying, setVoicePlaying] = useState(false);
   /** AI 语音消息：转文字是否展开 */
-  const [showTranscript, setShowTranscript] = useState(false);
+  const [showTranscript, setShowTranscript] = useState(message.showAudioTranscript ?? false);
 
   const closeMenu = useCallback(() => {
     setMenu(null);
@@ -149,6 +157,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (streaming) return;
     closeActiveMessageMenu?.();
     closeActiveMessageMenu = null;
     // Keep the action sheet inside the viewport on narrow Android screens.
@@ -167,7 +176,8 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
   return (
     <div className={`vg-chat-message-row group flex items-start gap-2 mb-2.5 ${showIdentity ? 'is-first-in-streak' : 'is-continuation'} ${isUser ? 'is-user flex-row-reverse' : 'is-character flex-row'} ${
       animate ? 'animate-message-in' : ''
-    }`}>
+    } ${waiting ? 'vg-typing-row' : ''}`} data-message-id={message.id} data-streamed={streaming || streamed || undefined}
+      role={waiting ? 'status' : undefined} aria-label={waiting ? '正在准备回复' : undefined}>
       <div className="vg-chat-identity relative w-8 shrink-0 flex flex-col items-center">
         <Avatar avatar={avatar} size="sm" className={isUser ? 'ring-1 ring-white/20' : 'ring-1 ring-life-cyan/35 shadow-[0_0_14px_rgba(0,206,201,.16)]'} />
       </div>
@@ -189,6 +199,9 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
         {/* 角色当前心情小表情（AI 消息，气泡角上） */}
         <div
           onContextMenu={handleContextMenu}
+          data-streaming={streamingActive || undefined}
+          data-waiting={waiting || undefined}
+          style={{ '--vg-chat-font-size': `${fontSize}px` } as React.CSSProperties}
           className={`vg-message-bubble ${isUser ? 'is-user-bubble' : 'is-character-bubble'} px-3.5 py-2.5 rounded-[18px] text-[14px] leading-relaxed whitespace-normal break-words transition-shadow ${
             isLatest && !isUser ? 'animate-message-sweep' : ''
           } ${
@@ -219,7 +232,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
               }`}
             />
           )}
-          {message.audio ? (
+          {message.audio && !message.showAudioTranscript ? (
             /* 微信式语音消息：波形 + 时长 + 点击播放；AI 语音合成中显示占位，不闪文字 */
             <div>
               {message.audio.dataUrl ? (
@@ -281,12 +294,28 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
                 ))}
             </div>
           ) : (
-            displayContent
+            <>
+              <span className={`vg-message-text${streaming && !waiting ? ' vg-stream-text-arrive' : ''}`}>{waiting
+                ? <span className="vg-reply-waiting-dots" aria-hidden="true"><i /><i /><i /></span>
+                : displayContent}{streamingActive && <span className="vg-stream-caret" aria-hidden="true" />}</span>
+              {message.audio && message.showAudioTranscript && (
+                <div className="vg-stream-voice">
+                  {message.audio.dataUrl ? <button type="button" aria-label={voicePlaying ? '暂停语音' : '播放语音'} onClick={(e) => {
+                    e.stopPropagation();
+                    toggleVoice(message.id, message.audio!.dataUrl, () => setVoicePlaying(true), () => setVoicePlaying(false));
+                  }}>
+                    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">{voicePlaying ? <path d="M6 5h4v14H6zm8 0h4v14h-4z" /> : <path d="m7 4 14 8-14 8z" />}</svg>
+                    <WaveBars seed={message.id} active={voicePlaying} />
+                    <span>{message.audio.duration}″</span>
+                  </button> : <span role="status">语音生成中…</span>}
+                </div>
+              )}
+            </>
           )}
         </div>
         {/* 朗读按钮（仅 AI 消息；常显，触屏可点；播放中变青色/显示停止）。
             阻止冒泡：避免误触发滚动容器/气泡的点击聚焦行为 */}
-        {!isUser && onSpeak && (
+        {!streaming && !isUser && onSpeak && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -316,7 +345,7 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
             )}
           </button>
         )}
-        <button
+        {!streaming && <button
           onClick={(e) => {
             e.stopPropagation();
             handleCopy();
@@ -336,7 +365,8 @@ export function MessageBubble({ message, avatar, animate, isLatest, onQuote, onD
               <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
             </svg>
           )}
-        </button>
+        </button>}
+        {message.interrupted && <p className={`vg-message-generation-status${message.stopped ? ' is-stopped' : ' is-interrupted'}`} role="status"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4"><circle cx="10" cy="10" r="7" />{message.stopped ? <path d="M8 7v6m4-6v6" /> : <path d="M10 6v5m0 2v.5" />}</svg><span>{message.stopped ? '已停止生成' : '回复中断，已保留内容'}</span></p>}
       </div>
 
       {/* Context menu — rendered via portal so position:fixed is relative to the viewport,

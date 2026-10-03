@@ -1,4 +1,5 @@
-import { gatewayAux, hasAiGatewayAccess } from './gateway';
+import { taskChat, taskUsesGateway } from './task-client';
+import { gatewayAux } from './gateway';
 import { boundAuxiliaryHistory } from './history-window';
 
 const EMOTION_ANALYSIS_PROMPT =
@@ -53,57 +54,16 @@ export async function analyzeEmotion(params: AnalyzeEmotionParams): Promise<Anal
     { role: 'user', content: `${contextNote}请分析以下对话中AI角色的情绪状态：\n\n${history.map((m) => `${m.role}: ${m.content}`).join('\n')}` },
   ];
 
-  // 情绪分析和普通聊天必须共享同一条访问路径。移动端登录网关后通常
-  // 没有本地 DeepSeek Key，此时直接请求 DeepSeek 会被误报成“链接中断”。
-  if (!apiKey.trim()) {
-    if (!hasAiGatewayAccess()) return { error: 'auth:invalid_key' };
-    return analyzeViaGateway(history);
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
-
+  if (taskUsesGateway(apiKey)) return analyzeViaGateway(history);
   try {
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'deepseek-v4-flash',
-        messages,
-        max_tokens: 1000,
-        temperature: 0.3,
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timer);
-
-    if (!response.ok) {
-      console.error('[emotion-analyzer] API error', response.status, await response.text().catch(() => ''));
-      if (response.status === 401) return { error: 'auth:invalid_key' };
-      if (response.status === 402) return { error: 'billing:insufficient' };
-      if (response.status === 429) return { error: 'rate:limited' };
-      if (hasAiGatewayAccess()) return analyzeViaGateway(history);
-      return { error: 'server:error' };
-    }
-
-    const data = await response.json();
-    const choice = data.choices?.[0];
-    const text: string = choice?.message?.content ?? '';
-
-    const parsed = parseEmotionJSON(text);
-    if (parsed.error === 'server:error' && hasAiGatewayAccess()) return analyzeViaGateway(history);
+    const result = await taskChat({ apiKey, messages, maxTokens: 1000, temperature: .3, jsonMode: true, disableThinking: true, timeoutMs: 30_000 });
+    const parsed = parseEmotionJSON(result.content);
+    if (parsed.error === 'server:error' && taskUsesGateway('')) return analyzeViaGateway(history);
     return parsed;
-  } catch (err: any) {
-    clearTimeout(timer);
-    console.error('[emotion-analyzer] fetch error:', err?.message ?? err);
-    if (err?.name === 'AbortError' && hasAiGatewayAccess()) return analyzeViaGateway(history);
-    if (err?.name === 'AbortError') return { error: 'server:error' };
-    if (hasAiGatewayAccess()) return analyzeViaGateway(history);
-    return { error: 'server:error' };
+  } catch (error) {
+    const code = normalizeAiError(error);
+    if (code === 'server:error' && taskUsesGateway('')) return analyzeViaGateway(history);
+    return { error: code };
   }
 }
 

@@ -87,7 +87,7 @@ export function GroupChatPage({ onClose, initialGroupId }: { onClose: () => void
 
 /** 群卡片 */
 function GroupCard({ group, onOpen }: { group: Group; onOpen: () => void }) {
-  const members = useChatStore((s) => s.characters).filter((c) => group.characterIds.includes(c.id));
+  const members = useChatStore((s) => s.characters).filter((c) => c.agentProfile !== 'secretary' && group.characterIds.includes(c.id));
   return (
     <button
       onClick={onOpen}
@@ -223,7 +223,7 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
   };
 
   const members = useMemo(
-    () => characters.filter((c) => group?.characterIds.includes(c.id)),
+    () => characters.filter((c) => c.agentProfile !== 'secretary' && group?.characterIds.includes(c.id)),
     [characters, group],
   );
   const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
@@ -729,7 +729,7 @@ function GroupSettings({ group, members, onClose }: { group: Group; members: Cha
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [nickEditingId, setNickEditingId] = useState<string | null>(null);
 
-  const candidates = characters.filter((c) => !group.characterIds.includes(c.id));
+  const candidates = characters.filter((c) => c.agentProfile !== 'secretary' && !group.characterIds.includes(c.id));
   const memberById = new Map(members.map((m) => [m.id, m]));
 
   return (
@@ -913,7 +913,7 @@ function GroupCreateModal({ onClose, onCreated }: { onClose: () => void; onCreat
           />
           <p className="text-[11px] text-gray-500">选择角色（{selected.length}/5，至少 2 个）</p>
           <div className="max-h-56 overflow-y-auto space-y-1">
-            {characters.map((c) => (
+            {characters.filter(c => c.agentProfile !== 'secretary').map((c) => (
               <button
                 key={c.id}
                 onClick={() => toggle(c.id)}

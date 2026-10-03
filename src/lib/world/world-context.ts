@@ -19,6 +19,7 @@
  *   L5 关系状态 / L6 CharacterKnowledge / L7 Shared Memories
  *   L8 Continuity Threads / L9 World Events / L10 会话摘要（Actor 侧由既有 chat 上下文补）
  */
+import { buildWorldTimeContext } from './world-time';
 import { db, type Character, type SharedMemory, type WorldEvent, type WorldFact, type WorldObject, type WorldScene, type WorldSceneEntry, type ContinuityThread, type RelationshipState } from '../../db/index';
 import { worldFactRepo } from '../../db/world-fact-repo';
 import { isSharedWorldEvent, worldEventRepo } from '../../db/world-event-repo';
@@ -27,11 +28,10 @@ import { knowledgeRepo } from '../../db/knowledge-repo';
 import { continuityRepo } from '../../db/continuity-repo';
 import { relationshipRepo } from '../../db/relationship-repo';
 import { characterRef, userRef } from './subjects';
-import { buildCharacterMemoryContext, detectRecallIntent, renderCharacterMemoryReferences } from '../character-memory';
+import { buildCharacterMemoryContext, detectRecallIntent } from '../character-memory';
 import { isTopicRelated } from '../chat-conversation-state';
+import { coolingWorldMotifs, WORLD_OBJECT_TOPIC_RULE, worldAttentionHint } from './world-attention';
 import { describeFacets, FACET_LABEL } from './relationships';
-import { buildHiddenUserProfile } from './user-profile';
-import { worldObjectRepo } from '../../db/world-object-repo';
 import { stateRepo } from '../../db/state-repo';
 import { buildLifeContext, buildRelationshipContext, buildStoryRelationContext } from '../chat-context';
 import type { WorldConversationState, WorldVisualState } from './world-immersion';
@@ -54,6 +54,9 @@ export interface WorldContextParams {
 
 export interface CharacterMemory {
   crossChannelMemory?: string;
+  /** Selected by the common recall service; catalogs never bypass its budget. */
+  unifiedMemory?: string;
+  unifiedReferences?: { source: string; id: string }[];
   /** Same live 4.x character state that private chat reads. */
   characterStateContext?: string;
   characterLifeContext?: string;
@@ -102,7 +105,7 @@ export interface WorldContext {
   recentEvents: WorldEvent[];
   /** 仅含所有在场角色都知道、都可提起的旧事，供导演规划使用。 */
   recalledHistory?: { date: string; text: string }[];
-  /** 当前地点留下的可观察物件；它们是世界状态，不是聊天记忆。 */
+  /** Compatibility field, always empty in live contexts; never a scene background. */
   objects: WorldObject[];
   /** L8 与在场角色相关的未完成的事 */
   openThreads: ContinuityThread[];
@@ -135,7 +138,8 @@ export function hasPrivateActorContext(ctx: WorldContext, characterId: string): 
   });
 
   return Boolean(
-    memory.crossChannelMemory
+    uniqueToActor(memory.unifiedReferences ?? [], row => `${row.source}:${row.id}`, id => ctx.perCharacter[id]?.unifiedReferences)
+    || memory.crossChannelMemory
     || memory.privateChatSummary
     || memory.userProfile
     || uniqueToActor(memory.diaries, (row) => row.id, (id) => ctx.perCharacter[id]?.diaries)
@@ -168,12 +172,11 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
   // Every Actor below receives a separately assembled, character-scoped prompt.
   const nameOf = (id: string) => params.characters.find((c) => c.id === id)?.name ?? '某人';
 
-  const [worldFacts, entries, recentEvents, allThreads, objects] = await Promise.all([
+  const [worldFacts, entries, recentEvents, allThreads] = await Promise.all([
     worldFactRepo.listWorldLevel(worldId, 16, userId),
     worldSceneRepo.listRecentEntries(scene.id, Math.max(20, params.recentLimit ?? 60)),
     worldEventRepo.getRecent(worldId, 30, userId).then((rows) => rows.filter(isSharedWorldEvent)),
     continuityRepo.getOpenByUser(userId),
-    scene.locationId ? worldObjectRepo.listForLocation(worldId, scene.locationId, userId) : Promise.resolve([]),
   ]);
 
   const recentEntries = sceneEntriesAvailableToAudience([...entries].reverse(), scene, presence);
@@ -204,38 +207,29 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
      * 世界设定（`worldFactRepo`）、当前关系、当前状态是本场戏的设定与即时状态，
      * 不是长期记忆档案，仍然在这里读。
      */
-    const [facts, relation, characterState, privateSessions, memory] = await Promise.all([
+    const [facts, relation, characterState, memory] = await Promise.all([
       worldFactRepo.listForCharacter(worldId, characterId, 10, userId),
       relationshipRepo.getStateFor(userRef(userId), characterRef(characterId), worldId),
       stateRepo.get(characterId, userId),
-      // 会话摘要是**会话状态**，不是长期记忆档案：留在原地读。
-      carryMemory
-        ? db.sessions.where('[characterId+userId]').equals([characterId, userId])
-          .filter((row) => row.type !== 'group' && Boolean(row.summary?.trim())).toArray()
-        : Promise.resolve([]),
       carryMemory ? buildCharacterMemoryContext({
         // 只召回这个 Actor 自己知道的事；其他在场者和导演永远拿不到这份结果。
         userId, characterId,
         topic: params.userText,
+        recentConversation: recentEntries,
         audience: [characterId],
         mode: 'world-scene',
         scene: { worldId, sceneId: scene.id, liveSegments: true },
         excludeSceneId: scene.id,
         budget: 2200,
-        // 单人场景没有别人能听见这个角色的私人生活；多人场景先不带入，
-        // 等公开台词的披露审查能按发言人隔离之后再说。
-        includePrivateCharacterLifeEvents: presence.length === 1,
+        // This is one actor's private request. Public speech is reviewed for
+        // disclosure before it reaches the world stream; other actors never receive it.
+        includePrivateCharacterLifeEvents: true,
         withCatalog: true,
       }) : Promise.resolve(null),
     ]);
     // `carryMemory=false`（amnesiac）时服务完全不参与，字段退化成空值；
     // 下面统一用空目录兜底，保证字段名与取值形态与改造前完全一致。
     const catalog = memory?.catalog;
-    const catalogSources = new Set([
-      ...(catalog?.sharedMemories ?? []).map(row => `world:${row.id}`),
-      ...(catalog?.scenes ?? []).map(row => `world:${row.id}`),
-      ...(catalog?.diaries ?? []).map(row => `diary:${row.id}`),
-    ]);
 
     perCharacter[characterId] = {
       ...(characterState ? {
@@ -245,14 +239,8 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
         ].filter(Boolean).join('\n'),
         ...(carryMemory ? { characterLifeContext: buildLifeContext(characterState) } : {}),
       } : {}),
-      ...(carryMemory && privateSessions.length ? {
-        privateChatSummary: privateSessions
-          .sort((a, b) => b.updatedAt - a.updatedAt)
-          .slice(0, 2)
-          .map((row) => row.summary?.trim().slice(0, 900))
-          .filter(Boolean).join('\n'),
-      } : {}),
-      crossChannelMemory: renderCharacterMemoryReferences((memory?.references ?? []).filter(row => !catalogSources.has(`${row.source}:${row.id}`))),
+      unifiedMemory: memory?.text ?? '',
+      unifiedReferences: memory?.references.map(({ source, id }) => ({ source, id })) ?? [],
       persona: params.characters.find((character) => character.id === characterId)?.systemPrompt,
       characterId,
       name: nameOf(characterId),
@@ -263,7 +251,6 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
       facts,
       ...(relation && relation.userId === userId ? { userRelation: relation } : {}),
       threads: catalog?.threads ?? [],
-      ...(carryMemory ? { userProfile: buildHiddenUserProfile(catalog?.memories ?? [], params.userText) } : {}),
       todos: catalog?.todos ?? [],
     };
 
@@ -287,7 +274,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     worldFacts,
     recentEntries,
     recentEvents,
-    objects,
+    objects: [],
     openThreads,
     perCharacter,
     secrets,
@@ -329,8 +316,9 @@ export function renderWorldLayer(ctx: WorldContext): string {
   const atmos = ctx.worldFacts.filter((f) => f.category === 'atmosphere');
   const history = ctx.worldFacts.filter((f) => f.category === 'history' || f.category === 'shared_knowledge' || f.category === 'custom');
 
+  lines.push(buildWorldTimeContext(ctx.timeLabel));
   lines.push(`【此刻】${ctx.place} · ${ctx.timeLabel} · 气氛：${ctx.mood}`);
-  if (ctx.sceneGoal) lines.push(`【这一段的方向】${ctx.sceneGoal}。这是可改变的尝试，不是必须强迫用户完成的任务。`);
+  if (ctx.sceneGoal) lines.push(`【场景背景意向】${ctx.sceneGoal}。是否展开以用户当前提起的内容为准，不自动作为本轮主题，也不是必须完成的任务。`);
   lines.push(`【在场】${ctx.presence.map((id) => ctx.nameOf(id)).join('、') || '只有你'}（用户也在场）`);
   if (rules.length) lines.push(`【这个世界不变的规则】\n${rules.map((f) => `- ${f.content}`).join('\n')}`);
   if (places.length) lines.push(`【这个世界的地方】\n${places.map((f) => `- ${f.content}`).join('\n')}`);
@@ -380,10 +368,9 @@ function renderRecalledHistory(ctx: WorldContext): string {
   return `【用户正在回忆的共同旧事】\n${ctx.recalledHistory.map((hit) => `- ${hit.date} ${hit.text}`).join('\n')}\n这只是可核对的历史线索；只沿着用户问到的内容回应，不要把别的旧话题强行带回来。`;
 }
 
-/** L1.5：让角色知道地点里确实存在什么，以及哪些东西已经被改变。 */
-export function renderObjectLayer(ctx: WorldContext): string {
-  if (ctx.objects.length === 0) return '';
-  return `【眼前可以观察到的物件】\n${ctx.objects.slice(0, 8).map((object) => `- ${object.name}：${object.description}${object.lastAction ? `（${object.lastAction}）` : ''}`).join('\n')}`;
+/** Compatibility export: object backgrounds are no longer part of scene context. */
+export function renderObjectLayer(_ctx: WorldContext, _currentTopic?: string): string {
+  return '';
 }
 
 /** L3：当前片段最近内容（给 Director 判断"现在到哪了"） */
@@ -395,15 +382,17 @@ export function renderRecentLayer(ctx: WorldContext, limit = 16): string {
 
 /** Director 用的完整世界层（不含任何角色的私有信息） */
 export function renderWorldBrief(ctx: WorldContext, recentLimit = 16, currentTopic?: string): string {
+  const cooling = currentTopic === undefined ? [] : coolingWorldMotifs(currentTopic, ctx.recentEntries, ctx.presence.map(ctx.nameOf));
   return [
     renderWorldLayer(ctx),
     renderRelationLayer(ctx),
     renderThreadLayer(ctx),
     renderEventLayer(ctx, currentTopic),
     renderRecalledHistory(ctx),
-    renderObjectLayer(ctx),
+    WORLD_OBJECT_TOPIC_RULE,
     renderRecentLayer(ctx, recentLimit),
     directorConversationHints(ctx.conversation),
+    worldAttentionHint(cooling),
   ].filter(Boolean).join('\n\n');
 }
 
@@ -425,13 +414,14 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string, c
   // Inviting characters to talk freely is not a new factual subject. They
   // still need their own authorized background; it never crosses actor IDs.
   const freeConversation = currentTopic != null && /(?:自己聊|你们聊|随便聊|接着聊|继续聊)/u.test(currentTopic);
-  const relevant = (value: string) => currentTopic === undefined || explicit || freeConversation || isTopicRelated(currentTopic, value);
+  const cooling = currentTopic === undefined ? [] : coolingWorldMotifs(currentTopic, ctx.recentEntries, ctx.presence.map(ctx.nameOf));
+  const relevant = (value: string) => !cooling.some(motif => value.includes(motif))
+    && (currentTopic === undefined || explicit || freeConversation || isTopicRelated(currentTopic, value));
   const lines: string[] = [];
+  lines.push(buildWorldTimeContext(ctx.timeLabel));
   lines.push(`【你此刻在哪里】${ctx.place} · ${ctx.timeLabel} · 气氛：${ctx.mood}`);
   lines.push(`【在场的人】${ctx.presence.map((id) => ctx.nameOf(id)).join('、')}，以及用户`);
-  if (ctx.objects.length) {
-    lines.push(`【你此刻能观察到的现场】\n${ctx.objects.slice(0, 8).map((object) => `- ${object.name}：${object.description}${object.lastAction ? `（${object.lastAction}）` : ''}`).join('\n')}`);
-  }
+  lines.push(WORLD_OBJECT_TOPIC_RULE);
 
   const rules = memory.facts.filter((f) => f.category === 'rule');
   const others = memory.facts.filter((f) => f.category !== 'rule');
@@ -441,29 +431,35 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string, c
     const text = relationText(memory.userRelation);
     if (text) lines.push(`【你和用户现在的关系】${text}`);
   }
-  const memories = memory.memories.filter((m) => relevant(`${m.title} ${m.summary}`));
-  if (memories.length) {
-    lines.push(`【你们一起经历过的事（你亲身在场）】\n${memories.map((m) => `- ${m.title}${m.summary ? `：${m.summary}` : ''}`).join('\n')}`);
-  }
-  const events = memory.events.filter((event) => relevant(`${event.title} ${event.summary}`));
-  if (events.length) {
-    lines.push(`【你知道的其他世界记录】\n${events.map((event) => `- ${event.title}${event.summary ? `：${event.summary}` : ''}`).join('\n')}`);
-  }
-  const scenes = memory.scenes.filter((s) => relevant(`${s.title} ${s.place} ${s.summary}`));
-  if (scenes.length) {
-    lines.push(`【你参与过的片段】\n${scenes.map((s) => `- ${s.title}（${s.place}）：${s.summary}`).join('\n')}`);
-  }
-  const diaries = memory.diaries.filter((d) => relevant(`${d.title} ${d.content}`));
-  if (diaries.length) {
-    lines.push(`【用户亲口告诉过你的生活】\n${diaries.map((d) => `- ${d.date} ${d.title}：${d.content}`).join('\n')}`);
-  }
-  const threads = memory.threads.filter((t) => relevant(`${t.title} ${t.detail ?? ''}`));
-  if (threads.length) {
-    lines.push(`【你心里还记着的事】\n${threads.map((t) => `- ${t.title}${t.detail ? `（${t.detail}）` : ''}`).join('\n')}`);
-  }
-  const todos = memory.todos.filter((todo) => relevant(`${todo.title} ${todo.note ?? ''}`));
-  if (todos.length) {
-    lines.push(`【用户明确告诉你的待办】\n${todos.map((todo) => `- ${todo.title}${todo.dueDate ? `（${todo.dueDate}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note}` : ''}`).join('\n')}\n只在话题相关时自然提起，不要像任务管理器一样盘问。`);
+  if (memory.unifiedMemory !== undefined && currentTopic !== undefined) {
+    if (memory.unifiedMemory) lines.push(memory.unifiedMemory);
+  } else {
+    if (memory.unifiedMemory) lines.push(memory.unifiedMemory);
+    // Compatibility for archive fixtures and older context producers.
+    const memories = memory.memories.filter((m) => relevant(`${m.title} ${m.summary}`));
+    if (memories.length) {
+      lines.push(`【你们一起经历过的事（你亲身在场）】\n${memories.map((m) => `- ${m.title}${m.summary ? `：${m.summary}` : ''}`).join('\n')}`);
+    }
+    const events = memory.events.filter((event) => relevant(`${event.title} ${event.summary}`));
+    if (events.length) {
+      lines.push(`【你知道的其他世界记录】\n${events.map((event) => `- ${event.title}${event.summary ? `：${event.summary}` : ''}`).join('\n')}`);
+    }
+    const scenes = memory.scenes.filter((s) => relevant(`${s.title} ${s.place} ${s.summary}`));
+    if (scenes.length) {
+      lines.push(`【你参与过的片段】\n${scenes.map((s) => `- ${s.title}（${s.place}）：${s.summary}`).join('\n')}`);
+    }
+    const diaries = memory.diaries.filter((d) => relevant(`${d.title} ${d.content}`));
+    if (diaries.length) {
+      lines.push(`【用户亲口告诉过你的生活】\n${diaries.map((d) => `- ${d.date} ${d.title}：${d.content}`).join('\n')}`);
+    }
+    const threads = memory.threads.filter((t) => relevant(`${t.title} ${t.detail ?? ''}`));
+    if (threads.length) {
+      lines.push(`【你心里还记着的事】\n${threads.map((t) => `- ${t.title}${t.detail ? `（${t.detail}）` : ''}`).join('\n')}`);
+    }
+    const todos = memory.todos.filter((todo) => relevant(`${todo.title} ${todo.note ?? ''}`));
+    if (todos.length) {
+      lines.push(`【用户明确告诉你的待办】\n${todos.map((todo) => `- ${todo.title}${todo.dueDate ? `（${todo.dueDate}${todo.dueTime ? ` ${todo.dueTime}` : ''}）` : ''}${todo.note ? `：${todo.note}` : ''}`).join('\n')}\n只在话题相关时自然提起，不要像任务管理器一样盘问。`);
+    }
   }
   if (memory.characterStateContext) lines.push(memory.characterStateContext);
   if (memory.characterLifeContext && relevant(memory.characterLifeContext)) lines.push(memory.characterLifeContext);
@@ -481,6 +477,8 @@ export function renderCharacterContext(ctx: WorldContext, characterId: string, c
   if (ctx.presence.length > 1 && hasActorOwnedContext) {
     lines.push('【记忆边界】以上个人记忆只属于你，不代表其他在场者知道。不要主动向其他在场者透露私聊、日记、待办或个人经历；只有用户明确要求你当众分享某件具体内容时，才可谈及那一件。');
   }
+  const attention = worldAttentionHint(cooling);
+  if (attention) lines.push(attention);
   return lines.join('\n');
 }
 

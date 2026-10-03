@@ -10,6 +10,7 @@ export function presenceId(worldId: string, characterId: string): string {
 
 export const worldAgentRepo = {
   async ensureState(userId: string, worldId: string, characterId: string): Promise<WorldAgentState> {
+    if ((await db.characters.get(characterId))?.agentProfile === 'secretary') throw new Error('生活助理不使用星域角色状态。');
     const id = agentStateId(worldId, characterId);
     const existing = await db.worldAgentStates.get(id);
     if (existing && existing.userId === userId) return existing;
@@ -61,6 +62,7 @@ export const worldAgentRepo = {
     status?: WorldPresence['status'];
     note?: string;
   }): Promise<WorldPresence> {
+    if ((await db.characters.get(params.characterId))?.agentProfile === 'secretary') throw new Error('生活助理不能进入星域。');
     const id = presenceId(params.worldId, params.characterId);
     const current = await db.worldPresences.get(id);
     const next: WorldPresence = {

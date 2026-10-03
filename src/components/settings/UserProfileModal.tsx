@@ -71,8 +71,14 @@ export function UserProfileModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="我的头像">
-      <div className="p-6 space-y-5">
+    <Modal panelClassName="vg-settings-panel" open={open} onClose={onClose} title="我的头像" mobileFullHeight footer={<div className="vg-settings-design !py-3">        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="w-full py-2.5 rounded-lg bg-gene-purple text-white text-sm hover:bg-[#5B4BD4] disabled:opacity-50 transition-colors"
+        >
+          {saving ? '保存中...' : '保存头像'}
+        </button></div>}>
+      <div className="vg-settings-design space-y-5">
         {/* Current preview */}
         <div className="flex items-center gap-4">
           <Avatar avatar={preview} size="lg" />
@@ -128,13 +134,7 @@ export function UserProfileModal({ open, onClose }: Props) {
           />
         )}
 
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full py-2.5 rounded-lg bg-gene-purple text-white text-sm hover:bg-[#5B4BD4] disabled:opacity-50 transition-colors"
-        >
-          {saving ? '保存中...' : '保存头像'}
-        </button>
+
       </div>
     </Modal>
   );

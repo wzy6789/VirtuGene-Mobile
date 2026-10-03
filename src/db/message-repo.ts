@@ -69,7 +69,7 @@ export const messageRepo = {
   },
 
   async create(message: Message): Promise<string> {
-    return db.transaction('rw', db.messages, db.sessions, db.groups, db.memoryJobs, async () => {
+    return db.transaction('rw', db.messages, db.sessions, db.groups, db.memoryJobs, db.characters, async () => {
       const session = await db.sessions.get(message.sessionId);
       const group = session?.type === 'group' && session.groupId ? await db.groups.get(session.groupId) : undefined;
       const witnessedBy = group && group.userId === session?.userId ? [...new Set(group.characterIds)] : undefined;
@@ -84,7 +84,7 @@ export const messageRepo = {
   },
 
   async deleteBySession(sessionId: string): Promise<void> {
-    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge], async () => {
+    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.secretaryTasks], async () => {
       const session = await db.sessions.get(sessionId);
       const messages = await db.messages.where('sessionId').equals(sessionId).toArray();
       if (session) {
@@ -98,11 +98,12 @@ export const messageRepo = {
         await db.memoryJobs.where('userId').equals(session.userId).filter((job) => job.sourceIds.some((sourceId) => messageIdSet.has(sourceId)) && job.status !== 'done').modify({ status: 'cancelled', leaseUntil: undefined, updatedAt: Date.now() });
       }
       await db.messages.where('sessionId').equals(sessionId).delete();
+      await db.secretaryTasks.where('sessionId').equals(sessionId).delete();
     });
   },
 
   async deleteById(id: string): Promise<void> {
-    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge], async () => {
+    await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.secretaryTasks], async () => {
       const message = await db.messages.get(id);
       if (!message) return;
       const session = await db.sessions.get(message.sessionId);
@@ -113,6 +114,8 @@ export const messageRepo = {
         await db.memoryJobs.where('userId').equals(session.userId).filter((job) => job.sourceIds.includes(id) && job.status !== 'done').modify({ status: 'cancelled', leaseUntil: undefined, updatedAt: Date.now() });
       }
       await db.messages.delete(id);
+      await db.secretaryTasks.where('messageId').equals(id).delete();
+      if (message.secretaryTaskId) await db.secretaryTasks.delete(message.secretaryTaskId);
     });
   },
 
@@ -133,7 +136,7 @@ export const messageRepo = {
 
   async update(id: string, patch: Partial<Message>): Promise<number> {
     if (patch.content === undefined) return db.messages.update(id, patch);
-    return db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.groups, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge], async () => {
+    return db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.groups, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.characters], async () => {
       const current = await db.messages.get(id);
       if (!current) return 0;
       if (current.content !== patch.content) {
@@ -186,6 +189,9 @@ async function queueMemoryExtraction(
   const content = message.content.trim();
   const audience = [...new Set(characterIds.filter(Boolean))];
   if (!content || !audience.length) return;
+  const members = await db.characters.bulkGet(audience);
+  // Even imported mixed groups must not turn assistant instructions into shared role memory.
+  if (members.some(c => c?.agentProfile === 'secretary')) return;
   const ranges = splitRanges(content);
   for (const [start, end] of ranges) {
     await memoryLedgerRepo.enqueue({

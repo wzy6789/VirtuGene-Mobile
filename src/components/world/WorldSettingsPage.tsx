@@ -16,7 +16,8 @@ import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
 import { worldRepo } from '../../db/world-repo';
 import type { WorldFact } from '../../db/index';
-import { SpaceHeading } from '../ui/SpaceHeading';
+import { SettingsIcon } from '../settings/SettingsUI';
+import { Modal } from '../ui/Modal';
 import {
   editWorldSetting,
   groupSettings,
@@ -38,6 +39,7 @@ export function WorldSettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!userId) return;
@@ -95,33 +97,19 @@ export function WorldSettingsPage() {
   const grouped = groupSettings(facts);
 
   return (
-    <div className="h-full overflow-y-auto px-4 pb-6">
-      <div className="pt-5">
-        <SpaceHeading
-          eyebrow="living world"
-          title="世界设定"
-          detail="这些是这个世界的长期事实。"
-          action={(
-            <button
-              type="button"
-              onClick={() => useUIStore.getState().openCanvas(null)}
-              className="text-[11px] text-gray-500"
-            >
-              在世界里说 ›
-            </button>
-          )}
-        />
-      </div>
+    <div className="vg-settings-design vg-settings-world">
+      <div className="vg-settings-world-heading"><span className="vg-preference-icon"><SettingsIcon name="world" /></span><div><h2>世界设定</h2><p className="vg-settings-intro">长期生效的规则、地点与人物事实。</p></div></div>
+      <button type="button" className="vg-preference-row vg-settings-form mb-5" onClick={() => useUIStore.getState().openCanvas(null)}><span className="vg-preference-copy"><strong>在世界里直接说</strong><small>一句话也能添加或调整长期设定</small></span><span aria-hidden="true">›</span></button>
 
-      <section className="mt-3 rounded-2xl border border-gene-purple/25 bg-gene-purple/[0.05] px-3.5 py-3.5">
+      <section className="vg-settings-form">
         <textarea
           rows={2}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="告诉我这个世界是什么样的……"
+          aria-label="新的世界设定" placeholder="例如：这里一直是秋天，街角有一家咖啡店。"
           className="w-full resize-none rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink outline-none focus:border-gene-purple/50"
         />
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => void submit()}
@@ -144,7 +132,7 @@ export function WorldSettingsPage() {
       ) : (
         grouped.map((group) => (
           <section key={group.category} className="mt-5">
-            <p className="text-[10px] tracking-[0.16em] uppercase text-gray-500">{group.label}</p>
+            <p className="text-sm text-sub mb-2">{group.label}</p>
             {group.items.map((fact) => (
               <div key={fact.id} className="vg-setting-card">
                 {editingId === fact.id ? (
@@ -173,7 +161,7 @@ export function WorldSettingsPage() {
                   </>
                 ) : (
                   <>
-                    <p className={fact.active ? '' : 'vg-setting-off'}>{fact.content}</p>
+                    <div className="flex items-center justify-between mb-2"><span className="vg-preference-scope">{fact.active ? '生效中' : '已暂停'}</span></div><p className={fact.active ? '' : 'vg-setting-off'}>{fact.content}</p>
                     <div className="vg-setting-actions">
                       <button
                         type="button"
@@ -189,7 +177,7 @@ export function WorldSettingsPage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => { void (async () => { await removeWorldSetting(fact.id, userId ?? undefined); await reload(); })(); }}
+                        onClick={() => setDeletingId(fact.id)}
                       >
                         删除
                       </button>
@@ -201,6 +189,7 @@ export function WorldSettingsPage() {
           </section>
         ))
       )}
+      <Modal open={!!deletingId} onClose={() => setDeletingId(null)} title="删除长期设定？" panelClassName="vg-settings-panel"><div className="vg-settings-design"><p className="vg-settings-intro">这条设定将从长期规则中删除。如果只是暂时不用，可以选择“暂停”。</p><div className="flex gap-3"><button type="button" className="flex-1 text-sub" onClick={() => setDeletingId(null)}>保留设定</button><button type="button" className="flex-1 rounded-xl bg-red-500/15 text-red-400" onClick={() => { if (!deletingId) return; void removeWorldSetting(deletingId, userId ?? undefined).then(async () => { setDeletingId(null); await reload(); }); }}>删除设定</button></div></div></Modal>
     </div>
   );
 }

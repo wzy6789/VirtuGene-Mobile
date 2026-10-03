@@ -86,11 +86,20 @@ export function ChangePasswordSection() {
         className="w-full flex items-center gap-3 px-4 py-3 text-sm text-ink transition-colors hover:bg-surface"
       >
         <span className="text-sm flex-1 text-left">修改密码</span>
-        <span className="text-gray-400 text-xs">›</span>
+        <span aria-hidden="true" className="text-gray-400 text-xs">›</span>
       </button>
 
-      <Modal open={open} onClose={() => { setOpen(false); reset(); }} title="修改密码" width="max-w-sm" closeOnBackdrop={false}>
-        <div className="p-6 space-y-4">
+      <Modal panelClassName="vg-settings-panel" open={open} onClose={() => { setOpen(false); reset(); }} title="修改密码" width="max-w-sm" closeOnBackdrop={false} footer={!done ? <div className="vg-settings-design !py-3">              <div className="flex justify-end gap-2">
+                <button onClick={() => { setOpen(false); reset(); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
+                <button
+                  onClick={() => void handleSubmit()}
+                  disabled={busy || !oldPwd || !newPwd || !confirmPwd}
+                  className="px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] transition-all disabled:opacity-50"
+                >
+                  {busy ? '修改中…' : '确认修改'}
+                </button>
+              </div></div> : undefined}>
+        <div className="vg-settings-design space-y-4">
           {done ? (
             <div className="py-8 text-center">
               <p className="text-lg mb-2">✓</p>
@@ -103,16 +112,7 @@ export function ChangePasswordSection() {
               <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} placeholder="新密码（至少 6 位）" className={inputCls} />
               <input type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} placeholder="再次输入新密码" className={inputCls} />
               {error && <p className="text-xs text-red-400">{error}</p>}
-              <div className="flex justify-end gap-2">
-                <button onClick={() => { setOpen(false); reset(); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
-                <button
-                  onClick={() => void handleSubmit()}
-                  disabled={busy || !oldPwd || !newPwd || !confirmPwd}
-                  className="px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] transition-all disabled:opacity-50"
-                >
-                  {busy ? '修改中…' : '确认修改'}
-                </button>
-              </div>
+
             </>
           )}
         </div>

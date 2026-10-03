@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { db, type Todo, type TodoPriority, type TodoRecurrence, type TodoVisibility } from '../../db';
 import { todoRepo, addLocalDays, dateLabel, localDateKey, type TodoWithOccurrence } from '../../db/todo-repo';
-import { cancelTodoNotification, requestNotificationPermission, scheduleTodoNotification } from '../../lib/notify';
+import { requestNotificationPermission } from '../../lib/notify';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
@@ -24,7 +24,8 @@ function priorityLabel(priority: TodoPriority) { return priority === 'urgent' ? 
 
 export function TodoPage() {
   const userId = useAuthStore((s) => s.userId);
-  const characters = useChatStore((s) => s.characters);
+  const allCharacters = useChatStore((s) => s.characters);
+  const characters = useMemo(() => allCharacters.filter(c => c.agentProfile !== 'secretary'), [allCharacters]);
   const [view, setView] = useState<ViewMode>('schedule');
   const [range, setRange] = useState<'today' | 'week' | 'all' | 'overdue'>('today');
   const [rows, setRows] = useState<TodoWithOccurrence[]>([]);
@@ -35,6 +36,23 @@ export function TodoPage() {
   const [query, setQuery] = useState('');
   const [toast, setToast] = useState('');
   const overviewRef = useRef<HTMLDivElement>(null);
+  const lifeRecordFocus = useUIStore(s => s.lifeRecordFocus);
+  useEffect(() => {
+    if (lifeRecordFocus?.kind !== 'todo') return;
+    let alive = true;
+    if (lifeRecordFocus.userId === userId && userId) {
+      void todoRepo.get(userId, lifeRecordFocus.id).then(todo => {
+        if (!alive || useAuthStore.getState().userId !== userId) return;
+        if (todo) setEditor({ todo, date: lifeRecordFocus.date ?? todo.dueDate });
+        if (useUIStore.getState().lifeRecordFocus === lifeRecordFocus) useUIStore.setState({ lifeRecordFocus: null });
+      }).catch(() => {
+        if (alive && useUIStore.getState().lifeRecordFocus === lifeRecordFocus) useUIStore.setState({ lifeRecordFocus: null });
+      });
+    } else {
+      useUIStore.setState({ lifeRecordFocus: null });
+    }
+    return () => { alive = false; };
+  }, [lifeRecordFocus, userId]);
 
   const load = useCallback(async () => {
     if (!userId) return;
@@ -47,7 +65,12 @@ export function TodoPage() {
     setOverviewRows(nextOverview);
     void todoRepo.rebuildReminders(userId);
   }, [range, userId]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    const refresh = (event: Event) => { if ((event as CustomEvent).detail?.userId === userId) void load(); };
+    window.addEventListener('virtugene:todos-updated', refresh);
+    return () => window.removeEventListener('virtugene:todos-updated', refresh);
+  }, [load, userId]);
   useEffect(() => {
     if (!overviewRows.length) return;
     // 概览默认把最新的有日期事项放在底部并让它成为视觉焦点。
@@ -162,23 +185,11 @@ function TodoEditor({ userId, todo, date, characters, onClose, onSaved }: { user
     setSaving(true);
     const minutes = reminder === '' ? [] : [Number(reminder)];
     const payload = { title: title.trim(), note: note.trim() || undefined, subtasks: subtasks.length ? subtasks : undefined, dueDate: dueDate || undefined, dueTime: dueTime || undefined, priority, reminderMinutes: minutes, recurrence: repeat, visibility, visibleTo: visibility === 'selected' ? visibleTo : undefined, source: 'manual' as const };
-    if (todo) {
-      const oldReminders = await todoRepo.reminders(userId, todo.id);
-      await Promise.all(oldReminders.filter((item) => item.notificationId > 0).map((item) => cancelTodoNotification(item.notificationId)));
-      await db.todoReminders.where('todoId').equals(todo.id).filter((item) => item.userId === userId).delete();
-    }
     const saved = todo ? await todoRepo.update(userId, todo.id, payload) : await todoRepo.create({ ...payload, userId });
     if (minutes.length && saved.dueDate && saved.dueTime) {
-      const occurrence = { id: `preview:${saved.id}:${saved.dueDate}`, userId, todoId: saved.id, dueDate: saved.dueDate, dueTime: saved.dueTime, originalDueDate: saved.dueDate, status: 'todo' as const, createdAt: Date.now(), updatedAt: Date.now() };
-      const at = new Date(`${saved.dueDate}T${saved.dueTime}:00`).getTime() - minutes[0] * 60000;
-      if (at > Date.now()) {
-        const granted = await requestNotificationPermission();
-        if (granted) {
-          const scheduled = await scheduleTodoNotification(saved, occurrence, at);
-          await db.todoReminders.put({ id: `todo-reminder:${saved.id}:${at}`, userId, todoId: saved.id, occurrenceId: occurrence.id, notificationId: scheduled.id, remindAt: at, status: scheduled.ok ? 'scheduled' : 'failed', createdAt: Date.now(), updatedAt: Date.now() });
-        }
-      }
+      await requestNotificationPermission();
     }
+    await todoRepo.rebuildReminders(userId);
     onSaved('已保存到你的日程');
   };
   return <div className="vg-todo-sheet-backdrop" onMouseDown={(e) => { if (e.currentTarget === e.target) onClose(); }}><div className="vg-todo-sheet"><div className="vg-todo-sheet-head"><strong>{todo ? '编辑待办' : '新建待办'}</strong><button onClick={onClose}>关闭</button></div><input className="vg-todo-title-input" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="要做什么？" maxLength={80} /><textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="备注（可选）" rows={2} /><div className="vg-todo-subtasks"><div className="vg-todo-subtask-add"><input value={subtaskDraft} onChange={(e) => setSubtaskDraft(e.target.value)} placeholder="添加一个步骤" onKeyDown={(e) => { if (e.key === 'Enter' && subtaskDraft.trim()) { setSubtasks((old) => [...old, { id: crypto.randomUUID(), title: subtaskDraft.trim(), completed: false }]); setSubtaskDraft(''); } }} /><button onClick={() => { if (subtaskDraft.trim()) { setSubtasks((old) => [...old, { id: crypto.randomUUID(), title: subtaskDraft.trim(), completed: false }]); setSubtaskDraft(''); } }}>＋</button></div>{subtasks.map((step) => <label key={step.id}><input type="checkbox" checked={step.completed} onChange={(e) => setSubtasks((old) => old.map((item) => item.id === step.id ? { ...item, completed: e.target.checked } : item))} />{step.title}</label>)}</div><div className="vg-todo-fields"><label>日期<input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label><label>时间<input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} /></label></div><div className="vg-todo-fields"><label>提醒<select value={reminder} onChange={(e) => setReminder(e.target.value)}><option value="">不提醒</option><option value="0">准时</option><option value="10">提前 10 分钟</option><option value="30">提前 30 分钟</option><option value="60">提前 1 小时</option><option value="1440">提前 1 天</option></select></label><label>优先级<select value={priority} onChange={(e) => setPriority(e.target.value as TodoPriority)}><option value="normal">普通</option><option value="important">重点</option><option value="urgent">重要</option></select></label></div><label className="vg-todo-wide-field">重复<select value={repeat.kind} onChange={(e) => setRepeat(e.target.value === 'daily' ? { kind: 'daily' } : e.target.value === 'weekdays' ? { kind: 'weekdays' } : e.target.value === 'weekly' ? { kind: 'weekly', weekdays: [new Date().getDay()] } : e.target.value === 'monthly' ? { kind: 'monthly', day: Number(dueDate.slice(8)) || 1 } : { kind: 'none' })}><option value="none">不重复</option><option value="daily">每天</option><option value="weekdays">工作日</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label><fieldset className="vg-todo-share"><legend>世界里的知情范围</legend><label><input type="radio" checked={visibility === 'private'} onChange={() => setVisibility('private')} /> 仅自己</label><label><input type="radio" checked={visibility === 'selected'} onChange={() => setVisibility('selected')} /> 告诉某个角色</label>{visibility === 'selected' && <div className="vg-todo-character-list">{characters.map((character) => <label key={character.id}><input type="checkbox" checked={visibleTo.includes(character.id)} onChange={(e) => setVisibleTo((old) => e.target.checked ? [...old, character.id] : old.filter((id) => id !== character.id))} /> {character.name}</label>)}</div>}</fieldset>{todo && <button className="vg-todo-delete" onClick={async () => { await todoRepo.remove(userId, todo.id); onSaved('已移入回收站'); }}>删除这件待办</button>}<button className="vg-todo-save" disabled={!title.trim() || saving} onClick={() => void save()}>{saving ? '保存中…' : '保存待办'}</button></div></div>;

@@ -15,9 +15,10 @@ import { llmChat, getProviderKey } from './llm';
 import { findModel, resolveModel, type LLMModel } from './llm';
 import { safeParseAIResponse, safeParseObject } from './safe-json';
 import { worldChat } from '../world/world-ai-client';
-import { buildTimeContext } from '../chat-context';
+import { buildWorldTimeContext } from '../world/world-time';
 import { validateChoiceOptions } from '../world/scene-acts';
 import { buildConversationFocus } from '../world/user-profile';
+import { coolingWorldMotifs, WORLD_OBJECT_TOPIC_RULE, worldAttentionHint } from '../world/world-attention';
 
 /** 可注入的 LLM 边界（验收用；生产走 llmChat） */
 export type SceneLlmCaller = typeof llmChat;
@@ -130,6 +131,7 @@ const SCENE_INSTRUCTION = `你是一个共同生活世界的引导者，同时�
 
 const SCENE_IMMERSION_NOTE = `
 演出质感：这是一个有自己生活的世界，用户不是每句对白的中心。让在场角色在合适时彼此交谈、回应对方的动作或话题，用户没有发言时也可以自然推进。多角色输出必须按顺序排列，不要让两个角色像同时播报一样抢在一起。每句对白保持短小，动作要具体并符合这个角色的性格与当下位置，不要用空泛动作或长篇总结填充。用户画像只能微调回应的关注点和节奏，不能覆盖角色本身的性格、边界与说话方式；只推进一个小节拍，给用户留下接话空间。
+${WORLD_OBJECT_TOPIC_RULE}
 `;
 
 function trimNatural(text: string, max: number): string {
@@ -334,7 +336,7 @@ async function attemptScene(
   try {
     const membersDesc = params.members
       .map((m) => {
-        const goal = m.goal ? `\n　· 本场目标：${m.goal}` : '';
+        const goal = m.goal ? `\n　· 背景意向（不自动作为本轮主题）：${m.goal}` : '';
         const knows = m.knows ? `\n　· TA 已经知道：${m.knows}` : '';
         const secret = m.secret ? `\n　· TA 隐瞒着（其他人不知道）：${m.secret}` : '';
         const profile = m.userProfile ? `\n　· 关于用户的隐藏参考（只用于自然回应）：${m.userProfile}` : '';
@@ -345,11 +347,12 @@ async function attemptScene(
     const stateLines = [
       `世界：${params.scene.title}（${params.scene.place} · ${params.scene.timeLabel} · 气氛：${params.scene.mood}）`,
       params.scene.theme ? `主题：${params.scene.theme}` : '',
-      params.state.sceneGoal ? `本场目标：${params.state.sceneGoal}` : '',
+      params.state.sceneGoal ? `场景背景意向（是否展开以用户当前提起的内容为准）：${params.state.sceneGoal}` : '',
       `当前张力约 ${params.state.currentTension.toFixed(2)}。这是一段连续发生的经历，不使用幕次或章节标签。`,
       params.state.activeConflicts.length > 0 ? `已经存在的冲突：${params.state.activeConflicts.join('；')}` : '',
       params.state.pendingConsequences.length > 0 ? `尚未落地的后果：${params.state.pendingConsequences.join('；')}` : '',
     ].filter(Boolean).join('\n');
+    const attention = worldAttentionHint(coolingWorldMotifs(params.userAction ?? '', params.history, params.members.map(member => member.name)));
 
     const history = params.history.slice(-12).map((h) => ({
       role: h.kind === 'user_input' ? 'user' : 'assistant',
@@ -377,7 +380,7 @@ async function attemptScene(
       model: model.id,
       apiKey: params.apiKey,
       messages: [
-        { role: 'system', content: `${SCENE_INSTRUCTION}\n${SCENE_IMMERSION_NOTE}\n\n${buildConversationFocus(params.userAction ?? '', params.history.map((item) => ({ kind: item.kind, content: item.content })))}\n\n${stateLines}\n\n出场角色：\n${membersDesc}\n\n${buildTimeContext()}` },
+        { role: 'system', content: `${SCENE_INSTRUCTION}\n${SCENE_IMMERSION_NOTE}\n\n${buildConversationFocus(params.userAction ?? '', params.history.map((item) => ({ kind: item.kind, content: item.content })))}\n\n${stateLines}\n\n出场角色：\n${membersDesc}\n\n${buildWorldTimeContext(params.scene.timeLabel)}\n\n${attention}` },
         ...merged,
         { role: 'user', content: userBlock },
       ],

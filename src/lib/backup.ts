@@ -77,6 +77,8 @@ export interface BackupData {
   characterLifeEvents?: SyncExportData['characterLifeEvents'];
   momentPostPlans?: SyncExportData['momentPostPlans'];
   sourceTombstones?: SyncExportData['sourceTombstones'];
+  secretaryTasks?: SyncExportData['secretaryTasks'];
+  secretaryBindings?: SyncExportData['secretaryBindings'];
 }
 
 /** 收集全量数据（含账号表，用于完整备份） */
@@ -125,6 +127,8 @@ export async function collectBackupData(userId: string | null, username: string 
     characterLifeEvents: base.characterLifeEvents,
     momentPostPlans: base.momentPostPlans,
     sourceTombstones: base.sourceTombstones,
+    secretaryTasks: base.secretaryTasks,
+    secretaryBindings: base.secretaryBindings,
   };
 }
 
@@ -242,6 +246,8 @@ export async function restoreBackup(password: string): Promise<{
       characterLifeEvents: data.characterLifeEvents ?? [],
       momentPostPlans: data.momentPostPlans ?? [],
       sourceTombstones: data.sourceTombstones ?? [],
+      secretaryTasks: data.secretaryTasks ?? [],
+      secretaryBindings: data.secretaryBindings ?? [],
     };
     const r = await importSyncData(syncPayload);
     if (!r.ok) return { ok: false, error: r.error ?? '数据导入失败' };

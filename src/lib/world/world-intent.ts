@@ -24,6 +24,7 @@ import {
   type WorldAction,
 } from './world-actions';
 import { entryLine } from './world-context';
+import { buildWorldTimeContext } from './world-time';
 
 export interface InterpretParams {
   userId: string;
@@ -83,7 +84,9 @@ intent 只能取以下之一：
    **如果这条新设定与下面列出的某条已有设定冲突，把那条已有设定原样抄进 replacesFact**（一字不差），否则不要填。
 4. addressedCharacters / mentionedCharacters 只能填上面给你的角色名，不要编名字。
 5. 只解析用户想做什么，**不要写任何角色台词、不要替角色做决定**。
-6. 不要输出 JSON 以外的任何文字。`;
+6. 场景里出现物件、或角色此前谈过某件东西，不等于用户想把它作为主题。只按用户主动提起的内容解析；“继续”“随便聊”“看看周围”不能被自动解释成调查或推进模型先前选中的物件悬念。
+7. 用户指定日期、几点、时段或虚构纪年时，按原设定填写 timeChange，不用现实时间改写；只包含时间设定，不混入用户的其他动作。
+8. 不要输出 JSON 以外的任何文字。`;
 
 function presenceLine(params: InterpretParams): string {
   const nameOf = (id: string) => params.characters.find((c) => c.id === id)?.name ?? '某人';
@@ -92,7 +95,7 @@ function presenceLine(params: InterpretParams): string {
   const rules = params.worldRules?.length
     ? `\n已有的世界设定：\n${params.worldRules.map((r) => `- ${r}`).join('\n')}`
     : '\n已有的世界设定：（还没有）';
-  return `此刻：${params.place} · ${params.timeLabel}\n在场：${present}\n世界里的角色：${all}${rules}`;
+  return `${buildWorldTimeContext(params.timeLabel)}\n此刻：${params.place} · ${params.timeLabel}\n在场：${present}\n世界里的角色：${all}${rules}`;
 }
 
 /**

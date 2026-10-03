@@ -1,3 +1,4 @@
+import { avatarImageSrc } from '../../lib/avatar';
 import type { Character } from '../../db/index';
 
 type LifeState = { affinity: number; mood: number; updatedAt: number; lifeFocus?: string };
@@ -31,7 +32,7 @@ export function LivingWorldHero({
         {stars.map((character, index) => {
           const x = [70, 84, 62, 90, 74][index];
           const y = [34, 58, 72, 82, 20][index];
-          return <span key={character.id} className="absolute z-10 h-7 w-7 overflow-hidden rounded-full border border-white/30 bg-panel shadow-[0_0_18px_rgba(108,92,231,.4)]" style={{ left: `${x}%`, top: `${y}%` }}>{character.avatar.startsWith('data:') ? <img src={character.avatar} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full w-full items-center justify-center text-sm">{character.avatar}</span>}</span>;
+          return <span key={character.id} className="absolute z-10 h-7 w-7 overflow-hidden rounded-full border border-white/30 bg-panel shadow-[0_0_18px_rgba(108,92,231,.4)]" style={{ left: `${x}%`, top: `${y}%` }}>{avatarImageSrc(character.avatar) ? <img src={avatarImageSrc(character.avatar)} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full w-full items-center justify-center text-sm">{character.avatar}</span>}</span>;
         })}
 
         <div className="relative z-10 max-w-[62%]">

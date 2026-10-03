@@ -7,6 +7,13 @@ import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
 import { clearDiarySharing } from './world/diary-visibility';
 import { momentsRepo } from '../db/moments-repo';
 import { messageRepo } from '../db/message-repo';
+import type { SecretaryTask } from './secretary/types';
+import { importSecretaryTasks } from './secretary/archive';
+import type { SecretaryBinding } from '../db';
+import { applySecretaryBinding, bindSecretary, normalizeSecretaryBinding } from '../db/secretary-binding';
+import { mergeWorkPreferences, validateWorkPreferences } from './secretary/work-preferences';
+import { isSecretaryPersonality, isGeneratedSecretaryGreeting, secretaryGreeting } from './secretary/personality';
+import { isSecretaryAppearance, parseSecretaryAvatar } from './secretary/appearance';
 
 export interface SyncExportData {
   __meta__: {
@@ -59,6 +66,8 @@ export interface SyncExportData {
   momentPostPlans?: MomentPostPlan[];
   /** 撤权墓碑：只含来源 id、版本和状态，不含任何正文。 */
   sourceTombstones?: MemorySourceTombstone[];
+  secretaryTasks?: SecretaryTask[];
+  secretaryBindings?: SecretaryBinding[];
 }
 
 /** 收集当前设备全部业务数据（不含账号密码与 API Key，隐私不外传） */
@@ -69,8 +78,8 @@ export async function collectSyncData(
   const [characters, sessions, messages, memories, emotionSnapshots, characterStates, diaries, groups, continuityThreads, sharedStoryEvents,
     worlds, worldEvents, worldFacts, worldTurns, worldScenes, worldSceneEntries, characterKnowledge, sharedMemories, relationshipStates, relationshipEvents,
     worldLocations, worldPresences, worldAgentStates, worldPulses, worldObjects, todos, todoOccurrences, todoReminders,
-    moments, momentMedia, momentViews, momentReactions, momentContacts, momentJobs, momentNotifications, characterLifeEvents, momentPostPlans, sourceTombstones] =
-    await Promise.all([
+    moments, momentMedia, momentViews, momentReactions, momentContacts, momentJobs, momentNotifications, characterLifeEvents, momentPostPlans, sourceTombstones, secretaryTasks, secretaryBindings] =
+    await db.transaction('r', db.tables, () => Promise.all([
       db.characters.toArray(),
       db.sessions.toArray(),
       db.messages.toArray(),
@@ -109,7 +118,9 @@ export async function collectSyncData(
       db.characterLifeEvents.toArray(),
       db.momentPostPlans.toArray(),
       db.memorySourceTombstones.toArray(),
-    ]);
+      db.secretaryTasks.toArray(),
+      db.secretaryBindings.toArray(),
+    ]));
   const ownerId = userId ?? '';
   const owns = <T extends { userId?: string }>(rows: T[]) => ownerId ? rows.filter((row) => row.userId === ownerId) : [];
   const accountCharacters = ownerId ? characters.filter((character) => character.createdBy === ownerId || character.isPreset) : [];
@@ -167,6 +178,8 @@ export async function collectSyncData(
     characterLifeEvents: owns(characterLifeEvents),
     momentPostPlans: owns(momentPostPlans),
     sourceTombstones: owns(sourceTombstones),
+    secretaryTasks: owns(secretaryTasks).filter(task => sessionIds.has(task.sessionId)),
+    secretaryBindings: owns(secretaryBindings),
   };
 }
 
@@ -270,6 +283,8 @@ export async function importSyncData(
     characterLifeEvents: owned(parsed.characterLifeEvents),
     momentPostPlans: owned(parsed.momentPostPlans),
     sourceTombstones: owned(parsed.sourceTombstones),
+    secretaryTasks: owned(parsed.secretaryTasks).filter(task => sessionIds.has(task.sessionId)),
+    secretaryBindings: owned(parsed.secretaryBindings),
   };
   try {
     const counts: Record<string, number> = {};
@@ -279,7 +294,7 @@ export async function importSyncData(
         db.worlds, db.worldEvents, db.worldFacts, db.worldTurns, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents,
         db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects, db.todos, db.todoOccurrences, db.todoReminders,
         db.moments, db.momentMedia, db.momentViews, db.momentReactions, db.momentContacts, db.momentJobs, db.momentNotifications,
-        db.characterLifeEvents, db.momentPostPlans, db.memorySourceTombstones],
+        db.characterLifeEvents, db.momentPostPlans, db.memorySourceTombstones, db.secretaryTasks, db.secretaryBindings, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge],
       async () => {
         await memorySourceTombstoneRepo.merge(data.sourceTombstones ?? []);
         const tombstones = data.sourceTombstones ?? [];
@@ -337,7 +352,7 @@ export async function importSyncData(
             if (tombstone.status === 'deleted') {
               await db.todos.delete(current.id);
               await db.todoOccurrences.where('todoId').equals(current.id).delete();
-              await db.todoReminders.where('todoId').equals(current.id).delete();
+              await db.todoReminders.where('todoId').equals(current.id).modify({ status: 'cancel-pending', updatedAt: Date.now() });
             } else if (current.updatedAt <= tombstone.sourceRevision && current.status !== 'cancelled') {
               await db.todos.update(current.id, { status: 'cancelled', updatedAt: Date.now() });
             }
@@ -391,13 +406,68 @@ export async function importSyncData(
           }
         }
         let n = 0;
-        for (const c of data.characters ?? []) {
+        const localAssistant = await db.characters.where('createdBy').equals(ownerId).filter(c => c.agentProfile === 'secretary' && !c.isPreset).first();
+        if (localAssistant) await bindSecretary(localAssistant);
+        if ((data.secretaryBindings?.length ?? 0) > 1) throw new Error('同一账号只能有一份助理聘用记录。');
+        for (const binding of data.secretaryBindings ?? []) {
+          if (binding.workPreferences != null) binding.workPreferences = validateWorkPreferences(binding.workPreferences);
+          if (binding.workPreferencesUpdatedAt != null && (!Number.isFinite(binding.workPreferencesUpdatedAt) || binding.workPreferencesUpdatedAt < 0)
+            || binding.workPreferencesUpdatedAt != null && binding.workPreferences == null) throw new Error('助理办事习惯格式不正确。');
+          if (typeof binding.characterId !== 'string' || !binding.characterId || !isSecretaryPersonality(binding.personality)
+            || !Number.isFinite(binding.selectedAt) || binding.selectedAt < 0
+            || binding.status != null && !['active', 'dismissed'].includes(binding.status)
+            || binding.revision != null && (!Number.isInteger(binding.revision) || binding.revision < 1)
+            || binding.updatedAt != null && (!Number.isFinite(binding.updatedAt) || binding.updatedAt < 0)
+            || binding.employmentId != null && (typeof binding.employmentId !== 'string' || !binding.employmentId)
+            || binding.name != null && typeof binding.name !== 'string'
+            || binding.preferences != null && typeof binding.preferences !== 'string'
+            || binding.appearance != null && !isSecretaryAppearance(binding.appearance)
+            || binding.avatar != null && (typeof binding.avatar !== 'string' || binding.avatar.startsWith('secretary-avatar:') && !parseSecretaryAvatar(binding.avatar))
+            || binding.employments != null && (!Array.isArray(binding.employments) || binding.employments.some(item => !item || typeof item.id !== 'string' || !item.id || typeof item.name !== 'string'
+              || !isSecretaryPersonality(item.personality) || item.appearance != null && !isSecretaryAppearance(item.appearance) || !Number.isFinite(item.hiredAt) || item.dismissedAt != null && (!Number.isFinite(item.dismissedAt) || item.dismissedAt < item.hiredAt)))) throw new Error('助理聘用记录格式不正确。');
+          const stored = await db.secretaryBindings.get(ownerId);
+          const incoming = { ...normalizeSecretaryBinding(binding, data.characters.find(c => c.id === binding.characterId)), pendingFocusTaskId: stored?.pendingFocusTaskId, pendingFocusDisplayTaskId: stored?.pendingFocusDisplayTaskId, workspaceFocusTaskId: stored?.workspaceFocusTaskId };
+          if (!stored) await db.secretaryBindings.add(incoming);
+          else if (stored.characterId === binding.characterId) {
+            const local = normalizeSecretaryBinding(stored, localAssistant);
+            const incomingWins = incoming.revision! > local.revision! || incoming.revision === local.revision
+              && (incoming.updatedAt! > local.updatedAt! || incoming.updatedAt === local.updatedAt && incoming.employmentId! > local.employmentId!);
+            const history = new Map((local.employments ?? []).map(item => [item.id, item]));
+            for (const item of incoming.employments ?? []) {
+              const old = history.get(item.id);
+              history.set(item.id, { ...item, ...(old?.dismissedAt && (!item.dismissedAt || old.dismissedAt > item.dismissedAt) ? { dismissedAt: old.dismissedAt } : {}) });
+            }
+            await db.secretaryBindings.put({ ...(incomingWins ? incoming : local), ...mergeWorkPreferences(local, incoming), employments: [...history.values()].sort((a, b) => a.hiredAt - b.hiredAt || a.id.localeCompare(b.id)) });
+          }
+        }
+        for (const c of [...(data.characters ?? [])].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))) {
           const existing = await db.characters.get(c.id);
           if (existing?.isPreset && c.isPreset) continue;
-          await db.characters.put(c);
+          if (existing && existing.createdBy !== c.createdBy) throw new Error('角色账号归属冲突，已停止导入。');
+          let row = c;
+          const binding = await db.secretaryBindings.get(ownerId);
+          if (!c.isPreset && (c.agentProfile === 'secretary' || existing?.agentProfile === 'secretary' || binding?.characterId === c.id)) {
+            if (c.secretaryAppearance != null && !isSecretaryAppearance(c.secretaryAppearance)
+              || typeof c.avatar !== 'string' || c.avatar.startsWith('secretary-avatar:') && !parseSecretaryAvatar(c.avatar)) throw new Error('助理形象资料格式不正确。');
+            if (binding && binding.characterId !== c.id) {
+              // Preserve imported chats, but an extra character cannot become a second assistant.
+              row = { ...c, agentProfile: undefined, secretaryOwnerId: undefined };
+            } else {
+              const effective = binding ?? await bindSecretary(c);
+              const source = existing && c.secretaryEmploymentId !== effective.employmentId && existing.secretaryEmploymentId === effective.employmentId ? existing : c;
+              row = applySecretaryBinding(source, effective);
+              if (isGeneratedSecretaryGreeting(c)) row.greeting = secretaryGreeting(c.name, row.secretaryPersonality);
+            }
+          }
+          await db.characters.put(row);
           n += 1;
         }
         counts.characters = n;
+        const currentBinding = await db.secretaryBindings.get(ownerId);
+        if (currentBinding) {
+          const currentCharacter = await db.characters.get(currentBinding.characterId);
+          if (currentCharacter?.createdBy === ownerId && currentCharacter.agentProfile === 'secretary') await db.characters.put(applySecretaryBinding(currentCharacter, currentBinding));
+        }
 
         n = 0;
         for (const s of data.sessions ?? []) {
@@ -419,6 +489,7 @@ export async function importSyncData(
           n += 1;
         }
         counts.messages = n;
+        counts.secretaryTasks = await importSecretaryTasks(ownerId, data.secretaryTasks);
 
         n = 0;
         for (const m of data.memories ?? []) {
@@ -667,7 +738,14 @@ export async function importSyncData(
         }
         counts.todoOccurrences = n;
         n = 0;
-        for (const reminder of data.todoReminders ?? []) { await db.todoReminders.put(reminder); n += 1; }
+        for (const reminder of data.todoReminders ?? []) {
+          const todo = await db.todos.get(reminder.todoId);
+          if (todo?.userId !== ownerId || todo.status === 'deleted' || todo.status === 'cancelled'
+            || !Number.isFinite(reminder.remindAt) || !Number.isInteger(reminder.notificationId)) continue;
+          // Native scheduling evidence belongs to this device; imports never assert it.
+          if (await db.todoReminders.get(reminder.id)) continue;
+          await db.todoReminders.put({ ...reminder, status: 'queued', todoVersion: undefined, occurrenceVersion: undefined, error: undefined }); n += 1;
+        }
         counts.todoReminders = n;
 
         n = 0;

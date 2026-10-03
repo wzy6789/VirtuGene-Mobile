@@ -8,9 +8,8 @@ import { resetDiaryUnlock } from '../../lib/diary-unlock';
 import { ipc } from '../../lib/ipc-client';
 import { Avatar } from '../ui/Avatar';
 import { Modal } from '../ui/Modal';
-import { SettingsPanel } from '../settings/SettingsPanel';
+import { SettingsPanel, type SettingsPage } from '../settings/SettingsPanel';
 import { UserProfileModal } from '../settings/UserProfileModal';
-import { ApiKeyManager } from '../settings/ApiKeyManager';
 import { WeeklyLifeReviewModal } from '../insights/WeeklyLifeReviewModal';
 import { checkUpdate, openApkDownload } from '../../lib/mobile-update';
 import { clearPersistedApiKey } from '../../lib/api-key-storage';
@@ -58,7 +57,7 @@ export function MobileMePage() {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
   const [showSettings, setShowSettings] = useState(false);
-  const [showApiKeys, setShowApiKeys] = useState(false);
+  const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>('home');
   const [showProfile, setShowProfile] = useState(false);
   const [showWeeklyReview, setShowWeeklyReview] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -113,7 +112,7 @@ export function MobileMePage() {
   };
 
   const rowCls =
-    'w-full flex items-center gap-3 px-4 py-4 text-sm text-ink transition-colors active:bg-surface';
+    'vg-settings-row w-full flex items-center gap-3 px-4 py-4 text-sm text-ink transition-colors active:bg-surface';
 
   return (
     <div className="vg-personal h-full flex flex-col overflow-y-auto pb-6">
@@ -138,15 +137,15 @@ export function MobileMePage() {
       </button>
 
       {/* 功能列表 */}
-      <div className="mx-4 mt-3 grid grid-cols-3 overflow-hidden rounded-2xl border border-line bg-surface/80">
+      <div className="vg-personal-stats mx-4 mt-3 grid grid-cols-3 overflow-hidden rounded-2xl border border-line bg-surface/80">
         <div className="border-r border-line px-2 py-3 text-center"><span className="block text-base font-semibold text-ink">{useChatStore.getState().characters.length}</span><span className="text-[10px] text-gray-500">角色</span></div>
         <div className="border-r border-line px-2 py-3 text-center"><span className="block text-base font-semibold text-life-cyan">{Object.keys(useCharacterStateStore.getState().affinityByCharacter).length}</span><span className="text-[10px] text-gray-500">连接</span></div>
-        <div className="px-2 py-3 text-center"><span className="block text-base font-semibold text-gene-purple">v{version || '4.1.0'}</span><span className="text-[10px] text-gray-500">版本</span></div>
+        <div className="px-2 py-3 text-center"><span className="block text-base font-semibold text-gene-purple">{version ? `v${version}` : '—'}</span><span className="text-[10px] text-gray-500">版本</span></div>
       </div>
 
       <button
         onClick={() => setShowWeeklyReview(true)}
-        className="relative mx-4 mt-3 flex overflow-hidden rounded-2xl border border-life-cyan/20 bg-[radial-gradient(circle_at_88%_25%,rgba(0,206,201,.16),transparent_24%),linear-gradient(130deg,rgba(108,92,231,.14),rgba(0,206,201,.06))] px-4 py-3.5 text-left shadow-[0_10px_26px_rgba(38,29,95,.10)] transition-transform active:scale-[.99]"
+        className="vg-personal-review relative mx-4 mt-3 flex overflow-hidden rounded-2xl border border-life-cyan/20 bg-[radial-gradient(circle_at_88%_25%,rgba(0,206,201,.16),transparent_24%),linear-gradient(130deg,rgba(108,92,231,.14),rgba(0,206,201,.06))] px-4 py-3.5 text-left shadow-[0_10px_26px_rgba(38,29,95,.10)] transition-transform active:scale-[.99]"
       >
         <span className="absolute -right-5 -bottom-8 h-24 w-24 rounded-full border border-life-cyan/15" />
         <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gene-purple/15 text-lg">✦</span>
@@ -159,17 +158,17 @@ export function MobileMePage() {
       </button>
 
       <p className="mx-5 mt-6 text-[10px] tracking-[0.22em] text-gray-500">YOUR SPACE</p>
-      <div className="mx-4 mt-2 rounded-2xl bg-surface border border-line overflow-hidden divide-y divide-line">
-        <button className={rowCls} onClick={() => setShowApiKeys(true)}>
+      <div className="vg-personal-settings mx-4 mt-2 rounded-2xl bg-surface border border-line overflow-hidden divide-y divide-line">
+        <button className={rowCls} onClick={() => { setSettingsInitialPage('connection'); setShowSettings(true); }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-gene-purple/70 shrink-0">
             <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4" />
           </svg>
-          <span className="flex-1 text-left">API Key 管理</span>
+          <span className="flex-1 text-left">AI 连接</span>
           <span className="text-gray-400 text-xs">›</span>
         </button>
-        <button className={rowCls} onClick={() => setShowSettings(true)}>
+        <button className={rowCls} onClick={() => { setSettingsInitialPage('home'); setShowSettings(true); }}>
           <RowIcon name="settings" />
-          <span className="flex-1 text-left">完整设置</span>
+          <span className="flex-1 text-left">设置</span>
           <span className="text-gray-400 text-xs">›</span>
         </button>
         <button className={rowCls} onClick={toggleTheme}>
@@ -225,10 +224,9 @@ export function MobileMePage() {
         </button>
       </div>
 
-      <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
+      <SettingsPanel initialPage={settingsInitialPage} open={showSettings} onClose={() => setShowSettings(false)} />
       <UserProfileModal open={showProfile} onClose={() => setShowProfile(false)} />
       <WeeklyLifeReviewModal open={showWeeklyReview} onClose={() => setShowWeeklyReview(false)} />
-      {showApiKeys && <ApiKeyManager onClose={() => setShowApiKeys(false)} />}
 
       {/* 断开灵魂链接二次确认 */}
       <Modal open={showLogoutConfirm} onClose={() => setShowLogoutConfirm(false)} width="max-w-sm" closeOnBackdrop={false}>

@@ -9,26 +9,32 @@ import { edgeTTSSynthesize } from '../../lib/edge-tts';
 import { mimoTTSSynthesize, mapEdgeVoiceToMimo } from '../../lib/mimo-tts';
 import { DEFAULT_VOICE, DEFAULT_MALE_VOICE, DIALECT_VOICES } from '../../lib/voice-map';
 import type { Character } from '../../db/index';
+import { Modal } from '../ui/Modal';
+import { Avatar } from '../ui/Avatar';
+import { VoicePreferences } from '../settings/VoicePreferences';
+import { AppearanceSettings } from '../settings/AppearanceSettings';
+import { SettingsChoices, SettingsGroup } from '../settings/SettingsUI';
 
 /** 心情选择网格（「更多」菜单的子视图） */
 function MoodGrid({ onPick, onBack }: { onPick: (mood: number) => void; onBack: () => void }) {
   return (
-    <div className="px-3 py-2.5 space-y-2">
+    <div className="vg-chat-mood-picker px-4 py-4 space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] text-gray-400">今天的心情</span>
-        <button onClick={onBack} className="text-[10px] text-gray-400 hover:text-ink transition-colors">
+        <span className="text-sm text-sub">今天的心情</span>
+        <button onClick={onBack} className="vg-menu-back text-xs text-sub hover:text-ink transition-colors">
           ‹ 返回
         </button>
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-2">
         {DIARY_MOODS.map((m) => (
           <button
             key={m.value}
             onClick={() => onPick(m.value)}
             title={m.label}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-lg hover:bg-surface transition-all hover:scale-110"
+            aria-label={m.label}
+            className="vg-mood-choice rounded-2xl border border-line bg-surface flex flex-col items-center justify-center gap-1 text-lg transition-colors active:bg-surface-strong"
           >
-            {m.emoji}
+            <span aria-hidden="true">{m.emoji}</span><span className="text-xs text-sub">{m.label}</span>
           </button>
         ))}
       </div>
@@ -38,24 +44,15 @@ function MoodGrid({ onPick, onBack }: { onPick: (mood: number) => void; onBack: 
 
 /** 语音设置（参考电脑端设置面板「角色语音」）：总开关 + 语速 + 方言（用户手动选） + 试听 */
 function TtsSettings({
-  onBack,
   character,
   modelLabel,
   cost,
 }: {
-  onBack: () => void;
   character?: Character;
   modelLabel?: string;
   cost?: { calls: number; inputTokens: number; outputTokens: number; cost: number };
 }) {
-  const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
-  const setTtsEnabled = useSettingsStore((s) => s.setTtsEnabled);
-  const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
-  const setTtsSpeed = useSettingsStore((s) => s.setTtsSpeed);
   const ttsEngine = useSettingsStore((s) => s.ttsEngine);
-  const setTtsEngine = useSettingsStore((s) => s.setTtsEngine);
-  const aiVoiceMode = useSettingsStore((s) => s.aiVoiceMode);
-  const setAiVoiceMode = useSettingsStore((s) => s.setAiVoiceMode);
   const [demoBusy, setDemoBusy] = useState(false);
 
   /** 角色性别（由 AI 分配时判定的 band 决定） */
@@ -122,129 +119,20 @@ function TtsSettings({
   };
 
   return (
-    <div className="px-3 py-2.5 space-y-3 w-[248px]">
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] text-gray-400">语音设置</span>
-        <button onClick={onBack} className="text-[10px] text-gray-400 hover:text-ink transition-colors">
-          ‹ 返回
-        </button>
-      </div>
-
-      {/* 当前模型 + 本角色消耗统计 */}
-      <div className="rounded-lg bg-panel/60 border border-line px-3 py-2 space-y-1">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-ink">对话模型</span>
-          <span className="text-[11px] text-gene-purple truncate max-w-[55%]">{modelLabel || '默认'}</span>
-        </div>
-        {cost && cost.calls > 0 ? (
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-gray-500">本角色已消耗</span>
-            <span className="text-[10px] text-gray-500">
-              {cost.calls} 次 · {(cost.inputTokens / 1000).toFixed(1)}K 入 / {(cost.outputTokens / 1000).toFixed(1)}K 出 · 约 ¥{cost.cost.toFixed(3)}
-            </span>
-          </div>
-        ) : (
-          <p className="text-[10px] text-gray-400">暂无消耗记录</p>
-        )}
-      </div>
-
-      {/* 语音总开关 */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-ink">角色语音</span>
-        <button
-          onClick={() => setTtsEnabled(!ttsEnabled)}
-          title={ttsEnabled ? '已开启' : '已关闭'}
-          className={`relative w-11 h-6 rounded-full transition-colors ${ttsEnabled ? 'bg-gene-purple' : 'bg-gray-300'}`}
-        >
-          <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${ttsEnabled ? 'left-[22px]' : 'left-0.5'}`} />
-        </button>
-      </div>
-
-      {/* AI 语音消息模式（AI 回复自动合成语音，显示为语音气泡） */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-ink">AI 语音消息</span>
-        <button
-          onClick={() => setAiVoiceMode(!aiVoiceMode)}
-          title={aiVoiceMode ? '已开启' : '已关闭'}
-          className={`relative w-11 h-6 rounded-full transition-colors ${aiVoiceMode ? 'bg-gene-purple' : 'bg-gray-300'}`}
-        >
-          <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${aiVoiceMode ? 'left-[22px]' : 'left-0.5'}`} />
-        </button>
-      </div>
-      <p className="text-[10px] text-gray-500 leading-relaxed">
-        关闭后消息不再显示 🔊，点击也不会发声。语音由 AI 按角色形象挑选声线（先判男女再选性格），仅在你点击时合成。
-      </p>
-
-      {/* 朗读语速 */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-ink">朗读语速</span>
-        <div className="flex rounded-lg border border-line overflow-hidden">
-          {[[0.8, '慢'], [1.0, '标准'], [1.2, '快']].map(([v, l]) => (
-            <button
-              key={v}
-              onClick={() => setTtsSpeed(Number(v))}
-              className={`px-3 py-1.5 text-xs transition-colors ${ttsSpeed === Number(v) ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-500 hover:text-ink'}`}
-            >
-              {l}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 朗读引擎 */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-ink">朗读引擎</span>
-        <div className="flex rounded-lg border border-line overflow-hidden">
-          {[['edge', 'Edge'], ['mimo', 'MiMo']].map(([v, l]) => (
-            <button
-              key={v}
-              onClick={() => setTtsEngine(v as 'edge' | 'mimo')}
-              className={`px-3 py-1.5 text-xs transition-colors ${ttsEngine === v ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-500 hover:text-ink'}`}
-            >
-              {l}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 角色方言（用户手动选择；AI 不自动分配方言） */}
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-xs text-ink">角色方言</span>
-          {roleGender === 'female' && currentDialect !== 'none' && (
-            <span className="text-[10px] text-life-cyan">当前角色使用中</span>
-          )}
-        </div>
-        {roleGender === 'female' ? (
-          <div className="flex rounded-lg border border-line overflow-hidden">
-            {[['none', '无'], ['liaoning', '东北话'], ['shaanxi', '陕西话']].map(([k, l]) => (
-              <button
-                key={k}
-                onClick={() => void setDialect(k as 'none' | 'liaoning' | 'shaanxi')}
-                className={`flex-1 px-3 py-1.5 text-xs transition-colors ${currentDialect === k ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-500 hover:text-ink'}`}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-[10px] text-gray-500 leading-relaxed">
-            {roleGender === 'male'
-              ? '方言音色目前仅有女声（东北话/陕西话），男角色不可设置'
-              : '进入聊天生成声线后，可在此设置角色方言'}
-          </p>
-        )}
-      </div>
-
-      {/* 试听（按角色性别） */}
-      <button
-        onClick={() => void preview()}
-        disabled={demoBusy}
-        className="w-full px-4 py-2 rounded-lg text-xs text-ink bg-surface border border-line-strong hover:border-life-cyan/50 transition-colors disabled:opacity-40"
-      >
-        {demoBusy ? '合成中…' : `试听${roleGender === 'male' ? '男声' : '女声'}默认音色`}
-      </button>
-      <p className="text-[10px] text-gray-500">默认音色为 Edge 微软声线（男声云扬 / 女声晓晓），失败才用系统语音兜底。云端识别 Key 在「我的 → 设置 → 语音」配置。</p>
+    <div className="vg-settings-design vg-chat-voice-preferences">
+      {character && <div className="vg-settings-profile"><Avatar avatar={character.avatar} size="lg" /><div><strong>{character.name}</strong><small>角色声线单独设置，聊天偏好影响所有角色</small></div></div>}
+      <SettingsGroup title="当前角色" scope={character?.name ?? '当前角色'}>
+        <div className="vg-preference-row"><span className="vg-preference-copy"><strong>角色声线</strong><small>{roleGender ? roleGender === 'male' ? '标准男声' : '标准女声，可选择方言' : '进入聊天生成声线后可调整方言'}</small></span></div>
+        {roleGender === 'female' && <details><summary className="vg-preference-row">角色方言<span className="vg-preference-value ml-auto">{currentDialect === 'none' ? '标准音色' : currentDialect === 'liaoning' ? '东北话' : '陕西话'}</span></summary><SettingsChoices label="角色方言" value={currentDialect} onChange={value => { void setDialect(value); }} options={[{ value: 'none', title: '标准音色' }, { value: 'liaoning', title: '东北话' }, { value: 'shaanxi', title: '陕西话' }]} /></details>}
+        {roleGender === 'male' && <p className="vg-settings-intro px-4">现有方言音色仅支持女声。</p>}
+        <button type="button" onClick={() => void preview()} disabled={demoBusy} className="w-full text-sm text-life-cyan border-t border-line">{demoBusy ? '合成中…' : `试听${roleGender === 'male' ? '男声' : '女声'}默认音色`}</button>
+      </SettingsGroup>
+      <VoicePreferences />
+      <SettingsGroup title="当前会话模型" scope="本会话">
+        <div className="vg-preference-row"><span className="vg-preference-copy"><strong>{modelLabel || '默认模型'}</strong><small>本会话沿用首次选定的模型。全局默认值不会修改它。</small></span></div>
+        {cost && cost.calls > 0 ? <p className="vg-settings-intro px-4">{cost.calls} 次对话 · {(cost.inputTokens / 1000).toFixed(1)}K 输入 / {(cost.outputTokens / 1000).toFixed(1)}K 输出 · 约 ¥{cost.cost.toFixed(3)}</p> : <p className="vg-settings-intro px-4">暂无消耗记录</p>}
+      </SettingsGroup>
+      <details className="vg-settings-form"><summary className="py-3 text-sm">外观与阅读</summary><AppearanceSettings /></details>
     </div>
   );
 }
@@ -315,22 +203,24 @@ export function ChatHeaderMoreMenu({
           setView('main');
         }}
         title="更多"
+        aria-label="聊天更多操作"
+        aria-haspopup="dialog"
+        aria-expanded={open}
         className={`relative w-8 h-8 flex items-center justify-center rounded-lg text-lg transition-colors ${
           open ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-400 hover:bg-surface hover:text-ink'
         }`}
       >
-        ⋯
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>
         {currentSnapshot && (
           <span className={`absolute top-0.5 right-0.5 w-2 h-2 rounded-full border border-app ${dotClass}`} />
         )}
         {done && <span className="absolute -top-1 -left-1 text-[9px] text-life-cyan animate-fade-in">✓</span>}
       </button>
       {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full mt-1 z-50 min-w-[170px] glass-card rounded-xl shadow-xl animate-fade-in overflow-hidden">
+        <Modal key={view} open onClose={() => setOpen(false)} onBack={view === 'settings' ? () => setView('main') : undefined} panelClassName="vg-settings-panel" mobileFullHeight={view === 'settings'} title={view === 'main' ? '聊天与偏好' : view === 'mood' ? '心情打卡' : '聊天设置'}>
+          <div className="vg-chat-more-content">
             {view === 'main' ? (
-              <div className="py-1.5">
+              <div className="vg-settings-design vg-chat-more-actions space-y-2">
                 <button
                   onClick={() => {
                     setOpen(false);
@@ -363,16 +253,16 @@ export function ChatHeaderMoreMenu({
                     <circle cx="12" cy="12" r="3" />
                     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
                   </svg>
-                  设置
+                  聊天设置
                 </button>
               </div>
             ) : view === 'mood' ? (
               <MoodGrid onBack={() => setView('main')} onPick={(m) => void checkIn(m)} />
             ) : (
-              <TtsSettings onBack={() => setView('main')} character={character} modelLabel={modelLabel} cost={cost} />
+              <TtsSettings character={character} modelLabel={modelLabel} cost={cost} />
             )}
           </div>
-        </>
+        </Modal>
       )}
     </div>
   );

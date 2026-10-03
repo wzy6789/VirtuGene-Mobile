@@ -1520,3 +1520,60 @@ body {
 .vg-character-editor-tabs { position:sticky; top:0; z-index:5; background:var(--bg-panel); }
 @keyframes vg-sheet-arrive { from { opacity:0; } to { opacity:1; } }
 @media (prefers-reduced-motion:reduce) { .vg-mobile-sheet-full { animation:none !important; } }
+/* The caret sits at the text endpoint without reserving another character/line.
+   Bubble dimensions follow layout immediately; animating width/height lags SSE. */
+.vg-stream-caret {
+  position:relative;
+  display:inline-block;
+  width:0;
+  height:1em;
+  vertical-align:-.12em;
+  pointer-events:none;
+}
+.vg-stream-caret::after {
+  content: '';
+  position:absolute;
+  left:4px;
+  top:.08em;
+  width: 2px;
+  height: .84em;
+  border-radius:2px;
+  background:var(--vg-cyan, var(--life-cyan, #00cec9));
+  opacity:.72;
+}
+.vg-streaming-part {
+  /* Match the virtualized row's contained margins, including between parts. */
+  display:flow-root;
+  animation:vg-stream-part-arrive 300ms cubic-bezier(.16,1,.3,1) backwards;
+}
+.vg-chat-message-row[data-streamed] .vg-chat-message-content { animation:none; }
+/* Keep earlier lines in place instead of repeatedly balancing a growing paragraph. */
+.vg-chat-message-row[data-streamed] .vg-message-bubble { text-wrap:wrap; }
+@keyframes vg-stream-part-arrive {
+  from { opacity:0; transform:translate3d(0,6px,0); }
+  to { opacity:1; transform:translate3d(0,0,0); }
+}
+.vg-stream-voice {
+  display:flex;
+  align-items:center;
+  min-height:50px;
+  margin-top:6px;
+  border-top:1px solid var(--border);
+  color:var(--text-secondary);
+  font-size:12px;
+}
+.vg-stream-voice > button {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-height:48px;
+  padding:0 4px;
+  color:inherit;
+  font:inherit;
+  touch-action:manipulation;
+}
+.vg-stream-voice > button:focus-visible { outline:2px solid var(--vg-accent, #695bd8); outline-offset:2px; border-radius:8px; }
+html[data-vg-reduced-motion='true'] .vg-streaming-part { animation:none; }
+@media (prefers-reduced-motion:reduce) {
+  .vg-streaming-part { animation:none; }
+}

@@ -1,4 +1,4 @@
-import { fetchWithTimeout } from './http';
+import { taskChat } from './task-client';
 
 /**
  * 日记 AI 助手：润色 / 续写 / 提炼对话。
@@ -151,36 +151,17 @@ export async function diaryAssist(
   if (context) userContent += '\n\n' + context;
 
   try {
-    const response = await fetchWithTimeout(
-      'https://api.deepseek.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'deepseek-v4-flash',
-          messages: [
-            { role: 'system', content: '你是 VirtuGene 的日记助手，温柔、克制、尊重用户的表达。' },
-            { role: 'user', content: userContent },
-          ],
-          max_tokens: mode === 'annual' || mode === 'persona' ? 1200 : 800,
-          temperature: 0.7,
-        }),
-      },
-      30_000,
-    );
-
-    if (!response.ok) {
-      if (response.status === 401) return { error: 'auth:invalid_key' };
-      if (response.status === 402) return { error: 'billing:insufficient' };
-      if (response.status === 429) return { error: 'rate:limited' };
-      return { error: 'server:error' };
-    }
-
-    const data = await response.json();
-    const textOut: string = data.choices?.[0]?.message?.content ?? '';
+    const result = await taskChat({
+      apiKey,
+      messages: [
+        { role: 'system', content: '你是 VirtuGene 的日记助手，温柔、克制、尊重用户的表达。' },
+        { role: 'user', content: userContent },
+      ],
+      maxTokens: mode === 'annual' || mode === 'persona' ? 1200 : 800,
+      temperature: .7, timeoutMs: 30_000, disableThinking: true,
+      jsonMode: ['auto', 'compile', 'combine', 'recall', 'persona'].includes(mode),
+    });
+    const textOut = result.content;
     const trimmed = textOut.trim();
     if (!trimmed) return { error: 'server:error' };
 
@@ -227,7 +208,7 @@ export async function diaryAssist(
     }
 
     return { text: trimmed };
-  } catch {
-    return { error: 'server:error' };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'server:error' };
   }
 }

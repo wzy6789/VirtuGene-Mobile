@@ -5,6 +5,8 @@ import { NotificationCloud } from '../chat/NotificationCloud';
 import { useUIStore, MOBILE_TABS, IMMERSIVE_VIEWS, isWorldOverlay, type MobileTab } from '../../store/ui-store';
 import { useChatStore } from '../../store/chat-store';
 import { MobileWorldPage } from '../world/MobileWorldPage';
+import { MobileCharacterPage } from '../character/MobileCharacterPage';
+import { MobileMePage } from './MobileMePage';
 import { MobileRelationsPage } from '../world/MobileRelationsPage';
 import { MobileStagePage } from '../world/MobileStagePage';
 import { WorldCanvas } from '../world/WorldCanvas';
@@ -15,12 +17,13 @@ import { MomentsPage } from '../moments/MomentsPage';
 import { MobileTabSwipe } from '../ui/MobileTabSwipe';
 import { SwipeBackView } from '../ui/SwipeBackView';
 import type { ActiveView } from '../../store/ui-store';
+import { SoulAtmosphere } from '../ui/SoulAtmosphere';
+import { useMobilePageMotion } from '../ui/useMobilePageMotion';
 
 // 手账包含日历、导出和多种 AI 辅助；仅在用户从「世界 → 日记」进入时下载。
 const DiaryPage = lazy(() => import('../../pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
 const TodoPage = lazy(() => import('../todo/TodoPage').then((m) => ({ default: m.TodoPage })));
-const MobileCharacterPage = lazy(() => import('../character/MobileCharacterPage').then((m) => ({ default: m.MobileCharacterPage })));
-const MobileMePage = lazy(() => import('./MobileMePage').then((m) => ({ default: m.MobileMePage })));
+// Primary tabs must never replace the transition surface with a first-visit loading fallback.
 
 /** 未读总数上限显示 99+ */
 function formatUnread(n: number): string {
@@ -106,7 +109,7 @@ function TabIcon({ name, active }: { name: MobileTab; active: boolean }) {
  * - tab 状态放 ui-store（聊天页可返回角色页）
  * - 键盘弹出（输入聚焦）时隐藏底部导航，避免四个 tab 被顶到输入框上面
  * - 激活 tab 有胶囊高亮 + 顶部小圆点强调（学习微信/QQ）
- * - tab 切换带淡入动画
+ * - 页面进入方向跟随导航，手势退场由各自的手势层负责
  */
 export function MobileLayout() {
   const activeView = useUIStore((s) => s.activeView);
@@ -291,16 +294,22 @@ export function MobileLayout() {
     useUIStore.getState().setChatFromCharacters(from === 'characters');
   };
 
+  const pageKey = activeView + tab + (chatFromCharacters || chatFromList ? '-chat' : '');
+  const pageMotionRef = useMobilePageMotion({
+    key: pageKey, tab,
+    depth: immersive ? 2 : overlayOpen || chatFromCharacters || chatFromList ? 1 : 0,
+  });
+
   return (
     <div className="mobile-layout relative h-full w-full flex flex-col bg-app overflow-hidden">
-      {/* 沉浸光感：氛围光晕 + DNA 点阵底纹 */}
-      <div className="vg-atmosphere absolute inset-0 pointer-events-none z-0" />
+      {/* 固定氛围层：光晕、轨道与少量信号点，不随列表滚动 */}
+      <SoulAtmosphere />
 
-      {/* 顶部状态栏深色条：品牌深色，覆盖状态栏区域。
+      {/* 顶部状态栏保留品牌深色，适配原生白色状态图标。
           无刘海屏 env(safe-area-inset-top)=0，故叠加固定 24px 兜底，
-          任何机型顶部都不透出白色 */}
+          保留现有原生安全区避让方式 */}
       <div
-        className="absolute top-0 inset-x-0 z-20 pointer-events-none bg-[#0F0F1A]"
+        className="mobile-statusbar absolute top-0 inset-x-0 z-20 pointer-events-none"
         style={{ height: 'calc(env(safe-area-inset-top, 0px) + 24px)' }}
       />
 
@@ -311,7 +320,7 @@ export function MobileLayout() {
       >
         <NotificationCloud />
 
-        {/* 内容区：tab 切换带淡入动画 */}
+        {/* 内容区：单一页面入场动画，避免重复位移 */}
         <main className="flex-1 min-h-0 overflow-hidden">
           <Suspense fallback={<div className="vg-loading" role="status">正在打开你的空间…</div>}>
           <MobileTabSwipe
@@ -321,8 +330,9 @@ export function MobileLayout() {
           >
           <SwipeBackView enabled={overlayOpen || (worldTheaterOpen && !immersive)} onBack={() => window.history.back()}>
           <div
-            key={activeView + tab + (chatFromCharacters || chatFromList ? '-chat' : '')}
-            className={`h-full animate-tab-in ${diaryOpen ? 'vg-world-diary-view' : todoOpen ? 'vg-world-todo-view' : momentsOpen ? 'vg-world-moments-view' : ''}`}
+            ref={pageMotionRef}
+            key={pageKey}
+            className={`vg-page-transition h-full ${diaryOpen ? 'vg-world-diary-view' : todoOpen ? 'vg-world-todo-view' : momentsOpen ? 'vg-world-moments-view' : ''}`}
           >
             {immersive ? (
               /* 世界空间：沉浸式全屏（§67：进入后隐藏底部一级导航） */
@@ -387,29 +397,27 @@ export function MobileLayout() {
               : 'vg-navigation flex items-stretch pb-[env(safe-area-inset-bottom)]'
           }`}
         >
+          <span className="vg-nav-indicator" aria-hidden="true"
+            style={{ transform: `translate3d(${MOBILE_TABS.findIndex(t => t.key === activeTab) * 100}%,0,0)` }} />
           {MOBILE_TABS.map((t) => {
             const active = activeTab === t.key;
             return (
               <button
                 key={t.key}
                 aria-current={active ? 'page' : undefined}
-                className={`relative flex-1 h-14 flex flex-col items-center justify-center gap-1 text-[11px] transition-colors active:bg-surface ${
+                className={`vg-nav-tab relative flex-1 h-14 flex flex-col items-center justify-center gap-1 text-[11px] transition-colors active:bg-surface ${
                   active ? 'text-life-cyan' : 'text-gray-400'
                 }`}
                 onClick={() => switchTab(t.key)}
               >
-                {/* 激活态顶部小圆点（微信/QQ 式强调） */}
-                {active && (
-                  <span className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-life-cyan shadow-[0_0_8px_rgba(0,206,201,0.9)]" />
-                )}
                 {/* 聊天 tab 未读徽标（微信式红点 + 数字） */}
                 {t.key === 'chat' && totalUnread > 0 && (
-                  <span className="absolute top-0.5 right-1/2 translate-x-[14px] min-w-[15px] h-3.5 px-1 rounded-full bg-red-500 text-white text-[9px] font-medium flex items-center justify-center leading-none shadow-[0_1px_4px_rgba(239,68,68,0.45)]">
+                  <span className="vg-nav-unread absolute top-0.5 right-1/2 translate-x-[14px] min-w-[15px] h-3.5 px-1 rounded-full bg-red-500 text-white text-[9px] font-medium flex items-center justify-center leading-none shadow-[0_1px_4px_rgba(239,68,68,0.45)]">
                     {formatUnread(totalUnread)}
                   </span>
                 )}
                 {/* 激活态图标胶囊高亮 */}
-                <span className={`flex items-center justify-center w-10 h-7 rounded-full transition-all ${active ? 'bg-gene-purple/12' : ''}`}>
+                <span className="vg-nav-icon flex items-center justify-center w-10 h-7 rounded-full">
                   <TabIcon name={t.key} active={active} />
                 </span>
                 <span className={`leading-none ${active ? 'font-semibold' : ''}`}>{t.label}</span>

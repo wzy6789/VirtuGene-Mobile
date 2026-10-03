@@ -1,5 +1,5 @@
-import { fetchWithTimeout } from './http';
-import { gatewayChat, hasAiGatewayAccess } from './gateway';
+import { taskChat, taskUsesGateway } from './task-client';
+import { gatewayChat } from './gateway';
 
 const MEMORY_EXTRACTION_PROMPT =
   '你是一个记忆提取系统。从以下对话中提取关于用户的**关键事实**和**重要信息**。\n\n' +
@@ -72,8 +72,7 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
       return { error: 'parse:error' };
     }
   };
-  if (!apiKey.trim()) {
-    if (!hasAiGatewayAccess()) return { error: 'auth:invalid_key' };
+  if (taskUsesGateway(apiKey)) {
     try {
       return await viaGateway();
     } catch (error) {
@@ -87,44 +86,16 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
   ];
 
   try {
-    const response = await fetchWithTimeout(
-      'https://api.deepseek.com/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'deepseek-v4-flash',
-          messages,
-          max_tokens: 1000,
-          temperature: 0.3,
-        }),
-      },
-      30_000,
-    );
-
-    if (!response.ok) {
-      if (hasAiGatewayAccess()) {
-        try { return await viaGateway(); } catch { /* report the original BYOK failure */ }
-      }
-      if (response.status === 401) return { error: 'auth:invalid_key' };
-      if (response.status === 402) return { error: 'billing:insufficient' };
-      if (response.status === 429) return { error: 'rate:limited' };
-      return { error: 'server:error' };
-    }
-
-    const data = await response.json();
-    const choice = data.choices?.[0];
-    const text: string = choice?.message?.content ?? '';
+    const result = await taskChat({ apiKey, messages, maxTokens: 1000, temperature: .3, disableThinking: true, timeoutMs: 30_000 });
+    const text = result.content;
     const parsed = parse(text);
-    if (parsed.error === 'parse:error' && hasAiGatewayAccess()) {
+    if (parsed.error === 'parse:error' && taskUsesGateway('')) {
       try { return await viaGateway(); } catch { /* preserve the original parse failure; the caller can retry */ }
     }
     return parsed;
-  } catch {
-    if (hasAiGatewayAccess()) {
+  } catch (error) {
+    if (error instanceof Error && ['auth:invalid_key', 'billing:insufficient', 'rate:limited'].includes(error.message)) return { error: error.message };
+    if (taskUsesGateway('')) {
       try {
         return await viaGateway();
       } catch { /* caller will retry using its durable cursor */ }

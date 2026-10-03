@@ -1,5 +1,5 @@
 import { stripRoleplayActions } from './text';
-import { gatewayChat, hasAiGatewayAccess } from './gateway';
+import { taskChat } from './task-client';
 import { normalizeChatResponse } from '../chat-pacing';
 
 const PROACTIVE_INSTRUCTION =
@@ -28,6 +28,7 @@ export interface ProactiveMessageParams {
   kind?: 'morning' | 'night';
   /** 待跟进事项：从记忆里捞到的"TA 最近说过的事/目标"——可以自然地关心进展 */
   followUp?: string;
+  memoryContext?: string;
   /** 角色自己的近期生活线；只允许引用已有记录，不要求模型凭空编造。 */
   lifeHints?: string[];
 }
@@ -73,6 +74,7 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
   if (contextLines.length > 0) {
     systemContent += '\n\n最近的对话记录：\n' + contextLines.join('\n');
   }
+  if (params.memoryContext) systemContent += '\n\n' + params.memoryContext;
   // 待跟进事项：角色记得用户最近说过的事，可自然关心进展（别生硬，别每次重复问同一件）
   if (params.followUp) {
     systemContent +=
@@ -100,53 +102,10 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
     { role: 'user', content: userPrompt },
   ];
 
-  // 网关登录用户也应能收到主动话题。这里仍然只发一次请求，且不把
-  // “正在使用兜底模型”暴露给用户；网关内部按自己的模型策略处理。
-  if (!apiKey.trim() && hasAiGatewayAccess()) {
-    const result = await gatewayChat({
-      apiKey: '',
-      systemPrompt: systemContent,
-      message: userPrompt,
-      history: lastMessages.slice(-6).map((item) => ({
-        role: item.role === 'assistant' ? 'assistant' : 'user',
-        content: item.content.slice(0, 200),
-      })),
-      temperature: 0.9,
-      timeoutMs: 30_000,
-    });
-    return stripRoleplayActions(normalizeChatResponse(result.content)).trim();
-  }
+  const result = await taskChat({
+    apiKey, messages, maxTokens: 300, temperature: 1,
+    disableThinking: true, timeoutMs: 30_000,
+  });
+  return stripRoleplayActions(normalizeChatResponse(result.content)).trim();
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
-
-  try {
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'deepseek-v4-flash',
-        messages,
-        max_tokens: 300,
-        temperature: 1.0,
-      }),
-      signal: controller.signal,
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      const content = typeof data?.choices?.[0]?.message?.content === 'string'
-        ? data.choices[0].message.content
-        : '';
-      return stripRoleplayActions(normalizeChatResponse(content)).trim();
-    }
-
-    console.error('[proactive] API error:', response.status);
-    throw new Error('server:error');
-  } finally {
-    clearTimeout(timeout);
-  }
 }

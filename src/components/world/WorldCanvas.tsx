@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLatestMessageScroll } from '../ui/useLatestMessageScroll';
-import type { WorldAgentState, WorldLocation, WorldObject, WorldPresence, WorldScene, WorldSceneEntry } from '../../db/index';
+import type { WorldAgentState, WorldLocation, WorldPresence, WorldScene, WorldSceneEntry } from '../../db/index';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
@@ -27,7 +27,6 @@ import { worldRepo } from '../../db/world-repo';
 import { worldSceneRepo } from '../../db/world-scene-repo';
 import { worldLocationRepo } from '../../db/world-location-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
-import { worldObjectRepo } from '../../db/world-object-repo';
 import { Avatar } from '../ui/Avatar';
 import {
   canvasPresence,
@@ -111,8 +110,6 @@ export function WorldCanvas() {
   const [entryMemoryMode, setEntryMemoryMode] = useState<'memory' | 'present' | 'amnesiac'>('memory');
   const [exploreOpen, setExploreOpen] = useState(false);
   const [locations, setLocations] = useState<WorldLocation[]>([]);
-  const [objects, setObjects] = useState<WorldObject[]>([]);
-  const [carriedObjects, setCarriedObjects] = useState<WorldObject[]>([]);
   const [worldPresence, setWorldPresence] = useState<WorldPresence[]>([]);
   const [agents, setAgents] = useState<WorldAgentState[]>([]);
 
@@ -231,8 +228,6 @@ export function WorldCanvas() {
   useEffect(() => {
     if (!scene || !userId) {
       setLocations([]);
-      setObjects([]);
-      setCarriedObjects([]);
       setWorldPresence([]);
       setAgents([]);
       return;
@@ -241,29 +236,22 @@ export function WorldCanvas() {
     void (async () => {
       try {
         const location = await worldLocationRepo.ensureFromScene(scene);
-        await worldObjectRepo.ensureForScene({ ...scene, locationId: location.id });
         if (alive && scene.locationId !== location.id) {
           setScene((current) => current?.id === scene.id ? { ...current, locationId: location.id } : current);
         }
-        const [nextLocations, nextObjects, nextCarriedObjects, nextPresence, nextAgents] = await Promise.all([
+        const [nextLocations, nextPresence, nextAgents] = await Promise.all([
           worldLocationRepo.listForWorld(scene.worldId, userId),
-          worldObjectRepo.listForLocation(scene.worldId, location.id, userId),
-          worldObjectRepo.listCarried(scene.worldId, userId),
           worldAgentRepo.listAtLocation(scene.worldId, location.id, userId),
           worldAgentRepo.listStates(scene.worldId, userId),
         ]);
         if (alive) {
           setLocations(nextLocations);
-          setObjects(nextObjects);
-          setCarriedObjects(nextCarriedObjects);
           setWorldPresence(nextPresence);
           setAgents(nextAgents);
         }
       } catch {
         if (alive) {
           setLocations([]);
-          setObjects([]);
-          setCarriedObjects([]);
           setWorldPresence([]);
           setAgents([]);
         }
@@ -309,12 +297,15 @@ export function WorldCanvas() {
   }, []);
 
   const followLatest = useLatestMessageScroll(scrollerRef);
+  const cancelFollowing = useRef<(() => void) | null>(null);
   const latestEntryId = entries.length ? entries[entries.length - 1].id : undefined;
   useEffect(() => {
-    // New rows/stream deltas always follow; prepending older rows does not.
-    stickRef.current = true;
+    // Keep following only while the reader stays at the bottom.
+    if (!stickRef.current) return;
     setUnseen(0);
-    return followLatest();
+    const cancel = followLatest();
+    cancelFollowing.current = cancel;
+    return cancel;
   }, [latestEntryId, partials, followLatest]);
 
   const appendEntry = useCallback((entry: WorldSceneEntry) => {
@@ -356,6 +347,7 @@ export function WorldCanvas() {
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distance < 60;
     stickRef.current = atBottom;
+    if (!atBottom) cancelFollowing.current?.();
     if (atBottom) setUnseen(0);
   };
 
@@ -595,34 +587,6 @@ export function WorldCanvas() {
     return { present };
   }, [scene, characters, worldPresence]);
 
-  const inspectObject = useCallback(async (object: WorldObject) => {
-    if (!userId) return;
-    await worldObjectRepo.applyAction(object.id, userId, 'inspect');
-    setObjects((current) => current.map((item) => item.id === object.id ? { ...item, lastAction: '你查看过这里', updatedAt: Date.now() } : item));
-    setExploreOpen(false);
-    await send(`我仔细查看了“${object.name}”，想知道这里还留下了什么`, 'control');
-  }, [send, userId]);
-
-  const actObject = useCallback(async (object: WorldObject, action: 'take' | 'leave' | 'open') => {
-    if (!userId) return;
-    const updated = await worldObjectRepo.applyAction(object.id, userId, action, action === 'leave' && scene
-      ? { locationId: scene.locationId, sceneId: scene.id }
-      : undefined);
-    if (!updated) return;
-    if (action === 'take') {
-      setObjects((current) => current.filter((item) => item.id !== updated.id));
-      setCarriedObjects((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
-    } else if (action === 'leave') {
-      setCarriedObjects((current) => current.filter((item) => item.id !== updated.id));
-      setObjects((current) => [updated, ...current.filter((item) => item.id !== updated.id)]);
-    } else {
-      setObjects((current) => current.map((item) => item.id === updated.id ? updated : item));
-    }
-    setExploreOpen(false);
-    const actionText = action === 'take' ? '把它带走' : action === 'leave' ? '把它放回这里' : '打开它';
-    await send(`我${actionText}：“${object.name}”`, 'control');
-  }, [scene, send, userId]);
-
   const moveToLocation = useCallback(async (location: WorldLocation) => {
     if (!scene || !userId) return;
     const moved = await moveSceneToLocation({
@@ -670,14 +634,10 @@ export function WorldCanvas() {
         <WorldExplorePanel
           scene={scene}
           locations={locations}
-          objects={objects}
-          carriedObjects={carriedObjects}
           presence={worldPresence}
           agents={agents}
           characters={characters}
           onClose={() => setExploreOpen(false)}
-          onInspect={(object) => void inspectObject(object)}
-          onAct={(object, action) => void actObject(object, action)}
           onMove={(location) => void moveToLocation(location)}
         />
       )}
@@ -786,7 +746,7 @@ export function WorldCanvas() {
             />
             <WorldComposer
               value={text}
-              onFocusInput={() => { stickRef.current = true; setUnseen(0); followLatest(); }}
+              onFocusInput={() => { stickRef.current = true; setUnseen(0); followLatest(true); }}
               onChange={setText}
               onSend={() => void send(text)}
               onOpenControls={() => setSheetOpen(true)}

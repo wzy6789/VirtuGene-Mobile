@@ -1,8 +1,10 @@
 import { create } from 'zustand';
+import { cleanSecretaryPreferences, isSecretaryPersonality, secretaryPersonality, secretaryGreeting, isGeneratedSecretaryGreeting, withSecretaryPersonality } from '../lib/secretary/personality';
 import { db, type Character, type Session, type Message } from '../db/index';
 import { characterRepo } from '../db/character-repo';
 import { sessionRepo } from '../db/session-repo';
 import { messageRepo, MESSAGE_PAGE_SIZE } from '../db/message-repo';
+import { buildCharacterMemoryContext } from '../lib/character-memory';
 import { memoryRepo } from '../db/memory-repo';
 import { stateRepo } from '../db/state-repo';
 import { continuityRepo } from '../db/continuity-repo';
@@ -21,16 +23,16 @@ import { useNotificationStore } from './notification-store';
 import { useDiaryStore } from './diary-store';
 import { assignVoice } from '../lib/ai/voice-assigner';
 import { sanitizeVoiceProfile, completeVoiceProfile, ALL_VOICES, type VoiceProfile } from '../lib/voice-map';
-import { hasAiGatewayAccess } from '../lib/ai/gateway';
+import { canUseAi } from '../lib/ai/availability';
 import { isDouluoPreset, syncDouluoRelations, withDouluoRelations } from '../lib/douluo-relations';
 
 /** 角色声线：创建/首次进入时由 AI 按形象判定并固定（幂等，只执行一次；失败静默不影响聊天） */
 async function assignVoiceIfNeeded(characterId: string, userId: string): Promise<void> {
   try {
-    const apiKey = useAuthStore.getState().apiKey;
-    if (!apiKey) return;
+    const apiKey = useAuthStore.getState().apiKey ?? '';
+    if (!canUseAi()) return;
     const char = await characterRepo.getById(characterId);
-    if (!char || char.voice) return; // 已有声线则跳过（手机端无本地音色，无需补 sid）
+    if (!char || char.voice || char.agentProfile === 'secretary') return; // 助理不使用普通角色的 AI 声线推断。
     const r = await assignVoice({
       apiKey,
       characterId,
@@ -49,20 +51,21 @@ async function assignVoiceIfNeeded(characterId: string, userId: string): Promise
   }
 }
 
-/** 待跟进事项：从记忆里挑一条含"近况/目标"语义的（供角色主动关心进展） */
-const FOLLOW_UP_RE =
-  /(面试|考试|体检|出差|下周|明天|后天|最近|目标|减肥|健身|学习|工作|搬家|报告|论文|答辩|开业|手术|比赛|旅行|开学|答辩)/;
-async function pickFollowUp(characterId: string, userId: string): Promise<string | undefined> {
-  try {
-    const mems = await memoryRepo.getByCharacter(characterId, userId);
-    const hits = mems
-      .filter((memory) => (memory.status ?? 'active') === 'active')
-      .filter((m) => FOLLOW_UP_RE.test(m.content))
-      .sort((a, b) => b.createdAt - a.createdAt);
-    return hits[0]?.content;
-  } catch {
-    return undefined;
-  }
+/** Provide the conversation to the common service; no separate follow-up selection. */
+async function recallProactiveMemory(characterId: string, userId: string, sessionId: string, messages: Message[]): Promise<string> {
+  const recent = messages.filter(message => !message.failed && message.role !== 'system');
+  const memory = await buildCharacterMemoryContext({
+    userId, characterId,
+    mode: 'proactive-chat',
+    topic: [...recent].reverse().find(message => message.role === 'user')?.content,
+    recentConversation: recent.slice(-40).map(message => ({
+      kind: message.role === 'user' ? 'user_input' : 'dialogue', content: message.content,
+    })),
+    excludeSessionId: sessionId,
+    includePrivateCharacterLifeEvents: true,
+    budget: 1600,
+  });
+  return memory.text;
 }
 
 interface CharPreview {
@@ -146,6 +149,7 @@ async function getLastMessage(characterId: string, userId: string): Promise<Char
 }
 
 function proactivityOf(c: Character): number {
+  if (c.agentProfile === 'secretary') return 0;
   return c.proactivity ?? deriveProactivity(c.tags, c.systemPrompt);
 }
 
@@ -316,6 +320,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   addProactiveMessage: async (characterId, content, image) => {
     const userId = useAuthStore.getState().userId ?? '';
+    if ((await characterRepo.getById(characterId))?.agentProfile === 'secretary') return;
     const session = await getOrCreateSession(characterId, userId);
     const msg: Message = {
       id: crypto.randomUUID(),
@@ -367,9 +372,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   /** 每日灵魂互动：早安（08 点）/ 晚安（22 点），选好感度最高的角色发一条问候（每天每类一次，省 token） */
   dailyGreeting: async () => {
     const { characters } = get();
-    const apiKey = useAuthStore.getState().apiKey;
+    const apiKey = useAuthStore.getState().apiKey ?? '';
     const userId = useAuthStore.getState().userId ?? '';
-    if ((!apiKey && !hasAiGatewayAccess()) || characters.length === 0) return;
+    if ((!canUseAi()) || characters.length === 0) return;
 
     const now = new Date();
     const hour = now.getHours();
@@ -385,7 +390,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const states = await stateRepo.getAllByUser(userId);
       const affMap = new Map(states.map((s) => [s.characterId, s.affinity]));
       const candidates = characters
-        .filter((c) => (affMap.get(c.id) ?? 0) >= 10)
+        .filter((c) => c.agentProfile !== 'secretary' && (affMap.get(c.id) ?? 0) >= 10)
         .sort((a, b) => (affMap.get(b.id) ?? 0) - (affMap.get(a.id) ?? 0));
       if (candidates.length === 0) return;
 
@@ -405,8 +410,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         mood: state.mood,
         lastMessageAt,
         kind,
-        // 周期性关心：挑一条"TA 最近说过的事"让角色自然过问进展（若记忆里有）
-        followUp: await pickFollowUp(target.id, userId),
+        // 自己的经历继续由统一记忆入口提供，不预选一个问题反复追问。
+        memoryContext: await recallProactiveMemory(target.id, userId, session.id, msgs),
       });
       if (content) {
         await get().addProactiveMessage(target.id, content);
@@ -444,9 +449,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   triggerProactive: async () => {
     const { characters } = get();
-    const apiKey = useAuthStore.getState().apiKey;
+    const apiKey = useAuthStore.getState().apiKey ?? '';
     const userId = useAuthStore.getState().userId ?? '';
-    if ((!apiKey && !hasAiGatewayAccess()) || characters.length === 0) return;
+    if ((!canUseAi()) || characters.length === 0) return;
 
     // 只有主动倾向足够强的角色才会主动发消息（冰冷角色不会）
     const eligible = characters.filter((c) => proactivityOf(c) >= 0.15);
@@ -504,7 +509,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         affinity: state.affinity,
         mood: state.mood,
         lastMessageAt,
-        followUp: await pickFollowUp(targetChar.id, userId),
+        memoryContext: await recallProactiveMemory(targetChar.id, userId, session.id, msgs),
         lifeHints: [
           state.lifeFocus,
           ...(state.lifeEvents ?? []).slice(0, 3).map((event) => `${event.title}${event.detail ? `：${event.detail}` : ''}`),
@@ -535,6 +540,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   createCharacter: async (data) => {
     const now = Date.now();
     const userId = useAuthStore.getState().userId ?? '';
+    if (data.agentProfile === 'secretary') {
+      const { createSecretary, openSecretary } = await import('../lib/secretary/character');
+      const assistant = await createSecretary(userId, data.name, { personality: data.secretaryPersonality, appearance: data.secretaryAppearance, preferences: data.secretaryPreferences });
+      await openSecretary(assistant);
+      return assistant;
+    }
     const character: Character = {
       ...data,
       systemPrompt: data.sourcePresetId ? withDouluoRelations(data.systemPrompt, data.sourcePresetId) : data.systemPrompt,
@@ -555,23 +566,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   updateCharacter: async (id, updates) => {
     const userId = useAuthStore.getState().userId ?? '';
-    const char = await characterRepo.getById(id);
-    if (!char || char.isPreset || char.createdBy !== userId) return;
-    const nextUpdates: Partial<Character> = { ...updates };
-    if (updates.systemPrompt !== undefined || updates.tags !== undefined) {
-      nextUpdates.proactivity = deriveProactivity(
-        updates.tags ?? char.tags,
-        updates.systemPrompt ?? char.systemPrompt,
-      );
-    }
-    await characterRepo.update(id, nextUpdates);
-    await get().loadCharacters();
+    if (!userId) return;
+    const changed = await db.transaction('rw', db.characters, db.secretaryBindings, async () => {
+      if (useAuthStore.getState().userId !== userId) throw new Error('账号已切换，设置未保存。');
+      const char = await characterRepo.getById(id);
+      if (!char || char.isPreset || char.createdBy !== userId) return false;
+      const nextUpdates: Partial<Character> = { ...updates };
+      if (char.agentProfile === 'secretary') {
+        nextUpdates.proactivity = 0;
+        if (updates.secretaryPersonality != null && !isSecretaryPersonality(updates.secretaryPersonality)) throw new Error('请选择列表中的秘书性格。');
+        const personality = (await db.secretaryBindings.get(userId))?.personality ?? secretaryPersonality(char.secretaryPersonality);
+        if (updates.secretaryPersonality !== undefined && updates.secretaryPersonality !== personality) throw new Error('更换性格请先解雇，再聘用新的助理。');
+        const preferences = cleanSecretaryPreferences(updates.secretaryPreferences ?? char.secretaryPreferences);
+        nextUpdates.secretaryPersonality = personality;
+        nextUpdates.secretaryPreferences = preferences;
+        nextUpdates.systemPrompt = withSecretaryPersonality(updates.systemPrompt ?? char.systemPrompt, personality, preferences);
+        if ((updates.name || updates.secretaryPersonality) && (updates.greeting === undefined || updates.greeting === char.greeting) && isGeneratedSecretaryGreeting(char)) {
+          nextUpdates.greeting = secretaryGreeting(updates.name ?? char.name, personality);
+        }
+      }
+      else if (updates.systemPrompt !== undefined || updates.tags !== undefined) {
+        nextUpdates.proactivity = deriveProactivity(
+          updates.tags ?? char.tags,
+          updates.systemPrompt ?? char.systemPrompt,
+        );
+      }
+      await characterRepo.update(id, nextUpdates);
+      if (useAuthStore.getState().userId !== userId) throw new Error('账号已切换，设置未保存。');
+      return true;
+    });
+    if (changed) await get().loadCharacters();
   },
 
   deleteCharacter: async (id) => {
     const userId = useAuthStore.getState().userId ?? '';
     const char = await characterRepo.getById(id);
     if (!char || char.isPreset || char.createdBy !== userId) return;
+    if (char.agentProfile === 'secretary') throw new Error('请从助理管理办理解雇，聊天和办事记录会保留。');
     await get().deleteCharacterWithSessions(id);
   },
 
@@ -640,6 +671,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   deleteCharacterWithSessions: async (id) => {
+    await db.secretaryTasks.where('characterId').equals(id).filter(task => task.userId === useAuthStore.getState().userId).delete();
     const userId = useAuthStore.getState().userId ?? '';
     const sessions = await sessionRepo.getByCharacter(id, userId);
     const sessionIds = sessions.map((s) => s.id);
@@ -679,6 +711,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   deleteAccount: async () => {
     const userId = useAuthStore.getState().userId ?? '';
+    await db.secretaryBindings.delete(userId);
+    await db.secretaryTasks.where('userId').equals(userId).delete();
 
     // Delete this user's sessions along with their messages + emotion snapshots
     const sessions = await db.sessions.where('userId').equals(userId).toArray();

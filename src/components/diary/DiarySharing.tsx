@@ -1,3 +1,4 @@
+import { avatarImageSrc } from '../../lib/avatar';
 import { useEffect, useMemo, useState } from 'react';
 import { db, type Diary } from '../../db/index';
 import { useAuthStore } from '../../store/auth-store';
@@ -31,7 +32,7 @@ export function DiarySharingControl({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const mine = useMemo(() => characters.filter((c) => c.createdBy === userId), [characters, userId]);
+  const mine = useMemo(() => characters.filter((c) => c.createdBy === userId && c.agentProfile !== 'secretary'), [characters, userId]);
   const nameOf = (id: string) => characters.find((c) => c.id === id)?.name ?? 'TA';
   const label = describeSharing(diary, nameOf);
 
@@ -101,7 +102,7 @@ export function DiarySharingControl({
                   onClick={() => void apply('selected', [c.id])}
                   className="w-full flex items-center gap-2 px-4 py-2 text-left text-sm text-sub hover:bg-surface transition-colors disabled:opacity-50"
                 >
-                  <span className="shrink-0">{c.avatar.startsWith('data:') ? '🙂' : c.avatar}</span>
+                  <span className="shrink-0">{avatarImageSrc(c.avatar) ? '🙂' : c.avatar}</span>
                   <span className="min-w-0 flex-1 truncate">{c.name}</span>
                   {active && <span className="shrink-0 text-[10px] text-life-cyan">已授权</span>}
                 </button>
@@ -176,8 +177,8 @@ export function DiarySharingOverviewModal({ open, onClose }: { open: boolean; on
   const nameOf = (id: string) => characters.find((c) => c.id === id)?.name ?? 'TA';
 
   return (
-    <Modal open={open} onClose={onClose} title="谁能看到我的日记" width="max-w-md">
-      <div className="space-y-3 p-5">
+    <Modal panelClassName="vg-settings-panel" open={open} onClose={onClose} title="谁能看到我的日记" width="max-w-md">
+      <div className="vg-settings-design space-y-3">
         <p className="text-[11px] leading-relaxed text-gray-500">
           日记**默认只有你自己知道**。只有你在这里逐条授权过的内容，才可能被对应角色知道或提起；
           收回授权后立刻失效。

@@ -1,3 +1,4 @@
+import { useAiAvailability } from '../settings/useAiAvailability';
 import { useEffect, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { FilterSelect } from '../ui/FilterSelect';
@@ -21,7 +22,8 @@ export function AutoGenModal({ open, onClose }: Props) {
   const getOrCreateForDate = useDiaryStore((s) => s.getOrCreateForDate);
   const updateDiary = useDiaryStore((s) => s.updateDiary);
   const characters = useChatStore((s) => s.characters);
-  const apiKey = useAuthStore((s) => s.apiKey);
+  const apiKey = useAuthStore((s) => s.apiKey) ?? '';
+  const hasAiAccess = useAiAvailability();
 
   const [characterId, setCharacterId] = useState('');
   const [loading, setLoading] = useState(false);
@@ -43,8 +45,8 @@ export function AutoGenModal({ open, onClose }: Props) {
   };
 
   const generate = async () => {
-    if (!apiKey) {
-      setError('未检测到 API Key，无法生成');
+    if (!hasAiAccess) {
+      setError('请先在设置的 AI 连接中配置当前模型');
       return;
     }
     if (!characterId) {
@@ -148,7 +150,7 @@ export function AutoGenModal({ open, onClose }: Props) {
         {!draft && !loading && (
           <button
             onClick={() => void generate()}
-            disabled={!characterId || !apiKey}
+            disabled={!characterId || !hasAiAccess}
             className="w-full py-2.5 rounded-xl bg-gene-purple hover:bg-[#5B4BD4] disabled:opacity-40 text-sm font-medium text-white transition-colors"
           >
             ✨ 基于「{selectedChar?.name ?? '所选角色'}」的对话生成日记

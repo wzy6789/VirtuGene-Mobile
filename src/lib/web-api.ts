@@ -59,6 +59,7 @@ export const webApi: VirtuGeneAPI = {
           degraded: r.degraded,
           usage: r.usage,
           modelId: r.modelId,
+          interrupted: r.interrupted,
         };
       } catch (err) {
         return { error: toError(err) };

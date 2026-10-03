@@ -2,6 +2,11 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 interface SettingsState {
+  /** Reduce motion throughout the interface; the system preference also applies. */
+  reduceMotion: boolean;
+  setReduceMotion: (enabled: boolean) => void;
+  chatFontSize: number;
+  setChatFontSize: (size: number) => void;
   /** 日记 AI 辅助（润色/续写/提炼对话）总开关 */
   diaryAiEnabled: boolean;
   setDiaryAiEnabled: (enabled: boolean) => void;
@@ -43,7 +48,14 @@ interface SettingsState {
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
+      reduceMotion: false,
+      setReduceMotion: (reduceMotion) => set({ reduceMotion }),
+      chatFontSize: 14,
+      setChatFontSize: (size) => {
+        const chatFontSize = Number.isFinite(size) ? Math.max(12, Math.min(22, Math.round(size))) : 14;
+        if (get().chatFontSize !== chatFontSize) set({ chatFontSize });
+      },
       diaryAiEnabled: true,
       setDiaryAiEnabled: (diaryAiEnabled) => set({ diaryAiEnabled }),
       diaryPin: null,

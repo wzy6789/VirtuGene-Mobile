@@ -1,3 +1,5 @@
+import { avatarImageSrc } from '../../lib/avatar';
+import { TagInput, PERSONALITY_TAGS } from '../ui/PhysicalInteractions';
 import { useEffect, useState, useRef } from 'react';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
@@ -5,11 +7,13 @@ import { EmojiPicker } from '../ui/EmojiPicker';
 import { ipc } from '../../lib/ipc-client';
 import { stateRepo } from '../../db/state-repo';
 import type { Character } from '../../db/index';
-import { getProviderKey, llmChat, resolveModel } from '../../lib/ai/llm';
+import { taskChat } from '../../lib/ai/task-client';
 import { ChatStyleImport } from './ChatStyleImport';
 import { stylePrompt, stripLearnedStyle, type ChatStyleProfile } from '../../lib/chat-style-import';
 import { memoryRepo } from '../../db/memory-repo';
 import { db } from '../../db/index';
+import { SecretaryPersonalitySelector } from '../secretary/SecretaryPersonalitySelector';
+import { secretaryPersonality, stripSecretaryPersonality, withSecretaryPersonality, type SecretaryPersonality } from '../../lib/secretary/personality';
 
 interface CreateGeneTabProps {
   editCharacter?: Character;
@@ -52,6 +56,9 @@ const RELATIONSHIP_PRESETS = [
 
 export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const isEdit = !!editCharacter;
+  const isSecretary = editCharacter?.agentProfile === 'secretary';
+  const [personality, setPersonality] = useState<SecretaryPersonality>(() => secretaryPersonality(editCharacter?.secretaryPersonality));
+  const [secretaryPreferences, setSecretaryPreferences] = useState(editCharacter?.secretaryPreferences ?? '');
   const apiKey = useAuthStore((s) => s.apiKey);
   const userId = useAuthStore((s) => s.userId) ?? '';
   const existingCharacters = useChatStore((s) => s.characters);
@@ -61,7 +68,8 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const [name, setName] = useState(editCharacter?.name ?? '');
   const [avatar, setAvatar] = useState(editCharacter?.avatar ?? '🧬');
   const [systemPrompt, setSystemPrompt] = useState(() => {
-    const original = stripLearnedStyle(editCharacter?.systemPrompt ?? '');
+    const raw = stripLearnedStyle(editCharacter?.systemPrompt ?? '');
+    const original = isSecretary ? stripSecretaryPersonality(raw) : raw;
     const oldBoundary = editCharacter?.boundaries?.trim();
     const suffix = oldBoundary ? `[互动边界]\n${oldBoundary}` : '';
     return suffix && original.trimEnd().endsWith(suffix) ? original.trimEnd().slice(0, -suffix.length).trimEnd() : original;
@@ -75,7 +83,6 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const [greeting, setGreeting] = useState(editCharacter?.greeting ?? '');
   const [catchphrase, setCatchphrase] = useState(editCharacter?.catchphrase ?? '');
   const [boundaries, setBoundaries] = useState(editCharacter?.boundaries ?? '');
-  const [tagInput, setTagInput] = useState('');
   const [enableWebSearch, setEnableWebSearch] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [published, setPublished] = useState(editCharacter?.published ?? false);
@@ -170,21 +177,21 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     alreadyKnow ? '出场时你与用户已认识，按既有关系自然交流。' : '出场时是初次相识，不编造共同经历。',
     alreadyKnow && sharedPast.trim() && `用户为你们设定的过去（角色背景，不是聊天记录）：${sharedPast.trim()}`,
   ].filter(Boolean).join('\n');
-  const composedPrompt = () => [systemPrompt.trim(), boundaries.trim() && `[互动边界]\n${boundaries.trim()}`,
-    !isEdit && `[与你的关系]\n${relationContext}`, stylePrompt(learnedStyle)].filter(Boolean).join('\n\n');
+  const composedPrompt = () => {
+    const prompt = [systemPrompt.trim(), boundaries.trim() && `[互动边界]\n${boundaries.trim()}`,
+      !isEdit && `[与你的关系]\n${relationContext}`, stylePrompt(learnedStyle)].filter(Boolean).join('\n\n');
+    return isSecretary ? withSecretaryPersonality(prompt, personality, secretaryPreferences) : prompt;
+  };
   useEffect(() => { draftEpoch.current++; setPreviewReply(''); setPreviewError(''); },
-    [systemPrompt, boundaries, userIdentity, userRelationship, alreadyKnow, sharedPast, name, fields, description, learnedStyle, importedMemories]);
+    [systemPrompt, boundaries, userIdentity, userRelationship, alreadyKnow, sharedPast, name, fields, description, learnedStyle, importedMemories, personality, secretaryPreferences]);
   useEffect(() => () => { draftEpoch.current++; }, []);
   const tryConversation = async () => {
     if (!canSave || !previewInput.trim() || previewLock.current) return;
     previewLock.current = true; setPreviewBusy(true); setPreviewError('');
     const epoch = draftEpoch.current;
     try {
-      const model = resolveModel();
-      const key = await getProviderKey(model.provider);
-      if (!key) throw new Error('请先在设置中配置可用的 API Key。');
       // Preview uses the draft alone; it never imports another character's memory.
-      const result = await llmChat({ provider: model.provider, model: model.id, apiKey: key, disableThinking: true,
+      const result = await taskChat({ apiKey: apiKey ?? '', disableThinking: true,
         maxTokens: 240, messages: [{ role: 'system', content: `${composedPrompt()}\n${importedMemories.length ? '[用户确认的共同记忆]\n' + importedMemories.join('\n') : ''}\n像微信私聊一样自然回应，保持人物性格，不写说明和长篇旁白。` },
           { role: 'user', content: previewInput.trim() }] });
       if (!result.content?.trim()) throw new Error('暂时没能试聊成功，可以重试或直接创建。');
@@ -346,14 +353,6 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
     setCandidates(null);
   };
 
-  const addTag = () => {
-    const t = tagInput.trim();
-    if (!t) return;
-    setTagInput('');
-    if (!tags.includes(t)) setTags([...tags, t]);
-  };
-
-  const removeTag = (t: string) => setTags(tags.filter((x) => x !== t));
 
   const handleSave = async () => {
     if (!canSave || saveLock.current) return;
@@ -371,6 +370,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
 
     if (isEdit) {
       await updateCharacter(editCharacter.id, {
+        ...(isSecretary ? { secretaryPersonality: personality, secretaryPreferences } : {}),
         name: name.trim(),
         avatar,
         systemPrompt: finalSystemPrompt,
@@ -492,8 +492,8 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
                   : 'border-line-strong bg-surface hover:bg-surface-strong'
               }`}
             >
-              {avatar.startsWith('data:') ? (
-                <img src={avatar} alt="avatar" className="w-full h-full object-cover" />
+              {avatarImageSrc(avatar) ? (
+                <img src={avatarImageSrc(avatar)} alt="avatar" className="w-full h-full object-cover" />
               ) : (
                 avatar
               )}
@@ -515,7 +515,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
             onClick={() => imageInputRef.current?.click()}
             className="px-3 py-1.5 rounded-lg bg-surface border border-line-strong text-xs text-sub hover:bg-surface-strong transition-colors"
           >
-            {avatar.startsWith('data:') ? '更换图片' : '上传图片'}
+            {avatarImageSrc(avatar) ? '更换图片' : '上传图片'}
           </button>
         </div>
       </div>
@@ -525,6 +525,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
       </label>}
       </div>
       <div className="space-y-5" hidden={!isEdit && step !== 1}>
+      {isSecretary && <SecretaryPersonalitySelector value={personality} preferences={secretaryPreferences} onChange={setPersonality} onPreferencesChange={setSecretaryPreferences} disabled={isSaving} personalityLocked />}
       {!isEdit && <section className="space-y-4">
         <label className="block text-sm text-sub">你的身份（可选）
           <input value={userIdentity} onChange={e => setUserIdentity(e.target.value)} placeholder="例如：我自己、同班同学、一位旅人"
@@ -573,7 +574,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
                   }}
                   className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition-colors ${selected ? 'border-life-cyan/50 bg-life-cyan/12 text-life-cyan' : 'border-line bg-panel text-gray-500 hover:border-life-cyan/30'}`}
                 >
-                  <span className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-full bg-surface text-xs">{character.avatar.startsWith('data:') ? <img src={character.avatar} alt="" className="h-full w-full object-cover" /> : character.avatar}</span>
+                  <span className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-full bg-surface text-xs">{avatarImageSrc(character.avatar) ? <img src={avatarImageSrc(character.avatar)} alt="" className="h-full w-full object-cover" /> : character.avatar}</span>
                   {character.name}
                 </button>
               );
@@ -589,7 +590,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
               const meta = relationshipMeta[targetId] ?? { label: '故事关联', description: '' };
               return (
                 <div key={targetId} className="rounded-xl border border-line bg-panel/75 p-2.5">
-                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-ink"><span className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-lg bg-surface text-xs">{target.avatar.startsWith('data:') ? <img src={target.avatar} alt="" className="h-full w-full object-cover" /> : target.avatar}</span>{target.name}</div>
+                  <div className="mb-2 flex items-center gap-2 text-xs font-medium text-ink"><span className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-lg bg-surface text-xs">{avatarImageSrc(target.avatar) ? <img src={avatarImageSrc(target.avatar)} alt="" className="h-full w-full object-cover" /> : target.avatar}</span>{target.name}</div>
                   <div className="mb-2 flex flex-wrap gap-1.5">
                     {RELATIONSHIP_PRESETS.map((preset) => (
                       <button
@@ -904,34 +905,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
           {/* Tags */}
           <div>
             <label className="block text-sm text-gray-400 mb-1.5">性格标签</label>
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {tags.map((t) => (
-                <span
-                  key={t}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-gene-purple/10 text-gene-purple text-xs"
-                >
-                  {t}
-                  <button type="button" onClick={() => removeTag(t)} className="text-gene-purple/70 hover:text-gene-purple">×</button>
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={tagInput}
-                onChange={(e) => setTagInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
-                placeholder="添加标签，回车确认"
-                className="flex-1 px-3 py-2 bg-surface border border-line-strong rounded-lg text-sm text-ink placeholder-gray-500 focus:outline-none focus:border-gene-purple/50 transition-colors"
-              />
-              <button
-                type="button"
-                onClick={addTag}
-                className="px-3 py-2 rounded-lg bg-surface border border-line-strong text-xs text-sub hover:bg-surface-strong transition-colors"
-              >
-                添加
-              </button>
-            </div>
+            <TagInput value={tags} onChange={setTags} suggestions={PERSONALITY_TAGS} label="性格标签" placeholder="输入性格，回车添加" />
           </div>
 
           {/* Signature & greeting — edit mode only */}

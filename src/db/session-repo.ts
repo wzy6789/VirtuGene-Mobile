@@ -85,7 +85,8 @@ export const sessionRepo = {
   },
 
   async deleteById(id: string): Promise<void> {
-    await db.transaction('rw', [db.sessions, db.messages, db.memories, db.memorySourceTombstones, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.memoryJobs], async () => {
+    await db.transaction('rw', [db.sessions, db.messages, db.memories, db.memorySourceTombstones, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.memoryJobs, db.secretaryTasks], async () => {
+      await db.secretaryTasks.where('sessionId').equals(id).delete();
       const session = await db.sessions.get(id);
       const messages = await db.messages.where('sessionId').equals(id).toArray();
       if (session) {

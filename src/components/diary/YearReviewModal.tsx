@@ -1,3 +1,4 @@
+import { useAiAvailability } from '../settings/useAiAvailability';
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { FilterSelect } from '../ui/FilterSelect';
@@ -24,7 +25,8 @@ function summarizeYear(diaries: { date: string; content: string; mood: number; t
 
 /** 「年度灵魂回顾」：选年份 → 年度统计 + AI 串成一篇回顾，可复制或存为今天的日记 */
 export function YearReviewModal({ open, onClose }: Props) {
-  const apiKey = useAuthStore((s) => s.apiKey);
+  const apiKey = useAuthStore((s) => s.apiKey) ?? '';
+  const hasAiAccess = useAiAvailability();
   const diaries = useDiaryStore((s) => s.diaries);
   const getOrCreateForDate = useDiaryStore((s) => s.getOrCreateForDate);
   const updateDiary = useDiaryStore((s) => s.updateDiary);
@@ -44,7 +46,7 @@ export function YearReviewModal({ open, onClose }: Props) {
 
   const run = async (targetYear?: string) => {
     const y = targetYear ?? year;
-    if (!apiKey) { setError('未检测到 API Key，无法生成'); return; }
+    if (!hasAiAccess) { setError('请先在设置的 AI 连接中配置当前模型'); return; }
     if (!y) { setError('请先选择年份'); return; }
     setLoading(true);
     setError(null);

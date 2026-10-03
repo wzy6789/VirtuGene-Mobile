@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import { runWorldMigration } from '../lib/world/migrate-4x';
 import type { ChatConversationState } from '../lib/chat-conversation-state';
+import { secretaryLook } from '../lib/secretary/appearance';
 
 export interface User {
   id: string;
@@ -21,6 +22,15 @@ export interface Character {
   name: string;
   avatar: string;
   systemPrompt: string;
+  /** Explicit capability; persona text never grants application write access. */
+  agentProfile?: 'secretary';
+  secretaryPersonality?: import('../lib/secretary/personality').SecretaryPersonality;
+  secretaryAppearance?: import('../lib/secretary/appearance').SecretaryAppearance;
+  secretaryPreferences?: string;
+  /** Unique indexed owner for the account's one assistant. */
+  secretaryOwnerId?: string;
+  secretaryEmploymentId?: string;
+  secretaryStatus?: 'active' | 'dismissed';
   tags: string[];
   isPreset: boolean;
   isCustom: boolean;
@@ -337,6 +347,8 @@ export interface WorldSceneState {
    * 不伪造任何历史事件，也不产生额外 AI 调用。
    */
   timeOffsetMs?: number;
+  /** Frozen scene anchor; real elapsed time does not advance user-authored time. */
+  timeAnchorMs?: number;
   /** 最近一次世界状态变化的人话说明（仅内部/调试，UI 默认不展示数字） */
   lastWorldChange?: string;
   /** 新加入角色默认携带的上下文范围；单个参与者可覆盖。 */
@@ -610,6 +622,7 @@ export interface WorldTurnSnapshot {
   timeLabel: string;
   mood: string;
   timeOffsetMs: number;
+  timeAnchorMs?: number;
   characterIds: string[];
 }
 
@@ -774,6 +787,13 @@ export interface Group {
 }
 
 export interface Message {
+  /** A partially received reply remains readable and is never silently regenerated. */
+  interrupted?: boolean;
+  stopped?: boolean;
+  /** Keep text visible when a streamed reply subsequently gains synthesized audio. */
+  showAudioTranscript?: boolean;
+  /** Persistent result cards in the owner's private secretary chat. */
+  secretaryTaskId?: string;
   /** 群消息产生时的听众快照；旧消息无快照时不推断谁听过。 */
   witnessedBy?: string[];
   id: string;
@@ -1229,13 +1249,46 @@ export interface TodoReminder {
   occurrenceId: string;
   notificationId: number;
   remindAt: number;
-  status: 'scheduled' | 'fired' | 'cancelled' | 'failed';
+  status: 'queued' | 'needs-permission' | 'unsupported' | 'scheduled' | 'fired' | 'expired' | 'cancel-pending' | 'cancelled' | 'failed';
+  todoVersion?: number;
+  occurrenceVersion?: number;
   error?: string;
   createdAt: number;
   updatedAt: number;
 }
 
+export interface SecretaryBinding {
+  /** Local active clarification. Imported bindings never reactivate it automatically. */
+  pendingFocusTaskId?: string;
+  /** Which chat receipt currently hosts the controls for this focus. Never imported as execution authority. */
+  pendingFocusDisplayTaskId?: string;
+  workspaceFocusTaskId?: string;
+  suggestionDismissals?: { key: string; until?: number }[];
+  suggestionShown?: { key: string; day: string; at: number };
+  reviewPreferences?: { includeTodos: boolean; outputs: import('../lib/secretary/types').DailyReviewOutput[] };
+  userId: string;
+  characterId: string;
+  personality: import('../lib/secretary/personality').SecretaryPersonality;
+  selectedAt: number;
+  employmentId?: string;
+  status?: 'active' | 'dismissed';
+  revision?: number;
+  updatedAt?: number;
+  name?: string;
+  preferences?: string;
+  /** Account-level working habits survive dismissing and hiring assistants. */
+  workPreferences?: import('../lib/secretary/work-preferences').SecretaryWorkPreferences;
+  workPreferencesUpdatedAt?: number;
+  appearance?: import('../lib/secretary/appearance').SecretaryAppearance;
+  avatar?: string;
+  employments?: { id: string; name: string; personality: import('../lib/secretary/personality').SecretaryPersonality; appearance?: import('../lib/secretary/appearance').SecretaryAppearance; hiredAt: number; dismissedAt?: number }[];
+}
+
 export class VirtuGeneDB extends Dexie {
+  secretarySearch!: Table<import('../lib/secretary/retrieval').SecretarySearchEntry, string>;
+  secretarySearchCursors!: Table<import('../lib/secretary/retrieval').SecretarySearchCursor, string>;
+  secretaryBindings!: Table<SecretaryBinding, string>;
+  secretaryTasks!: Table<import('../lib/secretary/types').SecretaryTask, string>;
   users!: Table<User, string>;
   characters!: Table<Character, string>;
   sessions!: Table<Session, string>;
@@ -1650,6 +1703,68 @@ export class VirtuGeneDB extends Dexie {
           ...(priorKnowledge?.revokedAt ? { revokedAt: priorKnowledge.revokedAt } : {}),
         } satisfies MemoryKnowledge);
       }
+    });
+    // Additive migration: established life records stay intact.
+    this.version(26).stores({
+      secretaryTasks: 'id,userId,characterId,sessionId,messageId,[userId+sessionId],status,updatedAt',
+    });
+    this.version(27).stores({
+      characters: 'id,isPreset,published,createdBy,&secretaryOwnerId',
+      secretaryBindings: 'userId,characterId',
+    }).upgrade(async tx => {
+      const characters = tx.table<Character>('characters');
+      const assistants = (await characters.toArray()).filter(c => c.agentProfile === 'secretary' && !c.isPreset)
+        .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+      const owners = new Set<string>();
+      const personalities = ['professional', 'balanced', 'gentle', 'energetic', 'playful'];
+      for (const c of assistants) {
+        if (!c.createdBy || owners.has(c.createdBy)) {
+          // Retain the character and its conversations; only the extra tool capability is removed.
+          await characters.update(c.id, { agentProfile: undefined, secretaryOwnerId: undefined });
+          continue;
+        }
+        owners.add(c.createdBy);
+        const personality = personalities.includes(c.secretaryPersonality ?? '') ? c.secretaryPersonality! : 'gentle';
+        await characters.update(c.id, { secretaryOwnerId: c.createdBy, secretaryPersonality: personality, proactivity: 0 });
+        await tx.table('secretaryBindings').put({ userId: c.createdBy, characterId: c.id, personality, selectedAt: c.createdAt });
+      }
+    });
+    this.version(28).stores({ secretaryBindings: 'userId,characterId' }).upgrade(async tx => {
+      const bindings = await tx.table<SecretaryBinding>('secretaryBindings').toArray();
+      for (const binding of bindings) {
+        const character = await tx.table<Character>('characters').get(binding.characterId);
+        const employmentId = `legacy:${binding.characterId}`;
+        await tx.table('secretaryBindings').put({ ...binding, employmentId, status: 'active', revision: 1,
+          updatedAt: binding.selectedAt, name: character?.name, preferences: character?.secretaryPreferences,
+          employments: [{ id: employmentId, name: character?.name ?? '历史助理', personality: binding.personality, hiredAt: binding.selectedAt }] });
+        if (character) await tx.table('characters').update(character.id, { secretaryEmploymentId: employmentId, secretaryStatus: 'active' });
+        await tx.table('secretaryTasks').where('characterId').equals(binding.characterId).modify({ employmentId });
+      }
+    });
+    this.version(29).stores({ secretaryBindings: 'userId,characterId' }).upgrade(async tx => {
+      const bindings = await tx.table<SecretaryBinding>('secretaryBindings').toArray();
+      for (const binding of bindings) {
+        const character = await tx.table<Character>('characters').get(binding.characterId);
+        const look = secretaryLook(binding.personality, binding.appearance ?? character?.secretaryAppearance, binding.avatar ?? character?.avatar);
+        await tx.table('secretaryBindings').put({ ...binding, ...look,
+          employments: binding.employments?.map(item => item.id === binding.employmentId ? { ...item, appearance: look.appearance } : item) });
+        if (character) await tx.table('characters').update(character.id, { avatar: look.avatar, secretaryAppearance: look.appearance });
+      }
+    });
+    this.version(30).stores({
+      messages: 'id,sessionId,[sessionId+createdAt],[sessionId+createdAt+id]',
+      sessions: 'id,characterId,userId,[characterId+userId],updatedAt,groupId,[characterId+userId+createdAt+id]',
+      secretaryTasks: 'id,userId,characterId,sessionId,messageId,[userId+sessionId],status,updatedAt,[userId+sessionId+createdAt],[userId+characterId+createdAt]',
+      secretarySearch: 'id,userId,characterId,sourceId,*keys',
+      secretarySearchCursors: 'id',
+    });
+    // Keep the unique key correct even for direct writes outside the character repository.
+    this.characters.hook('creating', (_key, row) => {
+      row.secretaryOwnerId = row.agentProfile === 'secretary' && !row.isPreset ? row.createdBy : undefined;
+    });
+    this.characters.hook('updating', (changes, _key, row) => {
+      const next = { ...row, ...changes };
+      return { secretaryOwnerId: next.agentProfile === 'secretary' && !next.isPreset ? next.createdBy : undefined };
     });
   }
 }

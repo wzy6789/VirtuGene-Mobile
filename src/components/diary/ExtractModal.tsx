@@ -1,3 +1,4 @@
+import { useAiAvailability } from '../settings/useAiAvailability';
 import { useEffect, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { generateTodayDiary } from '../../lib/diary-auto';
@@ -26,7 +27,8 @@ interface Props {
  * 生成时同时给出内容相关标签建议，可勾选后随日记保存。
  */
 export function ExtractModal({ open, onClose, characterId, characterName, diaryContent, appendOnly, onInsert }: Props) {
-  const apiKey = useAuthStore((s) => s.apiKey);
+  const apiKey = useAuthStore((s) => s.apiKey) ?? '';
+  const hasAiAccess = useAiAvailability();
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -40,8 +42,8 @@ export function ExtractModal({ open, onClose, characterId, characterName, diaryC
   };
 
   const run = async () => {
-    if (!apiKey) {
-      setError('未检测到 API Key，无法生成');
+    if (!hasAiAccess) {
+      setError('请先在设置的 AI 连接中配置当前模型');
       return;
     }
     setLoading(true);

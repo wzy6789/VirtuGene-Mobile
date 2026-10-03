@@ -1,5 +1,5 @@
 import { db, type Todo, type TodoOccurrence, type TodoRecurrence, type TodoReminder } from './index';
-import { cancelTodoNotification, scheduleTodoNotification, todoNotificationId } from '../lib/notify';
+import { cancelReminderRows, reconcileTodoReminders } from '../lib/todo-reminders';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 export type TodoWithOccurrence = { todo: Todo; occurrence: TodoOccurrence };
@@ -160,8 +160,7 @@ export const todoRepo = {
     if (!todo) return;
     await this.update(userId, id, { status: 'deleted', deletedAt: Date.now() });
     const reminders = await db.todoReminders.where('todoId').equals(id).filter((item) => item.userId === userId).toArray();
-    await Promise.all(reminders.filter((item) => item.notificationId > 0).map((item) => cancelTodoNotification(item.notificationId)));
-    await db.todoReminders.where('todoId').equals(id).filter((item) => item.userId === userId).modify({ status: 'cancelled', updatedAt: Date.now() });
+    await cancelReminderRows(userId, reminders);
   },
   async visibleForCharacter(userId: string, characterId: string, limit = 5, includeUnplanned = false): Promise<Todo[]> {
     return (await this.visibleOccurrencesForCharacter(userId, characterId, limit, includeUnplanned)).map(({ todo }) => todo);
@@ -206,18 +205,6 @@ export const todoRepo = {
   async rebuildReminders(userId: string): Promise<void> {
     const from = localDateKey();
     const rows = await this.list(userId, from, addLocalDays(from, 60), false);
-    for (const { todo, occurrence } of rows) {
-      if (!todo.dueTime || !todo.reminderMinutes?.length || occurrence.status !== 'todo') continue;
-      const dueAt = new Date(`${occurrence.dueDate}T${todo.dueTime}:00`).getTime();
-      for (const minutes of todo.reminderMinutes.slice(0, 3)) {
-        const remindAt = dueAt - minutes * 60000;
-        if (remindAt <= Date.now()) continue;
-        const notificationId = todoNotificationId(todo.id, occurrence.id, remindAt);
-        const existing = await db.todoReminders.where('notificationId').equals(notificationId).first();
-        if (existing?.status === 'scheduled') continue;
-        const scheduled = await scheduleTodoNotification(todo, occurrence, remindAt);
-        await db.todoReminders.put({ id: `todo-reminder:${todo.id}:${occurrence.id}:${remindAt}`, userId, todoId: todo.id, occurrenceId: occurrence.id, notificationId: scheduled.id, remindAt, status: scheduled.ok ? 'scheduled' : 'failed', createdAt: Date.now(), updatedAt: Date.now() });
-      }
-    }
+    await reconcileTodoReminders(userId, rows);
   },
 };

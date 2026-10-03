@@ -7,9 +7,11 @@
  * - 灵感建议      ↔ 用户自己输入
  * 每一句自然语言都能做到面板里的事，面板只是让用户少打字。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Character, WorldScene } from '../../db/index';
 import { Avatar } from '../ui/Avatar';
+import { Modal } from '../ui/Modal';
+import { SettingsChoices, SettingsGroup, SettingsRow } from '../settings/SettingsUI';
 
 /* ------------------------------------------------------------------ *
  * 在场人物 chips（§19）
@@ -119,76 +121,29 @@ export function WorldControlSheet(params: {
   busy: boolean;
   entryMemoryMode: 'memory' | 'present' | 'amnesiac';
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!params.open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') params.onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [params.open, params.onClose]);
-
+  const [confirmFinish, setConfirmFinish] = useState(false);
   if (!params.open) return null;
-  return (
-    <div className="vg-sheet-backdrop" onClick={params.onClose}>
-      <div ref={ref} className="vg-sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="vg-sheet-grab" aria-hidden />
-        <p className="vg-sheet-title">世界控制</p>
-
-        <div className="vg-sheet-mode">
-          <span>角色加入时</span>
-          <div className="vg-sheet-mode-options">
-            <button type="button" className={params.entryMemoryMode === 'memory' ? 'is-selected' : ''} onClick={() => params.onAction({ kind: 'entry_mode', mode: 'memory' })}>带上你们的记忆</button>
-            <button type="button" className={params.entryMemoryMode === 'present' ? 'is-selected' : ''} onClick={() => params.onAction({ kind: 'entry_mode', mode: 'present' })}>从此刻开始参与</button>
-            <button type="button" className={params.entryMemoryMode === 'amnesiac' ? 'is-selected' : ''} onClick={() => params.onAction({ kind: 'entry_mode', mode: 'amnesiac' })}>失忆设定</button>
-          </div>
-        </div>
-
-        <div className="vg-sheet-group">
-          <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'characters_talk' })}>
-            <b>让他们自己聊一会儿</b>
-            <span>你只要看着，随时可以插话</span>
-          </button>
-          <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'save_story' })}>
-            <b>写入世界记录</b>
-            <span>把这一段收进世界的书里，之后随时可以回看</span>
-          </button>
-        </div>
-
-        <div className="vg-sheet-group">
-          <p className="vg-sheet-sub">跳过时间</p>
-          <div className="vg-sheet-row">
-            {TIME_SKIPS.map((label) => (
-              <button key={label} type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'time_skip', label })}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="vg-sheet-group">
-          <p className="vg-sheet-sub">这一段世界</p>
-          <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'undo' })}>
-            <b>撤销上一轮</b>
-            <span>回到上一刻，世界不会留下它的痕迹</span>
-          </button>
-          <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'pause' })}>
-            <b>暂时离开</b>
-            <span>保留进行状态，不结算；随时回来继续</span>
-          </button>
-          <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'save_moment' })}>
-            <b>保存这一刻</b>
-            <span>把值得记住的事写进世界，世界继续，不会结束</span>
-          </button>
-          <button type="button" disabled={params.busy} onClick={() => params.onAction({ kind: 'finish' })}>
-            <b>结束这个世界</b>
-            <span>一次性结算：经历、共同记忆与关系变化写入世界，之后只能回看</span>
-          </button>
-        </div>
-
-        <button type="button" className="vg-sheet-cancel" onClick={params.onClose}>取消</button>
+  const act = (action: WorldControlAction) => { if (!params.busy) params.onAction(action); };
+  return <>
+    <Modal open onClose={params.onClose} title="世界偏好" mobileFullHeight panelClassName="vg-settings-panel">
+      <div className="vg-settings-design vg-sheet-content">
+        <p className="vg-settings-intro">{params.scene?.place || '当前世界'} · 这些操作只影响当前这一段世界。</p>
+        <SettingsGroup title="角色加入时" scope="当前这一段"><SettingsChoices label="角色加入方式" value={params.entryMemoryMode} disabled={params.busy} onChange={mode => act({ kind: 'entry_mode', mode })} options={[{ value: 'memory', title: '带上你们的记忆', detail: '沿用已有的共同经历与关系' }, { value: 'present', title: '从此刻开始参与', detail: '从当前场景开始加入' }, { value: 'amnesiac', title: '失忆设定', detail: '以失忆状态参与这一段世界' }]} /></SettingsGroup>
+        <SettingsGroup title="继续这段故事"><div inert={params.busy}>
+          <SettingsRow title="让他们自己聊一会儿" detail="随时可以插话" icon="account" onClick={() => act({ kind: 'characters_talk' })} />
+          <SettingsRow title="写入世界记录" detail="收进世界的记录，之后可以回看" icon="diary" onClick={() => act({ kind: 'save_story' })} />
+          <SettingsRow title="保存这一刻" detail="记住这一刻，世界继续" icon="edit" onClick={() => act({ kind: 'save_moment' })} />
+        </div></SettingsGroup>
+        <SettingsGroup title="推进时间"><div className="vg-world-time-choices">{TIME_SKIPS.map(label => <button type="button" key={label} disabled={params.busy} onClick={() => act({ kind: 'time_skip', label })}>{label}</button>)}</div></SettingsGroup>
+        <SettingsGroup title="离开与调整"><div inert={params.busy}>
+          <SettingsRow title="暂时离开" detail="保留进行状态，之后可以继续" icon="clock" onClick={() => act({ kind: 'pause' })} />
+          <SettingsRow title="撤销上一轮" detail="回到上一刻，不保留上一轮的变化" icon="edit" onClick={() => act({ kind: 'undo' })} />
+        </div></SettingsGroup>
+        <SettingsGroup title="结束与结算"><div inert={params.busy}><SettingsRow title="结束这一段世界" detail="结算经历与关系变化，之后只可回看" danger icon="world" onClick={() => setConfirmFinish(true)} /></div></SettingsGroup>
       </div>
-    </div>
-  );
+    </Modal>
+    <Modal open={confirmFinish} onClose={() => setConfirmFinish(false)} title="结束这一段世界？" panelClassName="vg-settings-panel"><div className="vg-settings-design"><p className="vg-settings-intro">经历、共同记忆与关系变化会按原有规则结算。这一段结束后只能回看；想稍后继续，请选择“暂时离开”。</p><div className="flex gap-3"><button type="button" className="flex-1 text-sub" onClick={() => setConfirmFinish(false)}>继续参与</button><button type="button" disabled={params.busy} className="flex-1 rounded-xl bg-red-500/15 text-red-400" onClick={() => { act({ kind: 'finish' }); setConfirmFinish(false); }}>确认结束</button></div></div></Modal>
+  </>;
 }
 
 /* ------------------------------------------------------------------ *

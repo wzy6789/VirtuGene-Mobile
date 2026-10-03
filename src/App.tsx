@@ -21,11 +21,18 @@ import { hasAiGatewayAccess, isAiGatewayConfigured, refreshGatewaySession, setGa
 import { loadMomentsPreferences } from './lib/moments/preferences';
 import { UseTimeReminder } from './components/compliance/UseTimeReminder';
 import { processMemoryJobs } from './lib/memory-jobs';
+import { useSlideOutCancel } from './components/ui/useSlideOutCancel';
+import { db } from './db';
+import { canUseAi } from './lib/ai/availability';
+import { todoRepo } from './db/todo-repo';
 
 // 手账按需加载：首次进入才拉取日记相关代码，加快主聊天页启动
 const DiaryPage = lazy(() => import('./pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
+const TodoPage = lazy(() => import('./components/todo/TodoPage').then(m => ({ default: m.TodoPage })));
+const MomentsPage = lazy(() => import('./components/moments/MomentsPage').then(m => ({ default: m.MomentsPage })));
 
 export default function App() {
+  useSlideOutCancel();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const activeUserId = useAuthStore((s) => s.userId);
   const apiKey = useAuthStore((s) => s.apiKey);
@@ -38,6 +45,18 @@ export default function App() {
   const [updateNotes, setUpdateNotes] = useState<{ version: string; notes: string[] } | null>(null);
 
   useEffect(() => {
+    if (!isLoggedIn || !activeUserId) return;
+    const restore = () => {
+      if (document.visibilityState === 'visible' && useAuthStore.getState().userId === activeUserId)
+        void todoRepo.rebuildReminders(activeUserId).catch(() => undefined);
+    };
+    restore();
+    document.addEventListener('visibilitychange', restore);
+    window.addEventListener('focus', restore);
+    return () => { document.removeEventListener('visibilitychange', restore); window.removeEventListener('focus', restore); };
+  }, [activeUserId, isLoggedIn]);
+
+  useEffect(() => {
     // 预置角色包含头像与较长的人格基因，延后到应用壳加载后再拉取，避免把大段种子数据塞进首屏主包。
     void import('./lib/seed-init')
       .then(({ initSeedCharacters }) => initSeedCharacters())
@@ -47,27 +66,33 @@ export default function App() {
 
   // 同一台手机「记住登录」：persist 恢复了登录态但 apiKey 在内存为 null，
   // 启动时从设备加密存储恢复 API Key（微信/QQ 式，无需重复登录）。
-  // 恢复失败（如 Key 存储被清）→ 退出登录回登录页，避免"已登录但无法对话"。
+  // 模型配置独立于账号；尚未配置的本地账号也应能进入设置。
   useEffect(() => {
     const s = useAuthStore.getState();
     if (s.isLoggedIn && isAiGatewayConfigured() && s.gatewayRefreshToken) {
       void refreshGatewaySession(s.gatewayRefreshToken)
         .then((session) => {
+          if (useAuthStore.getState().userId !== s.userId || !useAuthStore.getState().isLoggedIn) return;
           setGatewayAccessToken(session.accessToken);
           useAuthStore.getState().setGatewayTokens(session);
         })
         .catch(() => {
+          if (useAuthStore.getState().userId !== s.userId) return;
           setGatewayAccessToken(null);
-          if (!s.apiKey) useAuthStore.setState({ isLoggedIn: false, gatewayAccessToken: null, gatewayRefreshToken: null });
+          useAuthStore.getState().setGatewayTokens(null);
+          if (!s.apiKey) void db.users.get(s.userId ?? '').then(user => {
+            if (!user && useAuthStore.getState().userId === s.userId) useAuthStore.getState().logout();
+          });
         });
     }
-    if (s.isLoggedIn && !s.apiKey && !isAiGatewayConfigured()) {
-      void loadPersistedApiKey().then((key) => {
+    if (s.isLoggedIn && !s.apiKey && !s.gatewayRefreshToken) {
+      void loadPersistedApiKey().then(async (key) => {
+        if (useAuthStore.getState().userId !== s.userId || !useAuthStore.getState().isLoggedIn) return;
         if (key) {
           s.setApiKey(key);
         } else {
-          // 没有可恢复的 Key：退回登录页
-          useAuthStore.setState({ isLoggedIn: false, apiKey: null });
+          const user = await db.users.get(s.userId ?? '');
+          if (!user && useAuthStore.getState().userId === s.userId) useAuthStore.getState().logout();
         }
       });
     }
@@ -230,7 +255,7 @@ export default function App() {
       const auth = useAuthStore.getState();
       const preferences = loadMomentsPreferences(activeUserId);
       if (!preferences.autonomousPostsEnabled) return;
-      if (!auth.apiKey && !hasAiGatewayAccess()) {
+      if (!canUseAi()) {
         if (openingAuthRetries < 10) {
           openingAuthRetries += 1;
           timers.push(window.setTimeout(startOpeningPulse, 1_500));
@@ -310,7 +335,7 @@ export default function App() {
       {isLoggedIn ? (
         <MainLayout>
           <Suspense fallback={<div className="h-full w-full flex items-center justify-center text-sm text-gray-500">正在唤醒手账…</div>}>
-            {activeView === 'chat' ? <ChatPage /> : <DiaryPage />}
+            {activeView === 'todo' ? <TodoPage /> : activeView === 'moments' ? <MomentsPage /> : activeView === 'chat' ? <ChatPage /> : <DiaryPage />}
           </Suspense>
         </MainLayout>
       ) : (
@@ -324,7 +349,7 @@ export default function App() {
       />
       {isLoggedIn && <UseTimeReminder />}
       {/* 新手引导：手机端展示完整说明，桌面端继续提供锚点式指引 */}
-      {isLoggedIn && <OnboardingGuide />}
+      {isLoggedIn && <OnboardingGuide key={activeUserId} blocked={!!updateNotes} />}
     </div>
   );
 }

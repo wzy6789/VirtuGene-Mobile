@@ -97,7 +97,7 @@ async function run() {
     const host = mount(createElement(MobileLayout), 800);
     await sleep(500);
     const text = host.innerText;
-    check('① 世界首页展示品牌标题与自然描述', text.includes('世界 Living World') && text.includes('你的生活，与他们的时间在这里相遇'), text.slice(0, 180));
+    check('① 世界首页展示品牌标题与自然描述', text.includes('LIVING WORLD') && !!host.querySelector('h1')?.textContent?.includes('世界') && text.includes('你的生活，与他们的时间在这里相遇'), text.slice(0, 180));
     check('② 日记、待办、朋友圈、星域各有独立入口', ['朋友圈', '日记', '待办', '星域'].every((label) => text.includes(label)));
     check('③ 主导航仍然是 消息｜世界｜角色｜我的',
       ['消息', '世界', '角色', '我的'].every((t) => text.includes(t)), text.slice(-120));
@@ -205,9 +205,9 @@ async function run() {
     const controlButton = host.querySelector('.vg-composer-control') as HTMLElement | null;
     controlButton?.click();
     await sleep(80);
-    const sheet = host.innerText;
+    const sheet = (document.querySelector('[role="dialog"]') as HTMLElement | null)?.innerText ?? host.innerText;
     check('⑮ 世界控制面板里每一项都有对应的一句自然语言（§39）',
-      sheet.includes('让他们自己聊一会儿') && sheet.includes('跳过时间') && sheet.includes('撤销上一轮') && sheet.includes('写入世界记录') && sheet.includes('保存这一刻'),
+      sheet.includes('让他们自己聊一会儿') && sheet.includes('推进时间') && sheet.includes('撤销上一轮') && sheet.includes('写入世界记录') && sheet.includes('保存这一刻'),
       sheet.slice(-400));
     check('⑯ 控制面板只保留动作，不重复解释输入框用法', !sheet.includes('这些也可以用一句话做到') && !host.querySelector('.vg-sheet-hint'));
     unmount();

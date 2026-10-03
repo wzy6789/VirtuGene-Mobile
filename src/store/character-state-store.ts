@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { stateRepo } from '../db/state-repo';
 import { useAuthStore } from './auth-store';
 import type { RelationMilestone } from '../db/index';
+import { db } from '../db/index';
 
 interface CharacterStateState {
   characterId: string | null;
@@ -35,6 +36,7 @@ export const useCharacterStateStore = create<CharacterStateState>((set, get) => 
 
   load: async (characterId) => {
     const userId = useAuthStore.getState().userId ?? '';
+    if ((await db.characters.get(characterId))?.agentProfile === 'secretary') { get().clear(); return; }
     const state = await stateRepo.getOrCreate(characterId, userId);
     set({ characterId, affinity: state.affinity, mood: state.mood, milestones: state.milestones ?? [], tierNames: state.tierNames ?? {} });
   },

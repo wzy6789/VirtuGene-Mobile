@@ -34,6 +34,8 @@ scripts/verify/*.bundle.js
 # 验收的中间产物：每套件的结果文件与从 dist 复制来的真实 CSS（都由脚本生成）
 scripts/verify/.last-result-*.txt
 scripts/verify/verify.css
+scripts/verify/*.bundle.css
+scripts/verify/*.woff2
 
 # 5.0 世界层的本地中间产物 / 研究草稿（不入库）
 .gradle-build/

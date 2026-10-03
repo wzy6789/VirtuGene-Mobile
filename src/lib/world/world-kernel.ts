@@ -40,6 +40,7 @@ export async function ensureWorldKernel(params: {
   if (!world || world.userId !== params.userId) throw new Error('world:not-found');
   const now = params.now ?? Date.now();
   const clock = initialClock(world, now);
+  const assistants = new Set((await db.characters.where('createdBy').equals(params.userId).filter(c => c.agentProfile === 'secretary').toArray()).map(c => c.id));
 
   if (!world.clock || world.realityLocationId === undefined) {
     await db.worlds.put({
@@ -64,6 +65,7 @@ export async function ensureWorldKernel(params: {
       });
     }
     for (const characterId of scene.characterIds) {
+      if (assistants.has(characterId)) continue;
       // 历史数据可能有重复的 active 场景；最新场景优先，旧行不会把角色瞬移回去。
       if (assigned.has(characterId)) continue;
       assigned.add(characterId);
@@ -77,7 +79,7 @@ export async function ensureWorldKernel(params: {
     }
   }
 
-  const characterIds = [...new Set(params.characterIds ?? activeScenes.flatMap((scene) => scene.characterIds))];
+  const characterIds = [...new Set(params.characterIds ?? activeScenes.flatMap((scene) => scene.characterIds))].filter(id => !assistants.has(id));
   await worldAgentRepo.ensureStates(params.userId, params.worldId, characterIds);
   // 没有进入具体星域场景的角色仍属于这个世界。把他们放在现实锚点，避免“有角色但没有位置”的幽灵状态。
   for (const characterId of characterIds) {
@@ -105,8 +107,8 @@ export async function ensureWorldKernel(params: {
     currentWorldTime: currentWorldTime(clock, now),
     reality,
     locations,
-    presences,
-    agents,
+    presences: presences.filter(row => !assistants.has(row.characterId)),
+    agents: agents.filter(row => !assistants.has(row.characterId)),
     activeScenes,
   };
 }

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { Character } from '../../db/index';
 import { sessionRepo } from '../../db/session-repo';
 import type { SceneAtmosphere, SceneTimeOfDay } from '../../lib/chat-context';
+import { prefersReducedMotion } from '../../lib/mobile-motion';
 
 interface Props {
   character: Character;
@@ -233,7 +234,7 @@ export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId }
               resetDrag();
               if (dismiss) closePanel();
               else if (panelRef.current) {
-                panelRef.current.animate([{ transform: `translateY(${current.distance * .65}px)` }, { transform: 'translateY(0)' }], { duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180, easing: 'cubic-bezier(.2,.8,.2,1)' });
+                panelRef.current.animate([{ transform: `translateY(${current.distance * .65}px)` }, { transform: 'translateY(0)' }], { duration: prefersReducedMotion() ? 0 : 180, easing: 'cubic-bezier(.2,.8,.2,1)' });
               }
             }}
             onPointerCancel={resetDrag}

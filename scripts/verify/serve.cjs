@@ -44,6 +44,7 @@ const server = http.createServer((req, res) => {
     // MIME 必须正确：worldD 会加载真实构建产物里的 CSS 来验证滚动布局，
     // 若把 css 当 text/plain 返回，Chrome 会直接拒绝应用样式表（"Refused to apply style"）。
     const type = file.endsWith('.js') ? 'text/javascript'
+      : file.endsWith('.woff2') ? 'font/woff2'
       : file.endsWith('.html') ? 'text/html'
       : file.endsWith('.css') ? 'text/css'
       : file.endsWith('.json') ? 'application/json'

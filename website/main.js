@@ -1122,6 +1122,40 @@
     resize();
   }
 
+  // Keep the gallery browsable with native scrolling; buttons enhance it when JS works.
+  function initGalleryRail() {
+    var rail = document.querySelector('[data-gallery-rail]');
+    var controls = document.querySelector('.rail-controls');
+    var previous = document.querySelector('[data-rail-prev]');
+    var next = document.querySelector('[data-rail-next]');
+    if (!rail || !controls || !previous || !next) return;
+
+    function sync() {
+      var maximum = Math.max(0, rail.scrollWidth - rail.clientWidth);
+      previous.disabled = rail.scrollLeft <= 2;
+      next.disabled = rail.scrollLeft >= maximum - 2;
+      controls.hidden = maximum <= 2;
+    }
+    function move(direction) {
+      var card = rail.querySelector('.rail-card');
+      var gap = parseFloat(window.getComputedStyle(rail).columnGap) || 0;
+      var distance = card ? card.getBoundingClientRect().width + gap : rail.clientWidth;
+      rail.scrollBy({ left: direction * distance, behavior: motionQuery.matches ? 'auto' : 'smooth' });
+    }
+    previous.addEventListener('click', function () { move(-1); });
+    next.addEventListener('click', function () { move(1); });
+    rail.addEventListener('scroll', sync, { passive: true });
+    rail.addEventListener('keydown', function (event) {
+      if (event.target !== rail) return;
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        move(event.key === 'ArrowLeft' ? -1 : 1);
+      }
+    });
+    window.addEventListener('resize', sync, { passive: true });
+    sync();
+  }
+
   var modules = [
     initAtmosphere,
     initPointerVars,
@@ -1139,6 +1173,7 @@
     initScrollerWarmup,
     initAmbient,
     initLivingLight,
+    initGalleryRail,
   ];
 
   modules.forEach(function (init) {

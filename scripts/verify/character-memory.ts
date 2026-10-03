@@ -6,7 +6,7 @@ import { todoRepo } from '../../src/db/todo-repo';
 import { indexPromptMemoryReferences, recallCharacterMemory, packCharacterMemory } from '../../src/lib/character-memory';
 import { findSpokenMemoryIds, rankConversationMemories } from '../../src/lib/memory-engine';
 import { buildContextTrace } from '../../src/lib/chat-trace';
-import { buildWorldContext, renderCharacterContext, renderWorldLayer } from '../../src/lib/world/world-context';
+import { buildWorldContext, renderCharacterContext, renderWorldLayer, renderWorldBrief } from '../../src/lib/world/world-context';
 import { knowledgeRepo } from '../../src/db/knowledge-repo';
 import { momentsRepo, planAutonomousMomentInteraction } from '../../src/db/moments-repo';
 import { collectSyncData, importSyncData } from '../../src/lib/sync';
@@ -328,8 +328,9 @@ async function run() {
   const oneActorLife = await buildWorldContext({userId:'u',worldId:'w',scene,characters,userText:'你独处时修好怀表QF77了吗'});
   check(renderCharacterContext(oneActorLife,'a').includes('独处时修好怀表QF77'), 'single-character world recalls that character own private life as private chat does');
   const sharedLife = await buildWorldContext({userId:'u',worldId:'w',scene:{...scene,characterIds:['a','b']},characters,userText:'你独处时修好怀表QF77了吗'});
-  check(!renderCharacterContext(sharedLife,'a').includes('独处时修好怀表QF77')
-    && !renderCharacterContext(sharedLife,'b').includes('独处时修好怀表QF77'), 'shared world keeps a private life event out of multi-character prompts');
+  check(renderCharacterContext(sharedLife,'a', '你独处时修好怀表QF77了吗').includes('独处时修好怀表QF77')
+    && !renderCharacterContext(sharedLife,'b', '你独处时修好怀表QF77了吗').includes('独处时修好怀表QF77'), 'private life follows its own actor into a shared scene without moving to another actor');
+  check(!renderWorldBrief(sharedLife).includes('独处时修好怀表QF77'), 'shared director never receives an actor private life event');
   await db.memories.bulkPut(Array.from({length:25}, (_, index) => ({
     id:`old-profile-${index}`,userId:'u',characterId:'a',content:index === 0 ? '用户早年参加过天文观测营并很喜欢看木星' : `较早的普通个人事实 ${index}`,
     type:'auto',status:'active',createdAt:now - (100 - index) * 1000,

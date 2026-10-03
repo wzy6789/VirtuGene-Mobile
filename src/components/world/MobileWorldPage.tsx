@@ -1,3 +1,4 @@
+import { PressLightCard } from '../ui/PhysicalInteractions';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
@@ -21,7 +22,8 @@ const DAY_MS = 86_400_000;
 
 export function MobileWorldPage() {
   const userId = useAuthStore((state) => state.userId);
-  const characters = useChatStore((state) => state.characters);
+  const allCharacters = useChatStore((state) => state.characters);
+  const characters = useMemo(() => allCharacters.filter(c => c.agentProfile !== 'secretary'), [allCharacters]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
@@ -75,7 +77,7 @@ export function MobileWorldPage() {
           ensureWorldKernel({
             userId,
             worldId: world.id,
-            characterIds: useChatStore.getState().characters.map((character) => character.id),
+            characterIds: useChatStore.getState().characters.filter(c => c.agentProfile !== 'secretary').map((character) => character.id),
           }),
           worldRepo.stats(world.id),
           worldEventRepo.listTimeline(world.id, { limit: 4, userId }),
@@ -90,7 +92,7 @@ export function MobileWorldPage() {
         if (alive) setPulse(recentPulses[0] ?? null);
         // 首屏先可交互；离线脉冲在后台完成，避免一次模型请求把世界入口卡住。
         if (alive) setLoading(false);
-        const currentCharacters = useChatStore.getState().characters;
+        const currentCharacters = useChatStore.getState().characters.filter(c => c.agentProfile !== 'secretary');
         if (currentCharacters.length > 0) {
           // 给首屏和“此刻”展开留出一个绘制帧；世界脉冲仍然保留，只移到后台空闲时执行。
           const runPulseWhenIdle = () => {
@@ -130,7 +132,7 @@ export function MobileWorldPage() {
         if (alive) setLoading(false);
       }
     })();
-    if (characters.length === 0) void useChatStore.getState().loadCharacters();
+    if (allCharacters.length === 0) void useChatStore.getState().loadCharacters();
     return () => { alive = false; if (idleTimer !== undefined) window.clearTimeout(idleTimer); };
   }, [userId, characters.length, reloadToken]);
 
@@ -254,33 +256,33 @@ export function MobileWorldPage() {
       {!theaterOpen && !selectedScene && (
         <div className="pt-5 vg-world-hero">
           <WorldLifeSignature />
-          <SpaceHeading eyebrow="" title="世界 Living World" detail="你的生活，与他们的时间在这里相遇。" />
+          <SpaceHeading eyebrow="LIVING WORLD" title="世界" detail="你的生活，与他们的时间在这里相遇。" />
           <nav className="vg-world-life-entries" aria-label="世界入口">
-            <button type="button" className="vg-world-life-entry is-moments" onClick={openMoments}>
+            <PressLightCard type="button" className="vg-world-life-entry is-moments" onClick={openMoments}>
               <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8A2.5 2.5 0 0 1 17.5 16H11l-5 4v-4.2A2.5 2.5 0 0 1 4 13.5v-8Z" /><path d="M8 8h8M8 11h5" /></svg>
               <strong>朋友圈</strong>
               <span>分享今天的片段</span>
               {momentUnread > 0 && <em className="vg-world-moment-badge">{momentUnread > 99 ? '99+' : momentUnread} 条新互动</em>}
               <i aria-hidden="true">↗</i>
-            </button>
-            <button type="button" className="vg-world-life-entry is-diary" onClick={openDiary}>
+            </PressLightCard>
+            <PressLightCard type="button" className="vg-world-life-entry is-diary" onClick={openDiary}>
               <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h6a3 3 0 0 1 3 3v14a4 4 0 0 0-4-2H4V4Z" /><path d="M13 7a3 3 0 0 1 3-3h4v15h-3a4 4 0 0 0-4 2M7 8h3M7 12h3" /></svg>
               <strong>日记</strong>
               <span>留下今天的故事</span>
               <i aria-hidden="true">↗</i>
-            </button>
-            <button type="button" className="vg-world-life-entry is-todo" onClick={openTodo}>
+            </PressLightCard>
+            <PressLightCard type="button" className="vg-world-life-entry is-todo" onClick={openTodo}>
               <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="5" width="16" height="16" rx="3" /><path d="M8 3v4M16 3v4M4 10h16M8 15l3 3 5-5" /></svg>
               <strong>待办</strong>
               <span>安排接下来的事</span>
               <i aria-hidden="true">↗</i>
-            </button>
-            <button type="button" className="vg-world-life-entry is-stage" onClick={openTheater}>
+            </PressLightCard>
+            <PressLightCard type="button" className="vg-world-life-entry is-stage" onClick={openTheater}>
               <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-11Z" /><path d="m9 8 6 4-6 4V8Z" /></svg>
               <strong>星域</strong>
               <span>进入正在发生的世界</span>
               <i aria-hidden="true">↗</i>
-            </button>
+            </PressLightCard>
           </nav>
         </div>
       )}

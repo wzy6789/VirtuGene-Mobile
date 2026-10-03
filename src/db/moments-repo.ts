@@ -2,7 +2,7 @@ import { db, type Character, type CharacterLifeEvent, type Moment, type MomentCo
 import { characterRepo } from './character-repo';
 import { stateRepo } from './state-repo';
 import { sendMessage } from '../lib/ai/deepseek';
-import { hasAiGatewayAccess } from '../lib/ai/gateway';
+import { canUseAi } from '../lib/ai/availability';
 import { useAuthStore } from '../store/auth-store';
 import { buildCharacterMemoryContext } from '../lib/character-memory';
 import { buildRelationshipToneContext } from '../lib/chat-context';
@@ -52,7 +52,7 @@ export function planAutonomousMomentInteraction(momentId: string, character: Pic
 
 async function generateComment(userId: string, character: Character, moment: Moment, reply?: MomentReaction): Promise<string | undefined> {
   const auth = useAuthStore.getState();
-  if (auth.userId !== userId || (!auth.apiKey && !hasAiGatewayAccess())) return undefined;
+  if (auth.userId !== userId || !canUseAi()) return undefined;
   const postAuthor = moment.authorCharacterId ? await db.characters.get(moment.authorCharacterId) : undefined;
   const postOwner = postAuthor?.name ?? '用户';
   const world = await worldRepo.ensureDefaultWorld(userId).catch(() => null);
@@ -215,7 +215,7 @@ async function generateCharacterLifeBeat(
   priorPublicEvents: CharacterLifeEvent[],
 ): Promise<GeneratedLifeBeat | undefined> {
   const auth = useAuthStore.getState();
-  if (auth.userId !== userId || (!auth.apiKey && !hasAiGatewayAccess())) return undefined;
+  if (auth.userId !== userId || !canUseAi()) return undefined;
   const publicHistory = priorPublicEvents.slice(0, 6).map((event) => ({ id: event.id, threadId: event.threadId, kind: event.kind, title: event.title, summary: event.summary, occurredAt: event.occurredAt }));
   const profile = [
     `角色名：${character.name}`,
@@ -251,7 +251,7 @@ async function generateCharacterLifeBeat(
 
 async function listContactCharacters(userId: string): Promise<Character[]> {
   // 聊天列表中的角色就是朋友圈联系人；预设只有克隆进当前账号后才会进入这里。
-  return characterRepo.getByCreator(userId);
+  return (await characterRepo.getByCreator(userId)).filter(c => c.agentProfile !== 'secretary');
 }
 
 async function isBlocked(userId: string, characterId: string): Promise<boolean> {
@@ -260,6 +260,7 @@ async function isBlocked(userId: string, characterId: string): Promise<boolean> 
 }
 
 export async function visibleToCharacter(moment: Moment, characterId: string): Promise<boolean> {
+  if ((await db.characters.get(characterId))?.agentProfile === 'secretary') return false;
   if (moment.deleted || moment.visibility === 'private') return false;
   if (await isBlocked(moment.userId, characterId)) return false;
   // 「允许角色查看我的历史动态」：超出窗口的动态对角色不存在（本机偏好，默认不限制）
@@ -440,7 +441,7 @@ export const momentsRepo = {
     const trigger = options.trigger ?? 'background';
     const attemptBudget = Math.max(1, Math.min(4, options.attemptBudget ?? (trigger === 'opening' ? 4 : 1)));
     const auth = useAuthStore.getState();
-    if (auth.userId !== userId || (!auth.apiKey && !hasAiGatewayAccess())) return undefined;
+    if (auth.userId !== userId || !canUseAi()) return undefined;
     const preferences = loadMomentsPreferences(userId);
     if (!preferences.autonomousPostsEnabled) return undefined;
 
@@ -890,7 +891,7 @@ export const momentsRepo = {
       try {
         const moment = await db.moments.get(job.momentId);
         const character = await characterRepo.getById(job.characterId);
-        if (!moment || moment.userId !== userId || moment.deleted || !character || character.createdBy !== userId
+        if (!moment || moment.userId !== userId || moment.deleted || !character || character.createdBy !== userId || character.agentProfile === 'secretary'
           || moment.visibilityRevision !== job.visibilityRevision || !(await visibleToCharacter(moment, job.characterId))) {
           await db.momentJobs.update(job.id, { status: 'cancelled', updatedAt: Date.now() });
           continue;

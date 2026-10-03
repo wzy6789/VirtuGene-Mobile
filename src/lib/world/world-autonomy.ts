@@ -10,6 +10,7 @@ import { worldFactRepo } from '../../db/world-fact-repo';
 import { worldSceneRepo } from '../../db/world-scene-repo';
 import { ensureWorldKernel } from './world-kernel';
 import { knowledgeRepo } from '../../db/knowledge-repo';
+import { WORLD_OBJECT_TOPIC_RULE } from './world-attention';
 
 /**
  * 世界脉冲的结构化输出。模型只提出建议，最终能否改变世界由本文件的校验与本地数据库决定。
@@ -198,11 +199,13 @@ async function buildPulsePrompt(params: {
     '你是 VirtuGene Living World 的世界编排器。你只提出角色在离线时间里可能采取的少量行动，不代替用户做决定。',
     '只输出 JSON：{"actions":[{"characterId":"...","kind":"move|interaction|wait","locationId":"...","participantIds":["..."],"title":"...","summary":"...","currentGoal":"...","nextIntent":"...","importance":0.45}]}。',
     '约束：characterId、participantIds、locationId 只能使用给定列表；interaction 至少包含两名角色；wait 不产生事件；自主性为 quiet 的角色必须 wait；不要编造用户行动、关系数值、角色认知或私聊内容；每个角色最多一项行动；最多四项；摘要只写可从现有世界状态合理延伸的内容。',
+    WORLD_OBJECT_TOPIC_RULE,
+    '用户设定的场景时间是对应片段的当前时间；离线间隔仅用于安排有限自主行动，不得用手机时间覆盖片段时间，也不自行改变片段日期或时段。',
     `世界：${world?.name ?? '我的世界'}`,
     `可用地点：\n${locationLines.join('\n') || '暂无地点'}`,
     `角色状态：\n${presenceLines.join('\n') || '暂无角色'}`,
     `世界设定：\n${facts.map((fact) => `- ${fact.content}`).join('\n') || '暂无额外设定'}`,
-    `正在进行的世界：\n${scenes.map((scene) => `- ${scene.title} @ ${scene.place}`).join('\n') || '无'}`,
+    `正在进行的世界：\n${scenes.map((scene) => `- ${scene.title} @ ${scene.place} · 用户设定时间：${scene.timeLabel}`).join('\n') || '无'}`,
   ].join('\n\n');
   const user = `世界时间从 ${new Date(params.fromWorldTime).toLocaleString('zh-CN')} 走到 ${new Date(params.toWorldTime).toLocaleString('zh-CN')}（约 ${formatHours(params.fromWorldTime, params.toWorldTime)}）。\n最近公开发生：\n${publicEvents.map((event) => `- ${event.title}：${event.summary}`).join('\n') || '暂无公开记录'}\n请只返回值得记入世界年表的行动，普通等待就返回 wait。`;
   return { system, user, locations, presences, agents, publicEvents };
@@ -220,7 +223,7 @@ async function commitActions(params: {
   const locationOf = new Map(params.locations.map((location) => [location.id, location]));
   const eventIds: string[] = [];
   const currentLocation = new Map(params.presences.map((presence) => [presence.characterId, presence.locationId]));
-  await db.transaction('rw', [db.worldEvents, db.worldPresences, db.worldAgentStates, db.worldPulses, db.characterKnowledge], async () => {
+  await db.transaction('rw', [db.worldEvents, db.worldPresences, db.worldAgentStates, db.worldPulses, db.characterKnowledge, db.characters], async () => {
     for (const [index, action] of params.actions.entries()) {
       const locationId = action.locationId ?? currentLocation.get(action.characterId);
       const characterName = nameOf.get(action.characterId) ?? '某位角色';
@@ -314,6 +317,7 @@ export async function runWorldPulse(params: {
   /** 验收/离线测试用的可注入 LLM 边界；生产不传，统一走 WorldAIClient。 */
   call?: WorldLlmCaller;
 }): Promise<WorldAutonomyResult> {
+  params = { ...params, characters: params.characters.filter(c => c.agentProfile !== 'secretary') };
   const pulse = await beginWorldPulse({
     userId: params.userId,
     worldId: params.worldId,

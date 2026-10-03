@@ -34,13 +34,13 @@ async function getDeviceKey(): Promise<CryptoKey> {
 }
 
 /** 加密 API Key 并持久化（"记住登录"） */
-export async function persistApiKey(apiKey: string): Promise<void> {
+export async function persistApiKey(apiKey: string, isCurrent: () => boolean = () => true): Promise<void> {
   try {
     const key = await getDeviceKey();
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(apiKey));
     const payload = JSON.stringify({ iv: bufToB64(iv), data: bufToB64(enc) });
-    localStorage.setItem(ENC_STORAGE, payload);
+    if (isCurrent()) localStorage.setItem(ENC_STORAGE, payload);
   } catch {
     /* 加密失败则忽略（下次需重新输入 Key） */
   }
@@ -68,6 +68,14 @@ export function clearPersistedApiKey(): void {
 /* ---- 通用密钥加密存取（同设备密钥，供 SiliconFlow 云端识别等可选密钥使用） ---- */
 
 const SECRET_PREFIX = 'virtugene-secret-';
+
+/** Configuration presence for UI gates; actual requests still decrypt and validate. */
+export function hasStoredSecret(name: string): boolean {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SECRET_PREFIX + name) ?? 'null');
+    return typeof raw?.iv === 'string' && typeof raw?.data === 'string' && !!raw.iv && !!raw.data;
+  } catch { return false; }
+}
 
 /** 加密持久化任意密钥（如云端识别 key） */
 export async function persistSecret(name: string, value: string): Promise<void> {

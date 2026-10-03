@@ -42,6 +42,8 @@ export interface ContextTraceSources {
   crossChannelReferences?: BuiltContextTrace['crossChannelReferences'];
   /** 当前问题召回的旧私聊原文；只在 historical-chat 完整进入提示词时记录。 */
   historicalChatReferences?: { id: string }[];
+  /** Unified recall can retrieve world/group originals as well as private chat. */
+  historicalMemoryReferences?: BuiltContextTrace['crossChannelReferences'];
   now?: number;
 }
 
@@ -77,6 +79,7 @@ export function buildContextTrace(sources: ContextTraceSources): BuiltContextTra
       const references = [
         ...(included.has('cross-channel-memory') ? sources.crossChannelReferences ?? [] : []),
         ...(included.has('historical-chat') ? (sources.historicalChatReferences ?? []).map(({ id }) => ({ source: 'chat' as const, id })) : []),
+        ...(included.has('historical-chat') ? sources.historicalMemoryReferences ?? [] : []),
       ];
       return references.length ? { crossChannelReferences: [...new Map(references.map((ref) => [`${ref.source}:${ref.id}`, ref])).values()] } : {};
     })(),

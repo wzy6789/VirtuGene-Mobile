@@ -88,8 +88,8 @@ export function PinSettingsModal({ open, onClose, currentPin, onSave }: {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={currentPin ? '🔒 管理手账密码' : '🔓 给手账上锁'} width="max-w-sm" closeOnBackdrop={false}>
-      <div className="p-6 space-y-3">
+    <Modal panelClassName="vg-settings-panel" open={open} onClose={onClose} title={currentPin ? '管理手账密码' : '给手账上锁'} width="max-w-sm" closeOnBackdrop={false}>
+      <div className="vg-settings-design space-y-3">
         <p className="text-xs text-gray-500">设置后，每次打开「我的手账」都需要输入密码。密码只存在本机（SHA-256 摘要），忘记后无法找回。</p>
         {currentPin && (
           <input

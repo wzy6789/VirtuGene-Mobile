@@ -76,22 +76,26 @@ export function ChatPage() {
   const loadSessionSnapshots = useEmotionStore((s) => s.loadSessionSnapshots);
   const clearCurrent = useEmotionStore((s) => s.clearCurrent);
   const selectedCharacterId = useChatStore((s) => s.selectedCharacterId);
+  const assistant = useChatStore(s => s.characters.find(c => c.id === s.selectedCharacterId)?.agentProfile === 'secretary');
   const loadCharacterState = useCharacterStateStore((s) => s.load);
 
   // Load snapshots when session changes (if panel is open)
   useEffect(() => {
     clearCurrent();
-    if (currentSessionId) {
+    if (currentSessionId && !assistant) {
       loadSessionSnapshots(currentSessionId);
     }
-  }, [currentSessionId]);
+  }, [currentSessionId, assistant]);
 
   // Load character affinity/mood when selected character changes
   useEffect(() => {
-    if (selectedCharacterId) {
+    if (selectedCharacterId && !assistant) {
       loadCharacterState(selectedCharacterId);
+    } else if (assistant) {
+      useCharacterStateStore.getState().clear();
+      useEmotionStore.getState().closePanel();
     }
-  }, [selectedCharacterId, loadCharacterState]);
+  }, [selectedCharacterId, loadCharacterState, assistant]);
 
   const emotionToggle = (
     <EmotionToggleButton
@@ -104,12 +108,12 @@ export function ChatPage() {
 
   return (
     <div className="relative h-full flex">
-      <SettleToast />
+      {!assistant && <SettleToast />}
       <div className="flex-1 min-w-0 flex flex-col">
         <ChatWindow emotionToggle={emotionToggle} />
       </div>
-      <EmotionPanel />
-      <RelationMilestoneToast />
+      {!assistant && <EmotionPanel />}
+      {!assistant && <RelationMilestoneToast />}
     </div>
   );
 }

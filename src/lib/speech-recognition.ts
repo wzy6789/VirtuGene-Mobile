@@ -8,6 +8,7 @@ import { IS_CAPACITOR } from './platform';
 
 let partialListener: { remove: () => Promise<void> } | null = null;
 let latestPartial = '';
+let recognitionEpoch = 0;
 
 /** 检查/申请麦克风 + 语音识别权限 */
 export async function ensureRecordPermission(): Promise<boolean> {
@@ -35,30 +36,36 @@ export async function isSpeechAvailable(): Promise<boolean> {
 /** 开始识别（中文）；partialResults 实时回调 */
 export async function startSpeechRecognition(onPartial?: (text: string) => void): Promise<boolean> {
   if (!IS_CAPACITOR) return false;
+  const epoch = ++recognitionEpoch;
+  let listener: { remove: () => Promise<void> } | null = null;
   try {
     latestPartial = '';
-    partialListener = await SpeechRecognition.addListener('partialResults', (e) => {
+    listener = await SpeechRecognition.addListener('partialResults', (e) => {
+      if (epoch !== recognitionEpoch) return;
       const t = (e.matches?.[0] ?? e.accumulatedText ?? '').trim();
       if (t) {
         latestPartial = t;
         onPartial?.(t);
       }
     });
+    if (epoch !== recognitionEpoch) { await listener.remove(); return false; }
+    partialListener = listener;
     await SpeechRecognition.start({ language: 'zh-CN', maxResults: 3, partialResults: true });
-    return true;
+    return epoch === recognitionEpoch;
   } catch {
     try {
-      await partialListener?.remove();
+      await listener?.remove();
     } catch {
       /* ignore */
     }
-    partialListener = null;
+    if (partialListener === listener) partialListener = null;
     return false;
   }
 }
 
 /** 停止识别并返回最佳转写文本 */
 export async function stopSpeechRecognition(): Promise<string> {
+  recognitionEpoch++;
   try {
     await SpeechRecognition.stop();
   } catch {
@@ -82,6 +89,7 @@ export async function stopSpeechRecognition(): Promise<string> {
 
 /** 取消识别（丢弃转写） */
 export async function cancelSpeechRecognition(): Promise<void> {
+  recognitionEpoch++;
   try {
     await SpeechRecognition.stop();
   } catch {

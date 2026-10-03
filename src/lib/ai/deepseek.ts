@@ -1,7 +1,7 @@
 import { fetchWithTimeout, isTimeoutError } from './http';
 import { stripRoleplayActions } from './text';
-import { resolveModel, getProviderKey, findModel, llmChat, type LLMModel } from './llm';
-import { gatewayChat, hasAiGatewayAccess } from './gateway';
+import { resolveModel, getProviderKey, findModel, llmChat, llmChatStream, getProviderConfig, providerRequiresKey, type LLMModel, type LLMStreamResult } from './llm';
+import { gatewayChat, gatewayChatStream, hasAiGatewayAccess } from './gateway';
 
 const MESSAGING_INSTRUCTION =
   '这是手机短信聊天。像发微信一样说话，注意以下规则：\n' +
@@ -93,10 +93,16 @@ export interface ChatParams {
   timeoutMs?: number;
   /** 结构化辅助生成：不注入私聊规则，支持的模型要求 JSON 输出。 */
   structuredOutput?: boolean;
+  /** Budget for structured agent plans; normal chat keeps its existing limit. */
+  maxTokens?: number;
+  signal?: AbortSignal;
+  /** Visible response text only; structured agent plans stay buffered. */
+  onDelta?: (accumulated: string, delta: string) => void;
 }
 
 export interface ChatResult {
   content: string;
+  interrupted?: boolean;
   /** 是否因超出 max_tokens 被截断（前端据此补「…」） */
   truncated?: boolean;
   /** 本次发生了兜底切换（视觉降级 / 模型兜底），UI 应提示用户 */
@@ -183,14 +189,15 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
   ];
 
   // key：deepseek 用登录账号 key；qwen/mimo 用设备加密存储的 key
+  if (!getProviderConfig(model.provider).enabled) throw new Error('provider:disabled');
   const key = model.provider === 'deepseek' ? apiKey : await getProviderKey(model.provider);
-  if (!key) {
+  if (!key && providerRequiresKey(model.provider)) {
     // 手机端登录了 VirtuGene 网关时，普通私聊也必须走网关；否则界面显示
     // “可以聊天”，实际却会因为没有本地 DeepSeek Key 而直接失败。
     // BYOK 始终优先，其他供应商仍要求各自的本地 Key。
     if (model.provider === 'deepseek' && hasAiGatewayAccess()) {
       const gatewayHistory = useVision ? history : history.map((item) => ({ ...item, image: undefined }));
-      const result = await gatewayChat({
+      const gatewayParams = {
         apiKey: '',
         systemPrompt: messages[0]?.content as string,
         message,
@@ -201,9 +208,18 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
         ...(params.character ? { character: params.character } : {}),
         ...(params.sessionModel ? { sessionModel: params.sessionModel } : {}),
         ...(params.forceVision ? { forceVision: params.forceVision } : {}),
-      });
+        ...(params.structuredOutput ? { structuredOutput: true } : {}),
+        ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
+        signal: params.signal,
+        timeoutMs: params.timeoutMs,
+      };
+      const result: ChatResult = params.onDelta && !params.structuredOutput
+        ? await gatewayChatStream({ ...gatewayParams, onDelta: params.onDelta, disableThinking: recovery })
+        : await gatewayChat(gatewayParams);
       return {
         content: params.structuredOutput ? result.content : stripRoleplayActions(result.content),
+        truncated: result.truncated,
+        interrupted: result.interrupted,
         usage: result.usage,
         modelId: result.modelId ?? model.id,
       };
@@ -211,21 +227,26 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
     throw new Error('auth:invalid_key');
   }
 
-  const res = await llmChat({
+  const request = {
     provider: model.provider,
     model: model.id,
-    apiKey: key,
+    apiKey: key ?? '',
     messages,
     temperature,
     visionRequest: useVision,
-    disableThinking: recovery,
-    maxTokens: useVision ? 1000 : recovery ? 1000 : 900,
-    timeoutMs: useVision ? 120_000 : 60_000,
+    disableThinking: recovery || params.structuredOutput,
+    maxTokens: params.maxTokens ?? (useVision ? 1000 : recovery ? 1000 : 900),
+    timeoutMs: params.timeoutMs ?? (useVision ? 120_000 : 60_000),
+    signal: params.signal,
     jsonMode: params.structuredOutput,
-  });
+  };
+  const res: LLMStreamResult = params.onDelta && !params.structuredOutput
+    ? await llmChatStream({ ...request, onDelta: params.onDelta })
+    : await llmChat(request);
   return {
     content: params.structuredOutput ? res.content : stripRoleplayActions(res.content),
     truncated: res.truncated,
+    interrupted: res.interrupted,
     usage: res.usage,
     modelId: model.id,
   };
@@ -234,7 +255,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
 /** 可降级的错误：鉴权/额度/限流降级无意义，不降；服务端错误/超时降级重试 */
 function isDegradable(err: unknown): boolean {
   const msg = (err as Error)?.message;
-  return msg === 'server:error' || msg === 'timeout' || err instanceof TypeError;
+  return msg === 'server:error' || msg === 'timeout' || msg === 'stream:empty' || err instanceof TypeError;
 }
 
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
@@ -250,7 +271,10 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const needVision = !!image || recent.some((h) => !!h.image) || params.forceVision === true;
 
   // 实际使用模型：需要看图但所选模型不支持视觉 → 用 DeepSeek 视觉模型兜底识图（两轮后由会话层换回原模型）
-  const usedModel = needVision && model.vision !== true ? findModel('deepseek-v4-flash-vision-exp')! : model;
+  // Preserve DeepSeek's existing same-provider visual route. Other providers must
+  // declare the selected model's image capability instead of leaking images to DeepSeek.
+  if (needVision && model.provider !== 'deepseek' && model.vision !== true) throw new Error('model:vision_unsupported');
+  const usedModel = needVision && model.vision !== true ? findModel('deepseek-v4-flash-vision-exp', 'deepseek')! : model;
   const useVision = needVision;
 
   /** 兜底模型：deepseek-v4-flash（随账号必有 key、稳定便宜）——每种模型都有兜底 */
@@ -270,6 +294,13 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
 
   const r = await attempt(usedModel, useVision);
   if (r) return r;
+
+  // BYOK recovery stays on the explicitly selected provider and exact model ID.
+  if (usedModel.provider !== 'deepseek') {
+    const recovered = await attempt(usedModel, useVision, true);
+    if (recovered) return recovered;
+    throw new Error('server:error');
+  }
 
   // 思考模式耗尽输出额度时，服务可能返回 200 但正文为空；关闭思考作一次有界恢复。
   if (usedModel.id === fallback.id) {

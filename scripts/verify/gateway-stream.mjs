@@ -30,6 +30,7 @@ const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1'
 
 /* ---------- mock 上游 ---------- */
 const upstreamBodies = [];
+let cancelledUpstream = false;
 const upstream = createServer((req, res) => {
   let raw = '';
   req.on('data', (chunk) => { raw += chunk; });
@@ -41,6 +42,10 @@ const upstream = createServer((req, res) => {
       const frame = (text) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
       res.write(frame('星'));
       res.write(frame('域'));
+      if (String(body.messages?.at(-1)?.content ?? '').includes('stop-test')) {
+        res.once('close', () => { cancelledUpstream = true; });
+        return;
+      }
       if (String(body.messages?.at(-1)?.content ?? '').includes('cut-test')) {
         // 上游异常断开：没有 [DONE]，连接直接收尾
         res.end();
@@ -125,6 +130,12 @@ if (ready) {
   /* 5) 老客户端兼容性：旧网关不存在该路径时的语义由客户端回退处理（此处验证 404 仍然明确） */
   const notFound = await fetch(`http://127.0.0.1:${gatewayPort}/v1/chat/streaming`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   check('⑨ 未知路径仍是明确的 404', notFound.status === 404);
+
+  const cancelled = await gw('/v1/chat/stream', { systemPrompt: 's', message: 'stop-test' });
+  const reader = cancelled.body.getReader();
+  await reader.read(); await reader.cancel();
+  for (let attempt = 0; attempt < 30 && !cancelledUpstream; attempt++) await new Promise(resolve => setTimeout(resolve, 50));
+  check('⑩ 停止生成会关闭真实网关的上游请求', cancelledUpstream);
 }
 
 gateway.kill();
