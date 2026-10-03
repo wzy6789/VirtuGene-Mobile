@@ -11,6 +11,7 @@ import './styles/settings-ui.css';
 import './styles/ui-fonts.css';
 import './styles/typography.css';
 import './styles/ui-performance.css';
+import './styles/notifications.css';
 import { installUiPreferences } from './lib/ui-preferences';
 
 const removeUiPreferences = installUiPreferences();

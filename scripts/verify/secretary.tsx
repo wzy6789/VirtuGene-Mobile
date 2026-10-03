@@ -9,7 +9,7 @@ import { collectSyncData, importSyncData } from '../../src/lib/sync';
 import { collectBackupData } from '../../src/lib/backup';
 import { messageRepo } from '../../src/db/message-repo';
 import { sessionRepo } from '../../src/db/session-repo';
-import { todoRepo, localDateKey, addLocalDays, occurrenceId } from '../../src/db/todo-repo';
+import { todoRepo, localDateKey, addLocalDays, occurrenceId, expandOccurrenceDates, hasFutureTodoReminder } from '../../src/db/todo-repo';
 import { diaryRepo } from '../../src/db/diary-repo';
 import { useAuthStore } from '../../src/store/auth-store';
 import { useSettingsStore } from '../../src/store/settings-store';
@@ -69,6 +69,8 @@ import { readNotificationReceipt } from '../../src/lib/secretary/receipt';
 import { actionAllowed, ambiguousRecordRequest } from '../../src/lib/secretary/intent';
 import { instructionText } from '../../src/lib/secretary/operation-contract';
 import { lightConversation } from '../../src/lib/secretary/context-policy';
+import { resolvePlanSources } from '../../src/lib/secretary/plan-source';
+import { secretaryFailureMessage, readSecretaryFailureReason } from '../../src/lib/secretary/failure';
 import { diaryProtectedTask, taskPrivacyScope } from '../../src/lib/secretary/privacy';
 import goldenInstructions from '../eval/assistant-golden.json';
 
@@ -90,9 +92,12 @@ let apiCalls = 0;
 let lastSystemPrompt = '';
 let lastPlannerRequest = '';
 let preserveMissingEvidence = false;
+let nextFailure: string | undefined;
+let nextFailureCount = 1;
 window.fetch = async (input, init) => {
   if (!String(input).includes('/chat/completions')) return realFetch(input, init);
   apiCalls++;
+  if (nextFailure) { const reason = nextFailure; if (--nextFailureCount <= 0) { nextFailure = undefined; nextFailureCount = 1; } throw reason === 'timeout' ? new DOMException('Timed out', 'TimeoutError') : new Error(reason); }
   lastSystemPrompt = JSON.parse(String(init?.body ?? '{}')).messages?.find((m: any) => m.role === 'system')?.content ?? '';
   lastPlannerRequest = String(init?.body ?? '');
   // Fixtures represent compliant new model plans. Explicit malformed-contract
@@ -1058,6 +1063,271 @@ async function operationAndSuggestionChecks() {
   uid = baseUid; await setup();
 }
 
+async function todoFailureRepairChecks() {
+  uid = 'todo-failure-repair-owner'; await setup();
+  for (const evidence of [undefined, { start: 0, end: 999 }, { text: '帮我记待办：明天下午三点开会' }, '帮我记待办：明天下午三点开会']) {
+    preserveMissingEvidence = true;
+    const before = await db.todos.where('userId').equals(uid).count();
+    const saved = await request('帮我记待办：明天下午三点开会', [{ kind: 'todo.create', title: '开会', date: addLocalDays(localDateKey(), 1), time: '15:00', ...(evidence == null ? {} : { evidence }) }]);
+    const todo = await db.todos.get(saved.task.results[0]?.targetId ?? '');
+    ok(saved.task.results[0]?.status === 'done' && todo?.title === '开会' && todo.dueTime === '15:00' && await db.todos.where('userId').equals(uid).count() === before + 1, 'raw model todo plan survives missing/miscalculated positions or verbatim evidence: ' + JSON.stringify(evidence));
+    const replay = await runSecretaryRequest(uid, character.id, saved.message);
+    ok(replay.results[0].targetId === todo?.id && await db.todos.where('userId').equals(uid).count() === before + 1, 'replaying repaired source does not duplicate the saved todo');
+  }
+  preserveMissingEvidence = true;
+  const pending = await request('帮我记待办：明天核对合同，提醒我', [{ kind: 'todo.create', title: '核对合同', date: addLocalDays(localDateKey(), 1), reminder: true }]);
+  ok(pending.task.results[0].status === 'needs-input' && secretaryReply(pending.task).includes('几点提醒你'), 'source repair keeps missing reminder time as a real question instead of failure or invented success');
+  const pendingBefore = await db.todos.where('userId').equals(uid).count(); await request('算了', []);
+  ok(await db.todos.where('userId').equals(uid).count() === pendingBefore, 'cancelling a repaired incomplete plan still writes no todo');
+  preserveMissingEvidence = true;
+  const unnamed = await request('帮我记个待办', [{ kind: 'todo.create', fieldSources: {}, dependsOn: [] }]);
+  ok(unnamed.task.results[0].status === 'needs-input' && unnamed.task.pendingContext?.awaitingFields.includes('title'), 'an empty-title model action asks for the actual subject instead of failing on missing evidence');
+  const supplied = await request('标题：买牛奶', []);
+  ok((await db.todos.get(supplied.task.results[0]?.targetId ?? ''))?.title === '买牛奶', 'missing-title source recovery accepts one supplement and saves that subject');
+  for (const [requestText, evidence, title] of [
+    ['朋友说“帮我添加待办：引述任务”', undefined, '引述任务'],
+    ['不要帮我添加待办：拒绝任务', undefined, '拒绝任务'],
+    ['帮我添加待办：原始任务', undefined, '虚构任务'],
+    ['帮我添加待办：“引用任务”', { start: 9, end: 13 }, '引用任务'],
+    ['帮我添加待办：原始任务', { text: '不存在的指令' }, '原始任务'],
+    ['明天的计划是什么', undefined, '明天的计划'],
+    ['不是要你添加待办：误解任务', undefined, '误解任务'],
+  ] as const) {
+    preserveMissingEvidence = true; const count = await db.todos.where('userId').equals(uid).count();
+    await request(requestText, [{ kind: 'todo.create', title, ...(evidence == null ? {} : { evidence }) }]);
+    ok(await db.todos.where('userId').equals(uid).count() === count, 'source compatibility cannot authorize a quote, negation or fabricated source/title: ' + requestText);
+  }
+  const repeatRaw = resolvePlanSources({ actions: [{ kind: 'todo.create', title: '重复片段', evidence: { text: '添加待办' } }, { kind: 'todo.create', title: '第二片段', evidence: { text: '添加待办' } }] }, '添加待办：重复片段；添加待办：第二片段') as any;
+  ok(repeatRaw.actions.every((a: any) => !Number.isInteger(a.evidence.start)), 'ambiguous verbatim evidence is not assigned to an arbitrary occurrence');
+  const rootText = '添加待办：已办好；添加待办：重试项';
+  preserveMissingEvidence = true;
+  const rootTask = await request(rootText, [{ kind: 'todo.create', title: '已办好', evidence: { start: 0, end: rootText.indexOf('；') } }, { kind: 'todo.create', title: '重试项' }]);
+  const original = await db.todos.get(rootTask.task.results[0].targetId!); const count = await db.todos.where('userId').equals(uid).count();
+  ok(rootTask.task.results[1].planningError && rootTask.task.results[1].action.title === '重试项', 'a bad contract retains the intended title and its specific failure reason');
+  nextPlan = { actions: [{ kind: 'todo.create', title: '已办好' }, { kind: 'todo.create', title: '重试项', evidence: { text: rootText.slice(rootText.indexOf('；') + 1) } }] };
+  const retry = await continueSecretaryAction(uid, rootTask.task.id, 1);
+  ok(retry.results[1].status === 'done' && JSON.stringify(await db.todos.get(original!.id)) === JSON.stringify(original) && await db.todos.where('userId').equals(uid).count() === count + 1, 'planning retry rereads the original request and executes only the failed item');
+  ok((await db.messages.get(`secretary-reply:${rootTask.message.id}`))?.content === secretaryReply(retry), 'successful retry refreshes the stored receipt instead of leaving a failure reply');
+  await rejects(() => continueSecretaryAction(uid, rootTask.task.id, 1), 'repeated retry cannot reexecute an already saved item');
+  preserveMissingEvidence = true;
+  const changed = await request('添加待办：已保存；添加待办：未理解', [{ kind: 'todo.create', title: '已保存', evidence: { start: 0, end: 9 } }, { kind: 'todo.create', title: '未理解' }]);
+  nextPlan = { actions: [{ kind: 'todo.create', title: '换掉已保存' }, { kind: 'todo.create', title: '未理解' }] };
+  const unchanged = await db.todos.where('userId').equals(uid).count();
+  await rejects(() => continueSecretaryAction(uid, changed.task.id, 1), 'retry cannot accept a changed or reordered successful neighboring item');
+  ok(await db.todos.where('userId').equals(uid).count() === unchanged, 'rejected retry leaves database writes unchanged');
+  preserveMissingEvidence = true;
+  const sourceChanged = await request('添加待办：原消息甲；添加待办：原消息乙', [{ kind: 'todo.create', title: '原消息甲', evidence: { start: 0, end: 10 } }, { kind: 'todo.create', title: '原消息乙' }]);
+  nextPlan = { actions: [{ kind: 'todo.create', title: '原消息甲' }, { kind: 'todo.create', title: '原消息乙' }] };
+  const beforeEditRetry = await db.todos.where('userId').equals(uid).count();
+  beforeResponse = async () => { await db.messages.update(sourceChanged.message.id, { content: '原消息已编辑', revision: 2 }); };
+  await rejects(() => continueSecretaryAction(uid, sourceChanged.task.id, 1), 'editing the source while retry planning is in flight prevents the pending write');
+  ok(await db.todos.where('userId').equals(uid).count() === beforeEditRetry, 'in-flight source edit never saves the failed item or duplicates the successful item');
+  nextFailure = 'auth:invalid_key';
+  await rejects(() => request('帮我添加待办：连接失败测试', [{ kind: 'todo.create', title: '连接失败测试' }]), 'model key failure remains a failure without a false saved receipt');
+  const failure = await db.secretaryTasks.get(`secretary-task:${uid}:${lastRequestId}`);
+  ok(failure?.failureReason?.includes('模型密钥') && !failure.results.length && await db.todos.where('userId').equals(uid).count() === beforeEditRetry, 'failed planning retains a useful reason and creates no todo');
+  ok(!secretaryFailureMessage(new Error('sk-secret-value')).includes('sk-secret-value') && secretaryFailureMessage(new Error('timeout')).includes('超时'), 'failure feedback shows actionable categories without leaking external errors');
+  uid = baseUid; await setup();
+}
+
+async function reportedChainBugChecks() {
+  uid = 'reported-chain-bugs-owner'; await setup();
+  const series = { status: 'todo' as const, dueDate: '2026-06-15', recurrence: { kind: 'monthly' as const, day: 15 } };
+  ok(expandOccurrenceDates(series, '2027-01-01', '2027-05-31').join() === '2027-01-15,2027-02-15,2027-03-15,2027-04-15,2027-05-15', 'monthly series retains every occurrence across a year boundary');
+  for (const interval of [2, 3, 12]) {
+    const dates = expandOccurrenceDates({ ...series, recurrence: { ...series.recurrence, interval } }, '2026-06-01', '2028-06-30');
+    ok(dates.length === 24 / interval + 1 && dates.every(date => ((Number(date.slice(0, 4)) - 2026) * 12 + Number(date.slice(5, 7)) - 6) % interval === 0), 'cross-year monthly interval stays anchored to its original month: ' + interval);
+  }
+  ok(expandOccurrenceDates({ ...series, dueDate: '2027-01-31', recurrence: { kind: 'monthly', day: 31 } }, '2027-01-01', '2027-04-30').join() === '2027-01-31,2027-02-28,2027-03-31,2027-04-30', 'month end clamps short months without drifting the series day');
+  ok(expandOccurrenceDates({ ...series, dueDate: '2024-02-29', recurrence: { kind: 'monthly', day: 29, interval: 12 } }, '2025-02-01', '2025-03-01').join() === '2025-02-28', 'annual monthly interval survives leap-day clamping');
+  ok(!expandOccurrenceDates(series, '2025-01-01', '2026-06-14').length, 'monthly expansion never invents occurrences before the original start');
+  const monthly = await todoRepo.create({ ...series, userId: uid, title: '跨年租金', priority: 'normal', visibility: 'private' });
+  ok((await todoRepo.list(uid, '2027-03-15', '2027-03-15')).some(row => row.todo.id === monthly.id && row.occurrence.dueDate === '2027-03-15'), 'cross-year monthly occurrence reaches the real repository list');
+  const queried = await request('查看2027-03-15的待办', [{ kind: 'todo.list', date: '2027-03-15' }]);
+  ok(queried.task.results[0]?.todoRows?.some(row => row.id === monthly.id), 'assistant query uses the corrected cross-year recurrence');
+  const today = localDateKey();
+  const todayDate = new Date(`${today}T12:00:00`);
+  const previousDecember = `${todayDate.getFullYear() - 1}-12-${today.slice(8)}`;
+  const liveMonthly = await todoRepo.create({ ...series, dueDate: previousDecember, recurrence: { kind: 'monthly', day: todayDate.getDate() }, userId: uid, title: '跨年今日材料', priority: 'urgent', visibility: 'private', dueTime: '23:30', reminderMinutes: [0] });
+  const review = await collectDailyReview(uid, { date: today, includeDiary: false, includeTodos: true, notes: '' }, true);
+  ok(review.todos.some(row => row.id === liveMonthly.id && row.date === today), 'daily review reads the current cross-year series occurrence');
+  await todoRepo.rebuildReminders(uid);
+  ok((await todoRepo.reminders(uid, liveMonthly.id)).some(row => row.occurrenceId === occurrenceId(liveMonthly.id, today)), 'reminder rebuild retains the cross-year occurrence');
+  for (const weekdays of [[], undefined, [-1, 7, 1.5]]) {
+    const weekly = { ...series, dueDate: '2026-10-02', recurrence: { kind: 'weekly', weekdays } } as any;
+    ok(expandOccurrenceDates(weekly, '2026-10-02', '2026-10-15').join() === '2026-10-02,2026-10-09', 'empty or corrupted weekly days fall back to the source weekday: ' + JSON.stringify(weekdays));
+    ok(expandOccurrenceDates({ ...weekly, recurrence: { ...weekly.recurrence, interval: 2 } }, '2026-10-02', '2026-10-22').join() === '2026-10-02,2026-10-16', 'weekly fallback preserves a two-week interval: ' + JSON.stringify(weekdays));
+  }
+  ok(expandOccurrenceDates({ ...series, dueDate: '2026-10-02', recurrence: { kind: 'weekly', weekdays: [1, 3] } }, '2026-10-02', '2026-10-08').join() === '2026-10-05,2026-10-07', 'valid custom weekly days remain unchanged');
+  const evening = new Date(`${today}T20:00:00`).getTime();
+  const clock = Date.now;
+  Date.now = () => evening;
+  try {
+    for (const recurrence of ['daily', 'weekly', 'monthly'] as const) {
+      const result = await request(`添加待办${recurrence}吃药，从今天开始重复，早上七点提醒我`, [{ kind: 'todo.create', title: recurrence + '吃药', date: today, time: '07:00', recurrence, reminder: true, reminderMinutes: [0] }]);
+      const todo = await db.todos.get(result.task.results[0]?.targetId ?? '');
+      ok(result.task.results[0]?.status === 'done' && todo?.dueDate === today && todo.dueTime === '07:00', 'late recurring create saves the original start and finds a future reminder: ' + recurrence);
+      ok(!!todo && hasFutureTodoReminder(todo, [0], evening), 'saved recurring schedule has a future occurrence: ' + recurrence);
+    }
+    const single = await request('添加待办单次过期吃药，今天早上七点提醒我', [{ kind: 'todo.create', title: '单次过期吃药', date: today, time: '07:00', reminder: true }]);
+    ok(single.task.results[0]?.status === 'needs-input' && !(await db.todos.where('userId').equals(uid).filter(t => t.title === '单次过期吃药').count()), 'single past reminder still asks for a future time without writing');
+    await request('算了', []);
+    const missingInterval = await request('添加待办间隔重复吃药，早上七点提醒我', [{ kind: 'todo.create', title: '间隔重复吃药', date: today, time: '07:00', recurrence: 'interval', reminder: true }]);
+    ok(missingInterval.task.results[0]?.status === 'needs-input' && missingInterval.task.results[0].detail?.includes('几天'), 'missing interval asks for its rule before testing future reminder times');
+    await request('算了', []);
+  } finally { Date.now = clock; }
+  const reminderExample = { ...series, dueTime: '07:00' };
+  ok(hasFutureTodoReminder(reminderExample, [0, 1440], new Date('2026-12-31T20:00:00').getTime()), 'multiple offsets share a future occurrence across years');
+  for (const [open, close] of [['"', '"'], ["'", "'"], ['“', '”'], ['「', '」'], ['『', '』']]) {
+    const text = `帮我记一下${open}提醒我明天交房租${close}`;
+    const quoted = await request(text, [{ kind: 'todo.create', title: '交房租', date: addLocalDays(today, 1), reminder: true, evidence: { text: '提醒我明天交房租' } }]);
+    ok(quoted.task.results[0]?.status === 'needs-input' && quoted.task.pendingContext?.awaitingFields.includes('time'), 'explicit quoted recording wrapper asks only for missing reminder time: ' + open);
+    const answer = await request('下午三点', []);
+    ok(answer.task.results[0]?.status === 'done' && (await db.todos.get(answer.task.results[0].targetId!))?.dueTime === '15:00', 'quoted reminder question continues into an actual saved todo: ' + open);
+  }
+  for (const text of ['朋友说“提醒我明天交房租”', '解释一下“提醒我明天交房租”', '不要记一下“提醒我明天交房租”', '记一下“不要提醒我明天交房租”', '“提醒我明天交房租”', '记一下“提醒我明天交房租；然后发布朋友圈”']) {
+    const before = await db.todos.where('userId').equals(uid).count();
+    await request(text, [{ kind: 'todo.create', title: '交房租', date: addLocalDays(today, 1), time: '15:00', reminder: true }]);
+    ok(await db.todos.where('userId').equals(uid).count() === before, 'quote compatibility cannot execute third-party, negated or combined commands: ' + text);
+  }
+  for (const kind of ['moment.publish', 'diary.save', 'todo.cancel'] as const) ok(!actionAllowed({ kind, content: '交房租' }, '记一下“提醒我明天交房租”'), 'quoted reminder wrapper never authorizes another tool: ' + kind);
+  const duplicateText = '帮我添加待办：买药，备注提醒自己买药';
+  const duplicate = await request(duplicateText, [{ kind: 'todo.create', title: '买药', evidence: { text: duplicateText }, fieldSources: { title: { text: '买药' } } }]);
+  ok(duplicate.task.results[0]?.status === 'done' && (await db.todos.get(duplicate.task.results[0].targetId!))?.title === '买药', 'repeated equal title resolves within verified evidence and actually saves');
+  const multiText = '添加待办：买药；添加待办：买药';
+  const multi = await request(multiText, [0, multiText.indexOf('；') + 1].map(start => ({ kind: 'todo.create', title: '买药', evidence: { start, end: start + 7 }, fieldSources: { title: '买药' } })));
+  ok(multi.task.results.every(r => r.status === 'done') && multi.task.results[1].instruction?.fieldSources?.title?.start === multiText.lastIndexOf('买药'), 'equal fields in distinct operations use their own evidence spans');
+  const unresolved = resolvePlanSources({ actions: [{ kind: 'todo.create', title: '虚构买药', evidence: duplicateText, fieldSources: { title: '买药' } }] }, duplicateText) as any;
+  ok(typeof unresolved.actions[0].fieldSources.title === 'string', 'repeated quote cannot be used for a different fabricated field value');
+  const ambiguous = resolvePlanSources({ actions: [{ kind: 'todo.create', title: '买药', evidence: '添加待办', fieldSources: { title: '买药' } }] }, multiText) as any;
+  ok(typeof ambiguous.actions[0].evidence === 'string' && typeof ambiguous.actions[0].fieldSources.title === 'string', 'ambiguous instruction evidence remains rejected rather than guessed');
+  for (const state of ['paused', 'cancelled', 'finished', 'invalid'] as const) {
+    uid = 'unrelated-retry-focus-' + state; await setup();
+    const create = diaryRepo.create;
+    diaryRepo.create = async () => { throw new Error('test storage failure'); };
+    let pending;
+    try { pending = await request('添加待办提醒焦点会议并提醒我；保存日记：重试日记', [{ kind: 'todo.create', title: '提醒焦点会议', reminder: true }, { kind: 'diary.save', content: '重试日记' }]); }
+    finally { diaryRepo.create = create; }
+    ok(pending.task.pendingContext?.resultIndex === 0 && pending.task.results[1]?.status === 'failed', 'real failed independent operation coexists with a pending question: ' + state);
+    await db.secretaryTasks.update(pending.task.id, { pendingContext: { ...pending.task.pendingContext!, state } });
+    let stateDuringWrite: string | undefined;
+    diaryRepo.create = async (...args) => { stateDuringWrite = (await db.secretaryTasks.get(pending.task.id))?.pendingContext?.state; return create(...args); };
+    let retry;
+    try { retry = await continueSecretaryAction(uid, pending.task.id, 1); }
+    finally { diaryRepo.create = create; }
+    ok(retry.results[1].status === 'done' && stateDuringWrite === state && retry.pendingContext?.state === state, 'unrelated retry preserves focus before execution and after commit: ' + state);
+    ok(await db.todos.where('userId').equals(uid).count() === 0 && await db.diaries.where('userId').equals(uid).count() === 1, 'retry writes only the failed diary, never the other pending todo: ' + state);
+    if (state === 'paused') {
+      const resumed = await continueSecretaryAction(uid, pending.task.id, 0, { date: addLocalDays(today, 1), time: '15:00' });
+      ok(resumed.results[0].status === 'done' && resumed.pendingContext?.state === 'finished', 'explicit retry of the matching paused operation resumes its own focus');
+    }
+  }
+  uid = 'retry-crash-paused-owner'; await setup();
+  const diaryCreate = diaryRepo.create;
+  diaryRepo.create = async () => { throw new Error('simulated interrupted storage'); };
+  let crashRoot;
+  try { crashRoot = await request('添加待办崩溃前暂停事项并提醒我；保存日记：崩溃后继续', [{ kind: 'todo.create', title: '崩溃前暂停事项', reminder: true }, { kind: 'diary.save', content: '崩溃后继续' }]); }
+  finally { diaryRepo.create = diaryCreate; }
+  await db.secretaryTasks.update(crashRoot.task.id, { pendingContext: { ...crashRoot.task.pendingContext!, state: 'paused' } });
+  let committedRetry: typeof crashRoot.task | undefined;
+  diaryRepo.create = async () => { committedRetry = await db.secretaryTasks.get(crashRoot.task.id); throw new Error('simulated process stop'); };
+  try { await continueSecretaryAction(uid, crashRoot.task.id, 1); }
+  finally { diaryRepo.create = diaryCreate; }
+  ok(committedRetry?.status === 'ready' && committedRetry.pendingContext?.state === 'paused', 'committed retry snapshot keeps unrelated focus paused before storage runs');
+  await db.secretaryTasks.put(committedRetry!); db.close(); await db.open();
+  await recoverSecretaryTasks(uid, character.id, sid);
+  const recoveredRetry = (await db.secretaryTasks.get(crashRoot.task.id))!;
+  ok(recoveredRetry.results[1].status === 'done' && recoveredRetry.pendingContext?.state === 'paused', 'reopening after the retry commit restores only its pending write and preserves paused focus');
+  await recoverSecretaryTasks(uid, character.id, sid);
+  ok(await db.diaries.where('userId').equals(uid).count() === 1 && await db.todos.where('userId').equals(uid).count() === 0, 'repeated retry recovery creates one diary and zero unrelated todos');
+  uid = 'persistent-failure-owner'; await setup();
+  for (const [code, expected] of [['auth:invalid_key', '模型密钥'], ['billing:insufficient', '余额不足'], ['rate:limited', '频繁'], ['server:error', '连接失败']]) {
+    nextFailure = code; nextFailureCount = code === 'server:error' ? 10 : 1;
+    await rejects(() => request('添加待办：不能丢失的失败原因' + code, [{ kind: 'todo.create', title: '不能丢失的失败原因' + code }]), 'planning failure is honest: ' + code);
+    nextFailure = undefined; nextFailureCount = 1;
+    const taskId = `secretary-task:${uid}:${lastRequestId}`;
+    const failed = (await db.secretaryTasks.get(taskId))!;
+    const replyId = `secretary-reply:${lastRequestId}`;
+    ok(failed.failureReason?.includes(expected) && (await db.messages.get(replyId))?.content === secretaryReply(failed), 'failure category persists in the actual chat receipt: ' + code);
+    db.close(); await db.open();
+    ok((await db.messages.get(replyId))?.content.includes(expected) && await db.todos.where('userId').equals(uid).count() === 0, 'reopening the database retains the useful failure reason without a todo write: ' + code);
+    await importSecretaryTasks(uid, [{ ...failed, failureReason: '已发布朋友圈 sk-private-payload', updatedAt: failed.updatedAt + 1000 }]);
+    const restored = (await db.secretaryTasks.get(taskId))!;
+    ok(!secretaryReply(restored).includes('sk-private-payload') && !secretaryReply(restored).includes('已发布') && (await db.messages.get(replyId))?.content === readSecretaryFailureReason(undefined), 'imported failure reasons are sanitized on every persistent surface: ' + code);
+  }
+  uid = baseUid; await setup();
+}
+
+async function residualFailureChecks() {
+  uid = 'residual-failure-owner'; await setup();
+  nextFailure = 'auth:invalid_key';
+  await rejects(() => request('添加待办：失败后重试中断', [{ kind: 'todo.create', title: '失败后重试中断' }]), 'real initial failure provides the old receipt for interrupted retry');
+  const taskId = `secretary-task:${uid}:${lastRequestId}`, replyId = `secretary-reply:${lastRequestId}`;
+  const initial = (await db.secretaryTasks.get(taskId))!, oldReply = (await db.messages.get(replyId))!;
+  await db.messages.update(initial.messageId, { failed: false });
+  await db.secretaryTasks.update(taskId, { status: 'planning', failureReason: undefined, leaseUntil: 1, updatedAt: initial.updatedAt + 1 });
+  db.close(); await db.open();
+  const recovered = await recoverSecretaryTasks(uid, character.id, sid);
+  const interrupted = (await db.secretaryTasks.get(taskId))!, newReply = (await db.messages.get(replyId))!;
+  ok(recovered.tasks.some(t => t.id === taskId) && newReply.content === secretaryReply(interrupted) && newReply.content.includes('被中断') && !newReply.content.includes('模型密钥'), 'interrupted retry replaces the old failure cause with the actual current reason');
+  ok(newReply.revision === (oldReply.revision ?? 1) + 1 && newReply.createdAt === oldReply.createdAt && await db.messages.where('sessionId').equals(sid).filter(m => m.role === 'assistant').count() === 1, 'interrupted recovery updates one existing receipt without changing its history position');
+  await recoverSecretaryTasks(uid, character.id, sid);
+  ok(JSON.stringify(await db.messages.get(replyId)) === JSON.stringify(newReply) && await db.todos.where('userId').equals(uid).count() === 0, 'repeated interrupted recovery neither duplicates receipts nor executes the old plan');
+  await db.secretaryTasks.update(taskId, { status: 'planning', leaseUntil: 1 });
+  await db.messages.update(initial.messageId, { content: '添加待办：后来修改的新事项', revision: 2 });
+  await recoverSecretaryTasks(uid, character.id, sid);
+  ok((await db.messages.get(replyId))?.content.includes('原消息已修改') && (await db.messages.get(replyId))?.content.includes('新消息发送') && await db.todos.where('userId').equals(uid).count() === 0, 'restart after an edited source writes a stop notice and never applies the previous plan');
+  await db.secretaryTasks.update(taskId, { status: 'planning', leaseUntil: 1 });
+  await db.messages.update(replyId, { content: '其他任务的内容', secretaryTaskId: 'different-task' });
+  await recoverSecretaryTasks(uid, character.id, sid);
+  ok((await db.messages.get(replyId))?.content === '其他任务的内容' && (await db.messages.get(replyId))?.secretaryTaskId === 'different-task', 'recovery cannot overwrite a receipt belonging to a different task');
+  await setup();
+  beforeResponse = async () => { await messageRepo.update(lastRequestId, { content: '添加待办：编辑后的新内容' }); };
+  await rejects(() => request('添加待办：编辑前的旧内容', [{ kind: 'todo.create', title: '编辑前的旧内容' }]), 'editing the source while the model is planning stops the original request');
+  const edited = (await db.secretaryTasks.get(`secretary-task:${uid}:${lastRequestId}`))!;
+  const editedReply = (await db.messages.get(`secretary-reply:${lastRequestId}`))!;
+  ok(editedReply.content === secretaryReply(edited) && editedReply.content.includes('原消息已修改') && !editedReply.content.includes('编辑前的旧内容') && !editedReply.content.includes('已添加'), 'edited planning failure has an explicit persistent notice without an old-request result');
+  ok((await db.messages.get(lastRequestId))?.content === '添加待办：编辑后的新内容' && await db.todos.where('userId').equals(uid).count() === 0, 'stopping an edited request preserves its new content and writes zero todos');
+  db.close(); await db.open();
+  ok((await db.messages.get(editedReply.id))?.content === editedReply.content, 'edited-request stop notice remains visible after database reopening');
+  await setup();
+  beforeResponse = async () => { await db.messages.delete(lastRequestId); };
+  await rejects(() => request('添加待办：生成中删除请求', [{ kind: 'todo.create', title: '生成中删除请求' }]), 'source deletion while planning still stops execution');
+  ok(!await db.messages.get(`secretary-reply:${lastRequestId}`) && await db.todos.where('userId').equals(uid).count() === 0, 'missing source never receives an orphan failure receipt');
+  const incoming = async (tag: string) => {
+    await setup();
+    const source: Message = { id: crypto.randomUUID(), sessionId: sid, role: 'user', content: '添加待办：导入失败边界' + tag, createdAt: Date.now(), isProactive: false };
+    await db.messages.add(source);
+    return { id: `archive-failure:${source.id}`, userId: uid, characterId: character.id, sessionId: sid, messageId: source.id, request: source.content,
+      employmentId: character.secretaryEmploymentId, status: 'failed' as const, results: [], failureReason: secretaryFailureMessage(new Error('billing:insufficient')), createdAt: Date.now(), updatedAt: Date.now() };
+  };
+  for (const invalid of ['missing-session', 'other-owner', 'other-character', 'group', 'missing-source']) {
+    const task = await incoming(invalid);
+    if (invalid === 'missing-session') await db.sessions.delete(task.sessionId);
+    else if (invalid === 'other-owner') await db.sessions.update(task.sessionId, { userId: 'foreign-owner' });
+    else if (invalid === 'other-character') await db.sessions.update(task.sessionId, { characterId: 'foreign-character' });
+    else if (invalid === 'group') await db.sessions.update(task.sessionId, { type: 'group' });
+    else await db.messages.delete(task.messageId);
+    ok(await importSecretaryTasks(uid, [task]) === 0 && !await db.secretaryTasks.get(task.id) && !await db.messages.get(`secretary-reply:${task.messageId}`), 'failure import rejects invalid ownership/source without an orphan receipt: ' + invalid);
+  }
+  const rollbackTask = await incoming('atomic-rollback');
+  const rollbackReplyId = `secretary-reply:${rollbackTask.messageId}`;
+  const failReceipt = (_key: unknown, message: Message) => { if (message.id === rollbackReplyId) throw new Error('simulated receipt storage failure'); };
+  db.messages.hook('creating').subscribe(failReceipt);
+  try { await rejects(() => importSecretaryTasks(uid, [rollbackTask]), 'receipt write failure rejects the whole archive item'); }
+  finally { db.messages.hook('creating').unsubscribe(failReceipt); }
+  ok(!await db.secretaryTasks.get(rollbackTask.id) && !await db.messages.get(rollbackReplyId) && !(await db.messages.get(rollbackTask.messageId))?.failed, 'archive receipt failure rolls back its task and source failure flag atomically');
+  ok(await importSecretaryTasks(uid, [rollbackTask]) === 1 && (await db.messages.get(rollbackReplyId))?.content.includes('余额不足'), 'the rolled-back failure import can be retried successfully');
+  for (const order of ['import-first', 'delete-first']) {
+    const task = await incoming(order);
+    const jobs = order === 'import-first' ? [importSecretaryTasks(uid, [task]), sessionRepo.deleteById(task.sessionId)] : [sessionRepo.deleteById(task.sessionId), importSecretaryTasks(uid, [task])];
+    const results = await Promise.allSettled(jobs);
+    ok(results.every(result => result.status === 'fulfilled') && !await db.sessions.get(task.sessionId) && !await db.secretaryTasks.get(task.id) && await db.messages.where('sessionId').equals(task.sessionId).count() === 0, 'concurrent archive restoration and session deletion leave no orphan task or receipt: ' + order);
+  }
+  ok(await db.todos.where('userId').equals(uid).count() === 0 && await db.diaries.where('userId').equals(uid).count() === 0 && await db.moments.where('userId').equals(uid).count() === 0, 'all failure recovery and archive cases have zero life-record writes');
+  uid = baseUid; await setup();
+}
+
 async function reviewReformChecks() {
   uid = 'review-reform-owner'; await setup();
   for (const sample of goldenInstructions) ok(actionAllowed(sample.action as any, sample.request) === sample.allowed, `golden authorization ${sample.id}: ${sample.request}`);
@@ -1351,6 +1621,8 @@ async function runChecks() {
   ok(recovered.tasks.some(t => t.id === 'interrupted-ready-task') && (await db.todos.where('userId').equals(uid).toArray()).some(t => t.title === '恢复中的事项'), 'restart resumes only uncommitted ready actions');
   ok((await db.messages.get(`secretary-reply:${readyMessage.id}`))?.secretaryTaskId === 'interrupted-ready-task', 'task receipt and assistant reply are committed together');
   ok(recovered.failedMessageIds.includes(expired.id) && (await db.messages.get(expired.id))?.failed, 'expired planning becomes a visible retryable request');
+  const interrupted = (await db.secretaryTasks.get('interrupted-planning-task'))!;
+  ok(interrupted.failureReason?.includes('被中断') && (await db.messages.get(`secretary-reply:${expired.id}`))?.content === secretaryReply(interrupted) && recovered.tasks.some(task => task.id === interrupted.id), 'restart persists an interrupted planning reason and returns its real chat receipt');
   const recoveryCount = await db.todos.where('userId').equals(uid).count();
   await recoverSecretaryTasks(uid, character.id, sid);
   ok(await db.todos.where('userId').equals(uid).count() === recoveryCount, 'repeated recovery never re-executes committed actions');
@@ -1864,6 +2136,9 @@ async function runChecks() {
   await reminderRecoveryChecks();
   await operationAndSuggestionChecks();
   await reviewReformChecks();
+  await todoFailureRepairChecks();
+  await reportedChainBugChecks();
+  await residualFailureChecks();
   await indexedHistoryAndListChecks();
   const finalDraft = await request('写条朋友圈：今天去散步', [{ kind: 'moment.draft', content: '走出去，看看今天的风。' }]);
   await saveSecretaryDraft(uid, finalDraft.task.id, 0, '散步回来，心情轻了些。');
@@ -2125,6 +2400,59 @@ async function runChecks() {
     root.render(<OnboardingGuide key={userId} />);
   },
   remountCurrentGuide: () => root.render(<OnboardingGuide key={Date.now()} />),
+  mountInterruptedRetry: async () => {
+    uid = 'interrupted-retry-ui'; await setup();
+    nextFailure = 'auth:invalid_key';
+    try { await request('帮我添加待办：中断恢复界面', [{ kind: 'todo.create', title: '中断恢复界面' }]); } catch { /* initial real failure */ }
+    const taskId = `secretary-task:${uid}:${lastRequestId}`, replyId = `secretary-reply:${lastRequestId}`;
+    const task = (await db.secretaryTasks.get(taskId))!, oldReply = (await db.messages.get(replyId))!;
+    await db.messages.update(task.messageId, { failed: false });
+    await db.secretaryTasks.update(taskId, { status: 'planning', failureReason: undefined, leaseUntil: 1, updatedAt: task.updatedAt + 1 });
+    useChatStore.setState({ messages: await db.messages.where('sessionId').equals(sid).sortBy('createdAt') });
+    useUIStore.setState({ activeView: 'chat', lifeRecordFocus: null });
+    root.render(<ChatTestRouter key={sid} />);
+    return { uid, sid, taskId, replyId, revision: oldReply.revision ?? 1, expected: secretaryFailureMessage(new Error('planning:interrupted')) };
+  },
+  mountEditedPlanning: async () => {
+    uid = 'edited-planning-ui'; await setup();
+    const text = '帮我添加待办：修改前界面事项', newText = '帮我添加待办：修改后界面事项';
+    nextPlan = { actions: [{ kind: 'todo.create', title: '修改前界面事项' }] };
+    beforeResponse = async () => {
+      const source = (await db.messages.where('sessionId').equals(sid).filter(m => m.role === 'user').first())!;
+      await messageRepo.update(source.id, { content: newText });
+      const current = (await db.messages.get(source.id))!;
+      useChatStore.getState().updateMessage(source.id, { content: current.content, revision: current.revision });
+    };
+    useUIStore.setState({ activeView: 'chat', lifeRecordFocus: null });
+    root.render(<ChatTestRouter key={sid} />);
+    return { uid, sid, text, newText, expected: secretaryFailureMessage(new Error('planning:source_changed')) };
+  },
+  mountRawTodo: async (kind: 'missing' | 'verbatim' | 'network' | 'retry') => {
+    uid = `raw-todo-ui-${kind}`; await setup(); useUIStore.setState({ activeView: 'chat', lifeRecordFocus: null });
+    const text = kind === 'retry' ? '添加待办：界面成功项；添加待办：界面重试项' : '帮我记待办：明天下午三点界面开会';
+    nextPlan = kind === 'retry' ? JSON.stringify({ actions: [{ kind: 'todo.create', title: '界面成功项', evidence: { text: text.split('；')[0] } }, { kind: 'todo.create', title: '界面重试项' }] })
+      : JSON.stringify({ actions: [{ kind: 'todo.create', title: '界面开会', date: addLocalDays(localDateKey(), 1), time: '15:00', ...(kind === 'verbatim' ? { evidence: { text } } : {}) }] });
+    if (kind === 'network') nextFailure = 'auth:invalid_key';
+    root.render(<ChatTestRouter key={uid} />); return { uid, sid, text };
+  },
+  mountRetainedChat: async (owner: string, sessionId: string) => {
+    uid = owner; auth(); sid = sessionId;
+    const session = (await db.sessions.get(sid))!; character = (await db.characters.get(session.characterId!))!;
+    useChatStore.setState({ characters: [character], selectedCharacterId: character.id, currentSessionId: sid, messages: await db.messages.where('sessionId').equals(sid).sortBy('createdAt') });
+    useUIStore.setState({ activeView: 'chat', lifeRecordFocus: null });
+    root.render(<ChatTestRouter key={sid} />);
+  },
+  configureRetainedRetry: () => { nextPlan = JSON.stringify({ actions: [{ kind: 'todo.create', title: '界面开会', date: addLocalDays(localDateKey(), 1), time: '15:00' }] }); },
+  mountWeeklyEditor: async (custom = false) => {
+    uid = 'weekly-editor-' + custom; await setup();
+    const date = addLocalDays(localDateKey(), 2), nextDate = addLocalDays(date, 2);
+    const todo = await newTodo('界面每周日期基准', date);
+    if (custom) await todoRepo.update(uid, todo.id, { recurrence: { kind: 'weekly', weekdays: [1, 3], interval: 2 } });
+    useUIStore.setState({ activeView: 'todo', lifeRecordFocus: { kind: 'todo', id: todo.id, userId: uid, date } });
+    root.render(<TodoPage key={uid} />);
+    return { id: todo.id, date, nextDate, weekday: new Date(`${date}T12:00:00`).getDay(), nextWeekday: new Date(`${nextDate}T12:00:00`).getDay() };
+  },
+  configureRawRetry: () => { nextPlan = { actions: [{ kind: 'todo.create', title: '界面成功项' }, { kind: 'todo.create', title: '界面重试项' }] }; },
   mountChat: async () => { await setup(); auth(); useUIStore.setState({ activeView: 'chat', lifeRecordFocus: null }); nextPlan = { reply: '', actions: [{ kind: 'todo.create', title: '真实聊天创建的待办', date: addLocalDays(localDateKey(), 1) }] }; root.render(<ChatTestRouter />); },
   lastTask: '',
 };

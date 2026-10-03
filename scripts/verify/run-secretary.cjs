@@ -690,6 +690,96 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.evaluate(async id => (await window.secretaryTest.db.secretaryBindings.get(id)).workPreferences.proactiveHelp, suggestionOwner), false);
     assert.equal(await page.evaluate(async id => window.secretaryTest.db.todos.where('userId').equals(id).count(), suggestionOwner), 1); pass('opted-in proactive card fits narrow screens and can be disabled without changing tasks');
     assert.deepEqual(errors, []); pass('no browser runtime errors');
+    for (const kind of ['missing', 'verbatim']) {
+      const fixture = await page.evaluate(kind => window.secretaryTest.mountRawTodo(kind), kind);
+      await page.getByPlaceholder('发消息…').fill(fixture.text); await page.getByPlaceholder('发消息…').press('Enter');
+      await page.getByRole('region', { name: '新待办 已添加', exact: true }).waitFor();
+      const todos = await page.evaluate(async owner => window.secretaryTest.db.todos.where('userId').equals(owner).toArray(), fixture.uid);
+      assert.equal(todos.length, 1); assert.equal(todos[0].title, '界面开会'); assert.equal(todos[0].dueTime, '15:00');
+      pass(`raw model response reaches actual todo storage without fixture-supplied evidence: ${kind}`);
+    }
+    const network = await page.evaluate(() => window.secretaryTest.mountRawTodo('network'));
+    await page.getByPlaceholder('发消息…').fill(network.text); await page.getByPlaceholder('发消息…').press('Enter');
+    await page.getByRole('alert').filter({ hasText: '模型密钥' }).waitFor();
+    assert.equal(await page.evaluate(async owner => window.secretaryTest.db.todos.where('userId').equals(owner).count(), network.uid), 0);
+    assert.equal(await page.getByRole('region', { name: '新待办 已添加', exact: true }).count(), 0);
+    pass('actual model connection failure exposes a useful reason and writes no todo');
+    await page.waitForFunction(() => window.secretaryTest.useChatStore.getState().messages.some(m => m.role === 'assistant' && m.content.includes('模型密钥')));
+    await page.reload(); await page.waitForFunction(() => !!window.secretaryTest);
+    await page.evaluate(({ uid, sid }) => window.secretaryTest.mountRetainedChat(uid, sid), network);
+    await page.getByText('模型密钥未配置或已失效，请检查当前模型的连接设置。原请求已保留，未新增待办。', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('alert').filter({ hasText: '模型密钥' }).count(), 0);
+    pass('failure reason stays readable in chat after a complete page reload');
+    if (await page.getByRole('button', { name: '展开更多办事', exact: true }).count()) await page.getByRole('button', { name: '展开更多办事', exact: true }).click();
+    await page.getByRole('button', { name: '办事收件箱', exact: true }).click();
+    const failureInbox = page.getByRole('dialog', { name: '办事收件箱', exact: true });
+    await failureInbox.getByRole('button', { name: /^未办成（/ }).click();
+    await failureInbox.getByRole('status').filter({ hasText: '模型密钥' }).waitFor();
+    pass('failed inbox item displays its retained actionable reason');
+    await failureInbox.getByRole('button', { name: '关闭', exact: true }).click();
+    await page.evaluate(() => window.secretaryTest.configureRetainedRetry());
+    await page.getByTitle('发送失败，点击重发', { exact: true }).click();
+    await page.getByRole('region', { name: '新待办 已添加', exact: true }).waitFor();
+    await page.waitForFunction(() => {
+      const replies = window.secretaryTest.useChatStore.getState().messages.filter(m => m.role === 'assistant');
+      return replies.length === 1 && !replies[0].content.includes('模型密钥');
+    });
+    assert.equal(await page.evaluate(async owner => window.secretaryTest.db.todos.where('userId').equals(owner).count(), network.uid), 1);
+    pass('retry after reopening replaces the failed receipt and creates exactly one todo');
+    for (const custom of [false, true]) {
+      const weekly = await page.evaluate(custom => window.secretaryTest.mountWeeklyEditor(custom), custom);
+      const sheet = page.locator('.vg-todo-sheet'); await sheet.waitFor();
+      if (!custom) await sheet.getByLabel('重复').selectOption('weekly');
+      await sheet.getByLabel('日期', { exact: true }).fill(weekly.nextDate);
+      await sheet.getByRole('button', { name: '保存待办', exact: true }).click();
+      await sheet.waitFor({ state: 'hidden' });
+      const saved = await page.evaluate(id => window.secretaryTest.db.todos.get(id), weekly.id);
+      assert.equal(saved.dueDate, weekly.nextDate);
+      assert.deepEqual(saved.recurrence.weekdays, custom ? [1, 3] : [weekly.nextWeekday]);
+      if (custom) assert.equal(saved.recurrence.interval, 2);
+      else assert.ok(await page.evaluate(async ({ id, nextDate }) => (await window.secretaryTest.db.todoOccurrences.where('todoId').equals(id).toArray()).some(o => o.dueDate === nextDate), weekly));
+      pass(custom ? 'editing date preserves an existing custom weekly rule' : 'weekly editor follows the selected due date even after the repeat selector was changed');
+    }
+    const retryFixture = await page.evaluate(() => window.secretaryTest.mountRawTodo('retry'));
+    await page.getByPlaceholder('发消息…').fill(retryFixture.text); await page.getByPlaceholder('发消息…').press('Enter');
+    await page.getByText('这项安排缺少原话依据，请重新明确这项请求。', { exact: true }).waitFor();
+    await page.evaluate(() => window.secretaryTest.configureRawRetry());
+    const retryButton = page.getByRole('button', { name: '重试这一项', exact: true });
+    await retryButton.click();
+    await page.getByText('界面重试项', { exact: true }).waitFor();
+    await page.waitForFunction(async owner => (await window.secretaryTest.db.todos.where('userId').equals(owner).count()) === 2, retryFixture.uid);
+    await retryButton.waitFor({ state: 'hidden' });
+    assert.equal(await page.getByRole('button', { name: '重试这一项', exact: true }).count(), 0);
+    await page.waitForFunction(async () => {
+      const reply = window.secretaryTest.useChatStore.getState().messages.find(m => m.role === 'assistant');
+      return reply && reply.content === (await window.secretaryTest.db.messages.get(reply.id))?.content;
+    });
+    const retryReply = await page.evaluate(() => window.secretaryTest.useChatStore.getState().messages.find(m => m.role === 'assistant'));
+    assert.ok(!retryReply.content.includes('没存上') && !retryReply.content.includes('没办成'));
+    pass('real retry button replans only the failed item and updates the visible receipt');
+    const interruptedRetry = await page.evaluate(() => window.secretaryTest.mountInterruptedRetry());
+    await page.getByText(interruptedRetry.expected, { exact: true }).waitFor();
+    const restoredReply = await page.evaluate(async fixture => ({
+      visible: window.secretaryTest.useChatStore.getState().messages.filter(m => m.role === 'assistant'),
+      stored: await window.secretaryTest.db.messages.get(fixture.replyId),
+      count: await window.secretaryTest.db.todos.where('userId').equals(fixture.uid).count(),
+    }), interruptedRetry);
+    assert.equal(restoredReply.visible.length, 1); assert.equal(restoredReply.visible[0].content, restoredReply.stored.content);
+    assert.equal(restoredReply.visible[0].revision, interruptedRetry.revision + 1); assert.equal(restoredReply.count, 0);
+    pass('chat recovery updates a loaded old failure bubble to the interrupted reason without another model call');
+    const editedPlanning = await page.evaluate(() => window.secretaryTest.mountEditedPlanning());
+    await page.getByPlaceholder('发消息…').fill(editedPlanning.text); await page.getByPlaceholder('发消息…').press('Enter');
+    await page.getByText(editedPlanning.expected, { exact: true }).waitFor();
+    await page.getByText(editedPlanning.newText, { exact: true }).waitFor();
+    assert.equal(await page.getByRole('region', { name: '新待办 已添加', exact: true }).count(), 0);
+    assert.equal(await page.evaluate(async owner => window.secretaryTest.db.todos.where('userId').equals(owner).count(), editedPlanning.uid), 0);
+    pass('editing a request during planning shows a stop notice and does not save the old task');
+    await page.reload(); await page.waitForFunction(() => !!window.secretaryTest);
+    await page.evaluate(({ uid, sid }) => window.secretaryTest.mountRetainedChat(uid, sid), editedPlanning);
+    await page.getByText(editedPlanning.expected, { exact: true }).waitFor();
+    await page.getByText(editedPlanning.newText, { exact: true }).waitFor();
+    pass('edited-request stop notice and edited source remain readable after full reload');
+    assert.deepEqual(errors, []); pass('failure repair leaves no browser runtime errors');
     fs.writeFileSync(path.join(root, '.last-result-secretary.txt'), `ALL PASS: ${result.checks} data checks + ${count} UI checks\n`, 'utf8');
     console.log(`ALL PASS: ${result.checks} data checks + ${count} UI checks`);
   } finally { await browser.close(); server.close(); }

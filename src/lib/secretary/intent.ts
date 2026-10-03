@@ -5,11 +5,26 @@ export function ambiguousRecordRequest(request: string): boolean {
   return /^(?:请|帮我|给我|替我|麻烦)?(?:给我|帮我)?记一[笔筆](?:[：:，,\s].*)?[。！!]?$/u.test(request.trim()) && !/日记|手账|待办|提醒|日程|计划/u.test(request);
 }
 
+/** An explicit recording wrapper delegates one quoted reminder, never other tools. */
+export function quotedTodoPayload(request: string): { text: string; start: number; end: number } | undefined {
+  const match = request.trim().match(/^(?:请|麻烦(?:你)?)?(?:(?:帮我|替我|给我))?(?:记一下|记下来|记上|记录(?:一下)?)[：:，,\s]*(["'“「『])([\s\S]+?)(["'”」』])[。！!\s]*$/u);
+  if (!match) return;
+  const closing: Record<string, string> = { '"': '"', "'": "'", '“': '”', '「': '」', '『': '』' };
+  if (closing[match[1]] !== match[3] || /["'“”「」『』\n；;]|然后|并且|顺便|同时/u.test(match[2])
+    || !/提醒我|(?:添加|新增|创建|记(?:个|一个|一项)?).*待办|记得叫我|别让我忘|不要让我忘/u.test(match[2])
+    || /(?:不要|别|不用|不必|先不|暂时不).*(?:添加|新增|创建|保存|记|提醒)/u.test(match[2])) return;
+  const start = request.indexOf(match[1]) + 1;
+  return { text: match[2], start, end: start + match[2].length };
+}
+
 /** Scope comes from the current user instruction, never from recalled documents. */
 export function actionAllowed(action: SecretaryAction, request: string): boolean {
+  const quotedTodo = quotedTodoPayload(request);
+  if (quotedTodo && action.kind !== 'todo.create') return false;
   // Commands in quoted data are never permission. An explicit tool instruction
   // outside a quoted title remains visible, preserving named records.
   request = request.replace(/“[^”]*”|「[^」]*」|『[^』]*』|"[^"]*"|'[^']*'/gu, '');
+  if (quotedTodo) request += '，添加待办';
   if (/^\s*(?:朋友|别人|他|她|他们|她们|同事|老板|老师)(?:说|问|让我|叫我)|^\s*(?:例如|比如|假设|引用|小说里)/u.test(request)) return false;
   if (!['diary.search', 'moment.search', 'todo.list', 'app.open'].includes(action.kind)) {
     // Searching existing records must not become a write if the planner chooses the wrong tool.

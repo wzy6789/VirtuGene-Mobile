@@ -60,6 +60,7 @@ import { SecretaryTaskCards } from './SecretaryTaskCards';
 import { SecretaryPersonalityModal } from '../secretary/SecretaryPersonalityModal';
 import { SecretaryInboxModal } from '../secretary/SecretaryInboxModal';
 import { SecretaryDailyReviewModal } from '../secretary/SecretaryDailyReviewModal';
+import { secretaryFailureMessage } from '../../lib/secretary/failure';
 import type { Message, Session } from '../../db/index';
 
 // 记忆依据弹窗只在长按菜单里用到：与手账/群聊同一套按需加载策略，不进首屏主包
@@ -245,6 +246,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     requestsRef.current.forEach(request => { if (request.userId === userId) request.controller.abort(); });
   }, [userId]);
   const [error, setError] = useState<ChatError>(null);
+  const [secretaryError, setSecretaryError] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   /** 记忆依据（长按消息 → 查看这条回复参考了哪些本地记忆/未完成事件/共同事件） */
   const [basisMessage, setBasisMessage] = useState<Message | null>(null);
@@ -276,18 +278,17 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const recover = async () => {
       try {
-        const { recoverSecretaryTasks, secretaryReply } = await import('../../lib/secretary/agent');
+        const { recoverSecretaryTasks } = await import('../../lib/secretary/agent');
         const result = await recoverSecretaryTasks(userId, character.id, currentSessionId);
         if (!alive || useAuthStore.getState().userId !== userId) return;
         for (const id of result.failedMessageIds) updateMessage(id, { failed: true });
         for (const task of result.tasks) {
           const id = `secretary-reply:${task.messageId}`;
-          let reply = await messageRepo.getById(id);
-          if (!reply) {
-            reply = { id, sessionId: currentSessionId, role: 'assistant', content: secretaryReply(task), createdAt: task.updatedAt, isProactive: false, secretaryTaskId: task.id };
-            await messageRepo.create(reply);
-          }
-          if (alive && useChatStore.getState().currentSessionId === currentSessionId && !useChatStore.getState().messages.some(m => m.id === id)) addMessage(reply);
+          const reply = await messageRepo.getById(id);
+          if (!alive || useAuthStore.getState().userId !== userId || useChatStore.getState().currentSessionId !== currentSessionId) return;
+          if (reply?.role !== 'assistant' || reply.sessionId !== currentSessionId || reply.secretaryTaskId !== task.id) continue;
+          if (useChatStore.getState().messages.some(m => m.id === id)) updateMessage(id, { content: reply.content, revision: reply.revision });
+          else addMessage(reply);
         }
         if (result.nextLease && alive) timer = setTimeout(() => void recover(), Math.max(1000, result.nextLease - Date.now() + 50));
       } catch { /* A later entry can recover interrupted work. */ }
@@ -295,6 +296,25 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     void recover();
     return () => { alive = false; if (timer) clearTimeout(timer); };
   }, [character?.id, character?.agentProfile, character?.secretaryStatus, character?.secretaryEmploymentId, currentSessionId, userId]);
+
+  useEffect(() => {
+    if (character?.agentProfile !== 'secretary' || !currentSessionId) return;
+    let alive = true;
+    const refreshReceipt = async (event: Event) => {
+      const detail = (event as CustomEvent<{ userId: string; taskId: string }>).detail;
+      if (detail?.userId !== userId) return;
+      const task = await db.secretaryTasks.get(detail.taskId);
+      if (task?.userId !== userId || task.sessionId !== currentSessionId || task.characterId !== character.id) return;
+      const reply = await messageRepo.getById(`secretary-reply:${task.messageId}`);
+      if (alive && reply?.role === 'assistant' && reply.secretaryTaskId === task.id && useAuthStore.getState().userId === userId && useChatStore.getState().currentSessionId === currentSessionId) {
+        if (useChatStore.getState().messages.some(m => m.id === reply.id)) updateMessage(reply.id, { content: reply.content, revision: reply.revision });
+        else if (task.status === 'failed' && !task.results.length) addMessage(reply);
+      }
+    };
+    const listener = (event: Event) => { void refreshReceipt(event).catch(() => undefined); };
+    window.addEventListener('virtugene:secretary-updated', listener);
+    return () => { alive = false; window.removeEventListener('virtugene:secretary-updated', listener); };
+  }, [character?.id, character?.agentProfile, currentSessionId, userId, updateMessage, addMessage]);
 
   /** 朗读一条 AI 消息：优先角色声线（Edge 音色）；声线缺失/非法时现场分配性别正确的声线再播，
    *  分配超时才用默认音色兜底（保证点喇叭一定有声音，且默认兜底也是 Edge 音色而非系统音） */
@@ -338,6 +358,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
     setStreamingReply(pending?.stream.published && !pending.completed ? pending.stream : null);
     setReplyVisible(pending?.stream.published ?? false);
     setError(null);
+    setSecretaryError(null);
   }, [currentSessionId, userId, stop]);
 
   // 首次进入单聊会话：会话未锁定模型 → 弹模型选择（选定后聊天中不可改）
@@ -1215,7 +1236,7 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         await messageRepo.markFailed(userMsg.id, true);
         updateMessage(userMsg.id, { failed: true });
       }
-    } catch {
+    } catch (cause) {
       if (!sameAccount()) return;
       // Abort before the first visible token is a cancellation, not a send error.
       if (request.controller.signal.aborted && !request.stream.published) return;
@@ -1232,7 +1253,8 @@ export function ChatWindow({ emotionToggle }: ChatWindowProps) {
         return;
       }
       if (stillCurrent()) {
-        setError('server:error');
+        if (character.agentProfile === 'secretary') { setError(null); setSecretaryError(secretaryFailureMessage(cause)); }
+        else setError('server:error');
       }
       await messageRepo.markFailed(userMsg.id, true);
       updateMessage(userMsg.id, { failed: true });
@@ -1252,6 +1274,7 @@ const performSendSafely = async (text: string, apiMessage: string, userMsg: Mess
         }
       }) };
     requestsRef.current.set(sessionId, request); // Synchronous lock, before the first DB await.
+    setSecretaryError(null);
     setSending(true); setReplyVisible(false); setStreamingReply(null);
     try {
       if (saveUser) {
@@ -1262,10 +1285,11 @@ const performSendSafely = async (text: string, apiMessage: string, userMsg: Mess
       }
       if (useAuthStore.getState().userId !== userId || request.controller.signal.aborted) return;
       await performSend(text, apiMessage, userMsg, image, request);
-    } catch {
+    } catch (cause) {
       if (request.controller.signal.aborted || useAuthStore.getState().userId !== userId) return;
       if (mountedRef.current && useChatStore.getState().currentSessionId === userMsg.sessionId) {
-        setError('server:error');
+        if (character?.agentProfile === 'secretary') { setError(null); setSecretaryError(secretaryFailureMessage(cause)); }
+        else setError('server:error');
       }
       await messageRepo.markFailed(userMsg.id, true).catch(() => undefined);
       updateMessage(userMsg.id, { failed: true });
@@ -1560,7 +1584,7 @@ return (
         )}
       </div>
 
-      <BalanceBanner error={error} />
+      {character?.agentProfile === 'secretary' && secretaryError ? <div role="alert" className="mx-4 mb-2 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm text-red-400 break-words">{secretaryError}</div> : <BalanceBanner error={error} />}
       {rows.length > 0 && <div className="vg-latest-message-anchor" data-visible={!followingLatest} aria-hidden={followingLatest} inert={followingLatest}><button type="button" tabIndex={followingLatest ? -1 : 0} className="vg-latest-message-button" aria-label="回到最新消息" onClick={event => { if (event.detail === 0) scrollRef.current?.focus({ preventScroll: true }); scrollToLatest(true, 'smooth'); }}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14m-6-6 6 6 6-6" /></svg>回到最新</button></div>}
 
       {/* 收藏反馈：世界层在另一个页面，必须让用户知道"真的记住了"并给一条去路 */}

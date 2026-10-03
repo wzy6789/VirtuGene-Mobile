@@ -1,4 +1,5 @@
 import type { SecretaryAction, SecretaryTask } from './types';
+import { quotedTodoPayload } from './intent';
 
 export interface InstructionSpan { start: number; end: number }
 export interface OperationContract {
@@ -46,7 +47,7 @@ export function parseOperationContracts(actions: unknown[], indexOffset = 0, req
 }
 
 /** Spans are checked against the actual user source, never the model's recalled prose. */
-export function instructionText(task: SecretaryTask, contract?: OperationContract): string {
+export function instructionText(task: SecretaryTask, contract?: OperationContract, action?: SecretaryAction): string {
   if (!contract) return task.request;
   for (const span of [contract.evidence, ...Object.values(contract.fieldSources ?? {})]) {
     if (!span || span.end > task.request.length || !task.request.slice(span.start, span.end).trim()
@@ -56,7 +57,11 @@ export function instructionText(task: SecretaryTask, contract?: OperationContrac
   const { start, end } = contract.evidence;
   // Negation and quoted commands must remain in scope. A clipped inner quote is unsafe.
   const before = task.request.slice(0, start);
-  if (withinQuote(task.request, start)) throw new Error('引用的内容不能作为执行指令。');
+  if (withinQuote(task.request, start)) {
+    const payload = action?.kind === 'todo.create' ? quotedTodoPayload(task.request) : undefined;
+    if (payload && start >= payload.start && end <= payload.end) return task.request;
+    throw new Error('引用的内容不能作为执行指令。');
+  }
   const clauseStart = Math.max(before.lastIndexOf('，'), before.lastIndexOf(','), before.lastIndexOf('。'), before.lastIndexOf('；'), before.lastIndexOf(';'), before.lastIndexOf('\n')) + 1;
   const rest = task.request.slice(end);
   const clauseEnd = rest.search(/[，,。；;\n]/u);

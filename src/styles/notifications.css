@@ -1,0 +1,53 @@
+/* Raised, readable message cards. Accent is a signal rather than a glowing frame. */
+.vg-notification-viewport {
+  --notification-surface:#fafbff; --notification-ink:#25243e; --notification-sub:#626c83;
+  --notification-edge:#dddfee; --notification-accent:#6c5ce7; --notification-cyan:#147f88;
+  position:absolute; z-index:70; top:52px; left:50%; width:min(440px,calc(100% - 24px));
+  transform:translateX(-50%); display:grid; gap:8px; pointer-events:none;
+  font-family:var(--vg-font-ui); letter-spacing:normal;
+}
+.dark .vg-notification-viewport {
+  --notification-surface:#1b2438; --notification-ink:#f0f2ff; --notification-sub:#b1bad0;
+  --notification-edge:#35415a; --notification-accent:#ad9bff; --notification-cyan:#7fe0db;
+}
+.mobile-layout .vg-notification-viewport { top:calc(env(safe-area-inset-top,0px) + 84px); }
+.vg-message-notification {
+  position:relative; display:flex; align-items:flex-start; width:100%; overflow:hidden;
+  border:1px solid var(--notification-edge); border-radius:20px;
+  color:var(--notification-ink); background:var(--notification-surface);
+  box-shadow:0 12px 32px #03061524,inset 0 1px 0 #ffffff0a;
+  pointer-events:auto; touch-action:pan-x; isolation:isolate;
+}
+.vg-message-notification::before {
+  content:''; position:absolute; top:0; left:22px; right:22px; height:1px; pointer-events:none;
+  background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--notification-accent) 65%,transparent),color-mix(in srgb,var(--notification-cyan) 40%,transparent),transparent);
+}
+.vg-notification-open {
+  display:flex; align-items:flex-start; gap:12px; flex:1; min-width:0; min-height:88px;
+  padding:15px 0 15px 15px; text-align:left; color:inherit; background:transparent;
+  -webkit-tap-highlight-color:transparent;
+}
+.vg-notification-avatar { position:relative; flex-shrink:0; margin-top:1px; }
+.vg-notification-avatar > :first-child { width:42px; height:42px; border:1px solid var(--notification-edge); background:var(--bg-surface); }
+.vg-notification-avatar i { position:absolute; bottom:0; right:0; width:9px; height:9px; border:2px solid var(--notification-surface); border-radius:50%; background:var(--notification-cyan); }
+.vg-notification-copy { min-width:0; flex:1; display:grid; gap:5px; }
+.vg-notification-heading { display:flex; align-items:center; gap:8px; min-width:0; }
+.vg-notification-heading strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; line-height:20px; font-weight:550; }
+.vg-notification-heading > span { flex-shrink:0; font-size:10px; line-height:18px; color:var(--notification-accent); }
+.vg-notification-preview {
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  font-size:13px; line-height:21px; font-weight:400; color:var(--notification-sub); overflow-wrap:anywhere;
+}
+.vg-notification-dismiss { display:grid; place-items:center; flex-shrink:0; width:48px; height:48px; margin-top:5px; color:var(--notification-sub); border-radius:14px; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+.vg-notification-open:hover { background:#7e6ce709; }
+.vg-notification-dismiss:hover { color:var(--notification-ink); background:#7e6ce710; }
+.vg-notification-dismiss svg { transition:transform 180ms cubic-bezier(.16,1,.3,1); }
+.vg-notification-dismiss:active svg { transform:scale(.86); }
+.vg-notification-open:focus-visible,.vg-notification-dismiss:focus-visible { outline:2px solid var(--notification-accent); outline-offset:-4px; border-radius:15px; }
+.vg-message-notification[data-leaving] { pointer-events:none; }
+@media (max-width:359px) {
+  .vg-notification-open { gap:10px; padding-left:12px; }
+  .vg-notification-avatar > :first-child { width:36px; height:36px; }
+}
+html[data-vg-reduced-motion='true'] .vg-notification-dismiss svg { transition:none; }
+@media (prefers-reduced-motion:reduce) { .vg-notification-dismiss svg { transition:none; } }

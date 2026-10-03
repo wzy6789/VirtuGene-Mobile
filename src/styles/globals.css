@@ -1458,32 +1458,6 @@ body {
   pointer-events: none;
 }
 
-/* Notification cloud — fluid float-in (blur dissolve → settle) */
-@keyframes cloudIn {
-  0% { opacity: 0; transform: translateY(-18px) scale(0.9); filter: blur(6px); }
-  60% { opacity: 1; transform: translateY(2px) scale(1.02); filter: blur(0); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-}
-
-.animate-cloud-in {
-  animation: cloudIn 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-/* 流体云：顶部流光扫过（仅限云朵上半部分，避免盖住/冲淡文字） */
-@keyframes cloudShine {
-  0% { transform: translateX(-130%) skewX(-18deg); }
-  55%, 100% { transform: translateX(240%) skewX(-18deg); }
-}
-.cloud-shine {
-  position: absolute;
-  top: 0;
-  height: 46%;
-  width: 38%;
-  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.25), rgba(0, 206, 201, 0.10), transparent);
-  animation: cloudShine 3.6s ease-in-out infinite;
-  pointer-events: none;
-}
-
 /* Living World · 现实待办 */
 .vg-todo-page { color: var(--ink, #eef1ff); background: radial-gradient(90% 42% at 50% 0%, rgba(108,92,231,.16), transparent 72%); }
 .vg-todo-header { display:flex; align-items:center; gap:12px; padding:18px 0 14px; position:sticky; top:0; z-index:4; background:linear-gradient(180deg, rgba(15,15,26,.98) 76%, transparent); }

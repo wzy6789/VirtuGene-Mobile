@@ -45,18 +45,18 @@ function matchesRecurrence(recurrence: TodoRecurrence, original: string, date: s
   const dayOfWeek = new Date(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8))).getDay();
   if (recurrence.kind === 'weekdays') return dayOfWeek >= 1 && dayOfWeek <= 5;
   if (recurrence.kind === 'weekly') {
-    const weekdays = recurrence.weekdays.length ? recurrence.weekdays : [dayOfWeek];
+    const configured = Array.isArray(recurrence.weekdays) ? recurrence.weekdays.filter(day => Number.isInteger(day) && day >= 0 && day <= 6) : [];
+    const weekdays = configured.length ? configured : [new Date(`${original}T12:00:00`).getDay()];
     return weekdays.includes(dayOfWeek) && Math.floor(distance / 7) % Math.max(1, recurrence.interval ?? 1) === 0;
   }
   if (recurrence.kind === 'interval') return distance % Math.max(1, recurrence.days) === 0;
   const [oy, om] = original.split('-').map(Number);
   const [y, m] = date.split('-').map(Number);
-  if (m < om || (y === oy && m === om && distance === 0)) return m === om && y === oy && recurrence.day === Number(original.slice(8));
   const months = (y - oy) * 12 + (m - om);
   return months % Math.max(1, recurrence.interval ?? 1) === 0 && Number(date.slice(8)) === Math.min(recurrence.day, new Date(y, m, 0).getDate());
 }
 
-export function expandOccurrenceDates(todo: Todo, from: string, to: string): string[] {
+export function expandOccurrenceDates(todo: Pick<Todo, 'dueDate' | 'status' | 'recurrence'>, from: string, to: string): string[] {
   if (!todo.dueDate || todo.status === 'deleted' || todo.status === 'cancelled') return [];
   const start = todo.dueDate > from ? todo.dueDate : from;
   const result: string[] = [];
@@ -64,6 +64,15 @@ export function expandOccurrenceDates(todo: Todo, from: string, to: string): str
     if (matchesRecurrence(todo.recurrence, todo.dueDate, date)) result.push(date);
   }
   return result;
+}
+
+/** Recurring schedules remain valid when today's reminder time has passed. */
+export function hasFutureTodoReminder(todo: Pick<Todo, 'dueDate' | 'dueTime' | 'status' | 'recurrence'>, offsets: number[], now = Date.now()): boolean {
+  if (!todo.dueDate || !todo.dueTime || !offsets.length) return false;
+  const today = localDateKey(new Date(now));
+  const start = todo.dueDate > today ? todo.dueDate : today;
+  const dates = todo.recurrence.kind === 'none' ? [todo.dueDate] : expandOccurrenceDates(todo, start, addLocalDays(start, 366));
+  return dates.some(date => offsets.every(minutes => new Date(`${date}T${todo.dueTime}:00`).getTime() - minutes * 60000 > now));
 }
 
 async function ensureOccurrence(todo: Todo, date: string): Promise<TodoOccurrence> {

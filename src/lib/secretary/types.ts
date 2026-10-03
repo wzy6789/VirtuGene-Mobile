@@ -72,6 +72,8 @@ export interface SecretaryTask {
   /** Locally checked provenance; absent on old records, which remain protected. */
   privacyScope?: 'plain' | 'diary' | 'unknown';
   status: 'planning' | 'ready' | 'finished' | 'failed';
+  /** Safe local explanation; contains no raw provider payload or credentials. */
+  failureReason?: string;
   reply?: string;
   /** Validated emotion/intent only; execution facts never come from this contract. */
   planningContract?: import('./planning-contract').SecretaryPlanningContract;
