@@ -62,7 +62,7 @@ export function WorldMemoryPage() {
             <button
               type="button"
               onClick={() => useUIStore.getState().setActiveView('worldSettings')}
-              className="text-[11px] text-gray-500"
+              className="text-[12px] text-gray-500"
             >
               设定 ›
             </button>
@@ -96,18 +96,18 @@ export function WorldMemoryPage() {
                 onClick={() => setOpenId(openId === memory.id ? null : memory.id)}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="rounded-full bg-life-cyan/12 px-2 py-0.5 text-[10px] text-life-cyan">
+                  <span className="rounded-full bg-life-cyan/12 px-2 py-0.5 text-[12px] text-life-cyan">
                     {memory.tags.find((t) => t.includes('共同') || t.includes('经历')) ?? '一起经历'}
                   </span>
-                  <time className="shrink-0 text-[10px] text-gray-500">{relativeDay(memory.createdAt)}</time>
+                  <time className="shrink-0 text-[12px] text-gray-500">{relativeDay(memory.createdAt)}</time>
                 </div>
                 <p className="mt-1.5 text-[13.5px] font-medium text-ink">{memory.title}</p>
                 {(openId === memory.id || memory.summary) && (
-                  <p className="mt-1 text-[11.5px] leading-relaxed text-gray-500">
+                  <p className="mt-1 text-[12px] leading-relaxed text-gray-500">
                     {memory.summary || '没有更多细节，但你们都在场。'}
                   </p>
                 )}
-                <p className="mt-1.5 text-[10px] text-gray-500">{participantsLine(memory)}</p>
+                <p className="mt-1.5 text-[12px] text-gray-500">{participantsLine(memory)}</p>
               </button>
             </li>
           ))}
@@ -119,7 +119,7 @@ export function WorldMemoryPage() {
         <button
           type="button"
           onClick={() => useUIStore.getState().setActiveView('stage')}
-          className="mt-5 w-full rounded-xl border border-line px-4 py-2.5 text-[11px] text-sub"
+          className="mt-5 w-full rounded-xl border border-line px-4 py-2.5 text-[12px] text-sub"
         >
           回看已经发生的世界 ›
         </button>

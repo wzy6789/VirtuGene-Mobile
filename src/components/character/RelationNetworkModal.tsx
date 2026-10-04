@@ -358,9 +358,9 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
     <Modal open={open} onClose={onClose} title="关系星图" width="max-w-xl">
       <div className="px-4 pb-5 pt-3 sm:px-5">
         {loadError && <div role="alert" className="mb-3 flex items-center justify-between rounded-xl border border-rose-400/20 p-3 text-sm text-sub">关系暂未读取<button type="button" onClick={()=>setReload(value=>value+1)} className="text-life-cyan">重试</button></div>}
-        <section className="vg-portrait-constellation relative isolate w-full overflow-hidden rounded-[26px] border border-white/10 bg-[#090c1c]" style={{aspectRatio:'360 / 400',containerType:'inline-size'}} aria-label="角色关系星图">
+        <section className="vg-portrait-constellation relative isolate w-full overflow-hidden rounded-[26px] border border-line bg-panel" style={{aspectRatio:'360 / 400',containerType:'inline-size'}} aria-label="角色关系星图">
           <div className="pointer-events-none absolute inset-0" style={{background:'radial-gradient(ellipse at 50% 50%,rgba(96,85,185,.23),transparent 48%),radial-gradient(ellipse at 85% 15%,rgba(33,119,135,.13),transparent 42%)'}} />
-          {BACKDROP_STARS.map(star=><span key={`${star.x}-${star.y}`} className="pointer-events-none absolute rounded-full bg-violet-200/50" style={{left:`${star.x}%`,top:`${star.y}%`,width:star.s,height:star.s}} />)}
+          {BACKDROP_STARS.map(star=><span key={`${star.x}-${star.y}`} className="pointer-events-none absolute rounded-full bg-gene-purple/40" style={{left:`${star.x}%`,top:`${star.y}%`,width:star.s,height:star.s}} />)}
           <svg className="absolute inset-0 h-full w-full" viewBox="0 0 360 400" aria-label="人物关系连线">
             <defs><radialGradient id="relation-halo"><stop stopColor="#a99bf3" stopOpacity=".16" /><stop offset="1" stopColor="#a99bf3" stopOpacity="0" /></radialGradient></defs>
             <circle cx="180" cy="200" r="65" fill="url(#relation-halo)" />
@@ -382,7 +382,7 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
             return <button key={node.ref} type="button" data-portrait-ref={node.ref} data-centered={center||undefined}
               aria-label={node.user?'以你的视角查看关系':`以${node.name}为中心查看关系`} aria-pressed={center}
               onClick={()=>{setFocusedRef(node.user?null:node.ref);setSelectedKey(null);setNeighborPage(0);}}
-              className={`absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-[#171a32] p-[3px] outline-none transition-[border-color,box-shadow] duration-300 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-white ${center?'border-life-cyan/80 shadow-[0_0_24px_rgba(91,200,210,.28)]':active?'border-white/80 shadow-[0_0_15px_rgba(180,160,255,.3)]':'border-[#8274ba]/50'}`}
+              className={`absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-panel p-[3px] outline-none transition-[border-color,box-shadow] duration-300 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-white ${center?'border-life-cyan/80 shadow-[0_0_24px_rgba(91,200,210,.28)]':active?'border-white/80 shadow-[0_0_15px_rgba(180,160,255,.3)]':'border-[#8274ba]/50'}`}
               style={{left:`${node.x/360*100}%`,top:`${node.y/400*100}%`,width:'clamp(40px, 14cqw, 52px)',height:'clamp(40px, 14cqw, 52px)'}}>
               <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full text-2xl">{renderAvatar(node.avatar,'✦','h-full w-full')}</span>
             </button>;

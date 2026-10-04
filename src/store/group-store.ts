@@ -1,3 +1,4 @@
+import { loadForAccount } from '../lib/load-for-account';
 import { canUseAi } from '../lib/ai/availability';
 import { create } from 'zustand';
 import { db, type Group, type Session, type Message } from '../db/index';
@@ -7,7 +8,6 @@ import { messageRepo } from '../db/message-repo';
 import { characterRepo } from '../db/character-repo';
 import { memoryRepo } from '../db/memory-repo';
 import { worldRepo } from '../db/world-repo';
-import { buildCharacterMemoryContext } from '../lib/character-memory';
 import { buildRelationshipToneContext } from '../lib/chat-context';
 import { useAuthStore } from './auth-store';
 import { useNotificationStore } from './notification-store';
@@ -15,8 +15,7 @@ import { stateRepo } from '../db/state-repo';
 import { ipc } from '../lib/ipc-client';
 import { notifyLocal } from '../lib/notify';
 import { IS_MOBILE } from '../lib/platform';
-import { generateGroupTurn, type GroupMemberBrief, type GroupTurn } from '../lib/ai/group-chat';
-import { extractMemories } from '../lib/ai/memory-consolidator';
+import type { GroupMemberBrief, GroupTurn } from '../lib/ai/group-chat';
 import { prepareMemoryMetadata } from '../lib/memory-engine';
 import { buildSummaryBatch, findUncoveredSummaryMessages } from '../lib/ai/summary-batches';
 import { boundAuxiliaryHistory } from '../lib/ai/history-window';
@@ -118,6 +117,8 @@ function groupPromptTrace(briefs: GroupMemberBrief[], session: Session | undefin
 
 /** 构建群聊上下文：成员人设（含经当前全体成员见证的跨场景记忆） */
 async function buildBriefs(group: Group, userId: string, query = ''): Promise<GroupMemberBrief[]> {
+  const { buildCharacterMemoryContext } = await loadForAccount(userId, () => import('../lib/character-memory'));
+  if (useAuthStore.getState().userId !== userId) throw new Error('Account changed');
   const world = await worldRepo.ensureDefaultWorld(userId).catch(() => null);
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
     (c): c is NonNullable<typeof c> => !!c && c.agentProfile !== 'secretary',
@@ -272,7 +273,7 @@ async function maybeExtractGroupMemories(sessionId: string, memberIds: string[],
         ? '用户：' + m.content.slice(0, 1200)
         : ((await characterRepo.getById(m.senderId ?? ''))?.name ?? '群成员') + '：' + m.content.slice(0, 1200),
     }))));
-    const result = await extractMemories({ apiKey, history });
+    const result = await (await loadForAccount(userId, () => import('../lib/ai/memory-consolidator'))).extractMemories({ apiKey, history });
     if (result.error) return;
     if (result.memories && result.memories.length > 0) {
       for (const charId of memberIds) {
@@ -339,7 +340,7 @@ async function generateProactiveTurn(
       content: m.content || (m.image ? '[图片]' : ''),
     }));
   const session = await sessionRepo.getById(sessionId);
-  const generated = await generateGroupTurn({
+  const generated = await (await loadForAccount(userId, () => import('../lib/ai/group-chat'))).generateGroupTurn({
     apiKey,
     groupName: group.name,
     members: briefs,
@@ -468,7 +469,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
       const sessionData = await sessionRepo.getById(sessionId);
       const atMembers = parseAtNames(trimmed, members);
 
-      const { turns, error } = await generateGroupTurn({
+      const { turns, error } = await (await loadForAccount(userId, () => import('../lib/ai/group-chat'))).generateGroupTurn({
         apiKey,
         groupName: group.name,
         members: briefs,

@@ -4,7 +4,7 @@
  * - AI 输出 JSON 数组 [{"speaker":"角色名","content":"..."}]，speaker 硬校验必须在群成员内
  * - 非流式（项目铁律）；群聊用全局默认对话模型（成员各自模型 P1）
  */
-import { resolveModel, findModel, getAvailableModels, type LLMModel, type LLMChatResult } from './llm';
+import { DEEPSEEK_MODEL_ID, resolveModel, findModel, getAvailableModels, type LLMModel, type LLMChatResult } from './llm';
 import { taskChat } from './task-client';
 import { stripRoleplayActions } from './text';
 import { buildTimeContext } from '../chat-context';
@@ -73,7 +73,7 @@ export async function generateGroupTurn(params: GroupTurnParams): Promise<{ turn
   const selected = resolveModel();
   const model = params.image && !selected.vision ? getAvailableModels(selected.provider).find(item => item.vision) : selected;
   if (!model) return { turns: [], error: '当前服务商没有配置支持图片的模型，请在 AI 连接中添加。' };
-  const fallback = findModel('deepseek-v4-flash')!;
+  const fallback = findModel(DEEPSEEK_MODEL_ID, 'deepseek')!;
 
   const first = await attemptTurn(params, model);
   if (first.turns.length > 0) {

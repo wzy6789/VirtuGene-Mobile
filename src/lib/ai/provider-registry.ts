@@ -1,3 +1,6 @@
+import { DEEPSEEK_MODEL_ID, DEEPSEEK_MODEL_LABEL } from '../../../server/deepseek-policy.mjs';
+export { DEEPSEEK_MODEL_ID, LEGACY_DEEPSEEK_MODEL_IDS } from '../../../server/deepseek-policy.mjs';
+
 /** Provider protocols and examples verified against official documentation, 2026-10-02.
  * Account availability is discovered at runtime; presets are never a promise of access. */
 export type ProviderId = 'deepseek' | 'qwen' | 'mimo' | 'openai' | 'anthropic' | 'gemini'
@@ -25,7 +28,7 @@ export interface LLMProvider {
 const compatible = (id: ProviderId, name: string, baseUrl: string, docsUrl: string, modelPlaceholder = '填写平台提供的模型 ID', modelDiscovery = true): LLMProvider =>
   ({ id, name, baseUrl, docsUrl, modelPlaceholder, modelDiscovery, protocol: 'openai', keyStorage: `${id}-key`, requiresKey: true });
 export const LLM_PROVIDERS: Record<ProviderId, LLMProvider> = {
-  deepseek: { ...compatible('deepseek', 'DeepSeek', 'https://api.deepseek.com/v1', 'https://api-docs.deepseek.com/', 'deepseek-v4-flash'), keyStorage: undefined },
+  deepseek: { ...compatible('deepseek', 'DeepSeek', 'https://api.deepseek.com/v1', 'https://api-docs.deepseek.com/', DEEPSEEK_MODEL_ID), keyStorage: undefined },
   qwen: compatible('qwen', '千问 Qwen', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope', '填写百炼模型 ID'),
   mimo: compatible('mimo', '小米 MiMo', 'https://api.xiaomimimo.com/v1', 'https://platform.xiaomimimo.com/docs', 'mimo-v2.5'),
   openai: compatible('openai', 'OpenAI', 'https://api.openai.com/v1', 'https://developers.openai.com/api/docs/models', 'gpt-6-luna'),
@@ -41,12 +44,11 @@ export const LLM_PROVIDERS: Record<ProviderId, LLMProvider> = {
   openrouter: compatible('openrouter', 'OpenRouter', 'https://openrouter.ai/api/v1', 'https://openrouter.ai/docs/api/api-reference/chat/create-a-chat-completion', '组织/模型 ID'),
   custom: { ...compatible('custom', '自定义 · OpenAI 兼容', 'http://127.0.0.1:11434/v1', 'https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions', '服务器上的完整模型 ID'), requiresKey: false },
 };
-export const DEFAULT_MODEL_ID = 'deepseek-v4-flash';
+export const DEFAULT_MODEL_ID = DEEPSEEK_MODEL_ID;
 export const LLM_MODELS: LLMModel[] = [
-  // Preserve existing selections and estimates; provider bills remain authoritative.
-  { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash（日常）', provider: 'deepseek', pricing: { in: 2, out: 8 } },
-  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro（强推理）', provider: 'deepseek', pricing: { in: 9, out: 30 } },
-  { id: 'deepseek-v4-flash-vision-exp', label: 'DeepSeek 识图（视觉）', provider: 'deepseek', vision: true, pricing: { in: 2, out: 8 } },
+  // Flash natively supports images. RMB estimates use peak, uncached rates;
+  // off-peak/cache discounts are reflected only in the provider's actual bill.
+  { id: DEEPSEEK_MODEL_ID, label: DEEPSEEK_MODEL_LABEL, provider: 'deepseek', vision: true, pricing: { in: 2, out: 8 } },
   { id: 'qwen3.7-plus', label: '千问 3.7 Plus', provider: 'qwen', pricing: { in: 4, out: 16 } },
   { id: 'mimo-v2.5', label: '小米 MiMo V2.5', provider: 'mimo', pricing: { in: 2, out: 8 } },
   { id: 'gpt-6-luna', label: 'GPT-6 Luna', provider: 'openai', vision: true },

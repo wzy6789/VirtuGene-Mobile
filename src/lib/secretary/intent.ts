@@ -41,6 +41,8 @@ export function actionAllowed(action: SecretaryAction, request: string): boolean
     && !/(?:不要|别|不用|不必|先不|暂时不).*?(?:记上|记一下|记下来|记着|保存|叫我)/u.test(request);
   const stepIntent = /步骤|子任务/u.test(request) || explicitStepIndex(request) != null;
   switch (action.kind) {
+    // Messaging authorization is handled by the dedicated source-checked workflow.
+    case 'character.message.send': return false;
     case 'todo.steps': {
       if (!todo || !(stepIntent || /拆|分解/u.test(request)) || /(?:不要|别|不用|不必).*(?:拆|分解|添加|新增|完成|勾|恢复|保存)|只(?:要|给|提供)?(?:建议|拆分建议)|(?:先不|不)保存/u.test(request)) return false;
       if (action.stepMode === 'add') return /拆|分解|加|新增|补/u.test(request);

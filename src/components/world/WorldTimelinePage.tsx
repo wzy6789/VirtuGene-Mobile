@@ -47,7 +47,7 @@ export function WorldTimelinePage() {
             <button
               type="button"
               onClick={() => useUIStore.getState().setActiveView('memory')}
-              className="text-[11px] text-gray-500"
+              className="text-[12px] text-gray-500"
             >
               记忆 ›
             </button>

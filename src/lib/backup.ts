@@ -66,6 +66,7 @@ export interface BackupData {
   worldObjects?: SyncExportData['worldObjects'];
   todos?: SyncExportData['todos'];
   todoOccurrences?: SyncExportData['todoOccurrences'];
+  todoEvents?: SyncExportData['todoEvents'];
   todoReminders?: SyncExportData['todoReminders'];
   moments?: SyncExportData['moments'];
   momentMedia?: SyncExportData['momentMedia'];
@@ -116,6 +117,7 @@ export async function collectBackupData(userId: string | null, username: string 
     worldObjects: base.worldObjects,
     todos: base.todos,
     todoOccurrences: base.todoOccurrences,
+    todoEvents: base.todoEvents,
     todoReminders: base.todoReminders,
     moments: base.moments,
     momentMedia: base.momentMedia,
@@ -235,6 +237,7 @@ export async function restoreBackup(password: string): Promise<{
       worldObjects: data.worldObjects ?? [],
       todos: data.todos ?? [],
       todoOccurrences: data.todoOccurrences ?? [],
+      todoEvents: data.todoEvents ?? [],
       todoReminders: data.todoReminders ?? [],
       moments: data.moments ?? [],
       momentMedia: data.momentMedia ?? [],

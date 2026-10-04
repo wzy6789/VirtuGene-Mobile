@@ -112,6 +112,7 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
     const animations: Animation[] = [];
     const panel = node.querySelector<HTMLElement>(':scope > .vg-modal-panel');
     const depth = liveOverlays.size + 1;
+    node.style.setProperty('--vg-modal-depth', String(depth - 1));
     liveOverlays.add(node);
     const candidate = IS_MOBILE && !prefersReducedMotion() && !document.hidden
       ? [...closingFrames.values()].find(frame => frame.depth === depth) : undefined;

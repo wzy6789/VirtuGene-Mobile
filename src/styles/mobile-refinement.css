@@ -1,10 +1,5 @@
 /* Mobile visual system: readable Chinese and lightweight light effects.
    Keep this after globals.css; all changes are scoped to mobile pages/containers. */
-.mobile-layout {
-  --vg-accent: #9483ed;
-  --vg-soft: color-mix(in srgb, var(--bg-panel) 94%, var(--vg-accent));
-  --vg-edge: color-mix(in srgb, var(--text) 9%, transparent);
-}
 .mobile-layout .vg-space-heading { padding:22px 20px 14px; align-items:center; }
 .mobile-layout .vg-space-heading h1 { font-size:26px; line-height:1.3; letter-spacing:.035em; font-weight:600; color:var(--text); text-shadow:none; }
 .mobile-layout .vg-space-heading h1:first-child { margin-top:0; }
@@ -32,9 +27,6 @@
 .mobile-layout .vg-chat-message-content { min-width:0; max-width:calc(100% - 42px); }
 .mobile-layout .vg-chat-message-row.is-user .vg-chat-message-content { max-width:calc(100% - 68px); }
 .mobile-layout .vg-chat-identity > * { box-shadow:none; }
-.mobile-layout .vg-message-bubble { padding:10px 13px; font-size:14px !important; line-height:1.65 !important; letter-spacing:.015em; border-radius:17px; box-shadow:0 2px 5px rgba(0,0,0,.035) !important; }
-.mobile-layout .vg-message-bubble.is-character-bubble { background:var(--bg-panel) !important; color:var(--text); border:1px solid var(--vg-edge); border-top-left-radius:5px; }
-.mobile-layout .vg-message-bubble.is-user-bubble { background:linear-gradient(145deg,#7566c8,#6558b4) !important; color:#fff; border:1px solid rgba(255,255,255,.08); border-top-right-radius:5px; box-shadow:0 2px 5px rgba(0,0,0,.035) !important; }
 .mobile-layout .chat-composer { background:var(--bg-panel); border-color:var(--vg-edge); box-shadow:none; }
 
 /* Four equal entrances; color belongs to the icon, not four competing cards. */
@@ -130,7 +122,7 @@
 .mobile-layout .vg-conversation-search:focus-within > svg { color:var(--vg-accent); }
 /* The container owns the focus treatment; the input must not get a second square outline. */
 .mobile-layout .vg-conversation-search input:focus-visible { outline:none; box-shadow:none; }
-.mobile-layout .vg-wordmark { position:relative; display:inline-block; padding-bottom:9px; font-family:Inter,"Segoe UI",sans-serif; font-size:13px; line-height:1.45; font-weight:650; letter-spacing:.23em; white-space:nowrap; }
+.mobile-layout .vg-wordmark { position:relative; display:inline-block; padding-bottom:9px; font-family:Inter,"Segoe UI",sans-serif; font-size:13px; line-height:1.45; font-weight:var(--vg-weight-strong,700); letter-spacing:.23em; white-space:nowrap; }
 .mobile-layout .vg-wordmark-face { display:block; color:transparent; background:linear-gradient(175deg,color-mix(in srgb,var(--text) 85%,#c6bcf4) 15%,color-mix(in srgb,var(--text) 58%,#b0a0ee) 52%,color-mix(in srgb,var(--text) 80%,#82c5d1) 85%); background-clip:text; -webkit-background-clip:text; text-shadow:0 0 12px rgba(148,131,237,.13); }
 .mobile-layout .vg-wordmark-reflection { position:absolute; top:0; left:0; right:0; pointer-events:none; }
 .mobile-layout .vg-wordmark-reflection::before { content:attr(data-text); display:block; color:transparent; background:linear-gradient(110deg,transparent 42%,rgba(221,232,255,.1) 47%,rgba(239,246,255,.85) 50%,rgba(155,229,230,.4) 52%,transparent 58%); background-size:300% 100%; background-position:100% 0; background-clip:text; -webkit-background-clip:text; animation:vg-wordmark-reflection 5.5s cubic-bezier(.4,0,.25,1) 2; }
@@ -181,8 +173,6 @@
 .mobile-layout .vg-navigation button[aria-current="page"] .nav-icon { filter:drop-shadow(0 0 5px rgba(148,131,237,.22)); }
 .mobile-layout .chat-header { background:radial-gradient(ellipse at 100% 0%,rgba(146,125,224,.11),transparent 75%),var(--bg-panel); box-shadow:inset 0 -1px 0 rgba(150,133,224,.08); }
 .mobile-layout .chat-thread { background:radial-gradient(ellipse 110% 360px at 100% 0%,rgba(133,108,210,.09),transparent 78%),radial-gradient(ellipse 90% 300px at 0% 95%,rgba(73,165,172,.035),transparent 80%),var(--bg); }
-.mobile-layout .vg-message-bubble.is-character-bubble { background:linear-gradient(130deg,rgba(155,138,225,.055),transparent 75%),var(--bg-panel) !important; border-color:color-mix(in srgb,var(--text) 10%,transparent); }
-.mobile-layout .vg-message-bubble.is-user-bubble { background:linear-gradient(130deg,#8070d0,#685bbb 75%) !important; box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 3px 9px rgba(77,57,149,.09) !important; }
 .mobile-layout .vg-wordmark { font-size:15px; letter-spacing:.22em; }
 .vg-profile-primary { position:relative; overflow:hidden; isolation:isolate; }
 .vg-profile-primary::after { content:''; position:absolute; inset:0; pointer-events:none; background:linear-gradient(110deg,transparent 25%,rgba(220,235,255,.2) 50%,transparent 75%); transform:translateX(-120%); animation:vg-surface-reflection 2.2s ease .3s 1; }

@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react';
+import { breathe } from '../../lib/haptics';
 
 const icons = {
   account: 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 8 0 0 1 16 0v2',
@@ -37,7 +38,7 @@ export function SettingsRow({ title, detail, value, icon, onClick, danger = fals
 }
 export function SettingsSwitch({ title, detail, checked, onChange, disabled, label }: { title: string; detail?: string; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean; label?: string }) {
   const id = useId();
-  return <div className="vg-preference-row"><span className="vg-preference-copy"><strong>{title}</strong>{detail && <small id={id}>{detail}</small>}</span><button type="button" role="switch" aria-label={label ?? title} aria-describedby={detail ? id : undefined} aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)} className="vg-preference-toggle"><span aria-hidden="true" /></button></div>;
+  return <div className="vg-preference-row"><span className="vg-preference-copy"><strong>{title}</strong>{detail && <small id={id}>{detail}</small>}</span><button type="button" role="switch" aria-label={label ?? title} aria-describedby={detail ? id : undefined} aria-checked={checked} disabled={disabled} onClick={() => { onChange(!checked); breathe(); }} className="vg-preference-toggle"><span aria-hidden="true" /></button></div>;
 }
 export function SettingsChoices<T extends string | number>({ label, value, options, onChange, disabled }: { label: string; value: T; options: { value: T; title: string; detail?: string }[]; onChange: (value: T) => void; disabled?: boolean }) {
   const name = useId();

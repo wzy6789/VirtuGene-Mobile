@@ -16,6 +16,7 @@ import { readTodoReceipt, readNotificationReceipt } from '../../lib/secretary/re
 import { REMINDER_STATUS_LABELS } from '../../lib/todo-reminders';
 import { todoRepo } from '../../db/todo-repo';
 import { requestNotificationPermission } from '../../lib/notify';
+import { CharacterDispatchCard } from '../secretary/CharacterDispatchCard';
 
 function ReminderState({ userId, todoId, date }: { userId: string; todoId: string; date?: string }) {
   const [state, setState] = useState<{ labels: string[]; retry: boolean; permission: boolean }>();
@@ -258,5 +259,5 @@ export function SecretaryTaskCards({ taskId, context = 'chat', onAnswer, busy }:
   const displayed = continuation ? { ...task, pendingContext: continuation.pendingContext } : task;
   const pending = (activeFocus || continuation) && displayed.pendingContext && ['waiting', 'paused'].includes(displayed.pendingContext.state) && onAnswer && (!!continuation || !task.results.length || displayed.pendingContext.awaitingFields.includes('operation'));
   if (!task.results.length && !pending) return null;
-  return <div className={`vg-secretary-results ${context === 'chat' ? 'ml-10 mb-4 is-chat' : ''} max-w-lg space-y-3`} data-no-page-swipe>{task.assistantName && context === 'chat' && !!task.results.length && <p className="vg-secretary-receipt text-xs text-sub"><SecretaryIcon name="inbox" size={13} />{task.assistantName} · 当时的办事记录</p>}{pending && <PendingControls key={`${task.id}:${continuation?.updatedAt ?? ''}`} task={displayed} onAnswer={onAnswer} disabled={busy} />}{task.results.map((result, index) => <ResultCard key={index} task={task} result={result} index={index} />)}</div>;
+  return <div className={`vg-secretary-results ${context === 'chat' ? 'ml-10 mb-4 is-chat' : ''} max-w-lg space-y-3`} data-no-page-swipe>{task.assistantName && context === 'chat' && !!task.results.length && <p className="vg-secretary-receipt text-xs text-sub"><SecretaryIcon name="inbox" size={13} />{task.assistantName} · 当时的办事记录</p>}{pending && <PendingControls key={`${task.id}:${continuation?.updatedAt ?? ''}`} task={displayed} onAnswer={onAnswer} disabled={busy} />}{task.results.map((result, index) => result.dispatch ? <CharacterDispatchCard key={index} userId={userId} taskId={result.dispatch.taskId} /> : <ResultCard key={index} task={task} result={result} index={index} />)}</div>;
 }

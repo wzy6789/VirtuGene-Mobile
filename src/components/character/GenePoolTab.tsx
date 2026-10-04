@@ -1,5 +1,6 @@
 import { avatarImageSrc } from '../../lib/avatar';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { GeneGlyph } from '../ui/GeneGlyph';
 import { useChatStore } from '../../store/chat-store';
 import { useAuthStore } from '../../store/auth-store';
 import { characterRepo } from '../../db/character-repo';
@@ -229,7 +230,7 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
         onClick={() => setShowFusion(true)}
         className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gene-purple/30 bg-gene-purple/8 text-gene-purple text-xs font-medium hover:bg-gene-purple/15 transition-colors"
       >
-        🧬 基因融合 · 杂交出新的数字灵魂
+        <GeneGlyph size={18} /> 基因融合 · 杂交出新的数字灵魂
       </button>
 
       {/* Source filter tabs */}
@@ -269,7 +270,7 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
       {/* Results */}
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-          <span className="text-4xl mb-3">🧬</span>
+          <GeneGlyph size={40} className="mb-3 text-[color:var(--vg-accent)]" />
           <span className="text-sm">未找到匹配的基因序列</span>
         </div>
       ) : effectiveView === 'grid' ? (
@@ -300,25 +301,25 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-ink truncate">{char.name}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${badge.className}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${badge.className}`}>
                         {badge.text}
                       </span>
                     </div>
                     {char.signature && (
-                      <p className="text-[11px] text-gray-500 line-clamp-1 mt-0.5">{char.signature}</p>
+                      <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{char.signature}</p>
                     )}
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {char.tags.map((tag) => (
                         <span
                           key={tag}
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-surface text-gray-400"
+                          className="text-xs px-1.5 py-0.5 rounded bg-surface text-gray-400"
                         >
                           {tag}
                         </span>
                       ))}
                     </div>
                     {isShared && (
-                      <span className="inline-block mt-2 text-[10px] text-life-cyan">
+                      <span className="inline-block mt-2 text-xs text-life-cyan">
                         ⧉ 点击查看档案
                       </span>
                     )}
@@ -338,7 +339,7 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
                   groupRefs.current[group.letter] = el;
                 }}
               >
-                <div className="px-2 pt-3 pb-1 text-[11px] font-semibold text-life-cyan">
+                <div className="px-2 pt-3 pb-1 text-xs font-semibold text-life-cyan">
                   {group.letter}
                 </div>
                 {group.chars.map((char) => {
@@ -360,12 +361,12 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-ink truncate">{char.name}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${badge.className}`}>
+                          <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${badge.className}`}>
                             {badge.text}
                           </span>
                         </div>
                         {char.signature && (
-                          <p className="text-[11px] text-gray-500 truncate mt-0.5">{char.signature}</p>
+                          <p className="text-xs text-gray-500 truncate mt-0.5">{char.signature}</p>
                         )}
                       </div>
                     </button>
@@ -376,7 +377,7 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
           </div>
 
           {/* Letter index bar */}
-          <div className="shrink-0 self-start sticky top-16 flex flex-col justify-center gap-0.5 text-[10px] text-gray-500">
+          <div className="shrink-0 self-start sticky top-16 flex flex-col justify-center gap-0.5 text-xs text-gray-500">
             {INDEX_LETTERS.map((l) => (
               <button
                 key={l}

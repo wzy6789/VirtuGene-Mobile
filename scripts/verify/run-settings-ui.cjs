@@ -25,11 +25,13 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     check(await page.locator('.vg-preference-row').count() === 1, 'search finds voice through common wording');
     await page.getByRole('searchbox').fill('');
     await page.getByRole('button', { name: /外观与阅读/ }).click();
-    await page.getByRole('radio', { name: /浅色/ }).check();
+    await page.getByRole('radio', { name: /^浅色/ }).check();
     check(await page.evaluate(() => !document.documentElement.classList.contains('dark')), 'theme selection changes the actual theme');
     await screenshot('appearance-light');
-    await page.getByRole('radio', { name: /深色/ }).check();
-    await page.getByRole('slider', { name: '聊天字号' }).fill('20');
+    await page.getByRole('radio', { name: /^深色/ }).check();
+    await page.getByRole('slider', { name: '聊天字号' }).focus();
+    await page.keyboard.press('Home');
+    for (let i=0;i<8;i++) await page.keyboard.press('ArrowRight');
     check(await page.evaluate(() => window.settingsUITest.useSettingsStore.getState().chatFontSize === 20), 'font selection changes real settings');
     check(await page.locator('.vg-font-preview').evaluate(el => getComputedStyle(el).fontSize === '20px'), 'font preview reflects the selected size');
     await screenshot('appearance-dark'); await back();

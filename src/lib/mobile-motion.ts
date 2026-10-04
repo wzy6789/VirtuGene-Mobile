@@ -19,14 +19,17 @@ export function subscribeReducedMotion(callback: () => void): () => void {
 }
 
 /** A critically damped response: accelerates gently, then settles without overshoot. */
-export function settleFrames(from: number, to = 0, opacityFrom = 1, opacityTo = 1, axis: 'x' | 'y' = 'x', initialVelocity = 0): Keyframe[] {
+export function settleProgress(initialVelocity = 0): { offset: number; progress: number }[] {
   // A small initial velocity gives taps an immediate response while preserving a
   // monotonic, critically damped finish. Existing gesture callers start at rest.
   const velocity = Math.max(0, Math.min(9, initialVelocity));
   const response = (t: number) => 1 - (1 + (9 - velocity) * t) * Math.exp(-9 * t);
   const end = response(1);
-  return Array.from({ length: 25 }, (_, i) => {
-    const offset = i / 24, progress = response(offset) / end;
+  return Array.from({ length: 25 }, (_, i) => ({ offset: i / 24, progress: response(i / 24) / end }));
+}
+
+export function settleFrames(from: number, to = 0, opacityFrom = 1, opacityTo = 1, axis: 'x' | 'y' = 'x', initialVelocity = 0): Keyframe[] {
+  return settleProgress(initialVelocity).map(({ offset, progress }) => {
     const value = from + (to - from) * progress;
     return { offset, opacity: opacityFrom + (opacityTo - opacityFrom) * progress,
       transform: axis === 'x' ? `translate3d(${value}px,0,0)` : `translate3d(0,${value}px,0)` };

@@ -5,6 +5,7 @@ import { useAuthStore } from '../../src/store/auth-store';
 import { useSettingsStore } from '../../src/store/settings-store';
 import { sendMessage } from '../../src/lib/ai/deepseek';
 import { runProviderRoutingChecks } from './provider-routing';
+import { runDeepseekFlashChecks } from './deepseek-flash';
 
 const report = window.fetch.bind(window);
 const encoder = new TextEncoder();
@@ -49,6 +50,7 @@ async function run() {
   check(!localStorage.getItem('virtugene-ai-provider-config-v1')?.includes('must-never-store'), 'nonsecret config whitelists fields');
   check(getAvailableModels('custom').some(model => model.id === 'same-model') && getProviderConfig('custom').models[0].vision === true, 'custom models and explicit image capability are persisted');
 
+  await runDeepseekFlashChecks(check);
   const compatible = Object.values(LLM_PROVIDERS).filter(provider => provider.protocol === 'openai');
   for (const provider of compatible) {
     let url = ''; let init: RequestInit | undefined;
@@ -56,7 +58,7 @@ async function run() {
     const model = provider.id === 'openai' ? 'gpt-6-luna' : provider.id === 'minimax' ? 'MiniMax-M2.7' : 'exact-id';
     const result = await llmChat({ provider: provider.id, model, apiKey: provider.id === 'custom' ? '' : 'isolated-key', messages, jsonMode: true, disableThinking: true });
     const body = JSON.parse(String(init?.body));
-    check(result.content === 'Ready' && result.usage?.inputTokens === 12 && body.model === model && url === `${getProviderConfig(provider.id).baseUrl}/chat/completions`, `${provider.id} makes real compatible request and parses response`);
+    check(result.content === 'Ready' && result.usage?.inputTokens === 12 && body.model === (provider.id === 'deepseek' ? 'deepseek-flash' : model) && url === `${getProviderConfig(provider.id).baseUrl}/chat/completions`, `${provider.id} makes real compatible request and parses response`);
     check(provider.id === 'custom' ? !new Headers(init?.headers).has('Authorization') : new Headers(init?.headers).get('Authorization') === 'Bearer isolated-key', `${provider.id} credentials reach selected endpoint only`);
     if (provider.id === 'openai') check(body.max_completion_tokens === 1000 && !('max_tokens' in body) && !('temperature' in body) && body.reasoning_effort === 'none', 'modern OpenAI reasoning parameters are compatible');
     if (provider.id === 'qwen') check(body.enable_thinking === false && body.response_format.type === 'json_object', 'Qwen structured output disables thinking');

@@ -1,8 +1,8 @@
 import { useId, useState } from 'react';
-import { LLM_PROVIDERS, type LLMModel, type ProviderId } from '../../lib/ai/llm';
+import { LLM_PROVIDERS, normalizeModelId, type LLMModel, type ProviderId } from '../../lib/ai/llm';
 
 export function modelChoiceKey(provider: string, model: string) {
-  return JSON.stringify([provider, model]);
+  return JSON.stringify([provider, normalizeModelId(model, provider)]);
 }
 
 export function ModelList({ models, ready, value, onChange, mode = 'radio', includeDefault, defaultLabel = '系统默认', defaultDetail = '使用软件的默认模型', defaultUnavailable = false }: {

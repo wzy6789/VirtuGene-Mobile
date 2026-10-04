@@ -1,11 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
+import { settingsSearchIndexPlugin } from './scripts/settings-search-index.mjs';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [settingsSearchIndexPlugin(), react()],
   root: '.',
   base: './',
   define: {

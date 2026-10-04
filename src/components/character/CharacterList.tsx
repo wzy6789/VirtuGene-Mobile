@@ -248,7 +248,7 @@ export function CharacterList({ collapsed }: Props) {
       {contextMenu && (
         <div
           ref={menuRef}
-          className="fixed z-[60] min-w-[140px] py-1.5 glass-card rounded-xl shadow-2xl"
+          className="fixed vg-layer-popover min-w-[140px] py-1.5 glass-card rounded-xl shadow-2xl"
           style={{ left: contextMenu.x + 4, top: contextMenu.y + 4 }}
         >
           {isOwnChar(contextMenu.char) ? (

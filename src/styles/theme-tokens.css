@@ -1,0 +1,56 @@
+/* Shared by the application shell and portals. Component files consume these roles. */
+:root {
+  --bg:#f5f6fc; --bg-panel:#fbfcff; --bg-surface:#eeeff6; --bg-surface-strong:#e3e6f0;
+  --bg-glass:rgba(255,255,255,.9); --vg-raised:#fff; --vg-inset:#f0f2f8;
+  --text:#25243e; --text-secondary:#5b647b; --text-ink:var(--text); --text-sub:var(--text-secondary);
+  --border:#dddfee; --border-strong:#c7c8de; --vg-accent:#6c5ce7; --vg-action:#6c5ce7;
+  --vg-on-action:#fff; --vg-cyan:#11717b; --vg-on-cyan:#fff; --vg-danger:#b73351; --vg-warning:#88631b;
+  --vg-edge:rgba(37,36,62,.1); --vg-panel-light:rgba(108,92,231,.035);
+  --vg-panel-shine:rgba(255,255,255,.9); --vg-shadow:rgba(43,35,93,.08);
+  --vg-soft:color-mix(in srgb,var(--bg-panel) 94%,var(--vg-accent));
+  --vg-radius-control:14px; --vg-radius-card:20px; --vg-duration:180ms;
+  --vg-ease:cubic-bezier(.2,.85,.25,1); --vg-sheet-radius:24px; --vg-scrim:rgba(3,7,20,.56);
+  --vg-toggle-off:#8a93a6; --vg-toggle-on:var(--vg-accent); --vg-toggle-thumb:#fff;
+  --vg-toggle-selected-thumb:#fff;
+  --vg-pref-bg:#f3f4f9; --vg-pref-panel:#fff; --vg-pref-inset:#f4f5fa; --vg-pref-line:#e2e5ef;
+  --vg-pref-ink:#292c3b; --vg-pref-sub:#697286; --vg-pref-accent:#7060d7; --vg-pref-wash:#eeebfb;
+  --msg-ai:var(--bg-panel); --msg-ai-text:var(--text); --msg-user:#6657c9;
+  --vg-z-content:0; --vg-z-sticky:10; --vg-z-menu:20; --vg-z-page:40; --vg-z-sheet:50;
+  --vg-z-popover:60; --vg-z-toast:70; --vg-z-viewer:80; --vg-z-onboarding:90; --vg-z-splash:100;
+  --vg-weight-label:500; --vg-weight-heading:700; --vg-weight-strong:700;
+  --vg-statusbar:var(--bg);
+  --aurora-a:rgba(108,92,231,.14); --aurora-b:rgba(0,206,201,.11); --aurora-c:rgba(108,92,231,.10);
+  color-scheme:light;
+}
+:root.dark {
+  --bg:#0c1020; --bg-panel:#151b2d; --bg-surface:#1e273d; --bg-surface-strong:#2a3650;
+  --bg-glass:rgba(21,27,45,.94); --vg-raised:#1d263b; --vg-inset:#111729;
+  --text:#eeefff; --text-secondary:#a6afc9; --border:#29334a; --border-strong:#414e69;
+  --vg-accent:#ad9bff; --vg-cyan:#7fe0db; --vg-on-cyan:#0c1020; --vg-danger:#ff9aae; --vg-warning:#e8be77;
+  --vg-edge:rgba(177,190,223,.13); --vg-panel-light:rgba(139,117,255,.06);
+  --vg-panel-shine:rgba(210,221,255,.075); --vg-shadow:rgba(0,3,18,.2);
+  --vg-toggle-off:#44516c; --msg-user:#5546a8;
+  --vg-toggle-selected-thumb:#151b2d;
+  --vg-pref-bg:#111729; --vg-pref-panel:#192237; --vg-pref-inset:#222d45; --vg-pref-line:#2b3650;
+  --vg-pref-ink:#eef0ff; --vg-pref-sub:#a6b0c9; --vg-pref-accent:var(--vg-accent); --vg-pref-wash:#2a2947;
+  --aurora-a:rgba(108,92,231,.24); --aurora-b:rgba(0,206,201,.16); --aurora-c:rgba(0,206,201,.10);
+  color-scheme:dark;
+}
+html { background:var(--bg); }
+/* Android MainActivity currently forces white system icons; keep their matching surface. */
+:root[data-vg-platform='native'] { --vg-statusbar:#0f0f1a; }
+:is(button,a,input,textarea,select,[tabindex]):focus-visible {
+  outline:2px solid var(--vg-accent); outline-offset:3px;
+}
+/* Layer names express document-level overlays. Local card layering stays local. */
+.vg-modal-overlay,.vg-modal-exit { z-index:calc(var(--vg-z-sheet) + var(--vg-modal-depth,0) * 2); background:var(--vg-scrim); }
+.vg-modal-panel,.vg-mobile-sheet { border-radius:var(--vg-sheet-radius); background:var(--bg-panel); color:var(--text); }
+.vg-mobile-sheet { border-radius:var(--vg-sheet-radius) var(--vg-sheet-radius) 0 0; }
+.vg-layer-page { z-index:var(--vg-z-page); }
+.vg-layer-sheet { z-index:var(--vg-z-sheet); }
+.vg-layer-popover { z-index:var(--vg-z-popover); }
+.vg-layer-toast { z-index:var(--vg-z-toast); }
+.vg-layer-viewer { z-index:var(--vg-z-viewer); }
+.vg-layer-onboarding { z-index:var(--vg-z-onboarding); }
+:root[data-vg-font='variable'] { --vg-weight-label:450; --vg-weight-heading:550; --vg-weight-strong:650; }
+.vg-world-hero-atmosphere { background:radial-gradient(circle at 82% 12%,var(--vg-panel-light),transparent 40%),radial-gradient(circle at 18% 85%,var(--vg-panel-light),transparent 55%); }

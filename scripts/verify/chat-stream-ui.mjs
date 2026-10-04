@@ -4,7 +4,10 @@ import { dirname, join, basename } from 'node:path';
 import { readFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 const { chromium } = createRequire(join(dirname(process.execPath), 'package.json'))('playwright');
-const bundle = await build({ entryPoints: ['scripts/verify/chat-stream-ui.tsx'], bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', loader: { '.png': 'dataurl', '.webp': 'dataurl', '.css': 'empty' }, define: { 'import.meta.env': '{"DEV":true,"VITE_AI_GATEWAY_URL":""}', __APP_VERSION__: '"test"' } });
+const recordPerformance = process.argv.includes('--record-baseline');
+const bundle = await build({ entryPoints: ['scripts/verify/chat-stream-ui.tsx'], bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', loader: { '.png': 'dataurl', '.webp': 'dataurl', '.css': 'empty' }, define: { 'import.meta.hot': 'undefined', 'import.meta.env': '{"DEV":true,"VITE_AI_GATEWAY_URL":""}', __APP_VERSION__: '"test"' }, plugins: [{ name: 'bubble-render-count', setup(build) {
+  build.onLoad({ filter: /MessageBubble\.tsx$/ }, async args => ({ loader: 'tsx', contents: readFileSync(args.path, 'utf8').replace(/(function MessageBubble\([^\n]+\{\s*\n)/, '$1  window.bubbleRenders ??= {}; window.bubbleRenders[message.id] = (window.bubbleRenders[message.id] || 0) + 1;\n') }));
+} }] });
 const assets = 'dist/renderer/assets';
 const css = readdirSync(assets).filter(file => file.endsWith('.css')).map(file => `<link rel="stylesheet" href="/assets/${file}">`).join('');
 const server = createServer((req, res) => {
@@ -18,6 +21,7 @@ let checks = 0;
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.addInitScript(() => { window.hapticCalls = []; navigator.vibrate = value => { window.hapticCalls.push(value); return true; }; });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.waitForFunction(() => !!window.chatStreamUi);
   const test = (name, ...args) => page.evaluate(({ name, args }) => window.chatStreamTest[name](...args), { name, args });
@@ -27,6 +31,32 @@ try {
   const done = async () => { await page.getByRole('button', { name: '停止生成', exact: true }).waitFor({ state: 'hidden' }); await page.waitForTimeout(80); };
   const out = '.tmp-preview/chat-stream-ui'; mkdirSync(out, { recursive: true });
   const waitLatest = () => page.waitForFunction(() => { const el = document.querySelector('.chat-thread'); return el.scrollHeight - el.scrollTop - el.clientHeight < 8; }, undefined, { timeout: 1500 });
+  await ready(60); await page.waitForTimeout(500);
+  const historyRenders = await page.evaluate(async () => {
+    const el = document.querySelector('.chat-thread');
+    el.dispatchEvent(new WheelEvent('wheel', { deltaY: -60 }));
+    el.scrollTop -= 60;
+    await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame);
+    const rows = [...el.querySelectorAll('[data-message-id]')];
+    const id = rows[Math.floor(rows.length / 2)].dataset.messageId;
+    const initial = window.bubbleRenders[id], from = el.scrollTop;
+    for (let i = 0; i < 30; i++) { el.scrollTop = from + 20 * Math.sin(i / 5); await new Promise(requestAnimationFrame); }
+    return { id, renders: window.bubbleRenders[id] - initial, retained: !!el.querySelector(`[data-message-id="${id}"]`) };
+  });
+  console.log(`PERFORMANCE retained historical bubble: ${JSON.stringify(historyRenders)}`);
+  if (!recordPerformance) check(historyRenders.retained && historyRenders.renders === 0, 'scroll frames never rerender an unchanged historical bubble');
+  const retainedBubble = page.locator(`[data-message-id="${historyRenders.id}"]`);
+  await page.evaluate(() => window.chatStreamUi.font(18));
+  await page.waitForFunction(id => getComputedStyle(document.querySelector(`[data-message-id="${id}"] .vg-message-text`)).fontSize === '18px', historyRenders.id);
+  check(await retainedBubble.locator('.vg-message-text').evaluate(el => getComputedStyle(el).fontSize) === '18px', 'cached historical bubbles still respond to font settings');
+  await page.evaluate(id => window.chatStreamUi.edit(id, '已经更新的历史消息'), historyRenders.id);
+  await page.waitForFunction(id => document.querySelector(`[data-message-id="${id}"] .vg-message-text`)?.textContent === '已经更新的历史消息', historyRenders.id);
+  check(await retainedBubble.locator('.vg-message-text').innerText() === '已经更新的历史消息', 'editing a cached message updates its visible content');
+  await retainedBubble.locator('.vg-message-bubble').click({ button: 'right' });
+  await page.getByRole('button', { name: '引用', exact: true }).click();
+  check(await page.getByRole('button', { name: '取消引用', exact: true }).count() === 1, 'cached row actions still use the current conversation handler');
+  await page.getByRole('button', { name: '取消引用', exact: true }).click();
+  await page.evaluate(() => window.chatStreamUi.font(14));
   await ready();
   await page.evaluate(() => { window.sendNode = document.querySelector('.chat-composer-send'); });
   await send('今天的天气怎么样？');
@@ -118,7 +148,7 @@ try {
     await page.emulateMedia({ reducedMotion: 'no-preference' }); await page.evaluate(() => { delete document.documentElement.dataset.vgReducedMotion; });
   }
   await ready(); await page.evaluate(() => document.documentElement.classList.remove('dark')); await send('你好'); await test('push', 0, '你好，我在这里。'); await page.locator('[data-streaming-reply]').waitFor();
-  check(await page.locator('.vg-stream-caret').evaluate(el => getComputedStyle(el, '::after').backgroundColor) === 'rgb(20, 127, 136)', 'light theme uses its darker legible caret');
+  check(await page.locator('.vg-stream-caret').evaluate(el => getComputedStyle(el, '::after').backgroundColor) === 'rgb(17, 113, 123)', 'light theme uses its darker legible caret');
   await page.screenshot({ path: `${out}/streaming-light.png` }); await test('finish', 0); await done();
   await ready(); await page.setViewportSize({ width: 1024, height: 768 });
   await page.evaluate(() => { document.documentElement.classList.add('dark'); document.querySelector('#app').classList.remove('mobile-layout'); });
@@ -186,6 +216,12 @@ try {
   check(!quiet.frames.some(top => top > quiet.before && top < quiet.target - 1) && quiet.frames.at(-1) === quiet.target, 'quiet mode follows streamed lines without intermediate movement');
   check(await page.evaluate(() => { const probe = window.chatStreamUi.scroll, node = probe.element; node.scrollTop = 120; node.dispatchEvent(new Event('scroll')); probe.smooth(); return node.scrollTop === node.scrollHeight - node.clientHeight; }), 'quiet mode returns to latest immediately');
   await page.evaluate(() => { delete document.documentElement.dataset.vgReducedMotion; window.chatStreamUi.disposeScrollProbe(); });
+  await ready();await page.waitForTimeout(75);await page.evaluate(()=>window.hapticCalls.length=0);await send('触感提交验收');
+  check(await page.evaluate(()=>window.hapticCalls.length===1),'real user message commit confirms once before the stream');
+  await page.waitForTimeout(75);await page.evaluate(()=>window.chatStreamUi.breathe());await test('push',0,'这段内容不应该连续振动。');await page.locator('[data-streaming-reply]').waitFor();
+  check(await page.evaluate(()=>window.hapticCalls.length===1),'actual stream silence suppresses controls and token feedback');
+  await test('finish',0);await done();await page.waitForTimeout(75);await page.evaluate(()=>window.chatStreamUi.breathe());
+  check(await page.evaluate(()=>window.hapticCalls.length===2),'stream completion releases silence without adding automatic feedback');
   check(await test('extraNetwork') === 0 && errors.length === 0, 'UI scenarios make no paid calls or uncaught errors');
   console.log(`PASS chat-stream-ui: ${checks} checks`);
 } finally { await browser.close(); server.close(); }

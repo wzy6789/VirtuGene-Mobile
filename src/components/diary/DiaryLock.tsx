@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { resonate } from '../../lib/haptics';
+import { useAuthStore } from '../../store/auth-store';
 import { Modal } from '../ui/Modal';
 import { useSettingsStore, sha256 } from '../../store/settings-store';
 
@@ -8,19 +10,26 @@ export function DiaryLockScreen({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const mounted = useRef(true), busy = useRef(false), revision = useRef(0);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; revision.current++; }; }, []);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   const submit = async () => {
+    if (busy.current || !pin.trim()) return;
     if (!diaryPin) { onUnlock(); return; }
-    const hash = await sha256(pin.trim());
+    busy.current = true;
+    const userId = useAuthStore.getState().userId, version = revision.current;
+    let hash: string;
+    try { hash = await sha256(pin.trim()); } finally { busy.current = false; }
+    if (!mounted.current || version !== revision.current || useAuthStore.getState().userId !== userId || useSettingsStore.getState().diaryPin !== diaryPin) return;
     if (hash === diaryPin) {
       setError(null);
-      onUnlock();
+      resonate('success'); onUnlock();
     } else {
-      setError('密码不对，再试一次');
+      resonate('error'); setError('密码不对，再试一次');
       setPin('');
       inputRef.current?.focus();
     }
@@ -39,7 +48,7 @@ export function DiaryLockScreen({ onUnlock }: { onUnlock: () => void }) {
         ref={inputRef}
         type="password"
         value={pin}
-        onChange={(e) => { setPin(e.target.value); setError(null); }}
+        onChange={(e) => { revision.current++; setPin(e.target.value); setError(null); }}
         onKeyDown={(e) => { if (e.key === 'Enter') void submit(); }}
         placeholder="输入密码"
         maxLength={32}

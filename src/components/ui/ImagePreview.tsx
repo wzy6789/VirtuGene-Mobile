@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { cancelSoulHandoff, registerSoulElement } from '../../lib/soul-handoff';
 import { Modal } from './Modal';
 import { AnimatedValue } from './AnimatedValue';
 import { prefersReducedMotion, subscribeReducedMotion } from '../../lib/mobile-motion';
 
-export function ImagePreview({ images, initialIndex = 0, onClose }: { images: string[]; initialIndex?: number; onClose: () => void }) {
+export function ImagePreview({ images, initialIndex = 0, onClose, soulKeys }: { images: string[]; initialIndex?: number; onClose: () => void; soulKeys?: string[] }) {
   const [index, setIndex] = useState(Math.min(Math.max(0, initialIndex), images.length - 1));
   const current = useRef(index); current.current = index;
   const stage = useRef<HTMLDivElement>(null), track = useRef<HTMLDivElement>(null);
@@ -20,6 +21,7 @@ export function ImagePreview({ images, initialIndex = 0, onClose }: { images: st
     if (track.current) { track.current.style.willChange = ''; track.current.style.transform = `translate3d(${-current.current * (stage.current?.clientWidth ?? 0)}px,0,0)`; }
   };
   const go = (next: number) => {
+    cancelSoulHandoff();
     const node = track.current; if (!node || !stage.current) return;
     const target = Math.max(0, Math.min(images.length - 1, next));
     const from = paintedX(); motion.current?.cancel();
@@ -46,6 +48,7 @@ export function ImagePreview({ images, initialIndex = 0, onClose }: { images: st
   return <Modal open onClose={onClose} title="图片预览" mobileFullHeight width="max-w-none" panelClassName="vg-media-viewer" canSnapshotOnExit={() => false}>
     <div className="vg-media-stage" ref={stage} data-no-page-swipe data-no-back-swipe data-preview-index={index}
       onPointerDown={event => {
+        cancelSoulHandoff();
         if (!event.isPrimary || event.button !== 0) { reset(); return; }
         event.currentTarget.setPointerCapture(event.pointerId);
         const base = paintedX(); const style = getComputedStyle(event.currentTarget);
@@ -95,7 +98,7 @@ export function ImagePreview({ images, initialIndex = 0, onClose }: { images: st
         const commit = g.axis === 'x' && Math.sign(velocity || g.dx) === Math.sign(g.dx) && (Math.abs(g.dx) > event.currentTarget.clientWidth * .2 || Math.abs(g.dx) >= 35 && Math.abs(velocity) > .65);
         go(current.current + (commit ? g.dx < 0 ? 1 : -1 : 0));
       }} onPointerCancel={reset}>
-      <div className="vg-media-track" ref={track}>{images.map((src, i) => <div className="vg-media-frame" key={i}><img src={src} alt={`动态图片 ${i + 1}`} draggable={false} /></div>)}</div>
+      <div className="vg-media-track" ref={track}>{images.map((src, i) => <div className="vg-media-frame" key={i}><img ref={node=>{if(node && i === current.current && soulKeys?.[i])return registerSoulElement(node,soulKeys[i],'media');}} data-soul-key={soulKeys?.[i]} data-soul-role="media" src={src} alt={`动态图片 ${i + 1}`} draggable={false} /></div>)}</div>
     </div>
     <div className="vg-media-controls"><button type="button" aria-label="上一张图片" disabled={index === 0} onClick={() => go(current.current - 1)}>‹</button><span><AnimatedValue value={index + 1} /> / {images.length}<small>左右切换 · 下拉关闭</small></span><button type="button" aria-label="下一张图片" disabled={index === images.length - 1} onClick={() => go(current.current + 1)}>›</button></div>
   </Modal>;

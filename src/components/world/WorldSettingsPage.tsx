@@ -118,9 +118,9 @@ export function WorldSettingsPage() {
           >
             {busy ? '正在记下…' : '记下来'}
           </button>
-          <span className="text-[10.5px] text-gray-500">也可以在世界里直接说，效果完全一样。</span>
+          <span className="text-[12px] text-gray-500">也可以在世界里直接说，效果完全一样。</span>
         </div>
-        {notice && <p className="mt-2 text-[11px] text-life-cyan">{notice}</p>}
+        {notice && <p className="mt-2 text-[12px] text-life-cyan">{notice}</p>}
       </section>
 
       {loading ? (

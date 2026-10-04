@@ -9,10 +9,10 @@ export function AuthPage() {
 
   return (
     <div className="relative h-full w-full flex flex-col bg-app">
-      {/* 顶部状态栏深色条（手机端状态栏区域，固定 24px + safe-area，避免白色） */}
+      {/* 浏览器随主题；原生端仍与白色系统图标配套使用深色背景。 */}
       {IS_MOBILE && (
         <div
-          className="absolute top-0 inset-x-0 z-20 pointer-events-none bg-[#0F0F1A]"
+          className="vg-auth-statusbar absolute top-0 inset-x-0 z-20 pointer-events-none"
           style={{ height: 'calc(env(safe-area-inset-top, 0px) + 24px)' }}
         />
       )}

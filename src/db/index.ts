@@ -787,6 +787,9 @@ export interface Group {
 }
 
 export interface Message {
+  /** The initiating user row for this logical role reply (including multipart replies). */
+  replyToUserMessageId?: string;
+  secretaryDispatch?: { taskId: string; assistantName: string; bodyOrigin: 'literal' | 'composed' | 'edited' };
   /** A partially received reply remains readable and is never silently regenerated. */
   interrupted?: boolean;
   stopped?: boolean;
@@ -1204,7 +1207,31 @@ export type TodoRecurrence =
   | { kind: 'interval'; days: number };
 
 /** 现实待办：日期是本地生活日期，与世界的逻辑时间完全分离。 */
-export interface Todo {
+export type TodoWorkStatus = 'todo' | 'doing' | 'waiting' | 'blocked';
+export interface TodoWorkFields {
+  workStatus?: TodoWorkStatus;
+  focusDate?: string | null;
+  projectId?: string | null;
+  waitingSince?: string | null;
+  waitingFor?: string | null;
+  followupDate?: string | null;
+  blockedReason?: string | null;
+  /** Per-field revisions preserve explicit nulls across old-client round trips. */
+  workRevisions?: Record<string, number>;
+}
+export interface TodoEvent {
+  id: string; userId: string; todoId: string; occurrenceId: string;
+  kind: 'completed' | 'followup-planned' | 'followup-recorded';
+  source: 'user-confirmed' | 'legacy-completion'; actor: string;
+  title: string; occurredDate: string; timezone: string; recordedAt: number;
+  sourceRevision: number; createdAt: number; updatedAt: number;
+  previousFollowup?: string | null; followup?: string | null;
+  previousWaitingFor?: string | null; waitingFor?: string | null;
+  method?: 'phone' | 'message' | 'email' | 'meeting' | 'other';
+  methodDetail?: string; note?: string; taskCreatedDate?: string;
+  voidedAt?: number; deletedAt?: number;
+}
+export interface Todo extends TodoWorkFields {
   id: string;
   userId: string;
   title: string;
@@ -1229,7 +1256,7 @@ export interface Todo {
   deletedAt?: number;
 }
 
-export interface TodoOccurrence {
+export interface TodoOccurrence extends TodoWorkFields {
   id: string;
   userId: string;
   todoId: string;
@@ -1237,6 +1264,8 @@ export interface TodoOccurrence {
   dueTime?: string;
   status: 'todo' | 'completed' | 'skipped' | 'cancelled';
   originalDueDate: string;
+  /** Immutable schedule identity; dueDate may be postponed without changing id. */
+  scheduledDate?: string;
   completedAt?: number;
   createdAt: number;
   updatedAt: number;
@@ -1258,6 +1287,8 @@ export interface TodoReminder {
 }
 
 export interface SecretaryBinding {
+  /** Separate from pending life-record work: never guess a recipient from a todo focus. */
+  dispatchFocusTaskId?: string;
   /** Local active clarification. Imported bindings never reactivate it automatically. */
   pendingFocusTaskId?: string;
   /** Which chat receipt currently hosts the controls for this focus. Never imported as execution authority. */
@@ -1320,6 +1351,7 @@ export class VirtuGeneDB extends Dexie {
   worldObjects!: Table<WorldObject, string>;
   todos!: Table<Todo, string>;
   todoOccurrences!: Table<TodoOccurrence, string>;
+  todoEvents!: Table<TodoEvent, string>;
   todoReminders!: Table<TodoReminder, string>;
   moments!: Table<Moment, string>;
   momentMedia!: Table<MomentMedia, string>;
@@ -1757,6 +1789,51 @@ export class VirtuGeneDB extends Dexie {
       secretaryTasks: 'id,userId,characterId,sessionId,messageId,[userId+sessionId],status,updatedAt,[userId+sessionId+createdAt],[userId+characterId+createdAt]',
       secretarySearch: 'id,userId,characterId,sourceId,*keys',
       secretarySearchCursors: 'id',
+    });
+    this.version(31).stores({
+      // A logical reply can be recovered even after thousands of later turns.
+      messages: 'id,sessionId,[sessionId+createdAt],[sessionId+createdAt+id],replyToUserMessageId',
+    });
+    this.version(32).stores({
+      todos: 'id,userId,[userId+dueDate],updatedAt',
+      todoOccurrences: 'id,userId,todoId,[todoId+dueDate],[userId+dueDate],[userId+completedAt],updatedAt',
+      todoEvents: 'id,userId,todoId,occurrenceId,[userId+kind+occurredDate],[userId+occurrenceId],updatedAt',
+    }).upgrade(async tx => {
+      const todos = new Map((await tx.table<Todo>('todos').toArray()).map(t => [t.id,t]));
+      const occurrences = tx.table<TodoOccurrence>('todoOccurrences');
+      for (const row of await occurrences.toArray()) {
+        const todo = todos.get(row.todoId);
+        if (!todo || todo.userId !== row.userId) continue;
+        const scheduledDate = row.scheduledDate ?? row.id.slice(`todo-occ:${row.todoId}:`.length);
+        await occurrences.update(row.id, { scheduledDate });
+        if (row.status === 'completed' && row.completedAt) {
+          const date = new Date(row.completedAt);
+          const occurredDate = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+          await tx.table('todoEvents').put({ id: `legacy-completed:${row.id}`, userId: row.userId, todoId: todo.id, occurrenceId: row.id,
+            kind: 'completed', source: 'legacy-completion', actor: row.userId, title: todo.title, occurredDate,
+            timezone: todo.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, recordedAt: row.completedAt,
+            sourceRevision: row.updatedAt, createdAt: row.completedAt, updatedAt: row.updatedAt } satisfies TodoEvent);
+        }
+      }
+      // Repair the old unplanned completion path without inventing timestamps.
+      for (const todo of todos.values()) {
+        if (todo.dueDate || todo.recurrence.kind !== 'none') continue;
+        const rows = await occurrences.where('todoId').equals(todo.id).filter(o => o.userId === todo.userId).toArray();
+        const completed = rows.filter(o => o.status === 'completed').sort((a,b)=>(b.completedAt??0)-(a.completedAt??0))[0];
+        const id = `todo-occ:${todo.id}:9999-12-31`;
+        const canonical = rows.find(o => o.id === id);
+        if (completed || todo.status === 'completed') {
+          const timestamp = completed?.completedAt ?? todo.completedAt;
+          await occurrences.put({ ...(canonical ?? completed), id, userId:todo.userId,todoId:todo.id,dueDate:'9999-12-31',scheduledDate:'9999-12-31',originalDueDate:'9999-12-31',
+            status:'completed',completedAt:timestamp,createdAt:canonical?.createdAt??completed?.createdAt??todo.createdAt,updatedAt:canonical?.updatedAt??completed?.updatedAt??todo.updatedAt });
+          if(!completed&&timestamp) {
+            const date=new Date(timestamp),occurredDate=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+            await tx.table('todoEvents').put({id:`legacy-completed:${id}`,userId:todo.userId,todoId:todo.id,occurrenceId:id,kind:'completed',source:'legacy-completion',actor:todo.userId,title:todo.title,occurredDate,
+              timezone:todo.timezone??Intl.DateTimeFormat().resolvedOptions().timeZone,recordedAt:timestamp,sourceRevision:todo.updatedAt,createdAt:timestamp,updatedAt:todo.updatedAt} satisfies TodoEvent);
+          }
+          for (const row of rows) if (row.id !== id) await occurrences.update(row.id,{status:'skipped'});
+        }
+      }
     });
     // Keep the unique key correct even for direct writes outside the character repository.
     this.characters.hook('creating', (_key, row) => {

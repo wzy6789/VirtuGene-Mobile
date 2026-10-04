@@ -93,7 +93,7 @@ function GlassShard({ text, time, variant }: { text: string; time: string; varia
           <polyline points="72,0 66,20 76,38 70,60" stroke="#ffffff" strokeOpacity="0.22" strokeWidth="0.6" fill="none" />
         </svg>
         <p className="text-xs text-ink/90 leading-relaxed italic line-clamp-2">「{text}」</p>
-        <p className="text-[10px] text-gray-500 mt-1 tabular-nums">✦ {time}</p>
+        <p className="text-[12px] text-gray-500 mt-1 tabular-nums">✦ {time}</p>
       </div>
     </div>
   );
@@ -115,7 +115,7 @@ function valenceDotClass(valence: number) {
 
 /** 分区小标题（统一克制风格） */
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <p className="text-[11px] tracking-[0.2em] text-gray-500 uppercase">{children}</p>;
+  return <p className="text-[12px] tracking-[0.2em] text-gray-500 uppercase">{children}</p>;
 }
 
 export function EmotionPanel() {
@@ -365,7 +365,7 @@ export function EmotionPanel() {
                 </div>
               </div>
             ) : (
-              <div className="relative text-[10px] text-gray-500">
+              <div className="relative text-[12px] text-gray-500">
                 已抵达最终等阶，灵魂同频（好感度仍在增长）
               </div>
             )}
@@ -404,7 +404,7 @@ export function EmotionPanel() {
             {/* 共同时间线入口 */}
             <button
               onClick={() => setTimelineOpen(true)}
-              className="relative w-full mt-2 flex items-center justify-center gap-1.5 text-[11px] text-gene-purple hover:bg-gene-purple/10 rounded-lg py-1.5 transition-colors"
+              className="relative w-full mt-2 flex items-center justify-center gap-1.5 text-[12px] text-gene-purple hover:bg-gene-purple/10 rounded-lg py-1.5 transition-colors"
             >
               📖 查看我们的故事 · 共同时间线
             </button>
@@ -432,7 +432,7 @@ export function EmotionPanel() {
                   />
                 ))}
               </div>
-              <div className="flex justify-between mt-1 text-[9px] text-gray-400">
+              <div className="flex justify-between mt-1 text-[12px] text-gray-400">
                 <span>较早</span>
                 <span>最近</span>
               </div>
@@ -447,7 +447,7 @@ export function EmotionPanel() {
                     {!memoriesLoading && (
                       <button
                         onClick={() => setShards(pickShards(memories))}
-                        className="text-[10px] text-life-cyan hover:underline flex items-center gap-1"
+                        className="text-[12px] text-life-cyan hover:underline flex items-center gap-1"
                       >
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                           <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
@@ -500,7 +500,7 @@ export function EmotionPanel() {
                 type="button"
                 onClick={handleAnalyze}
                 disabled={isAnalyzing || messages.length === 0}
-                className="shrink-0 rounded-md border border-red-400/30 px-2 py-1 text-[11px] text-red-300 hover:bg-red-400/10 disabled:opacity-40"
+                className="shrink-0 rounded-md border border-red-400/30 px-2 py-1 text-[12px] text-red-300 hover:bg-red-400/10 disabled:opacity-40"
               >
                 重试
               </button>
@@ -529,12 +529,12 @@ export function EmotionPanel() {
               )}
 
               {/* Radar chart */}
-              <div className="relative overflow-hidden rounded-[24px] border border-gene-purple/20 bg-[#151427] px-2 py-3 shadow-[0_12px_30px_rgba(63,48,128,0.16)]">
+              <div className="relative overflow-hidden rounded-[24px] border border-gene-purple/20 bg-panel px-2 py-3 shadow-[0_12px_30px_rgba(63,48,128,0.16)]">
                 <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full border border-life-cyan/15" />
                 <div className="absolute -bottom-10 -left-8 h-28 w-28 rounded-full bg-gene-purple/15 blur-2xl" />
                 <div className="relative flex items-center justify-between px-3">
-                  <span className="text-[10px] tracking-[0.22em] text-life-cyan/75">EMOTIONAL CONSTELLATION</span>
-                  <span className="text-[10px] text-white/45">六维情绪坐标</span>
+                  <span className="text-[12px] tracking-[0.22em] text-life-cyan/75">EMOTIONAL CONSTELLATION</span>
+                  <span className="text-[12px] text-sub">六维情绪坐标</span>
                 </div>
                 <div className="relative flex justify-center">
                   <EmotionChart
@@ -601,8 +601,8 @@ export function EmotionPanel() {
                         className="snap-start shrink-0 flex flex-col items-center gap-1 px-2.5 py-2 rounded-xl bg-surface border border-line hover:border-life-cyan/40 hover:shadow-[0_0_10px_rgba(0,206,201,0.12)] transition-all"
                       >
                         <span className={`w-2 h-2 rounded-full ${valenceDotClass(snap.dimensions.valence)}`} />
-                        <span className="text-[10px] text-gray-500 whitespace-nowrap">{snap.dominantEmotion}</span>
-                        <span className="text-[9px] text-gray-400 whitespace-nowrap">{formatTime(snap.createdAt)}</span>
+                        <span className="text-[12px] text-gray-500 whitespace-nowrap">{snap.dominantEmotion}</span>
+                        <span className="text-[12px] text-gray-400 whitespace-nowrap">{formatTime(snap.createdAt)}</span>
                       </button>
                     ))}
                   </div>

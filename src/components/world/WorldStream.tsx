@@ -80,15 +80,15 @@ function WorldTrace({ turnId, content }: { turnId?: string; content: string }) {
       {open && (
         <div className="vg-trace-panel">
           {items === null ? (
-            <p className="text-[11px] text-gray-500">正在读取…</p>
+            <p className="text-[12px] text-gray-500">正在读取…</p>
           ) : items.length === 0 ? (
-            <p className="text-[11px] leading-relaxed text-gray-500">
+            <p className="text-[12px] leading-relaxed text-gray-500">
               这一刻被写进了你们的时间线，没有单独留下条目。
             </p>
           ) : (
             <ul className="space-y-1">
               {items.map((item, i) => (
-                <li key={`${i}-${item}`} className="text-[11px] leading-relaxed text-gray-400">· {item}</li>
+                <li key={`${i}-${item}`} className="text-[12px] leading-relaxed text-gray-400">· {item}</li>
               ))}
             </ul>
           )}

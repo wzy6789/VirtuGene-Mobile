@@ -1,11 +1,13 @@
-import { useEffect } from 'react';
+import { lazyFeature } from '../ui/lazyFeature';
+import { useEffect, Suspense } from 'react';
 import { TitleBar } from './TitleBar';
-import { Sidebar } from './Sidebar';
 import { MobileLayout } from './MobileLayout';
 import { UpdateBanner } from './UpdateBanner';
 import { NotificationCloud } from '../chat/NotificationCloud';
 import { useUpdateStore } from '../../store/update-store';
 import { IS_MOBILE } from '../../lib/platform';
+
+const Sidebar = lazyFeature(() => import('./Sidebar').then(m => ({ default: m.Sidebar })));
 
 interface Props {
   children: React.ReactNode;
@@ -33,7 +35,7 @@ export function MainLayout({ children }: Props) {
         <UpdateBanner />
         <NotificationCloud />
         <div className="flex-1 flex overflow-hidden">
-          <Sidebar />
+          <Suspense fallback={<aside className="w-12 shrink-0 bg-panel" aria-busy="true" />}><Sidebar /></Suspense>
           <main className="flex-1 overflow-hidden">
             {children}
           </main>

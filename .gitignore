@@ -23,6 +23,8 @@ android/**/build/
 .claude/settings.local.json
 
 # Dev / backup assets
+# Local source material; keep originals outside Git history.
+/古月娜素材/
 resources/icon-original.png
 resources/icon-preview.png
 resources/resources/

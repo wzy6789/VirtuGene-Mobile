@@ -16,6 +16,11 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     const url = new URL(route.request().url());
     if (url.pathname === '/favicon.ico') return route.fulfill({ status: 204 });
     if (url.origin === 'https://api.deepseek.com' && url.pathname === '/v1/models') return route.fulfill({ status: 200, json: { data: [] } });
+    if (url.origin === 'https://api.deepseek.com' && url.pathname === '/v1/chat/completions') {
+      const body = route.request().postDataJSON();
+      check(body.model === 'deepseek-flash' && body.thinking?.type === 'disabled' && body.max_tokens === 16, 'account connection actually validates Flash with a short direct response');
+      return route.fulfill({ status: 200, json: { choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }] } });
+    }
     if (url.origin === origin) return route.continue();
     external++; return route.abort();
   });

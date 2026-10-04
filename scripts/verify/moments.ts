@@ -97,7 +97,7 @@ function makeCharacter(id: string, name: string): Character {
 function openSheetTitle(): string {
   const dialog = document.querySelector('[role="dialog"]');
   if (dialog) return dialog.querySelector('h2')?.textContent?.trim() ?? '';
-  const sheet = host?.querySelector('.vg-moment-sheet');
+  const sheet = document.querySelector('.vg-moment-sheet');
   if (!sheet) return '';
   return (sheet.querySelector('header strong')?.textContent ?? '').trim();
 }
@@ -245,7 +245,7 @@ async function run(): Promise<void> {
       && (await momentsRepo.notifications(U)).length === 2
       && firstCardTopAfterRead < firstCardTopBeforeRead - 10,
     { firstCardTopBeforeRead, firstCardTopAfterRead });
-  clickText('完成', host?.querySelector('.vg-moment-notification-sheet') ?? null);
+  clickText('完成', document.querySelector('.vg-moment-notification-sheet') ?? null);
 
   // ---------- C. 通栏列表 + ··· 气泡 ----------
   const card = host?.querySelector(`#moment-${first.id}`) as HTMLElement | null;
@@ -352,7 +352,7 @@ async function run(): Promise<void> {
   mineTarget?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
   await sleep(300);
   const deleteTitle = openSheetTitle();
-  const confirmed = clickText('删除评论', host?.querySelector('.vg-moment-delete-sheet') ?? null);
+  const confirmed = clickText('删除评论', document.querySelector('.vg-moment-delete-sheet') ?? null);
   await sleep(450);
   const remaining = await db.momentReactions.get('moment-comment:user-1');
   check('㉔ 长按自己的评论弹出删除确认', deleteTitle === '删除这条评论？', { deleteTitle, hasRow: mineRow !== null });

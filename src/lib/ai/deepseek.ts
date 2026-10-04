@@ -1,6 +1,5 @@
-import { fetchWithTimeout, isTimeoutError } from './http';
 import { stripRoleplayActions } from './text';
-import { resolveModel, getProviderKey, findModel, llmChat, llmChatStream, getProviderConfig, providerRequiresKey, type LLMModel, type LLMStreamResult } from './llm';
+import { resolveModel, getProviderKey, llmChat, llmChatStream, getProviderConfig, providerRequiresKey, validateProviderConnection, type LLMModel, type LLMStreamResult } from './llm';
 import { gatewayChat, gatewayChatStream, hasAiGatewayAccess } from './gateway';
 
 const MESSAGING_INSTRUCTION =
@@ -35,32 +34,14 @@ const REPETITION_GUARD =
 
 export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
   try {
-    const response = await fetchWithTimeout(
-      'https://api.deepseek.com/v1/models',
-      {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-      },
-      15_000,
-    );
-
-    if (response.ok) return { valid: true };
-
-    if (response.status === 401) {
-      return { valid: false, error: '基因序列验证失败，请检查 API Key' };
-    }
-    if (response.status === 402) {
-      return { valid: false, error: 'DeepSeek 账户余额不足，请前往平台充值' };
-    }
-    if (response.status === 429) {
-      return { valid: false, error: '请求过于频繁，请稍后重试' };
-    }
-    return { valid: false, error: '基因链接中断，请重试' };
+    await validateProviderConnection('deepseek', { apiKey: apiKey.trim() });
+    return { valid: true };
   } catch (err) {
-    if (isTimeoutError(err)) return { valid: false, error: '基因链接超时，请重试' };
+    const code = err instanceof Error ? err.message : '';
+    if (code === 'auth:invalid_key') return { valid: false, error: '基因序列验证失败，请检查 API Key' };
+    if (code === 'billing:insufficient') return { valid: false, error: 'DeepSeek 账户余额不足，请前往平台充值' };
+    if (code === 'rate:limited') return { valid: false, error: '请求过于频繁，请稍后重试' };
+    if (code === 'timeout') return { valid: false, error: '基因链接超时，请重试' };
     return { valid: false, error: '基因链接中断，请重试' };
   }
 }
@@ -95,6 +76,8 @@ export interface ChatParams {
   structuredOutput?: boolean;
   /** Budget for structured agent plans; normal chat keeps its existing limit. */
   maxTokens?: number;
+  /** Recovery and explicitly direct replies must behave identically through the gateway. */
+  disableThinking?: boolean;
   signal?: AbortSignal;
   /** Visible response text only; structured agent plans stay buffered. */
   onDelta?: (accumulated: string, delta: string) => void;
@@ -210,11 +193,12 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
         ...(params.forceVision ? { forceVision: params.forceVision } : {}),
         ...(params.structuredOutput ? { structuredOutput: true } : {}),
         ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
+        disableThinking: recovery || params.disableThinking,
         signal: params.signal,
         timeoutMs: params.timeoutMs,
       };
       const result: ChatResult = params.onDelta && !params.structuredOutput
-        ? await gatewayChatStream({ ...gatewayParams, onDelta: params.onDelta, disableThinking: recovery })
+        ? await gatewayChatStream({ ...gatewayParams, onDelta: params.onDelta })
         : await gatewayChat(gatewayParams);
       return {
         content: params.structuredOutput ? result.content : stripRoleplayActions(result.content),
@@ -234,7 +218,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
     messages,
     temperature,
     visionRequest: useVision,
-    disableThinking: recovery || params.structuredOutput,
+    disableThinking: recovery || params.disableThinking || params.structuredOutput,
     maxTokens: params.maxTokens ?? (useVision ? 1000 : recovery ? 1000 : 900),
     timeoutMs: params.timeoutMs ?? (useVision ? 120_000 : 60_000),
     signal: params.signal,
@@ -259,7 +243,7 @@ function isDegradable(err: unknown): boolean {
 }
 
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
-  // 解析实际模型：会话锁定 > 角色指定 > 全局默认 > deepseek-v4-flash
+  // 解析实际模型：会话锁定 > 角色指定 > 全局默认 > DeepSeek Flash
   const model = resolveModel(params.character, params.sessionModel);
 
   // 历史图片瘦身 + 坏图防御
@@ -270,15 +254,10 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const recent = history.slice(-VISION_CONTEXT_MESSAGES);
   const needVision = !!image || recent.some((h) => !!h.image) || params.forceVision === true;
 
-  // 实际使用模型：需要看图但所选模型不支持视觉 → 用 DeepSeek 视觉模型兜底识图（两轮后由会话层换回原模型）
-  // Preserve DeepSeek's existing same-provider visual route. Other providers must
-  // declare the selected model's image capability instead of leaking images to DeepSeek.
-  if (needVision && model.provider !== 'deepseek' && model.vision !== true) throw new Error('model:vision_unsupported');
-  const usedModel = needVision && model.vision !== true ? findModel('deepseek-v4-flash-vision-exp', 'deepseek')! : model;
+  // Flash natively accepts images; every provider must declare image support.
+  if (needVision && model.vision !== true) throw new Error('model:vision_unsupported');
+  const usedModel = model;
   const useVision = needVision;
-
-  /** 兜底模型：deepseek-v4-flash（随账号必有 key、稳定便宜）——每种模型都有兜底 */
-  const fallback = findModel('deepseek-v4-flash')!;
 
   /** 尝试一次请求：失败（抛错）或空内容 → 返回 null 交给兜底 */
   const attempt = async (m: LLMModel, vision: boolean, recovery = false): Promise<ChatResult | null> => {
@@ -295,22 +274,8 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const r = await attempt(usedModel, useVision);
   if (r) return r;
 
-  // BYOK recovery stays on the explicitly selected provider and exact model ID.
-  if (usedModel.provider !== 'deepseek') {
-    const recovered = await attempt(usedModel, useVision, true);
-    if (recovered) return recovered;
-    throw new Error('server:error');
-  }
-
-  // 思考模式耗尽输出额度时，服务可能返回 200 但正文为空；关闭思考作一次有界恢复。
-  if (usedModel.id === fallback.id) {
-    const recovered = await attempt(fallback, false, true);
-    if (recovered) return recovered;
-    throw new Error('server:error');
-  }
-
-  // 模型兜底：所选模型失败/空内容 → 自动切 deepseek-v4-flash 重试一次（对话不中断）
-  const fb = await attempt(fallback, false, true);
-  if (fb) return { ...fb, degraded: true };
+  // One bounded recovery on the same model, without discarding image context.
+  const recovered = await attempt(usedModel, useVision, true);
+  if (recovered) return recovered;
   throw new Error('server:error');
 }

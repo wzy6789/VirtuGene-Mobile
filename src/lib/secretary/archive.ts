@@ -30,6 +30,11 @@ export async function importSecretaryTasks(userId: string, incoming: SecretaryTa
       || task.dailyReview && !reviewActionSelected(r.action, task.dailyReview)
       || !['pending', 'done', 'draft', 'needs-input', 'failed', 'undone'].includes(r.status)
       || [r.beforeDiary, r.beforeTodo, r.beforeOccurrence].some(snapshot => snapshot && snapshot.userId !== userId))) continue;
+    if (task.results.some(r => r.dispatch && (r.action.kind !== 'character.message.send' || typeof r.dispatch.taskId !== 'string'
+      || !Array.isArray(r.dispatch.sources) || r.dispatch.sources.some(ref => !ref || typeof ref.messageId !== 'string' || typeof ref.sessionId !== 'string' || typeof ref.content !== 'string' || !Number.isInteger(ref.revision))
+      || !Array.isArray(r.dispatch.replyMessageIds) || r.dispatch.replyMessageIds.some(id => typeof id !== 'string')
+      || !Number.isInteger(r.dispatch.draftRevision) || r.dispatch.draftRevision < 1
+      || r.dispatch.receiptTaskIds != null && (!Array.isArray(r.dispatch.receiptTaskIds) || r.dispatch.receiptTaskIds.some(id => typeof id !== 'string'))))) continue;
     // Keep ownership checks, task restoration and receipt writes under one lock.
     // A concurrent session deletion must run entirely before or after this item.
     const imported = await db.transaction('rw', [db.sessions, db.characters, db.messages, db.secretaryTasks, db.memorySourceTombstones], async () => {
@@ -42,7 +47,14 @@ export async function importSecretaryTasks(userId: string, incoming: SecretaryTa
       if (await memorySourceTombstoneRepo.blocksImport({ userId, sourceType: 'message', sourceId: source.id, sourceRevision: source.revision ?? 1 })) return false;
       if (await memorySourceTombstoneRepo.blocksImport({ userId, sourceType: 'message', sourceId: `secretary-reply:${task.messageId}`, sourceRevision: 1 })) return false;
       if (existing && (existing.userId !== userId || existing.updatedAt >= task.updatedAt)) return false;
-      const results = task.results.map(r => r.status === 'pending' ? { ...r, status: 'needs-input' as const, detail: '这项安排已恢复，尚未执行。补充或重试后继续。' } : r);
+      const results = task.results.map(r => {
+        if (r.dispatch) {
+          const dispatch = { ...r.dispatch, approvedRevision: undefined, attemptId: undefined, leaseUntil: undefined,
+            state: r.dispatch.outboundMessageId ? 'interrupted' as const : 'paused' as const };
+          return { ...r, dispatch, status: r.dispatch.outboundMessageId ? 'failed' as const : 'needs-input' as const, detail: '代发记录已恢复，不会自动发送。请核对当前正文和角色后手动继续。' };
+        }
+        return r.status === 'pending' ? { ...r, status: 'needs-input' as const, detail: '这项安排已恢复，尚未执行。补充或重试后继续。' } : r;
+      });
       const replanning = !results.length && (task.status === 'planning' || task.status === 'failed');
       const restored: SecretaryTask = { ...task, privacyScope: 'unknown', pendingContext: undefined, planningContract: task.planningContract ? parsePlanningContract(task.planningContract as unknown as Record<string, unknown>) : undefined, results, leaseUntil: undefined, status: replanning ? 'failed' : 'finished', failureReason: replanning ? readSecretaryFailureReason(task.failureReason) : undefined };
       await db.secretaryTasks.put(restored);

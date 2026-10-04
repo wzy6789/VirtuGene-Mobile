@@ -236,7 +236,7 @@ export function RelationshipConstellation({
         <div className="vg-relationship-insight">
           <div className="vg-relationship-insight-title">
             <div>
-              <p className="text-[10px] tracking-[0.15em] uppercase text-gray-500">这条连线</p>
+              <p className="text-[12px] tracking-[0.15em] uppercase text-gray-500">这条连线</p>
               <h3>{selectedTitle}</h3>
             </div>
             <button type="button" onClick={() => setSelectedKey(null)} aria-label="关闭关系详情">×</button>

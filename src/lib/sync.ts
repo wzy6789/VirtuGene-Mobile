@@ -14,6 +14,8 @@ import { applySecretaryBinding, bindSecretary, normalizeSecretaryBinding } from 
 import { mergeWorkPreferences, validateWorkPreferences } from './secretary/work-preferences';
 import { isSecretaryPersonality, isGeneratedSecretaryGreeting, secretaryGreeting } from './secretary/personality';
 import { isSecretaryAppearance, parseSecretaryAvatar } from './secretary/appearance';
+import type { TodoEvent } from '../db';
+import { mergeTodoWork, validateTodoEvent, validWorkDate } from '../db/todo-work';
 
 export interface SyncExportData {
   __meta__: {
@@ -54,6 +56,7 @@ export interface SyncExportData {
   worldObjects?: WorldObject[];
   todos?: Todo[];
   todoOccurrences?: TodoOccurrence[];
+  todoEvents?: TodoEvent[];
   todoReminders?: TodoReminder[];
   moments?: Moment[];
   momentMedia?: MomentMedia[];
@@ -78,7 +81,7 @@ export async function collectSyncData(
   const [characters, sessions, messages, memories, emotionSnapshots, characterStates, diaries, groups, continuityThreads, sharedStoryEvents,
     worlds, worldEvents, worldFacts, worldTurns, worldScenes, worldSceneEntries, characterKnowledge, sharedMemories, relationshipStates, relationshipEvents,
     worldLocations, worldPresences, worldAgentStates, worldPulses, worldObjects, todos, todoOccurrences, todoReminders,
-    moments, momentMedia, momentViews, momentReactions, momentContacts, momentJobs, momentNotifications, characterLifeEvents, momentPostPlans, sourceTombstones, secretaryTasks, secretaryBindings] =
+    moments, momentMedia, momentViews, momentReactions, momentContacts, momentJobs, momentNotifications, characterLifeEvents, momentPostPlans, sourceTombstones, secretaryTasks, secretaryBindings, todoEvents] =
     await db.transaction('r', db.tables, () => Promise.all([
       db.characters.toArray(),
       db.sessions.toArray(),
@@ -120,6 +123,7 @@ export async function collectSyncData(
       db.memorySourceTombstones.toArray(),
       db.secretaryTasks.toArray(),
       db.secretaryBindings.toArray(),
+      db.todoEvents.toArray(),
     ]));
   const ownerId = userId ?? '';
   const owns = <T extends { userId?: string }>(rows: T[]) => ownerId ? rows.filter((row) => row.userId === ownerId) : [];
@@ -165,6 +169,7 @@ export async function collectSyncData(
     worldObjects: owns(worldObjects),
     todos: owns(todos),
     todoOccurrences: owns(todoOccurrences),
+    todoEvents: owns(todoEvents),
     todoReminders: owns(todoReminders),
     // 朋友圈数据必须跟随当前账号导出。即使同一台设备切换过账号，
     // 也不能把其他账号的动态、屏蔽名单或角色互动带到同步端。
@@ -272,6 +277,7 @@ export async function importSyncData(
     worldObjects: owned(parsed.worldObjects),
     todos: owned(parsed.todos),
     todoOccurrences: owned(parsed.todoOccurrences),
+    todoEvents: owned(parsed.todoEvents),
     todoReminders: owned(parsed.todoReminders),
     moments: owned(parsed.moments),
     momentMedia: owned(parsed.momentMedia),
@@ -292,7 +298,7 @@ export async function importSyncData(
       'rw',
       [db.characters, db.sessions, db.messages, db.memories, db.emotionSnapshots, db.characterStates, db.diaries, db.groups, db.continuityThreads, db.sharedStoryEvents,
         db.worlds, db.worldEvents, db.worldFacts, db.worldTurns, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents,
-        db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects, db.todos, db.todoOccurrences, db.todoReminders,
+        db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects, db.todos, db.todoOccurrences, db.todoReminders,db.todoEvents,
         db.moments, db.momentMedia, db.momentViews, db.momentReactions, db.momentContacts, db.momentJobs, db.momentNotifications,
         db.characterLifeEvents, db.momentPostPlans, db.memorySourceTombstones, db.secretaryTasks, db.secretaryBindings, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge],
       async () => {
@@ -426,7 +432,7 @@ export async function importSyncData(
             || binding.employments != null && (!Array.isArray(binding.employments) || binding.employments.some(item => !item || typeof item.id !== 'string' || !item.id || typeof item.name !== 'string'
               || !isSecretaryPersonality(item.personality) || item.appearance != null && !isSecretaryAppearance(item.appearance) || !Number.isFinite(item.hiredAt) || item.dismissedAt != null && (!Number.isFinite(item.dismissedAt) || item.dismissedAt < item.hiredAt)))) throw new Error('助理聘用记录格式不正确。');
           const stored = await db.secretaryBindings.get(ownerId);
-          const incoming = { ...normalizeSecretaryBinding(binding, data.characters.find(c => c.id === binding.characterId)), pendingFocusTaskId: stored?.pendingFocusTaskId, pendingFocusDisplayTaskId: stored?.pendingFocusDisplayTaskId, workspaceFocusTaskId: stored?.workspaceFocusTaskId };
+          const incoming = { ...normalizeSecretaryBinding(binding, data.characters.find(c => c.id === binding.characterId)), pendingFocusTaskId: stored?.pendingFocusTaskId, pendingFocusDisplayTaskId: stored?.pendingFocusDisplayTaskId, workspaceFocusTaskId: stored?.workspaceFocusTaskId, dispatchFocusTaskId: stored?.dispatchFocusTaskId };
           if (!stored) await db.secretaryBindings.add(incoming);
           else if (stored.characterId === binding.characterId) {
             const local = normalizeSecretaryBinding(stored, localAssistant);
@@ -723,8 +729,9 @@ export async function importSyncData(
         for (const todo of data.todos ?? []) {
           if (await memorySourceTombstoneRepo.blocksImport({ userId: ownerId, sourceType: 'todo', sourceId: todo.id, sourceRevision: todo.updatedAt })) continue;
           const existing = await db.todos.get(todo.id);
-          if (existing && existing.updatedAt >= todo.updatedAt) continue;
-          await db.todos.put(todo); n += 1;
+          if(existing&&existing.userId!==ownerId)throw new Error('待办归属冲突。');
+          const merged=mergeTodoWork(existing,todo);
+          await db.todos.put(merged); n += 1;
         }
         counts.todos = n;
         n = 0;
@@ -733,10 +740,27 @@ export async function importSyncData(
           const todo = await db.todos.get(occurrence.todoId);
           if (!todo || todo.userId !== ownerId || todo.status === 'deleted' || todo.status === 'cancelled') continue;
           const existing = await db.todoOccurrences.get(occurrence.id);
-          if (existing && existing.updatedAt >= occurrence.updatedAt) continue;
-          await db.todoOccurrences.put(occurrence); n += 1;
+          if(existing&&existing.userId!==ownerId)throw new Error('实例归属冲突。');
+          if(!occurrence.id.startsWith(`todo-occ:${occurrence.todoId}:`))throw new Error('实例身份无效。');
+          const scheduledDate=occurrence.id.slice(`todo-occ:${occurrence.todoId}:`.length);
+          if(!validWorkDate(scheduledDate)||occurrence.scheduledDate!==undefined&&occurrence.scheduledDate!==scheduledDate)throw new Error('实例计划日期与身份不一致。');
+          await db.todoOccurrences.put(mergeTodoWork(existing,occurrence)); n += 1;
         }
         counts.todoOccurrences = n;
+        n=0;
+        for(const event of data.todoEvents??[]) {
+          validateTodoEvent(event);
+          const todo=await db.todos.get(event.todoId);
+          if(!todo||todo.userId!==ownerId)throw new Error('事件来源归属无效。');
+          const existing=await db.todoEvents.get(event.id);
+          if(existing) {
+            if(existing.userId!==ownerId||existing.todoId!==event.todoId||existing.kind!==event.kind)throw new Error('事件身份冲突。');
+            for(const key of new Set([...Object.keys(existing),...Object.keys(event)]))if(!['voidedAt','deletedAt','updatedAt'].includes(key)&&JSON.stringify((existing as any)[key])!==JSON.stringify((event as any)[key]))throw new Error('已确认的事件内容不能被改写。');
+            // Facts are immutable; syncing can only add a later invalidation.
+            if(event.voidedAt&&!existing.voidedAt||event.deletedAt&&!existing.deletedAt)await db.todoEvents.update(event.id,{voidedAt:existing.voidedAt??event.voidedAt,deletedAt:existing.deletedAt??event.deletedAt,updatedAt:Math.max(existing.updatedAt,event.updatedAt)});
+          } else {await db.todoEvents.add(event);n++;}
+        }
+        counts.todoEvents=n;
         n = 0;
         for (const reminder of data.todoReminders ?? []) {
           const todo = await db.todos.get(reminder.todoId);

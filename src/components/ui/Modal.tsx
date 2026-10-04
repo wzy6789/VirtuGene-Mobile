@@ -91,7 +91,7 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', clos
       ref={overlayMotionRef}
       data-no-page-swipe
       style={{ overscrollBehavior: 'none' }}
-      className={`vg-modal-overlay fixed inset-0 z-50 flex justify-center bg-black/60 ${IS_MOBILE ? 'items-end' : 'items-center'}`}
+      className={`vg-modal-overlay fixed inset-0 flex justify-center ${IS_MOBILE ? 'items-end' : 'items-center'}`}
       onClick={(e) => {
         if (closeOnBackdrop && e.target === overlayRef.current) onClose();
       }}

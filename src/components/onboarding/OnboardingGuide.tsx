@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
-import { OnboardingModal } from './OnboardingModal';
 import { IS_MOBILE } from '../../lib/platform';
-import { SecretarySetupModal } from './SecretarySetupModal';
+import { lazyFeature } from '../ui/lazyFeature';
 import { findSecretary, SECRETARY_INTRO_PREFIX } from '../../lib/secretary/character';
+
+const OnboardingModal = lazyFeature(() => import('./OnboardingModal').then(m => ({default: m.OnboardingModal})));
+const SecretarySetupModal = lazyFeature(() => import('./SecretarySetupModal').then(m => ({default: m.SecretarySetupModal})));
 
 const ONBOARDED_PREFIX = 'virtugene:onboarded:';
 
@@ -54,7 +56,7 @@ function GuideTip({ targetId, placement, icon, step, title, desc, onClose }: Gui
   return (
     /* 外层只管定位（transform 固定），动画放内层，避免动画 transform 覆盖定位导致跳动 */
     <div
-      className="fixed z-[55]"
+      className="fixed vg-layer-onboarding"
       style={{ left: rect.left, top: rect.top, transform: arrowLeft ? 'translateY(-50%)' : 'translateX(-50%)' }}
     >
       <div className="animate-fade-in">
@@ -152,8 +154,8 @@ export function OnboardingGuide({ blocked = false }: { blocked?: boolean }) {
 
   return (
     <>
-      <OnboardingModal open={showWelcome && !blocked} onClose={closeWelcome} />
-      <SecretarySetupModal open={showSecretary && !showWelcome && !blocked} onClose={() => setShowSecretary(false)} />
+      {showWelcome && !blocked && <OnboardingModal open onClose={closeWelcome} />}
+      {showSecretary && !showWelcome && !blocked && <SecretarySetupModal open onClose={() => setShowSecretary(false)} />}
 
       {/* 1/3 基因实验室：气泡在按钮右侧，箭头朝左指向按钮 */}
       {tipStep === 1 && (

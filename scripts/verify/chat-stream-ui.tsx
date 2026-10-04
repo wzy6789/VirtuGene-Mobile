@@ -1,5 +1,7 @@
 import './chat-stream';
+import { breathe } from '../../src/lib/haptics';
 import { useChatStore } from '../../src/store/chat-store';
+import { useSettingsStore } from '../../src/store/settings-store';
 import { Profiler, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useLatestMessageScroll } from '../../src/components/ui/useLatestMessageScroll';
@@ -22,6 +24,9 @@ function ScrollMotionProbe() {
 // Exercise the real bubble's audio handoff without invoking paid speech services.
 (window as any).chatStreamUi = {
   commits: 0,
+  breathe,
+  font: (size: number) => useSettingsStore.setState({ chatFontSize: size }),
+  edit: (id: string, content: string) => useChatStore.getState().updateMessage(id, { content }),
   mountScrollProbe: () => {
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0 auto auto 0;width:320px;z-index:9999';

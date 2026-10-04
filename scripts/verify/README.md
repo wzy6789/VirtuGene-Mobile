@@ -12,9 +12,13 @@
 
 ## 运行（推荐：一键全量回归）
 
+启动动画（2026-10-03）：生产构建后执行 `node scripts/verify/run-splash-ui.cjs`。30 项检查覆盖品牌矢量、320–1280px/横屏、静态浅色偏好、轻量轨道动画、无逐帧 React 提交、减少动态效果、后台暂停、计时清理，以及真实 App 登录页/已登录主页在淡出前挂载和交互恢复。Android 资源验证用 `android/gradlew.bat :app:processDebugResources --offline`（在 android 目录执行）。说明见 `docs/SPLASH-UI-2026-10-03.md`，截图位于 `.tmp-preview/splash-ui-20261003/`。
+
+通知/聊天性能整改（2026-10-03）：生产构建后执行 `node scripts/verify/ui-performance.cjs`。7 项检查覆盖连续通知时保留卡片不重复渲染、流式末段更新不重绘已完成气泡、堆叠批量测量、滚动写入上限、无变化不写滚动、增量观察与动画清理。使用生产 React 和 4 倍 CPU 降速，原始计数保存在 `.tmp-preview/ui-performance/`。真实聊天 UI 套件追加历史气泡缓存/字号/编辑/引用检查，现为 53 项。整改与测量边界见 `docs/UI-PERFORMANCE-FIX-2026-10-03.md`；浏览器结果不代表 Android 真机帧率。
+
 来消息通知 UI（2026-10-03）：生产构建后执行 `node scripts/verify/run-notification-ui.cjs`。47 项真实 NotificationCloud 检查覆盖深浅色、两行预览、48px 关闭按钮、320–1024px、真实触摸上扫/回弹、动画接管、逐帧零 React 提交、进入会话路由、键盘/Escape、独立计时、按住/悬停/焦点暂停、账号清理、堆叠补位和减少动态效果。自建并关闭隔离服务，不访问实际账号或发出系统通知。截图位于 `.tmp-preview/notification-ui-20261003/`，说明见 `docs/NOTIFICATION-UI-2026-10-03.md`。
 
-流式气泡 UI（2026-10-03）：生产构建后执行 `node scripts/verify/chat-stream-ui.mjs`。49 项真实 ChatWindow / MessageBubble 检查覆盖共享等待/首字气泡、单个正文末尾光标、追加不重播动画、预览转正式气泡的位置与尺寸、语音文字保留、发送/停止按钮复用与触点、历史阅读、320–1024px、深浅色、桌面动作恢复及系统/应用减少动态效果。新增逐帧滚动、无逐帧 React 提交、触摸接管、键盘焦点/Escape、返回按钮退出交互范围、生成结束时的落点追踪与动画变换释放检查。隔离服务使用模拟 SSE，不调用付费模型；截图保存在 `.tmp-preview/chat-stream-ui/`。说明见 `docs/CHAT-STREAM-UI-2026-10-03.md`。
+流式气泡 UI（2026-10-03）：生产构建后执行 `node scripts/verify/chat-stream-ui.mjs`。53 项真实 ChatWindow / MessageBubble 检查覆盖共享等待/首字气泡、单个正文末尾光标、追加不重播动画、预览转正式气泡的位置与尺寸、语音文字保留、发送/停止按钮复用与触点、历史阅读、320–1024px、深浅色、桌面动作恢复及系统/应用减少动态效果。新增逐帧滚动、无逐帧 React 提交、触摸接管、键盘焦点/Escape、返回按钮退出交互范围、生成结束时的落点追踪与动画变换释放检查。隔离服务使用模拟 SSE，不调用付费模型；截图保存在 `.tmp-preview/chat-stream-ui/`。说明见 `docs/CHAT-STREAM-UI-2026-10-03.md`。
 
 私聊流式输出（2026-10-03）：先构建生产前端，再执行 `npm run verify:chat-stream`（需要含 Playwright 的测试运行环境，Codex 内置 Node 可用）。44 项真实浏览器、组件和 IndexedDB 检查覆盖首字显示、片段合并、停止、断流、重试、会话/账号切换、长回复滚动及 320–430px 布局。脚本自建并关闭临时服务，模型边界使用测试响应；不访问用户的实际数据库。范围及额外旧套件差异见 `docs/CHAT-STREAMING-2026-10-03.md`。
 
@@ -400,6 +404,8 @@ Android 真机仍需检查首次授权、按住说话/上滑取消、真实麦�
 
 ### 助理连续记忆（secretary-memory.html）
 
+2026-10-03 工作记忆继续优化：现有107项数据/请求/组件检查，加4项窄屏检查。新增常见问法、短句接话、英文简称、长原话/长请求/长近期相关片段、稀有关键词排名、索引版本回填、部分提炼后的剩余工作信息、表达要求持续应用、近期原话版本校验、跨会话工作概览、真实代发草稿状态召回及检索途中账号切换。范围、限制和复跑命令见 `docs/ASSISTANT-MEMORY-SERVICE-2026-10-03.md`。以下76项与60项为此前验收记录。
+
 2026-10-03 召回优化：本套件现有76项数据/请求/组件检查，加4项窄屏检查。新增无关事实过滤、冷却不从旧原话绕回、短句重新提起、表达偏好、否定式遗忘、重复任务回执去重、实际记录和日期实例生成期间变化、原请求撤回及日记重锁。复跑命令不变；说明见 `docs/ASSISTANT-MEMORY-OPTIMIZATION-2026-10-03.md`。以下60项为首轮记录。
 
 2026-10-02 补问连续对话整改：助理专项638项数据、122项界面，默认回归105项及助理记忆60项/窄屏4项通过，共929项。新增真实输入框的零操作补问接续、跨会话/重开/暂停、完整来源版本链、导入不激活，以及四种回复模式的虚假闹钟声明对抗。实现范围及限制见 `docs/ASSISTANT-QUALITY-REFORM-PROGRESS.md`；模型使用替身，未认定真实模型及真机提醒验收完成。
@@ -408,13 +414,33 @@ Android 真机仍需检查首次授权、按住说话/上滑取消、真实麦�
 
 新增60条真实数据库、模型请求与React交互检查，以及4项320–430px布局检查：原话证据与修订、无需模型的明确记住、自动提炼、拒绝记录与引用/虚构过滤、跨会话召回、更正/忘记与旧同步防复活、来源删除/改写、任务和步骤实际进度、未发布草稿、日记衍生资料锁定与解锁、旧交流检索、重新聘用延续、继承与账号隔离、迟到回复拦截、实际纠正和忘记按钮、数据库重开。截图 `secretary-memory.png`；模型响应仍使用替身。维护说明见 `docs/ASSISTANT-MEMORY-2026-10-02.md`。
 
+### 助理给角色代发消息
+
+本轮连续体验优化：套件扩展到88项数据/流程与19项界面，共107项。新增独立保存、暂停保存当前编辑、重新打开恢复、继续编辑不批准发送、空稿补字段、正文改口/追加、收件人纠正、状态查询、自然语言只重试回复及320px编辑卡片。选模型与修改收件人共同绑定最终版本。执行命令不变；以下74项为首版记录。
+
+2026-10-03 首版：运行 `node scripts/verify/character-messaging.mjs`，独立浏览器与 IndexedDB 验证62项数据/连续流程及12项真实组件/输入框检查，共74项。覆盖原话直发、拟稿确认、补问、取消零写入、暂停恢复、同名选择、排队、只重试回复、中断保存、迟到结果、账号/任期隔离、导入不执行、原聊天准确跳转，以及320/390px卡片。模型传输使用替身，未验收实际模型或 Android。共享普通角色回复链路另由 `node scripts/verify/chat-stream-ui.mjs` 回归53项。详细实现及本轮回归统计见 `docs/ASSISTANT-CHARACTER-MESSAGING-IMPLEMENTATION.md`。
+
 ### 星域设置与触控
+
+2026-10-04 原创表情小球预览：执行 `node scripts/verify/build-soul-orb.mjs` 生成独立 HTML，再执行 `node scripts/verify/run-soul-orb.cjs`。70 项检查覆盖原有离线交互、12 种表情、停帧、窄屏与减少动效，以及滚动／容器位移后的目光、附近指针与原生触控、键盘可见焦点、滑动取消、40px 表情与 44px 触控目标、双球共享时钟及零帧内 React 提交。双球桌面 rAF 间隔仅为浏览器观测，Android 真机帧耗时待测。演示尚未绑定正式助理业务；设计依据与边界见 `docs/SOUL-ORB-PREVIEW-2026-10-04.md`。
+
+2026-10-04 小星对话记录者设计原型：执行 `node scripts/verify/build-conversation-recorder.mjs`，再执行 `node scripts/verify/run-conversation-recorder.cjs`。51 项原型检查覆盖角色身份与记录入口、桌面侧栏、820/1024px 覆盖式面板、四页签与键盘导航、原文与回忆范围、角色切换隔离、空态、320/390/430px、44px 热区、展开后暂停背景小球、共享 Modal 与焦点恢复、深浅色及减少动效、离线交互和零模型请求。原型使用示例数据，尚未迁移正式聊天功能。方案见 `docs/CONVERSATION-RECORDER-DESIGN-2026-10-04.md`，独立预览为 `docs/prototypes/conversation-recorder.html`。
+
+2026-10-04 触感与共享元素接力：先构建 renderer，再运行 `node scripts/verify/run-haptics-handoff.cjs`，专项以临时服务器验证 55 项真实交互、头像／图片落点、取消、异步选择竞争及 Native API 生命周期。原生反馈使用测试替身，不代表硬件实测。`node scripts/verify/chat-stream-ui.mjs` 扩展为 56 项，增加用户消息提交确认与流式回复静默／释放检查。实施范围、Android 构建与设备实测边界见 `docs/HAPTICS-SOUL-HANDOFF-2026-10-04.md`。
 
 2026-10-03 流畅度收尾：生产构建后执行 `node scripts/verify/run-touch-fluidity.cjs`，独立服务器验证 31 项真实组件行为，覆盖侧滑无逐帧 React 提交、速度判断、边界阻尼、中途接管、捕获交接、键盘、减少动态效果和历史阅读位置。完整聊天入口另由 `run-secretary-motion.cjs` 验证；记录见 `docs/UI-FINAL-2026-10-03.md`。
 
 `node scripts/verify/build-settings-ui.mjs` 同时构建手机预览和生产桌面平台分支；启动 `node scripts/verify/serve.cjs` 后运行 `node scripts/verify/run-settings-motion.cjs`。覆盖触点柔光、滑出取消/滑回确认、松手清理、浏览器实际触摸滚动、48px 热区、键盘操作、快速进退、滚动恢复、敏感页禁留影、原生折叠、减少动态效果，以及桌面深浅色布局。截图位于 `.tmp-preview/settings-motion-20261002/`，说明见 `docs/STARFIELD-SETTINGS-TOUCH-2026-10-02.md`。
 
 ### 助理界面精修
+
+2026-10-04 主包拆分：运行 `node scripts/verify/analyze-bundle.mjs` 构建并分析最终入口及完整静态依赖图，再运行 `node scripts/verify/run-production-split.cjs` 检查正式构建的真实请求、慢加载切页、模块下载失败恢复与体积预算。报告包含动态种子初始化的消息首页总量，不能只比较入口文件名。产品口径、日期控件 6.1 计划及验证边界见 `docs/BUNDLE-SPLIT-2026-10-04.md`。
+
+2026-10-04 行动舱第一阶段接入：先构建 renderer，再运行 `node scripts/verify/build-action-cabin.mjs` 与 `node scripts/verify/run-action-cabin.cjs`。隔离 IndexedDB 验证真实升级、统计/权限、原子完成与撤销、安排和事实分离、旧客户端回传、备份恢复、账号切换、共享编辑器、SVG 接力以及 320/390/430px 和深浅色。原有助理与小球回归分别使用 `build-secretary.mjs` / `run-secretary.cjs`、`build-soul-orb.mjs` / `run-soul-orb.cjs`。验收范围、性能数据和尚未完成的 Android 发布门槛见 `docs/ACTION-CABIN-IMPLEMENTATION-2026-10-04.md`。
+
+2026-10-04 正式 App UI 审查整改：新增 `node scripts/verify/design-tokens.mjs` 检查主题变量、可读字号、气泡样式归属及设置自动索引；构建 renderer 与 settings-ui 验收资产后，启动既有验证服务器并运行 `node scripts/verify/run-ui-audit.cjs`。88 项真实交互检查覆盖跟随系统、我的页外观入口、旧主题迁移、字体阻断、深浅色待办保存与按钮对比度、周回顾、现场探索、登录状态栏及链接可读性、朋友圈发布、群设置、强调色、按钮触控以及 320/390/430px 布局。逐项结果和完整重跑命令见 `docs/UI-AUDIT-REMEDIATION-2026-10-04.md`。
+
+2026-10-03 五档聊天性格：当前1228项助理数据、157项界面、107项代发及76项助理记忆/4项窄屏检查通过。新增五档实际请求的节奏、轻量闲聊单次调用、提醒补问零写入、虚假声明保护、表达偏好、重复提示边界和稳定回执变化，预览增加随便聊聊/分享开心/需要补问。模型使用替身；说明见 `docs/ASSISTANT-CHAT-PERSONALITY-2026-10-03.md`。
 
 2026-10-02 最新收尾：821项助理数据、131项实际界面、21项界面精修、60项助理记忆/4项窄屏，以及角色创建19项、朋友圈40项、统一记忆46项、记忆关注64项，共1206项通过。新增否定控制词误写、暂停恢复、跨聊天内联继续、自然序号选择、明确字段负面标题、切换账号后的迟到原生调度补偿、主动协助实际展示/每日限额/显式延后验收。先构建Vite再构建验收资产，避免旧CSS影响真实布局；复跑与剩余实测门槛见 `docs/ASSISTANT-QUALITY-FINAL-2026-10-02.md`。以下各轮数字为历史记录。
 

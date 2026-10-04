@@ -212,16 +212,16 @@ export function MobileStagePage() {
           <div className="vg-stage-active-title">
             <div className="min-w-0">
               <p className="vg-story-title-text truncate text-ink">{cleanConstellationTitle(openScene.title)}</p>
-              <p className="mt-0.5 truncate text-[11px] text-gray-500">{openScene.place} · {openScene.timeLabel} · {openScene.mood}</p>
+              <p className="mt-0.5 truncate text-[12px] text-gray-500">{openScene.place} · {openScene.timeLabel} · {openScene.mood}</p>
             </div>
             <button type="button" onClick={() => { setOpenScene(null); setEntries([]); setError(null); }} className="vg-stage-exit">返回</button>
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <span className="vg-stage-status rounded-full border border-line bg-surface px-2 py-0.5 text-[10px] text-gray-500">
+            <span className="vg-stage-status rounded-full border border-line bg-surface px-2 py-0.5 text-[12px] text-gray-500">
               {STATUS_LABEL[openScene.status]}
             </span>
             {openScene.characterIds.map((id) => (
-              <span key={id} className="text-[10px] text-gray-500">{nameOf(id)}</span>
+              <span key={id} className="text-[12px] text-gray-500">{nameOf(id)}</span>
             ))}
             <div className="flex-1" />
           </div>
@@ -238,7 +238,7 @@ export function MobileStagePage() {
                 if (entry.content.startsWith('——')) return null;
                 return (
                   <li key={entry.id} className="py-1 text-center">
-                    <span className="text-[10px] text-gray-500">
+                    <span className="text-[12px] text-gray-500">
                       {entry.content}
                     </span>
                   </li>
@@ -283,7 +283,7 @@ export function MobileStagePage() {
                 <li key={entry.id} className="flex items-start gap-2">
                   <Avatar avatar={speaker?.avatar ?? '🌙'} size="sm" className="ring-1 ring-life-cyan/30" />
                   <div className="min-w-0">
-                    <p className="mb-1 text-[10px] tracking-[0.08em] text-gray-500">{speaker?.name ?? '有人'}</p>
+                    <p className="mb-1 text-[12px] tracking-[0.08em] text-gray-500">{speaker?.name ?? '有人'}</p>
                     <p className="rounded-2xl rounded-bl-md border-l-2 border-life-cyan bg-msgai px-4 py-2.5 text-sm leading-relaxed text-msgaitxt">
                       {entry.content}
                     </p>
@@ -294,12 +294,12 @@ export function MobileStagePage() {
           </ul>
 
           {notice && (
-            <p className="mt-4 rounded-2xl border border-life-cyan/30 bg-life-cyan/[0.06] px-4 py-3 text-[11px] leading-5 text-life-cyan">
+            <p className="mt-4 rounded-2xl border border-life-cyan/30 bg-life-cyan/[0.06] px-4 py-3 text-[12px] leading-5 text-life-cyan">
               {notice}
             </p>
           )}
           {error && (
-            <p className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 text-[11px] leading-5 text-amber-500">
+            <p className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 text-[12px] leading-5 text-amber-500">
               {error}
             </p>
           )}
@@ -315,7 +315,7 @@ export function MobileStagePage() {
             {finished ? '在世界播放器中回看' : '继续这个世界'}
           </button>
           {!finished && (
-            <p className="mt-2 text-center text-[10px] text-gray-400">继续与发言都在统一的世界播放器里进行。</p>
+            <p className="mt-2 text-center text-[12px] text-gray-400">继续与发言都在统一的世界播放器里进行。</p>
           )}
         </div>
       </div>
@@ -372,7 +372,7 @@ export function MobileStagePage() {
               </div>
               <p className="vg-stage-create-question text-xs font-medium text-ink">从哪里开始？</p>
               {myCharacters.length === 0 ? (
-                <p className="mt-2 text-[11px] text-gray-500">先去「角色」里认识一位角色，才能一起进入世界。</p>
+                <p className="mt-2 text-[12px] text-gray-500">先去「角色」里认识一位角色，才能一起进入世界。</p>
               ) : (
                 <>
                   <input
@@ -395,7 +395,7 @@ export function MobileStagePage() {
                     placeholder="你想怎样开始？（可留空）"
                     className="mt-2 w-full rounded-xl border border-line bg-app px-3 py-2 text-sm text-ink outline-none focus:border-gene-purple/50"
                   />
-                  <p className="mt-3 text-[10px] text-gray-500">和谁一起？（可多选）</p>
+                  <p className="mt-3 text-[12px] text-gray-500">和谁一起？（可多选）</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {myCharacters.map((c) => {
                       const on = form.picked.includes(c.id);
@@ -406,7 +406,7 @@ export function MobileStagePage() {
                           type="button"
                           disabled={Boolean(occupied) && !on}
                           onClick={() => setForm((f) => ({ ...f, picked: on ? f.picked.filter((id) => id !== c.id) : [...f.picked, c.id] }))}
-                          className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                          className={`rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
                             on ? 'border-gene-purple/50 bg-gene-purple/12 text-gene-purple' : occupied ? 'border-line bg-surface/40 text-gray-600 opacity-60' : 'border-line bg-surface text-gray-500'
                           }`}
                           title={occupied ? `正在《${occupied.title}》中，请先结束并保存那段经历` : undefined}
@@ -417,41 +417,41 @@ export function MobileStagePage() {
                     })}
                   </div>
                   {Array.from(occupiedByScene.values()).some((scene) => scene.status !== 'finished') && (
-                    <p className="mt-2 text-[10px] leading-5 text-gray-500">角色一次只能属于一个未结束的世界。暂时离开会暂停并留在星域；结束并保存经历后，才能进入新的世界。</p>
+                    <p className="mt-2 text-[12px] leading-5 text-gray-500">角色一次只能属于一个未结束的世界。暂时离开会暂停并留在星域；结束并保存经历后，才能进入新的世界。</p>
                   )}
                   <div className="vg-entry-memory mt-4">
-                    <p className="text-[10px] text-gray-500">进入世界时带着什么</p>
+                    <p className="text-[12px] text-gray-500">进入世界时带着什么</p>
                     <div className="mt-1.5 grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => setForm((f) => ({ ...f, entryMemoryMode: 'memory' }))}
-                        className={`rounded-xl border px-2 py-2 text-[11px] transition-colors ${form.entryMemoryMode === 'memory' ? 'border-gene-purple/50 bg-gene-purple/12 text-gene-purple' : 'border-line bg-surface text-gray-500'}`}
+                        className={`rounded-xl border px-2 py-2 text-[12px] transition-colors ${form.entryMemoryMode === 'memory' ? 'border-gene-purple/50 bg-gene-purple/12 text-gene-purple' : 'border-line bg-surface text-gray-500'}`}
                       >
                         带上与你的记忆
                       </button>
                       <button
                         type="button"
                         onClick={() => setForm((f) => ({ ...f, entryMemoryMode: 'present' }))}
-                        className={`rounded-xl border px-2 py-2 text-[11px] transition-colors ${form.entryMemoryMode === 'present' ? 'border-gene-purple/50 bg-gene-purple/12 text-gene-purple' : 'border-line bg-surface text-gray-500'}`}
+                        className={`rounded-xl border px-2 py-2 text-[12px] transition-colors ${form.entryMemoryMode === 'present' ? 'border-gene-purple/50 bg-gene-purple/12 text-gene-purple' : 'border-line bg-surface text-gray-500'}`}
                       >
                         从此刻开始参与
                       </button>
                       <button
                         type="button"
                         onClick={() => setForm((f) => ({ ...f, entryMemoryMode: 'amnesiac' }))}
-                        className={`rounded-xl border px-2 py-2 text-[11px] transition-colors ${form.entryMemoryMode === 'amnesiac' ? 'border-amber-400/50 bg-amber-400/10 text-amber-500' : 'border-line bg-surface text-gray-500'}`}
+                        className={`rounded-xl border px-2 py-2 text-[12px] transition-colors ${form.entryMemoryMode === 'amnesiac' ? 'border-amber-400/50 bg-amber-400/10 text-amber-500' : 'border-line bg-surface text-gray-500'}`}
                       >
                         失忆设定
                       </button>
                     </div>
-                    <p className="mt-1.5 text-[10px] leading-5 text-gray-500">
+                    <p className="mt-1.5 text-[12px] leading-5 text-gray-500">
                       「从此刻开始参与」不继承这场戏入场前的正文，但仍保有自己的私聊、群聊与过往经历。
                       「失忆设定」是明确的特殊玩法：连他自己的过往记忆也不带入。
                     </p>
                   </div>
-                  {error && <p className="mt-2 text-[11px] text-amber-500">{error}</p>}
+                  {error && <p className="mt-2 text-[12px] text-amber-500">{error}</p>}
                   <div className="mt-3 flex items-center gap-3">
-                    <button type="button" onClick={() => { setCreating(false); setError(null); }} className="text-[11px] text-gray-400">
+                    <button type="button" onClick={() => { setCreating(false); setError(null); }} className="text-[12px] text-gray-400">
                       取消
                     </button>
                     <div className="flex-1" />
@@ -481,11 +481,11 @@ export function MobileStagePage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="vg-story-title-text truncate">{cleanConstellationTitle(scene.title)}</p>
-                      <p className="mt-0.5 text-[11px] text-gray-500">
+                      <p className="mt-0.5 text-[12px] text-gray-500">
                         {scene.place} · {scene.timeLabel} · {scene.characterIds.map(nameOf).join('、')}
                       </p>
                     </div>
-                    <span className="vg-stage-status shrink-0 rounded-full border border-line bg-app px-2 py-0.5 text-[10px] text-gray-500">
+                    <span className="vg-stage-status shrink-0 rounded-full border border-line bg-app px-2 py-0.5 text-[12px] text-gray-500">
                       {STATUS_LABEL[scene.status]}
                     </span>
                   </div>
@@ -493,14 +493,14 @@ export function MobileStagePage() {
                     <button
                       type="button"
                       onClick={() => void openTheScene(scene.id)}
-                      className="text-[11px] text-gray-500"
+                      className="text-[12px] text-gray-500"
                     >
                       回看
                     </button>
                     <button
                       type="button"
                       onClick={() => continueInCanvas(scene.id)}
-                      className="text-[11px] text-life-cyan"
+                      className="text-[12px] text-life-cyan"
                     >
                       {scene.status === 'finished' ? '在世界播放器中回看' : '继续'}
                     </button>
@@ -508,7 +508,7 @@ export function MobileStagePage() {
                     <button
                       type="button"
                       onClick={() => void removeScene(scene.id)}
-                      className="text-[11px] text-gray-500 hover:text-rose-400"
+                      className="text-[12px] text-gray-500 hover:text-rose-400"
                     >
                       删除
                     </button>
@@ -517,7 +517,7 @@ export function MobileStagePage() {
                         type="button"
                         disabled={busy || !hasAi}
                         onClick={() => void finishAndRelease(scene)}
-                        className="text-[11px] text-gene-purple disabled:opacity-40"
+                        className="text-[12px] text-gene-purple disabled:opacity-40"
                       >
                         结束并保存
                       </button>

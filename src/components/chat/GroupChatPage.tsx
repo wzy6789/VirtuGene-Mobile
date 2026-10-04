@@ -1,3 +1,6 @@
+import { Modal } from '../ui/Modal';
+import { useAuthStore } from '../../store/auth-store';
+import { SettingsSwitch } from '../settings/SettingsUI';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useGroupStore, PROACTIVE_AFTER_MS } from '../../store/group-store';
@@ -38,7 +41,7 @@ export function GroupChatPage({ onClose, initialGroupId }: { onClose: () => void
   }, []);
 
   return createPortal(
-    <div ref={swipeRef} data-group-page className="fixed inset-0 z-[70] bg-app flex min-h-0 flex-col overflow-hidden"
+    <div ref={swipeRef} data-group-page className="fixed inset-0 vg-layer-page bg-app flex min-h-0 flex-col overflow-hidden"
       style={{ touchAction: 'pan-y', paddingTop: IS_MOBILE ? 'max(env(safe-area-inset-top, 0px), 24px)' : 0 }}>
       {view === 'list' && (
         <div data-group-header className="min-h-14 flex items-center gap-2 px-3 py-2 border-b border-line shrink-0">
@@ -549,12 +552,12 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
         </div>
       )}
 
-      {/* 长按消息 → 操作菜单（portal 到 body，z 高于群聊覆盖层 z-[70]） */}
+      {/* 长按消息 → 操作菜单（portal 到 body，z 高于群聊覆盖层 vg-layer-page） */}
       {menu &&
         createPortal(
           <div
             data-group-dialog
-            className="fixed z-[90] min-w-[150px] py-1.5 glass-card rounded-xl shadow-2xl"
+            className="fixed vg-layer-popover min-w-[150px] py-1.5 glass-card rounded-xl shadow-2xl"
             style={{ left: menu.x + 4, top: menu.y + 4 }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -709,7 +712,7 @@ function GroupChatWindow({ onBack }: { onBack: () => void }) {
 
       {/* 图片大图预览 */}
       {previewImage && (
-        <div data-group-dialog className="fixed inset-0 z-[95] bg-black/90 flex items-center justify-center" onClick={() => setPreviewImage(null)}>
+        <div data-group-dialog className="fixed inset-0 vg-layer-viewer bg-black/90 flex items-center justify-center" onClick={() => setPreviewImage(null)}>
           <img src={previewImage} alt="图片预览" className="max-w-full max-h-full object-contain" />
         </div>
       )}
@@ -723,6 +726,7 @@ function GroupSettings({ group, members, onClose }: { group: Group; members: Cha
   const removeMember = useGroupStore((s) => s.removeMember);
   const deleteGroup = useGroupStore((s) => s.deleteGroup);
   const setMemberNickname = useGroupStore((s) => s.setMemberNickname);
+  const userId = useAuthStore(state => state.userId);
   const characters = useChatStore((s) => s.characters);
   const [name, setName] = useState(group.name);
   const [showAdd, setShowAdd] = useState(false);
@@ -733,12 +737,7 @@ function GroupSettings({ group, members, onClose }: { group: Group; members: Cha
   const memberById = new Map(members.map((m) => [m.id, m]));
 
   return (
-    <div data-group-dialog className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-sm glass-card rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-          <span className="text-sm font-medium text-ink">群设置</span>
-          <button onClick={onClose} className="text-gray-400 hover:text-ink text-lg leading-none">×</button>
-        </div>
+    <Modal open onClose={onClose} title="群设置" width="max-w-sm" canSnapshotOnExit={() => useAuthStore.getState().userId === userId}><div data-group-dialog>
         <div className="p-4 space-y-4">
           {/* 群聊模型（透明：群聊生成使用全局默认模型，成员各自模型 P1） */}
           <div className="flex items-center justify-between">
@@ -747,20 +746,7 @@ function GroupSettings({ group, members, onClose }: { group: Group; members: Cha
           </div>
 
           {/* 热闹模式：一轮最多 5 条（默认关，省 token） */}
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-xs text-ink">热闹模式</span>
-              <p className="text-[10px] text-gray-500 mt-0.5">一轮最多 5 条、成员多接几句（更费 token）</p>
-            </div>
-            <button
-              onClick={() => void updateGroup(group.id, { lively: !group.lively })}
-              className={`shrink-0 px-3 py-1 rounded-full text-[11px] transition-colors ${
-                group.lively ? 'bg-gene-purple/20 text-gene-purple' : 'bg-panel border border-line text-gray-400'
-              }`}
-            >
-              {group.lively ? '已开启' : '关闭'}
-            </button>
-          </div>
+          <div className="vg-settings-design"><SettingsSwitch title="热闹模式" detail="一轮最多 5 条，成员多接几句（更费 token）" checked={!!group.lively} onChange={lively => void updateGroup(group.id,{lively})} /></div>
 
           {/* 群名 */}
           <div>
@@ -882,12 +868,13 @@ function GroupSettings({ group, members, onClose }: { group: Group; members: Cha
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
 /** 建群：群名 + 勾选角色（2~5 个） */
 function GroupCreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (g: Group) => void }) {
+  const userId = useAuthStore(state => state.userId);
   const characters = useChatStore((s) => s.characters);
   const createGroup = useGroupStore((s) => s.createGroup);
   const [name, setName] = useState('');
@@ -898,12 +885,7 @@ function GroupCreateModal({ onClose, onCreated }: { onClose: () => void; onCreat
   };
 
   return (
-    <div data-group-dialog className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-sm glass-card rounded-2xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="px-4 py-3 border-b border-line flex items-center justify-between">
-          <span className="text-sm font-medium text-ink">发起群聊</span>
-          <button onClick={onClose} className="text-gray-400 hover:text-ink text-lg leading-none">×</button>
-        </div>
+    <Modal open onClose={onClose} title="发起群聊" width="max-w-sm" canSnapshotOnExit={() => useAuthStore.getState().userId === userId}><div data-group-dialog>
         <div className="p-4 space-y-3">
           <input
             value={name}
@@ -949,6 +931,6 @@ function GroupCreateModal({ onClose, onCreated }: { onClose: () => void; onCreat
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

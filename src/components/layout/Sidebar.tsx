@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useThemeStore } from '../../store/theme-store';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
@@ -16,6 +16,7 @@ import { Avatar } from '../ui/Avatar';
 import { Modal } from '../ui/Modal';
 import { useResizable } from '../../hooks/useResizable';
 import { GatewayStatusBadge } from '../settings/GatewayStatusBadge';
+import { ActionCabinLauncher } from '../todo/ActionCabinLauncher';
 
 /** 收起时仅剩左侧工具条的宽度 */
 const SIDEBAR_COLLAPSED = 48;
@@ -47,10 +48,6 @@ export function Sidebar() {
   const [showSettings, setShowSettings] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-  }, [theme]);
 
   const handleLogout = () => {
     ipc.window.setSize(320, 466);
@@ -99,6 +96,7 @@ export function Sidebar() {
           <button onClick={toggle} title="切换主题" className={RAIL_BTN} onPointerDown={ripple.onPointerDown}>
             {theme === 'dark' ? '🌙' : '☀️'}
           </button>
+          {collapsed && <ActionCabinLauncher compact />}
           <button
             onClick={() => setWidth(collapsed ? SIDEBAR_DEFAULT : SIDEBAR_COLLAPSED)}
             title={collapsed ? '展开侧栏' : '收起侧栏'}
@@ -130,6 +128,7 @@ export function Sidebar() {
             <GatewayStatusBadge compact />
           </div>
 
+          {!collapsed && <div className="px-3 pt-3 shrink-0"><ActionCabinLauncher /></div>}
           {/* 基因实验室入口 —— 放在「搜索基因」上方（常驻青色微光） */}
           <div className="px-3 pt-2 pb-1 shrink-0">
             <button

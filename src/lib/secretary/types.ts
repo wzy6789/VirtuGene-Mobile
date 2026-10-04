@@ -2,7 +2,7 @@ import type { Diary, Todo, TodoOccurrence, MomentVisibility } from '../../db';
 import type { SecretaryPersonality } from './personality';
 import type { SecretaryWorkPreferences } from './work-preferences';
 
-export type SecretaryActionKind = 'diary.save' | 'diary.search' | 'moment.draft' | 'moment.publish' | 'moment.search' | 'todo.create' | 'todo.list' | 'todo.complete' | 'todo.reopen' | 'todo.reschedule' | 'todo.update' | 'todo.cancel' | 'todo.steps' | 'app.open';
+export type SecretaryActionKind = 'diary.save' | 'diary.search' | 'moment.draft' | 'moment.publish' | 'moment.search' | 'todo.create' | 'todo.list' | 'todo.complete' | 'todo.reopen' | 'todo.reschedule' | 'todo.update' | 'todo.cancel' | 'todo.steps' | 'app.open' | 'character.message.send';
 export type SecretaryDestination = 'diary' | 'todo' | 'moments' | 'memory' | 'timeline' | 'relations' | 'stage' | 'worldSettings';
 export interface SecretaryAction {
   kind: SecretaryActionKind;
@@ -28,6 +28,7 @@ export interface SecretaryAction {
   stepQuery?: string;
 }
 export interface SecretaryResult {
+  dispatch?: import('./character-messaging').CharacterDispatch;
   instruction?: import('./operation-contract').OperationContract;
   planningError?: string;
   action: SecretaryAction;

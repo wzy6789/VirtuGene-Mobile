@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
+import { resonate } from '../../lib/haptics';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { useCharacterStateStore } from '../../store/character-state-store';
@@ -21,7 +22,7 @@ import { UserProfileModal } from './UserProfileModal';
 import { GatewayStatusBadge } from './GatewayStatusBadge';
 import { AppearanceSettings } from './AppearanceSettings';
 import { VoicePreferences } from './VoicePreferences';
-import { SettingsGroup, SettingsIcon, SettingsOverview, SettingsRow, type SettingsIconName } from './SettingsUI';
+import { SettingsGroup, SettingsIcon, SettingsOverview, SettingsRow } from './SettingsUI';
 import { useThemeStore } from '../../store/theme-store';
 import { useUIStore } from '../../store/ui-store';
 import { DiaryPreferences } from './DiaryPreferences';
@@ -29,26 +30,9 @@ import { useSettingsDetailMotion } from './useSettingsDetailMotion';
 import { resolveModel } from '../../lib/ai/llm';
 import { useAiAvailability } from './useAiAvailability';
 
-export type SettingsPage = 'home' | 'account' | 'appearance' | 'voice' | 'connection' | 'privacy' | 'data' | 'about' | 'keys' | 'credentials' | 'model' | 'backup' | 'sync' | 'inputVoice' | 'diary';
-const pageTitles: Record<SettingsPage, string> = { home: '设置', account: '个人与账号', appearance: '外观与阅读', voice: '聊天与语音', connection: 'AI 连接', privacy: '内容与隐私', data: '数据与设备', about: '关于与更新', keys: '服务商密钥', credentials: '账号绑定密钥', model: '默认对话模型', backup: '备份与恢复', sync: '局域网同步', inputVoice: '语音输入', diary: '日记设置' };
-const directory: { page: SettingsPage; icon: SettingsIconName; group: string; terms: string; detail: string }[] = [
-  { page: 'account', icon: 'account', group: '你的偏好', terms: '头像 名字 密码 安全 注销', detail: '个人资料与账号安全' },
-  { page: 'appearance', icon: 'appearance', group: '你的偏好', terms: '主题 深色 浅色 字体 字号 动画 动效 流畅', detail: '主题、阅读字号与动态效果' },
-  { page: 'voice', icon: 'voice', group: '你的偏好', terms: '声音 语音 朗读 语速', detail: '消息朗读与语音回复' },
-  { page: 'connection', icon: 'connection', group: '连接与内容', terms: 'AI API Key 模型 密钥 连接 OpenAI Claude Gemini DeepSeek 千问 Qwen Kimi GLM 豆包 MiniMax MiMo Grok 硅基 自定义 本地', detail: '服务商接入、模型选择与连接检测' },
-  { page: 'privacy', icon: 'privacy', group: '连接与内容', terms: '隐私 日记 朋友圈 世界 星域 分享 提醒', detail: '日记、朋友圈与世界设定' },
-  { page: 'data', icon: 'data', group: '设备与软件', terms: '数据 备份 恢复 同步 设备', detail: '数据备份与设备互联' },
-  { page: 'about', icon: 'about', group: '设备与软件', terms: '版本 更新 帮助 使用 隐私说明', detail: '版本、更新与使用说明' },
-];
-const detailSearch: { page: SettingsPage; icon: SettingsIconName; title: string; terms: string; path: string }[] = [
-  { page: 'appearance', icon: 'appearance', title: '主题、阅读与动态效果', terms: '字体 字号 深色 浅色 动画 动效 流畅 减少', path: '外观与阅读' },
-  { page: 'keys', icon: 'connection', title: '服务商与 API 配置', terms: 'API Key OpenAI Claude Anthropic Gemini Google DeepSeek 千问 Qwen MiMo Kimi Moonshot GLM 智谱 豆包 Doubao MiniMax Grok xAI SiliconFlow 硅基 OpenRouter Groq 密钥 地址 endpoint 自定义 本地 Ollama LM Studio 检测', path: 'AI 连接' },
-  { page: 'model', icon: 'connection', title: '默认对话模型', terms: '模型 默认 对话', path: 'AI 连接' },
-  { page: 'inputVoice', icon: 'voice', title: '云端语音识别', terms: '语音输入 转文字 识别 硅基', path: '聊天与语音' },
-  { page: 'diary', icon: 'diary', title: '日记设置', terms: '手账 日记 锁 提醒 分享 授权 AI辅助', path: '内容与隐私' },
-  { page: 'backup', icon: 'data', title: '备份与恢复', terms: '备份 恢复 数据', path: '数据与设备' },
-  { page: 'sync', icon: 'connection', title: '局域网同步', terms: '同步 电脑 设备 Wi-Fi', path: '数据与设备' },
-];
+export type { SettingsPage } from './settings-directory';
+import { directory, detailSearch, pageTitles, SETTINGS_PAGES, type SettingsPage } from './settings-directory';
+import { settingsLabelIndex } from './settings-label-index';
 import { IS_ELECTRON, IS_MOBILE } from '../../lib/platform';
 import { deleteGatewayAccount, isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from '../../lib/ai/gateway';
 import { LegalNoticeModal, type LegalDocument } from '../compliance/LegalNoticeModal';
@@ -77,6 +61,7 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
   const [search, setSearch] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
   const theme = useThemeStore(s => s.theme);
+  const themePreference = useThemeStore(s => s.preference);
   const defaultModel = useSettingsStore(s => s.defaultModel);
   const currentModel = resolveModel(null, defaultModel);
   const currentModelConfigured = useAiAvailability(currentModel);
@@ -99,7 +84,7 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
   useLayoutEffect(() => {
     (contentRef.current?.closest('[role="dialog"]') as HTMLElement | null)?.focus({ preventScroll: true });
   }, [page, open]);
-  const parentPage = (): SettingsPage => page === 'keys' || page === 'credentials' || page === 'model' ? 'connection' : page === 'backup' || page === 'sync' ? 'data' : page === 'inputVoice' ? 'voice' : page === 'diary' ? 'privacy' : 'home';
+  const parentPage = (): SettingsPage => (SETTINGS_PAGES[page].parent ?? 'home') as SettingsPage;
   const goBack = () => {
     const scroller = contentRef.current?.closest('[data-modal-scroll]');
     if (scroller) positions.current.set(page, scroller.scrollTop);
@@ -220,6 +205,7 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
   };
 
   const handleDeleteAccount = async () => {
+    resonate('warning');
     setIsDeleting(true);
     setDeleteError('');
     try {
@@ -249,6 +235,8 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
 
   const masked = apiKey ? maskKey(apiKey) : '尚未配置';
 
+  const matchesSearch = (item: {page:SettingsPage; terms:string}) => `${pageTitles[item.page]} ${item.terms} ${settingsLabelIndex[item.page] ?? ''}`.toLowerCase().includes(search.trim().toLowerCase());
+
   return (
     <>
       <Modal open={open} onClose={onClose} title={pageTitles[page]} mobileFullHeight panelClassName="vg-settings-panel" canSnapshotOnExit={() => useAuthStore.getState().userId === userId} onBack={page === 'home' ? undefined : goBack}>
@@ -258,11 +246,11 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
             <SettingsOverview />
             <label className="vg-settings-search"><SettingsIcon name="search" /><input aria-label="搜索设置" type="search" placeholder="搜索设置，例如声音、备份" value={search} onChange={e => setSearch(e.target.value)} /></label>
             {['你的偏好', '连接与内容', '设备与软件'].map(group => {
-              const items = directory.filter(item => item.group === group && (pageTitles[item.page] + item.terms).toLowerCase().includes(search.trim().toLowerCase()));
-              return items.length > 0 && <SettingsGroup key={group} title={group}>{items.map(item => <SettingsRow key={item.page} title={pageTitles[item.page]} icon={item.icon} detail={search ? item.detail : undefined} value={item.page === 'appearance' ? theme === 'dark' ? '深色' : '浅色' : item.page === 'voice' ? ttsEnabled ? '朗读已开启' : '朗读已关闭' : item.page === 'account' ? username ?? undefined : undefined} onClick={() => navigate(item.page)} />)}</SettingsGroup>;
+              const items = directory.filter(item => item.group === group && matchesSearch(item));
+              return items.length > 0 && <SettingsGroup key={group} title={group}>{items.map(item => <SettingsRow key={item.page} title={pageTitles[item.page]} icon={item.icon} detail={search ? item.detail : undefined} value={item.page === 'appearance' ? themePreference === 'system' ? '跟随系统' : theme === 'dark' ? '深色' : '浅色' : item.page === 'voice' ? ttsEnabled ? '朗读已开启' : '朗读已关闭' : item.page === 'account' ? username ?? undefined : undefined} onClick={() => navigate(item.page)} />)}</SettingsGroup>;
             })}
-            {search && detailSearch.some(item => (item.title + item.terms).toLowerCase().includes(search.trim().toLowerCase())) && <SettingsGroup title="直接进入设置">{detailSearch.filter(item => (item.title + item.terms).toLowerCase().includes(search.trim().toLowerCase())).map(item => <SettingsRow key={item.page} icon={item.icon} title={item.title} detail={item.path} onClick={() => navigate(item.page)} />)}</SettingsGroup>}
-            {search && ![...directory.map(item => ({ title: pageTitles[item.page], terms: item.terms })), ...detailSearch].some(item => (item.title + item.terms).toLowerCase().includes(search.trim().toLowerCase())) && <p className="vg-settings-intro" role="status">没有找到这项设置，试试“语音”“密钥”或“备份”。</p>}
+            {search && detailSearch.some(item => matchesSearch(item)) && <SettingsGroup title="直接进入设置">{detailSearch.filter(item => matchesSearch(item)).map(item => <SettingsRow key={item.page} icon={item.icon} title={pageTitles[item.page]} detail={item.path} onClick={() => navigate(item.page)} />)}</SettingsGroup>}
+            {search && ![...directory, ...detailSearch].some(item => matchesSearch(item)) && <p className="vg-settings-intro" role="status">没有找到这项设置，试试“语音”“密钥”或“备份”。</p>}
           </>}
           {page === 'appearance' && <AppearanceSettings />}
           {page === 'account' && <><SettingsGroup title="个人资料"><SettingsRow title="头像与个人资料" icon="account" value={username ?? undefined} onClick={() => setProfileOpen(true)} /></SettingsGroup>{IS_MOBILE && <div className="vg-settings-form"><ChangePasswordSection /></div>}
@@ -283,7 +271,7 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
           </>}
           {page === 'voice' && <><p className="vg-settings-intro">这里的偏好影响所有角色聊天。专属声线可在对应角色的聊天设置中调整。</p><VoicePreferences /><SettingsGroup title="语音输入"><SettingsRow title="云端识别" icon="voice" value={hasAsrKey ? '已配置' : '未配置'} detail="系统识别不可用时的备用通道" onClick={() => navigate('inputVoice')} /></SettingsGroup></>}
           {page === 'inputVoice' && <ApiKeyManager embedded onlySpeech onClose={() => navigate('voice')} />}
-          {page === 'connection' && <><GatewayStatusBadge /><p className="vg-settings-intro">选择默认模型，或管理已有服务的连接。配置密钥不等于连接测试成功。</p><SettingsGroup title="模型与服务"><SettingsRow title="默认对话模型" icon="connection" value={currentModelConfigured ? '已配置' : '待配置'} detail={currentModel.label + ' · 已固定模型的会话保留原选择'} onClick={() => navigate('model')} /><SettingsRow title="服务商密钥" icon="connection" detail="OpenAI、Claude、Gemini 等平台与自定义 API" onClick={() => navigate('keys')} /><SettingsRow title="账号绑定密钥" icon="account" value={apiKey ? '已配置' : '未配置'} detail="DeepSeek 账号密钥，可选配置" onClick={() => navigate('credentials')} /></SettingsGroup></>}
+          {page === 'connection' && <><GatewayStatusBadge /><p className="vg-settings-intro">选择默认模型，或管理已有服务的连接。配置密钥不等于连接测试成功。</p><SettingsGroup title="模型与服务"><SettingsRow title="默认对话模型" icon="connection" value={currentModelConfigured ? '已配置' : '待配置'} detail={currentModel.label + (currentModel.provider === 'deepseek' ? ' · DeepSeek 会话统一使用 Flash' : ' · 已固定模型的会话保留原选择')} onClick={() => navigate('model')} /><SettingsRow title="服务商密钥" icon="connection" detail="OpenAI、Claude、Gemini 等平台与自定义 API" onClick={() => navigate('keys')} /><SettingsRow title="账号绑定密钥" icon="account" value={apiKey ? '已配置' : '未配置'} detail="DeepSeek 账号密钥，可选配置" onClick={() => navigate('credentials')} /></SettingsGroup></>}
           {page === 'model' && <ModelSection onManageProviders={() => navigate('keys')} />}
           {page === 'keys' && <ApiKeyManager embedded onClose={() => navigate('connection')} />}
           {page === 'credentials' && <>

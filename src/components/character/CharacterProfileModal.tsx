@@ -68,7 +68,7 @@ export function CharacterProfileModal({ character, userId, onClose, onAdd, onCha
   return (
     <Modal open onClose={() => { if (!busy) void onClose(); }} title="角色" width="max-w-md">
       <div className="vg-profile-hero">
-        <Avatar avatar={character.avatar} size="lg" className="vg-profile-avatar" />
+        <Avatar avatar={character.avatar} size="lg" className="vg-profile-avatar" soulKey={`avatar:${character.id}`} soulRole="profile" />
         <div className="vg-profile-identity">
           <h3>{character.name}</h3>
           <p>{character.signature || character.greeting || '从这里，继续认识彼此。'}</p>

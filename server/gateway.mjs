@@ -2,12 +2,15 @@ import http from 'node:http';
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { DEEPSEEK_MODEL_ID, deepseekGenerationOptions } from './deepseek-policy.mjs';
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const DEEPSEEK_BASE_URL = (process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1').replace(/\/$/, '');
-const DEFAULT_MODEL = process.env.DEEPSEEK_DEFAULT_MODEL || 'deepseek-chat';
+// All hosted operations use the same rolling Flash alias as BYOK. A legacy
+// environment override or a saved client model must not select another model.
+const DEFAULT_MODEL = DEEPSEEK_MODEL_ID;
 const GATEWAY_TOKEN = process.env.VIRTUGENE_GATEWAY_TOKEN || '';
 const AUTH_SECRET = process.env.GATEWAY_AUTH_SECRET || '';
 const DATA_DIR = process.env.GATEWAY_DATA_DIR || '/opt/virtugene/data';
@@ -212,6 +215,16 @@ function content(textValue, image) {
   return [{ type: 'text', text: textValue || '[图片]' }, { type: 'image_url', image_url: { url: image.slice(0, 2_500_000) } }];
 }
 
+function chatGenerationOptions(body) {
+  const history = Array.isArray(body.history) ? body.history.slice(-12) : [];
+  return deepseekGenerationOptions({
+    disableThinking: body.disableThinking === true,
+    visionRequest: body.forceVision === true || Boolean(body.image) || history.some(item => Boolean(item?.image)),
+    jsonMode: body.structuredOutput === true,
+    temperature: Number(body.temperature ?? 0.8),
+  });
+}
+
 function buildMessages(body) {
   const system = text(body.systemPrompt, 12_000);
   const instruction = '这是 VirtuGene 的拟人化互动。保持角色身份和关系，用自然口语短句回复，不写 Markdown、列表、动作括号或总结套话。不得声称自己是真实人类，不得诱导用户依赖、排斥现实关系、过度消费或服从角色；不得鼓励自伤、自杀、暴力或危险行为。遇到用户可能面临人身安全风险时，优先关心现实安全，鼓励立即联系可信任的人和当地紧急援助。';
@@ -271,7 +284,7 @@ async function aux(operation, payload) {
   const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: DEFAULT_MODEL, messages: auxMessages(operation, payload), temperature: 0.3, max_tokens: operation === 'diary' ? 900 : operation === 'context-summary' ? 1_600 : 600, response_format: { type: 'json_object' } }),
+    body: JSON.stringify({ model: DEFAULT_MODEL, messages: auxMessages(operation, payload), ...deepseekGenerationOptions({ jsonMode: true, temperature: 0.3 }), max_tokens: operation === 'diary' ? 900 : operation === 'context-summary' ? 1_600 : 600, response_format: { type: 'json_object' } }),
     signal: AbortSignal.timeout(45_000),
   });
   if (!response.ok) {
@@ -280,23 +293,22 @@ async function aux(operation, payload) {
     throw error;
   }
   const data = await response.json();
-  const raw = data.choices?.[0]?.message?.content || '{}';
+  const raw = data.choices?.[0]?.message?.content;
+  if (typeof raw !== 'string' || !raw.trim()) throw Object.assign(new Error('invalid_provider_json'), { status: 502 });
   try { return JSON.parse(raw.replace(/^```json?\s*/i, '').replace(/\s*```$/, '')); } catch { throw Object.assign(new Error('invalid_provider_json'), { status: 502 }); }
 }
 
 async function chat(body) {
   if (!DEEPSEEK_API_KEY) throw Object.assign(new Error('missing_provider_key'), { status: 503 });
-  const requested = body.sessionModel?.model || body.character?.model?.model;
-  const model = typeof requested === 'string' && requested.startsWith('deepseek-v') ? DEFAULT_MODEL : (requested || DEFAULT_MODEL);
+  const model = DEFAULT_MODEL;
   const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       messages: buildMessages(body),
-      temperature: Math.max(0, Math.min(1.2, Number(body.temperature ?? 0.8))),
+      ...chatGenerationOptions(body),
       max_tokens: body.forceVision ? 900 : body.structuredOutput ? Math.max(16, Math.min(4000, Math.round(Number(body.maxTokens ?? 3500)) || 3500)) : 700,
-      thinking: { type: body.forceVision || body.disableThinking || body.structuredOutput ? 'disabled' : 'enabled' },
       ...(body.structuredOutput ? { response_format: { type: 'json_object' } } : {}),
     }),
     signal: AbortSignal.timeout(60_000),
@@ -347,8 +359,7 @@ async function streamChat(body, intervention, res) {
     res.end();
     return;
   }
-  const requested = body.sessionModel?.model || body.character?.model?.model;
-  const model = typeof requested === 'string' && requested.startsWith('deepseek-v') ? DEFAULT_MODEL : (requested || DEFAULT_MODEL);
+  const model = DEFAULT_MODEL;
   const maxTokens = body.forceVision ? 900 : Math.max(16, Math.min(8000, Math.round(Number(body.maxTokens ?? 700)) || 700));
   const controller = new AbortController();
   const cancel = () => controller.abort();
@@ -362,9 +373,9 @@ async function streamChat(body, intervention, res) {
     body: JSON.stringify({
       model,
       messages: buildMessages(body),
-      temperature: Math.max(0, Math.min(1.2, Number(body.temperature ?? 0.8))),
+      ...chatGenerationOptions(body),
       max_tokens: maxTokens,
-      thinking: { type: body.forceVision || body.disableThinking === true ? 'disabled' : 'enabled' },
+      ...(body.structuredOutput ? { response_format: { type: 'json_object' } } : {}),
       stream: true,
       stream_options: { include_usage: true },
     }),

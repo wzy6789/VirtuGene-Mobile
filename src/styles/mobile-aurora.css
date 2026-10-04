@@ -1,10 +1,4 @@
 /* Living light: shared mobile tokens, stable typography, inexpensive effects. */
-.mobile-layout {
-  --vg-radius-control:14px;
-  --vg-radius-card:20px;
-  --vg-duration:180ms;
-  --vg-ease:cubic-bezier(.2,.8,.2,1);
-}
 .mobile-layout :is(button,input,textarea) { -webkit-tap-highlight-color:transparent; }
 .mobile-layout :is(.vg-space-heading h1,.vg-canvas-title,.vg-moments-header h1) { overflow-wrap:anywhere; }
 .mobile-layout .vg-conversation-brand { display:flex; align-items:center; gap:12px; max-width:100%; padding:22px 20px 8px; }
@@ -14,7 +8,7 @@
 .mobile-layout .vg-conversation-shell { border-radius:18px; }
 .mobile-layout .vg-conversation-shell.is-pinned { box-shadow:inset 3px 0 0 rgba(161,140,239,.35),inset 0 1px 0 rgba(176,155,245,.1); }
 .mobile-layout .vg-conversation-row:active { background:linear-gradient(110deg,rgba(154,132,235,.15),rgba(97,208,198,.045)); }
-.mobile-layout .vg-wordmark { isolation:isolate; padding:3px 0 5px; font-size:17px; line-height:1.5; font-weight:750; letter-spacing:.17em; }
+.mobile-layout .vg-wordmark { isolation:isolate; padding:3px 0 5px; font-size:17px; line-height:1.5; font-weight:700; letter-spacing:.17em; }
 /* Signature wordmark: readable metallic type, quiet DNA filaments and a traveling glint.
    Only the message header uses this variant; decoration cannot intercept a tap. */
 .mobile-layout .vg-wordmark.is-signature {
@@ -67,7 +61,6 @@
 .mobile-layout .chat-header { min-height:58px; }
 .mobile-layout .chat-header-title { letter-spacing:.045em; }
 .mobile-layout .vg-chat-message-row { animation:vg-message-arrive 180ms var(--vg-ease) both; }
-.mobile-layout .vg-message-bubble { overflow-wrap:anywhere; }
 .mobile-layout .chat-composer { box-shadow:inset 0 1px 0 rgba(162,147,239,.1); }
 .mobile-layout .chat-room:has(.scene-morning) .chat-thread { background:radial-gradient(ellipse at 90% 0%,rgba(118,191,189,.1),transparent 70%),var(--bg); }
 .mobile-layout .chat-room:has(.scene-day) .chat-thread { background:radial-gradient(ellipse at 90% 0%,rgba(123,169,221,.1),transparent 70%),var(--bg); }
@@ -264,7 +257,6 @@ html[data-vg-background] :is(.mobile-layout,.scene-settings-overlay,.vg-modal-ov
 .mobile-layout .vg-conversation-row .font-medium { letter-spacing:.01em; }
 .mobile-layout .vg-conversation-row p { opacity:.88; }
 .mobile-layout .chat-thread { background:radial-gradient(ellipse 95% 340px at 100% 0%,rgba(131,109,207,.095),transparent 76%),radial-gradient(ellipse 90% 370px at 0% 100%,rgba(78,159,173,.04),transparent 80%),var(--bg); }
-.mobile-layout .vg-message-bubble.is-character-bubble { box-shadow:inset 0 1px 0 rgba(176,164,232,.07),0 3px 9px rgba(9,9,30,.05) !important; }
 .mobile-layout .chat-composer { background:radial-gradient(ellipse at 100% 0%,rgba(132,120,216,.1),transparent 76%),var(--bg-panel); }
 
 .mobile-layout .vg-moments-header { background:radial-gradient(ellipse 80% 130% at 100% 0%,rgba(230,175,111,.12),transparent 80%); }

@@ -58,7 +58,7 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
       return;
     }
 
-    const msgs = await messageRepo.getBySession(sessionId);
+    const msgs = (await messageRepo.getBySession(sessionId)).filter(m => m.secretaryDispatch?.bodyOrigin !== 'composed');
     if (msgs.length === 0) {
       set({ analysisError: '发送一些消息后即可分析情绪' });
       return;
@@ -153,7 +153,7 @@ export const useEmotionStore = create<EmotionState>((set, get) => ({
     const apiKey = useAuthStore.getState().apiKey ?? '';
     if (!canUseAi()) return;
 
-    const msgs = await messageRepo.getBySession(sessionId);
+    const msgs = (await messageRepo.getBySession(sessionId)).filter(m => m.secretaryDispatch?.bodyOrigin !== 'composed');
     if (msgs.filter((m) => m.role === 'user').length < 3) return;
 
     const analysisMessages = boundAuxiliaryHistory(msgs);

@@ -9,15 +9,6 @@
  * 说明：手机版完全自包含 —— AI 服务实现复制自桌面端 electron/services 的纯函数版本，
  * 存放在 src/lib/ai/ 下，不依赖、也不修改任何桌面端代码。
  */
-import { validateApiKey, sendMessage } from './ai/deepseek';
-import { generateCharacterPrompt } from './ai/character-generator';
-import { duckDuckGoSearch } from './ai/web-search';
-import { generateProactiveMessage } from './ai/proactive-chat';
-import { extractMemories } from './ai/memory-consolidator';
-import { analyzeEmotion } from './ai/emotion-analyzer';
-import { consolidateContext } from './ai/context-consolidator';
-import { summarizeContext } from './ai/context-summarizer';
-import { diaryAssist } from './ai/diary-assistant';
 
 /** 统一错误码映射（与桌面端 IPC 层一致） */
 function toError(err: unknown): string {
@@ -46,13 +37,13 @@ function downloadBlob(blob: Blob, filename: string): void {
 
 export const webApi: VirtuGeneAPI = {
   key: {
-    validate: (apiKey) => validateApiKey(apiKey),
+    validate: async (apiKey) => (await import('./ai/deepseek')).validateApiKey(apiKey),
   },
 
   chat: {
     send: async (params) => {
       try {
-        const r = await sendMessage(params);
+        const r = await (await import('./ai/deepseek')).sendMessage(params);
         return {
           content: r.content,
           truncated: r.truncated,
@@ -81,12 +72,12 @@ export const webApi: VirtuGeneAPI = {
         let webContext: string | undefined;
         if (params.enableWebSearch) {
           send('search', '正在扫描基因库检索相关资料...', 0.08);
-          webContext = await duckDuckGoSearch(params.characterName);
+          webContext = await (await import('./ai/web-search')).duckDuckGoSearch(params.characterName);
         }
         const base = params.enableWebSearch ? 0.16 : 0.05;
         if (count === 1) {
           send('generate', '正在合成数字灵魂序列...', base);
-          const result = await generateCharacterPrompt({
+          const result = await (await import('./ai/character-generator')).generateCharacterPrompt({
             apiKey: params.apiKey,
             characterName: params.characterName,
             fields: params.fields,
@@ -100,7 +91,7 @@ export const webApi: VirtuGeneAPI = {
         let done = 0;
         const candidates = await Promise.all(
           Array.from({ length: count }, async () => {
-            const result = await generateCharacterPrompt({
+            const result = await (await import('./ai/character-generator')).generateCharacterPrompt({
               apiKey: params.apiKey,
               characterName: params.characterName,
               fields: params.fields,
@@ -139,7 +130,7 @@ export const webApi: VirtuGeneAPI = {
   proactive: {
     generate: async (params) => {
       try {
-        return { content: await generateProactiveMessage(params) };
+        return { content: await (await import('./ai/proactive-chat')).generateProactiveMessage(params) };
       } catch (err) {
         return { error: toError(err) };
       }
@@ -149,7 +140,7 @@ export const webApi: VirtuGeneAPI = {
   memory: {
     extract: async (params) => {
       try {
-        return await extractMemories(params);
+        return await (await import('./ai/memory-consolidator')).extractMemories(params);
       } catch (err) {
         return { error: toError(err) };
       }
@@ -159,7 +150,7 @@ export const webApi: VirtuGeneAPI = {
   emotion: {
     analyze: async (params) => {
       try {
-        return await analyzeEmotion(params);
+        return await (await import('./ai/emotion-analyzer')).analyzeEmotion(params);
       } catch (err) {
         return { error: toError(err) };
       }
@@ -169,14 +160,14 @@ export const webApi: VirtuGeneAPI = {
   context: {
     settle: async (params) => {
       try {
-        return await consolidateContext(params);
+        return await (await import('./ai/context-consolidator')).consolidateContext(params);
       } catch (err) {
         return { error: toError(err) };
       }
     },
     summarize: async (params) => {
       try {
-        return await summarizeContext(params);
+        return await (await import('./ai/context-summarizer')).summarizeContext(params);
       } catch (err) {
         return { error: toError(err) };
       }
@@ -186,7 +177,7 @@ export const webApi: VirtuGeneAPI = {
   diary: {
     assist: async (params) => {
       try {
-        return await diaryAssist(params);
+        return await (await import('./ai/diary-assistant')).diaryAssist(params);
       } catch (err) {
         return { error: toError(err) };
       }

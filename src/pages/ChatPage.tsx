@@ -59,8 +59,8 @@ function SettleToast() {
 
   if (!notice) return null;
   return (
-    <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[65] pointer-events-none animate-cloud-in glass-card rounded-full px-4 py-1.5 text-xs text-ink shadow-lg flex items-center gap-1.5">
-      <span>🧬</span>
+    <div className="absolute top-14 left-1/2 -translate-x-1/2 vg-layer-toast pointer-events-none animate-cloud-in glass-card rounded-full px-4 py-1.5 text-xs text-ink shadow-lg flex items-center gap-1.5">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M7 3c0 9 10 9 10 18M17 3c0 9-10 9-10 18M8 6h8M8 18h8M10 9h4M10 15h4" /></svg>
       <span>{notice}</span>
     </div>
   );

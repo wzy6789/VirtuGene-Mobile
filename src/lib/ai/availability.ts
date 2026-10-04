@@ -1,7 +1,7 @@
 import { useAuthStore } from '../../store/auth-store';
 import { hasStoredSecret } from '../api-key-storage';
 import { hasAiGatewayAccess } from './gateway';
-import { resolveModel } from './llm';
+import { resolveModel } from './model-selection';
 import { getProviderConfig, providerRequiresKey } from './provider-config';
 import { LLM_PROVIDERS, type LLMModel } from './provider-registry';
 

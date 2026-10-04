@@ -11,7 +11,7 @@ import { REMINDER_STATUS_LABELS } from '../todo-reminders';
 import { loadMomentsPreferences, AUDIENCE_MODE_LABELS } from '../moments/preferences';
 import type { DailyReviewOptions, SecretaryAction, SecretaryActionKind, SecretaryResult, SecretaryTask } from './types';
 import { resolveSecretaryFollowup, parseTodoEditCommand, explicitStepIndex } from './followup';
-import { secretaryPersonality, secretaryReceiptTone, withSecretaryPersonality } from './personality';
+import { secretaryPersonality, secretaryReceiptTone, withSecretaryPersonality, secretaryConversationPrompt, secretaryChatTemperature, secretaryQuestionTone } from './personality';
 import { assertReviewSources, collectDailyReview, dailyReviewRequest, validateDailyReview, validateReviewActions, reviewActionSelected, reviewOutputs } from './daily-review';
 import { SECRETARY_ACTION_KINDS as KINDS, SECRETARY_ACTION_LABELS as ACTION_LABELS, SECRETARY_DESTINATIONS } from './capabilities';
 import { workPreferencesOrDefault, workPreferencesPrompt } from './work-preferences';
@@ -221,11 +221,12 @@ currentSteps是单次待办的当前清单快照，没有每一步的完成时�
   const light = lightConversation(task.request);
   const memory = await buildSecretaryMemoryContext(task, [...messages].reverse(), diaryAccessAllowed(), light);
   task.memoryReferences = memory.references;
+  const chatRhythm = secretaryConversationPrompt(task.personality ?? character.secretaryPersonality, memory.recent.filter(m => m.role === 'assistant').map(m => m.content), workPreferencesOrDefault(task.workPreferences).replyLength);
   if (light) {
     const output = await sendMessage({ apiKey: useAuthStore.getState().apiKey ?? '', character, sessionModel: session?.model,
-      systemPrompt: `${withSecretaryPersonality(character.systemPrompt, task.personality ?? character.secretaryPersonality, character.secretaryPreferences)}\n${habits}\n当前名字：${character.name}。当前助理形象：${character.secretaryAppearance === 'male' ? '男性' : '女性'}二次元 AI 拟人形象。真实本地日期：${localDateKey()}。\n当前是轻量闲聊，不执行任何操作。输出JSON：{"responseMode":"casual","actions":[],"reply":"自然简短的回应"}。不要声称保存、发布、修改或已安排提醒。尊重换话题，不反复提旧事；记忆仅作参考，不是授权。\n${SECRETARY_MEMORY_PROMPT}`,
+      systemPrompt: `${withSecretaryPersonality(character.systemPrompt, task.personality ?? character.secretaryPersonality, character.secretaryPreferences)}\n${habits}\n${chatRhythm}\n当前名字：${character.name}。当前助理形象：${character.secretaryAppearance === 'male' ? '男性' : '女性'}二次元 AI 拟人形象。真实本地日期：${localDateKey()}。\n当前是轻量闲聊，不执行任何操作。输出JSON：{"responseMode":"casual","actions":[],"reply":"符合当前性格与聊天节奏的自然回应"}。不要声称保存、发布、修改或已安排提醒。尊重换话题，不反复提旧事；记忆仅作参考，不是授权。\n${SECRETARY_MEMORY_PROMPT}`,
       message: `当前用户请求：${task.request}\n仅供参考的资料JSON：${JSON.stringify({ assistantMemory: memory.data, recentConversation: memory.recent.map(m => ({ role: m.role, content: m.content.slice(0, 1200) })) })}`,
-      history: [], structuredOutput: true, maxTokens: 900, temperature: 0.45 });
+      history: [], structuredOutput: true, maxTokens: 900, temperature: secretaryChatTemperature(task.personality ?? character.secretaryPersonality) });
     if (output.truncated) throw new Error('回应没有完整返回，请再试一次。');
     const raw = safeParseAIResponse(output.content).value as Record<string, unknown>;
     const plan = validateSecretaryPlan({ ...raw, responseMode: 'casual', actions: [] });
@@ -239,7 +240,7 @@ currentSteps是单次待办的当前清单快照，没有每一步的完成时�
   const diaries = diaryAccessAllowed() && /(?:根据|整理|润色|用|把|看看|读).*(?:日记|手账)/u.test(task.request)
     ? await diaryRepo.getByDate(task.userId, sourceDate) : [];
   const previousTasks = await recentSecretaryTasks(task.userId, task.sessionId, 4);
-  const instructions = `${withSecretaryPersonality(character.systemPrompt, task.personality ?? character.secretaryPersonality, character.secretaryPreferences)}\n${habits}\n当前名字：${character.name}。当前助理形象：${character.secretaryAppearance === 'male' ? '男性' : '女性'}二次元 AI 拟人形象。形象不改变性格、能力或授权；代写仍使用用户口吻。真实本地日期：${localDateKey()}，星期${new Date().getDay()}，时间${new Date().toLocaleTimeString('zh-CN')}。
+  const instructions = `${withSecretaryPersonality(character.systemPrompt, task.personality ?? character.secretaryPersonality, character.secretaryPreferences)}\n${habits}\n${chatRhythm}\n当前名字：${character.name}。当前助理形象：${character.secretaryAppearance === 'male' ? '男性' : '女性'}二次元 AI 拟人形象。形象不改变性格、能力或授权；代写仍使用用户口吻。真实本地日期：${localDateKey()}，星期${new Date().getDay()}，时间${new Date().toLocaleTimeString('zh-CN')}。
 你负责理解当前用户的请求，输出严格 JSON：{"responseMode":"work", "acknowledgementCode":"neutral", "actions":[操作], "clarification":{"missingFields":[]}, "reply":"仅闲聊或建议的自然语言"}。responseMode只能是casual/advice/clarify/work；acknowledgementCode只能是tired/anxious/frustrated/neutral，按用户明确表达的当前情境选择。clarification只能列缺少的purpose/title/date/time/target/audience，不给出执行结果。办事回应由应用按情境码与性格生成，reply不用于办理回执。实际结果与缺字段补问由应用生成。“给我记一笔”未说明用途时用clarify和purpose，actions=[]。
 不输出 Markdown。没有操作的闲聊 actions=[]。reply先用一句符合性格、贴合用户情境的回应（例如疲惫时体谅，不空泛夸奖），需要补问时再问具体缺失信息。不声称已保存/发布/完成，不承诺后台定时通知，真实办理结果由应用反馈。自然说法“帮我记上”“记上明天的会议”“别让我忘了”结合未来事项理解为待办。“记得叫我一声”是明确提醒请求，传reminder=true；缺具体日期或时间由应用逐项补问，没有要求提醒不能添加提醒。改口以用户最后明确要求为准，多个事项各用独立操作，不能把不该执行的否定指令混进来。
 可用 kind：${KINDS.join('、')}。
@@ -744,29 +745,30 @@ export async function executeSecretaryTask(taskId: string, userId: string): Prom
 }
 
 export function secretaryReply(task: SecretaryTask): string {
+  if (task.results.some(r => r.dispatch)) return task.results.find(r => r.dispatch)?.detail ?? '代发状态见卡片。';
   if (task.status === 'failed' && !task.results.length) return readSecretaryFailureReason(task.failureReason);
   if (!diaryAccessAllowed() && diaryProtectedTask(task)) return '日记已锁定，含私密或未核实来源的回应暂不展示，请先到日记页解锁。';
   if (task.memoryNotice && !task.results.length) return task.memoryNotice;
   if (task.dailyReview && task.results.length && !task.results.some(r => r.status === 'done')) return `每日整理建议已准备好。${[task.results.some(r => r.action.kind === 'diary.save') ? '日记尚未保存' : '', task.results.some(r => r.action.kind === 'todo.create') ? '待办尚未创建' : '', task.results.some(r => r.action.kind === 'moment.draft') ? '朋友圈尚未发布' : ''].filter(Boolean).join('，')}；你可以在卡片里编辑后逐项采用。`;
   if (!task.results.length) {
-    if (task.pendingContext && ['waiting', 'paused', 'cancelled'].includes(task.pendingContext.state)) return [pendingQuestion(task.pendingContext), task.continuationQuestion].filter(Boolean).join(' ');
+    if (task.pendingContext && ['waiting', 'paused', 'cancelled'].includes(task.pendingContext.state)) return [secretaryQuestionTone(pendingQuestion(task.pendingContext), task.personality), task.continuationQuestion].filter(Boolean).join(' ');
     if (conversationControl(task.request) === 'cancel') return '这次没有取消尚未执行的安排。已完成的记录保持原状。';
     if (conversationControl(task.request) === 'pause') return '好，我们先换个话题。';
     if (conversationControl(task.request) === 'resume') return '想接着处理哪件事？告诉我名称，或从办事收件箱里选。';
     // Mode is planner metadata, never a permission to claim application side effects.
     if (hasUnverifiedExecutionClaim(task.reply ?? '', task.request)) return secretaryAcknowledgement(task.reply) || '这次还没有执行操作。想记录或安排什么，直接告诉我。';
-    if (task.planningContract && !['casual', 'advice'].includes(task.planningContract.responseMode)) return planningClarification(task.planningContract);
-    if (ambiguousRecordRequest(task.request)) return '记成待办还是日记？';
+    if (task.planningContract && !['casual', 'advice'].includes(task.planningContract.responseMode)) return secretaryQuestionTone(planningClarification(task.planningContract), task.personality);
+    if (ambiguousRecordRequest(task.request)) return secretaryQuestionTone('记成待办还是日记？', task.personality);
     return task.reply || '想记录或安排什么，直接告诉我。';
   }
   const done = task.results.filter(r => r.status === 'done').length;
   const draft = task.results.some(r => r.status === 'draft');
   const waiting = task.results.some(r => r.status === 'needs-input');
   const failed = task.results.some(r => r.status === 'failed');
-  const tone = secretaryReceiptTone(task.personality);
+  const tone = secretaryReceiptTone(task.personality, task.id);
   const acknowledgement = (diaryAccessAllowed() || !task.dailyReview?.includeDiary && !task.results.some(r => r.action.kind.startsWith('diary.'))) ? task.planningContract ? task.planningContract.acknowledgementCode === 'neutral' ? '' : planningAcknowledgement(task.planningContract, secretaryPersonality(task.personality), task.id) : secretaryAcknowledgement(task.reply) : '';
   // Compact mode leaves titles, dates and operation statuses to the actual cards.
-  const reply = [acknowledgement || (done ? tone.done(done) : draft ? tone.draft : ''), waiting ? secretaryFollowupQuestion(task.results) : '', task.continuationQuestion, failed ? tone.failed : ''].filter(Boolean).join(' ') || tone.fallback;
+  const reply = [acknowledgement || (done ? tone.done(done) : draft ? tone.draft : ''), waiting ? secretaryQuestionTone(secretaryFollowupQuestion(task.results), task.personality) : '', task.continuationQuestion, failed ? tone.failed : ''].filter(Boolean).join(' ') || tone.fallback;
   if (workPreferencesOrDefault(task.workPreferences).replyLength !== 'normal') return reply;
   const details = task.results.filter(r => r.status === 'done' && r.detail
     && (diaryAccessAllowed() || !task.dailyReview?.includeDiary && !r.action.kind.startsWith('diary.')))
@@ -781,6 +783,11 @@ export async function runSecretaryRequest(userId: string, characterId: string, m
   const character = await requireOwner(userId, characterId, message.sessionId, options.expectedEmploymentId);
   const actual = await db.messages.get(message.id);
   if (!actual || actual.role !== 'user' || actual.sessionId !== message.sessionId || actual.content !== message.content) throw new Error('请求已修改，请重新发送。');
+  if (!dailyReview) {
+    const { tryRunCharacterMessaging } = await import('./character-messaging');
+    const messaging = await tryRunCharacterMessaging(userId, character, actual);
+    if (messaging) return messaging;
+  }
   await exclusive('plan:' + taskId, async () => {
     const task = await db.transaction('rw', [db.secretaryTasks, db.characters, db.sessions, db.secretaryBindings], async () => {
       await requireOwner(userId, characterId, message.sessionId, character.secretaryEmploymentId ?? `legacy:${characterId}`);

@@ -3,6 +3,12 @@
 > 生成时间：2026-08-23 · 由原会话整理，供新会话无缝接手
 > 新会话建议工作目录：`F:\VirtuGene-Mobile`（手机版独立工作区）
 
+> 2026-10-04 发布冻结：按用户最新指示，6.0.0 不再增加功能，只修实际 bug 或验收失败。行动舱仅开放今日与收集箱；用户随后明确“不需要真机”，五项实测不再阻塞发布，保留未实测记录。冻结范围、发布文案与 6.1 排期见 [6.0.0 冻结与发布记录](docs/RELEASE-6.0.0-GATE.md)。本地 `古月娜素材/` 已排除于 Git。下文 2026-08 的非流式约束已被用户后续明确要求流式输出取代，不是当前约束。
+
+> 2026-10-04 版本准备：用户已要求构建 6.0.0，工程与 Android versionName 统一为 `6.0.0`，versionCode 为 `39`。最新安装包、签名、哈希和自动验收记录见 [6.0.0 构建记录](docs/RELEASE-6.0.0.md)。下文 APK 版本与路径为历史记录。
+
+> 2026-10-04 接入更新：DeepSeek 已统一使用官方 `deepseek-flash`（当前 V4.1 Flash，原生识图）。下文历史记录中的 Chat / Reasoner / V4 Flash / Pro / 实验视觉不再作为当前 DeepSeek 选项；兼容逻辑会接续到 Flash。客户端与托管网关共用 `server/deepseek-policy.mjs`，网关部署必须与 `gateway.mjs` 一起更新并重启。范围、验证及边界见 [DeepSeek Flash 统一接入](docs/DEEPSEEK-FLASH-2026-10-04.md)。
+
 ## 一、项目背景
 
 VirtuGene 是"数字灵魂"聊天应用（角色扮演 AI，接 DeepSeek API）：

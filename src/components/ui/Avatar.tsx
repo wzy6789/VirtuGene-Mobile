@@ -1,9 +1,13 @@
 import { avatarImageSrc } from '../../lib/avatar';
+import { useCallback } from 'react';
+import { registerSoulElement, type SoulRole } from '../../lib/soul-handoff';
 
 interface AvatarProps {
   avatar: string;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   className?: string;
+  soulKey?: string;
+  soulRole?: SoulRole;
 }
 
 const SIZES = {
@@ -17,7 +21,10 @@ const SIZES = {
  * 圆形头像（微信/QQ 式）：图片按 object-cover 居中裁剪成圆，
  * 比整图拉伸更清晰、更接近真实头像效果。
  */
-export function Avatar({ avatar, size = 'md', className = '' }: AvatarProps) {
+export function Avatar({ avatar, size = 'md', className = '', soulKey, soulRole }: AvatarProps) {
+  const ref = useCallback((node: HTMLElement | null) => {
+    if (node && soulKey && soulRole) return registerSoulElement(node,soulKey,soulRole);
+  },[soulKey,soulRole,avatar]);
   const cls = `${SIZES[size]} rounded-full shrink-0 overflow-hidden ${className}`;
   // 空字符串也要有东西可看：旧账号/演示账号可能没有头像，直接渲染会留下一个空圆圈。
   const glyph = avatar.trim() || '🧬';
@@ -25,6 +32,7 @@ export function Avatar({ avatar, size = 'md', className = '' }: AvatarProps) {
   if (image) {
     return (
       <img
+        ref={ref} data-soul-key={soulKey} data-soul-role={soulRole}
         src={image}
         alt=""
         className={`${cls} object-cover`}
@@ -34,7 +42,7 @@ export function Avatar({ avatar, size = 'md', className = '' }: AvatarProps) {
     );
   }
   return (
-    <span className={`${cls} flex items-center justify-center bg-surface`}>
+    <span ref={ref} data-soul-key={soulKey} data-soul-role={soulRole} className={`${cls} flex items-center justify-center bg-surface`}>
       {glyph}
     </span>
   );

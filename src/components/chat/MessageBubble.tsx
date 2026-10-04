@@ -1,8 +1,9 @@
 import { useSettingsStore } from '../../store/settings-store';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Message } from '../../db/index';
 import { Avatar } from '../ui/Avatar';
+import { confirm } from '../../lib/haptics';
 import { ipc } from '../../lib/ipc-client';
 import { normalizeBubbleText } from '../../lib/chat-pacing';
 
@@ -107,12 +108,12 @@ interface Props {
   onShowBasis?: (message: Message) => void;
 }
 
-export function MessageBubble({ message, avatar, streaming, streamingActive = streaming, streamed, waiting, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, showIdentity = true, onRemember, onCollectMemory, collected, onShowBasis }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, avatar, streaming, streamingActive = streaming, streamed, waiting, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, showIdentity = true, onRemember, onCollectMemory, collected, onShowBasis }: Props) {
   const fontSize = useSettingsStore(s => s.chatFontSize);
   const isUser = message.role === 'user';
   // 历史消息也走同一层清洗，避免旧数据里的换行继续破坏手机端气泡。
-  const displayContent = normalizeBubbleText(message.content);
-  const displayReply = message.replyToContent ? normalizeBubbleText(message.replyToContent) : '';
+  const displayContent = useMemo(() => normalizeBubbleText(message.content), [message.content]);
+  const displayReply = useMemo(() => message.replyToContent ? normalizeBubbleText(message.replyToContent) : '', [message.replyToContent]);
   const [copied, setCopied] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -158,6 +159,7 @@ export function MessageBubble({ message, avatar, streaming, streamingActive = st
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     if (streaming) return;
+    if (!menu) confirm(true);
     closeActiveMessageMenu?.();
     closeActiveMessageMenu = null;
     // Keep the action sheet inside the viewport on narrow Android screens.
@@ -202,13 +204,7 @@ export function MessageBubble({ message, avatar, streaming, streamingActive = st
           data-streaming={streamingActive || undefined}
           data-waiting={waiting || undefined}
           style={{ '--vg-chat-font-size': `${fontSize}px` } as React.CSSProperties}
-          className={`vg-message-bubble ${isUser ? 'is-user-bubble' : 'is-character-bubble'} px-3.5 py-2.5 rounded-[18px] text-[14px] leading-relaxed whitespace-normal break-words transition-shadow ${
-            isLatest && !isUser ? 'animate-message-sweep' : ''
-          } ${
-            isUser
-              ? 'bg-gradient-to-br from-[#695bd8] to-[#5147b8] text-white rounded-br-[6px] shadow-[0_4px_14px_rgba(63,51,147,0.18)]'
-              : 'bg-msgai/95 text-msgaitxt rounded-bl-[6px] border border-line/70 shadow-[0_3px_14px_rgba(10,11,32,0.07)]'
-          }`}
+          className={`vg-message-bubble ${isUser ? 'is-user-bubble' : 'is-character-bubble'} transition-shadow ${isLatest && !isUser ? 'animate-message-sweep' : ''}`}
         >
           {message.replyToContent && (
             <div
@@ -223,6 +219,10 @@ export function MessageBubble({ message, avatar, streaming, streamingActive = st
             <img
               src={message.image}
               alt="图片"
+              role="button"
+              tabIndex={0}
+              aria-label="查看消息图片"
+              onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); setPreviewImage(message.image!); } }}
               onClick={(e) => {
                 e.stopPropagation();
                 setPreviewImage(message.image!);
@@ -313,6 +313,7 @@ export function MessageBubble({ message, avatar, streaming, streamingActive = st
             </>
           )}
         </div>
+        {isUser && message.secretaryDispatch && <p className="mt-1 text-[11px] text-sub">由{message.secretaryDispatch.assistantName}代发</p>}
         {/* 朗读按钮（仅 AI 消息；常显，触屏可点；播放中变青色/显示停止）。
             阻止冒泡：避免误触发滚动容器/气泡的点击聚焦行为 */}
         {!streaming && !isUser && onSpeak && (
@@ -374,7 +375,7 @@ export function MessageBubble({ message, avatar, streaming, streamingActive = st
       {menu &&
         createPortal(
           <div
-            className="vg-message-context-menu fixed z-[60] min-w-[180px] max-h-[min(78vh,380px)] overflow-y-auto py-1.5 glass-card rounded-2xl shadow-2xl"
+            className="vg-message-context-menu fixed vg-layer-popover min-w-[180px] max-h-[min(78vh,380px)] overflow-y-auto py-1.5 glass-card rounded-2xl shadow-2xl"
             style={{ left: menu.x, top: menu.y }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -497,7 +498,7 @@ export function MessageBubble({ message, avatar, streaming, streamingActive = st
       {previewImage &&
         createPortal(
           <div
-            className="fixed inset-0 z-[80] bg-black/90 flex items-center justify-center"
+            className="fixed inset-0 vg-layer-viewer bg-black/90 flex items-center justify-center"
             onClick={() => setPreviewImage(null)}
           >
             <img src={previewImage} alt="预览" className="max-w-full max-h-full object-contain" />
@@ -509,4 +510,4 @@ export function MessageBubble({ message, avatar, streaming, streamingActive = st
         )}
     </div>
   );
-}
+});

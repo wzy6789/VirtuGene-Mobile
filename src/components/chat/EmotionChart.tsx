@@ -39,7 +39,7 @@ export function EmotionChart({ dimensions, previousDimensions, size = 220 }: Pro
   const levels = [0.2, 0.4, 0.6, 0.8, 1.0];
   const isDark = useThemeStore((s) => s.theme) === 'dark';
   const gridStroke = isDark ? 'rgba(139,124,247,0.13)' : 'rgba(108,92,231,0.14)';
-  const labelFill = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(26,26,46,0.55)';
+  const labelFill = 'var(--text-secondary)';
   const scaleFill = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(26,26,46,0.25)';
   const pointStroke = isDark ? '#0F0F1A' : '#FFFFFF';
   const tooltipBg = isDark ? 'rgba(15,15,26,0.96)' : 'rgba(255,255,255,0.96)';
@@ -235,7 +235,7 @@ export function EmotionChart({ dimensions, previousDimensions, size = 220 }: Pro
             textAnchor="middle"
             dominantBaseline="central"
             fill={labelFill}
-            fontSize="11"
+            fontSize="12"
             fontFamily="'Noto Sans SC', sans-serif"
             pointerEvents="none"
           >

@@ -1,5 +1,8 @@
+import { resonate } from '../../lib/haptics';
 import { useEffect } from 'react';
 import { useCharacterStateStore } from '../../store/character-state-store';
+
+const celebrated = new WeakSet<object>();
 
 export function RelationMilestoneToast() {
   const milestone = useCharacterStateStore((s) => s.milestone);
@@ -7,6 +10,7 @@ export function RelationMilestoneToast() {
 
   useEffect(() => {
     if (!milestone) return;
+    if (!celebrated.has(milestone)) { celebrated.add(milestone); resonate('success'); }
     const timer = setTimeout(() => clearMilestone(), 2800);
     return () => clearTimeout(timer);
   }, [milestone, clearMilestone]);

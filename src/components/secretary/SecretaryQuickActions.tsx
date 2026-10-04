@@ -32,6 +32,7 @@ export function SecretaryQuickActions({ busy, vacant, onDraft, onSend, onInbox, 
     <div ref={detailsRef} id={detailsId} inert={!expanded} aria-hidden={!expanded} className={`vg-secretary-quick-details ${expanded ? 'is-expanded' : ''}`}>
       <div className="vg-secretary-quick-clip">
         <div className="vg-secretary-quick-secondary" role="group" aria-label="更多助理办事">
+          <button type="button" disabled={disabled} onClick={() => onSend('帮我给角色发消息。')} className="vg-secretary-shortcut disabled:opacity-40"><SecretaryIcon name="profile" size={17} />代发消息</button>
           <button type="button" disabled={disabled} onClick={() => onSend('今天还有什么待办没完成？')} className="vg-secretary-shortcut disabled:opacity-40"><SecretaryIcon name="calendar" size={17} />今天安排</button>
           <button type="button" disabled={disabled} onClick={() => onDraft('帮我查找日记，关键词是：')} className="vg-secretary-shortcut disabled:opacity-40"><SecretaryIcon name="search" size={17} />查记录</button>
           <button type="button" disabled={disabled} onClick={() => onDraft('帮我修改待办：')} className="vg-secretary-shortcut disabled:opacity-40"><SecretaryIcon name="edit" size={17} />改待办</button>

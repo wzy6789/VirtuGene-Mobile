@@ -3,6 +3,7 @@ import { occurrenceId } from '../../db/todo-repo';
 import { useAuthStore } from '../../store/auth-store';
 import type { SecretaryMissingField } from './planning-contract';
 import type { SecretaryResult } from './types';
+import { DISPATCH_LABELS } from './dispatch-status';
 
 export interface ReceiptViewModel {
   operationState: SecretaryResult['status'];
@@ -50,6 +51,7 @@ export function receiptViewModel(result: SecretaryResult): ReceiptViewModel {
     operationLabel = action.kind === 'todo.steps' ? action.stepMode === 'add' ? '已添加步骤' : action.stepMode === 'reopen' ? '已恢复步骤' : '已完成步骤' : labels[action.kind] ?? '已完成';
   }
   const missingFields: SecretaryMissingField[] = [];
+  if (result.dispatch) operationLabel = DISPATCH_LABELS[result.dispatch.state];
   if (result.status === 'needs-input') {
     if (result.detail === '记成待办还是日记？') missingFields.push('purpose');
     else if (result.candidates?.length || result.stepCandidates?.length) missingFields.push('target');

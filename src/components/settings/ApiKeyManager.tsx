@@ -121,7 +121,7 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
       const nextModels = pendingModel ? [...models.filter(item => item.id !== pendingModel), { id: pendingModel, label: pendingModel, provider, vision: modelVision }] : models;
       saveProviderConfig(provider, { baseUrl: normalizedUrl, enabled, models: nextModels });
       setBaseUrl(normalizedUrl);
-      setModels(nextModels);
+      setModels(getProviderConfig(provider).models);
       if (pendingModel) { setTestModel(pendingModel); setModelId(''); setModelVision(false); }
       notifyProviderCredentialsChanged();
       onChanged();
@@ -177,7 +177,7 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
       } else {
         await validateProviderConnection(provider, { apiKey: key, baseUrl: url, model: modelId.trim() || testModel, signal: controller.signal });
         if (!isCurrent(token)) return;
-        setFeedback({ tone: 'success', text: definition.modelDiscovery ? '服务商已响应，密钥可读取模型列表。具体模型权限以实际调用为准。' : '服务商已响应，测试模型调用成功。未保存的内容仍需要保存配置。' });
+        setFeedback({ tone: 'success', text: provider === 'deepseek' ? 'DeepSeek Flash 实际调用成功。未保存的地址仍需要保存配置。' : definition.modelDiscovery ? '服务商已响应，密钥可读取模型列表。具体模型权限以实际调用为准。' : '服务商已响应，测试模型调用成功。未保存的内容仍需要保存配置。' });
       }
     } catch (error) {
       if (isCurrent(token)) setFeedback({ tone: 'error', text: connectionError(error) });
@@ -203,17 +203,19 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
       </section>
       <section className="vg-provider-section" aria-label="模型配置">
         <h4>模型配置</h4>
-        <p className="vg-provider-note">预设模型仅供选择，实际可用性取决于平台和账户。支持填写模型 ID 或推理接入点。</p>
+        <p className="vg-provider-note">{provider === 'deepseek' ? '统一使用 DeepSeek V4.1 Flash，聊天、图片理解和辅助生成共用同一模型。旧会话的 DeepSeek 选择会自动接续到 Flash。' : '预设模型仅供选择，实际可用性取决于平台和账户。支持填写模型 ID 或推理接入点。'}</p>
         {options.size > 0 && <label className="vg-provider-field mt-3"><span>测试模型</span><select aria-label="测试模型" value={testModel} onChange={event => setTestModel(event.target.value)} disabled={Boolean(busy)}>{[...options.values()].map(model => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label>}
+        {provider !== 'deepseek' && <>
         {models.length > 0 && <div className="vg-provider-models">{models.map(model => <div className="vg-provider-model-entry" key={model.id}><code>{model.id}</code>{model.vision && <span>图片</span>}<button type="button" aria-label={`移除模型 ${model.id}`} disabled={Boolean(busy)} onClick={() => removeModel(model.id)}>移除</button></div>)}</div>}
         <label className="vg-provider-field mt-3"><span>添加模型 ID</span><input type="text" aria-label="添加模型 ID" value={modelId} onChange={event => setModelId(event.target.value)} placeholder={definition.modelPlaceholder} autoComplete="off" spellCheck={false} maxLength={240} disabled={Boolean(busy)} /></label>
         <label className="vg-provider-model-vision"><input type="checkbox" checked={modelVision} onChange={event => setModelVision(event.target.checked)} disabled={Boolean(busy)} />此模型支持图片输入（请先根据服务商文档确认）</label>
         <div className="vg-provider-inline-actions"><button type="button" className="vg-provider-button" disabled={Boolean(busy) || !modelId.trim()} onClick={() => addModel({ id: modelId, vision: modelVision })}>添加模型</button>{definition.modelDiscovery && <button type="button" className="vg-provider-button" disabled={Boolean(busy)} onClick={() => void connect('discover')}>{busy === 'discover' ? '查询中…' : '查询可用模型'}</button>}</div>
         {discovered.length > 0 && <div className="mt-3"><label className="vg-provider-field"><span>平台返回的模型</span><select aria-label="平台返回的模型" value={discoveredId} onChange={event => setDiscoveredId(event.target.value)}>{discovered.map(model => <option key={model.id} value={model.id}>{model.id}</option>)}</select></label><button type="button" className="vg-provider-button" disabled={Boolean(busy) || !discoveredId} onClick={() => { const selected = discovered.find(model => model.id === discoveredId); if (selected) addModel(selected); }}>添加所选模型</button><p className="vg-provider-note mt-2">模型列表不一定提供图片能力信息，必要时请手动确认并设置。</p></div>}
+        </>}
       </section>
       <div className="vg-provider-actions">
         <div className="vg-provider-savebar"><button type="button" className="vg-provider-button is-primary" onClick={() => void save()} disabled={Boolean(busy)}>{busy === 'save' ? '保存中…' : '保存配置'}</button><button type="button" className="vg-provider-button" onClick={() => void connect('test')} disabled={Boolean(busy)}>{busy === 'test' ? '测试中…' : '测试连接'}</button>{(busy === 'test' || busy === 'discover') && <button type="button" className="vg-provider-button" onClick={cancel}>取消请求</button>}</div>
-        {!definition.modelDiscovery && <p className="vg-provider-note mt-2">测试会向所选模型发送一个极短请求，可能产生少量接口费用。</p>}
+        {(!definition.modelDiscovery || provider === 'deepseek') && <p className="vg-provider-note mt-2">测试会向所选模型发送一个极短请求，可能产生少量接口费用。</p>}
         <FeedbackLine feedback={feedback}/>
       </div>
       <a className="vg-provider-docs" href={definition.docsUrl} target="_blank" rel="noreferrer">查看服务商 API 文档 ↗</a>

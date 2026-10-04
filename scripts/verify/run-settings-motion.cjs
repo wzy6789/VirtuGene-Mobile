@@ -133,7 +133,7 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     assert.ok(dialogRect.width <= 560 && dialogRect.y >= 0 && dialogRect.y + dialogRect.height <= 768);
     await page.screenshot({ path: path.join(output, 'desktop-dark.png') });
     await click(/外观与阅读/); await settle();
-    await page.getByRole('radio', { name: /浅色/ }).check();
+    await page.getByRole('radio', { name: /^浅色/ }).check();
     assert.ok(await page.getByRole('dialog').evaluate(el => getComputedStyle(el).colorScheme === 'light'));
     await page.screenshot({ path: path.join(output, 'desktop-light.png') });
     assert.deepEqual(errors, []);

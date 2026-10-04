@@ -13,7 +13,7 @@ export function ModelSection({ onManageProviders }: { onManageProviders?: () => 
   const choices = current && !models.some(model => model.id === current.id && model.provider === current.provider) ? [current, ...models] : models;
   const systemModel = findModel(DEFAULT_MODEL_ID, 'deepseek');
   return <div className="vg-model-settings">
-    <p className="vg-settings-intro">为新会话选择默认模型。已经固定模型的角色会话保留原来的选择。未配置的模型可以先选定，再到服务商设置中完成连接。</p>
+    <p className="vg-settings-intro">为新会话选择默认模型。DeepSeek 统一使用 Flash，旧会话会自动接续；其他服务商的会话保留已固定的模型。未配置的模型可以先选定，再到服务商设置中完成连接。</p>
     <ModelList models={choices} ready={ready} value={defaultModel} includeDefault onChange={setDefaultModel} defaultDetail={systemModel?.label ?? '使用软件默认模型'} />
     {defaultModel && !ready[defaultModel.provider as keyof typeof ready] && !loading && <p className="vg-provider-message" data-tone="error">当前模型尚未连接。请先配置 {LLM_PROVIDERS[defaultModel.provider as keyof typeof LLM_PROVIDERS]?.name ?? '对应服务商'} 的 API，发送时将保留你的选择。</p>}
     {onManageProviders && <button type="button" onClick={onManageProviders} className="vg-provider-button mt-4">管理服务商与 API</button>}

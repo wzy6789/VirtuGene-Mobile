@@ -6,6 +6,8 @@ const http = require('http');
 const fs = require('fs');
 const assert = require('assert/strict');
 const root = __dirname;
+const screenshotRoot = process.env.VG_VERIFY_SCREENSHOTS || root;
+fs.mkdirSync(screenshotRoot, { recursive: true });
 const server = http.createServer((req, res) => {
   const name = path.basename((req.url || '/secretary.html').split('?')[0]);
   const file = path.join(root, name);
@@ -43,6 +45,20 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.getByRole('textbox', { name: '助理名字' }).inputValue(), '');
     assert.equal(await page.getByRole('button', { name: '取好名字，开始创建' }).isDisabled(), true); pass('new onboarding starts with an empty user naming field');
     assert.equal(await page.getByRole('radio').count(), 7);
+    const previewRows = await page.evaluate(() => window.secretaryTest.db.messages.count());
+    for (const scene of ['随便聊聊', '分享开心', '需要补问']) {
+      const reactions = new Set();
+      for (const personality of ['严谨专业', '干练自然', '温柔耐心', '活泼元气', '俏皮直率']) {
+        await page.getByRole('radio', { name: personality, exact: true }).check();
+        await page.getByRole('button', { name: scene, exact: true }).click();
+        reactions.add(await page.locator('.vg-secretary-personality-example [aria-live="polite"]').innerText());
+      }
+      assert.equal(reactions.size, 5); pass(`all five personalities show distinct ${scene} previews`);
+    }
+    assert.equal(await page.evaluate(() => window.secretaryTest.db.messages.count()), previewRows); pass('chat personality previews never create messages or operations');
+    await page.setViewportSize({ width: 320, height: 844 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); pass('six personality preview scenes fit a 320px screen');
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('radio', { name: '温柔耐心', exact: true }).check();
     await page.getByRole('button', { name: '你说累了', exact: true }).click();
     await page.getByText('那就先缓一缓。你想说，我听着；不想说，也不用勉强。', { exact: true }).waitFor();
@@ -83,7 +99,7 @@ const server = http.createServer((req, res) => {
     const messagesBeforeExpand = await page.evaluate(() => window.secretaryTest.db.messages.count());
     await page.getByRole('button', { name: '展开更多办事', exact: true }).focus(); await page.keyboard.press('Enter');
     await page.getByRole('button', { name: '今天安排', exact: true }).waitFor();
-    assert.equal(await page.getByRole('group', { name: '更多助理办事', exact: true }).getByRole('button').count(), 4);
+    assert.equal(await page.getByRole('group', { name: '更多助理办事', exact: true }).getByRole('button').count(), 5);
     await page.getByRole('button', { name: '收起更多办事', exact: true }).click();
     assert.equal(await page.getByRole('button', { name: '今天安排', exact: true }).count(), 0);
     assert.equal(await page.evaluate(() => window.secretaryTest.db.messages.count()), messagesBeforeExpand);
@@ -101,7 +117,7 @@ const server = http.createServer((req, res) => {
     const details = compactReceipt.locator('summary');
     assert.ok(Math.abs((await details.boundingBox()).y - (await compactReceipt.getByRole('button', { name: '去查看', exact: true }).boundingBox()).y) < 10);
     pass('simple receipt keeps the real title and readable status in a compact card with one action row');
-    await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: path.join(root, 'secretary-chat.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: path.join(screenshotRoot, 'secretary-chat.png'), fullPage: true });
     await page.getByRole('button', { name: '去查看', exact: true }).click();
     const todoTitle = page.getByPlaceholder('要做什么？');
     await todoTitle.waitFor(); assert.equal(await todoTitle.inputValue(), '真实聊天创建的待办'); pass('view result opens the actual saved todo editor');
@@ -170,7 +186,7 @@ const server = http.createServer((req, res) => {
     const completed = inbox.getByRole('article', { name: '办事请求' }).filter({ hasText: '添加待办：收件箱完成记录' });
     await completed.getByRole('button', { name: '去查看', exact: true }).waitFor();
     for (const width of [320, 390, 430]) { await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
-    await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: path.join(root, 'secretary-inbox.png'), fullPage: true }); pass('inbox and full result cards fit 320–430 px screens');
+    await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: path.join(screenshotRoot, 'secretary-inbox.png'), fullPage: true }); pass('inbox and full result cards fit 320–430 px screens');
     await completed.getByRole('button', { name: '去查看', exact: true }).click();
     await page.getByPlaceholder('要做什么？').waitFor();
     assert.equal(await page.getByPlaceholder('要做什么？').inputValue(), '收件箱完成记录'); pass('inbox result opens the actual saved record');
@@ -198,7 +214,7 @@ const server = http.createServer((req, res) => {
     pass('personality settings fit 320–430 px screens');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole('button', { name: '你说累了', exact: true }).click();
-    await page.screenshot({ path: path.join(root, 'secretary-personality.png'), fullPage: true });
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-personality.png'), fullPage: true });
     await page.getByRole('button', { name: '保存助理资料', exact: true }).click();
     await page.getByText('助理资料已保存。', { exact: true }).waitFor();
     await page.getByRole('button', { name: '关闭管理', exact: true }).click();
@@ -250,7 +266,7 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.evaluate(async () => (await window.secretaryTest.db.secretaryBindings.get('secretary-test-owner')).name), '新搭子改名'); pass('management can rename an active assistant without creating another employment');
     for (const width of [320, 390, 430]) { await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: path.join(root, 'secretary-employment.png'), fullPage: true });
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-employment.png'), fullPage: true });
     await page.getByRole('button', { name: '关闭管理', exact: true }).click();
     await page.evaluate(() => window.secretaryTest.mountCharacterEditor());
     await page.getByRole('textbox', { name: '助理名字', exact: true }).waitFor();
@@ -280,7 +296,7 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.evaluate(async id => (await window.secretaryTest.db.diaries.get(id)).content, dailyFixture.diaryId), '今天完成了资料归档。');
     assert.equal(await page.evaluate(() => window.secretaryTest.db.todos.count()), dailyBefore); pass('daily review generates editable diary, Moment and todo proposals without applying them');
     for (const width of [320, 390, 430]) { await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
-    await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: path.join(root, 'secretary-daily-review.png'), fullPage: true }); pass('daily review form and editable proposals fit 320–430 px screens');
+    await page.setViewportSize({ width: 390, height: 844 }); await page.screenshot({ path: path.join(screenshotRoot, 'secretary-daily-review.png'), fullPage: true }); pass('daily review form and editable proposals fit 320–430 px screens');
     await review.getByRole('textbox', { name: '整理日记正文' }).fill('完成了资料归档，也留了一点时间给散步。');
     await review.getByRole('button', { name: '采用并保存日记', exact: true }).click();
     await review.getByRole('region', { name: '日记 已保存', exact: true }).waitFor();
@@ -323,8 +339,8 @@ const server = http.createServer((req, res) => {
     await page.getByRole('button', { name: '清空搜索' }).click();
     for (const width of [320, 390, 430]) { await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: path.join(root, 'secretary-home.png'), fullPage: true }); pass('assistant home card fits 320 through 430px screens');
-    await workspace.screenshot({ path: path.join(root, 'secretary-home-workspace.png') });
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-home.png'), fullPage: true }); pass('assistant home card fits 320 through 430px screens');
+    await workspace.screenshot({ path: path.join(screenshotRoot, 'secretary-home-workspace.png') });
     await workspaceToggle.focus(); await page.keyboard.press('Enter');
     await workspace.getByLabel('助理办事概览').waitFor();
     await page.waitForTimeout(380);
@@ -333,7 +349,7 @@ const server = http.createServer((req, res) => {
     pass('keyboard or tap expands real work counts and reveals conversation and management actions');
     for (const width of [320, 390, 430]) { await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: path.join(root, 'secretary-home-expanded.png'), fullPage: true });
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-home-expanded.png'), fullPage: true });
     const collapseAssistant = workspace.getByRole('button', { name: '收起生活助理工作台', exact: true });
     await collapseAssistant.click(); await page.waitForTimeout(60);
     await workspaceToggle.click(); await page.waitForTimeout(60);
@@ -413,11 +429,11 @@ const server = http.createServer((req, res) => {
     await page.getByRole('button', { name: '助理更多操作', exact: true }).click();
     await page.getByRole('button', { name: '助理能力 · 已开放的功能', exact: true }).click();
     await page.getByRole('dialog', { name: '助理能力', exact: true }).waitFor();
-    assert.equal(await page.getByText('已开放', { exact: true }).count(), 7);
+    assert.equal(await page.getByText('已开放', { exact: true }).count(), 8);
     assert.equal(await page.getByRole('heading', { name: '连续记忆', exact: true }).count(), 1);
     for (const width of [320, 390, 430]) { await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: path.join(root, 'secretary-capabilities.png') }); pass('capability directory includes continuous memory and fits narrow mobile screens');
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-capabilities.png') }); pass('capability directory includes continuous memory and fits narrow mobile screens');
     await page.getByRole('button', { name: '关闭', exact: true }).click();
     await page.getByRole('button', { name: '助理更多操作', exact: true }).click();
     await page.getByRole('button', { name: '办事习惯 · 格式、文风与提醒', exact: true }).click();
@@ -434,7 +450,7 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.evaluate(async id => (await window.secretaryTest.db.secretaryBindings.get(id)).workPreferences.reminderMinutes, habitsOwner), 15); pass('working habits form saves actual structured choices');
     for (const width of [320, 390, 430]) { await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: path.join(root, 'secretary-work-preferences.png') }); pass('working habits and live summary fit narrow mobile screens');
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-work-preferences.png') }); pass('working habits and live summary fit narrow mobile screens');
     await page.getByRole('button', { name: '关闭', exact: true }).click();
     await page.getByText('办事习惯已关闭', { exact: true }).waitFor();
     await page.evaluate(() => window.secretaryTest.mountWorkPreferences());
@@ -476,7 +492,7 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.evaluate(async id => (await window.secretaryTest.db.todos.get(id)).subtasks[0].completed, checklist.todoId), true); pass('real chat command completes just the requested step');
     for (const width of [320, 390, 430]) { await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: path.join(root, 'secretary-steps.png') }); pass('live checklist and progress fit narrow mobile chat screens');
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-steps.png') }); pass('live checklist and progress fit narrow mobile chat screens');
     await revealUndo(stepRegion.getByRole('button', { name: '撤销这次操作', exact: true, includeHidden: true }));
     await stepRegion.getByRole('button', { name: '撤销这次操作', exact: true }).click();
     await page.getByRole('region', { name: '待办步骤 已撤销', exact: true }).waitFor();
@@ -495,7 +511,7 @@ const server = http.createServer((req, res) => {
     const progressDialog = page.getByRole('dialog', { name: '每日整理', exact: true });
     for (const label of ['日记整理建议', '朋友圈草稿', '次日待办建议']) assert.equal(await progressDialog.getByRole('checkbox', { name: label, exact: true }).isChecked(), true); pass('daily review starts with three selectable suggestion types');
     await progressDialog.getByText('这次想整理什么', { exact: true }).scrollIntoViewIfNeeded();
-    await page.screenshot({ path: path.join(root, 'secretary-review-choices.png') });
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-review-choices.png') });
     await progressDialog.getByText('查看办事进展与下一步', { exact: true }).click();
     const progressPreview = progressDialog.getByLabel('办事进展预览', { exact: true });
     await progressPreview.getByText('当前步骤 1/3', { exact: true }).waitFor();
@@ -510,7 +526,7 @@ const server = http.createServer((req, res) => {
     for (const width of [320, 390, 430]) { await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
     await page.setViewportSize({ width: 390, height: 844 });
     await progressPreview.getByText('当前步骤 3/3', { exact: true }).scrollIntoViewIfNeeded();
-    await page.screenshot({ path: path.join(root, 'secretary-review-progress.png') }); pass('progress overview and output choices fit narrow mobile screens');
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-review-progress.png') }); pass('progress overview and output choices fit narrow mobile screens');
     const yesterday = await page.evaluate(() => { const date = new Date(); date.setDate(date.getDate() - 1); return date.toLocaleDateString('sv-SE'); });
     await progressDialog.getByText('日期与补充事实', { exact: true }).click();
     await progressDialog.getByLabel('整理日期').fill(yesterday);
@@ -556,7 +572,7 @@ const server = http.createServer((req, res) => {
     await page.getByRole('region', { name: '新待办 已添加', exact: true }).waitFor();
     await page.getByText(/你已经很累了，先歇一会儿。/).waitFor();
     assert.equal(await page.getByText(/已经设置明天九点提醒/).count(), 0); pass('real chat preserves emotional acknowledgement and hides false reminder question');
-    await page.screenshot({ path: path.join(root, 'secretary-truthful-reply.png') });
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-truthful-reply.png') });
     await page.evaluate(() => window.secretaryTest.mountTruthfulReply(true));
     await page.getByRole('region', { name: '新待办 待补充', exact: true }).waitFor();
     await page.getByText(/几点提醒你？/).first().waitFor();
@@ -568,7 +584,7 @@ const server = http.createServer((req, res) => {
       assert.equal(await page.getByText(/已经记好了|已经发好了/).count(), 0);
       pass(`real chat excludes colloquial false success for ${kind}`);
     }
-    await page.screenshot({ path: path.join(root, 'secretary-colloquial-reply.png') });
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-colloquial-reply.png') });
     for (const purpose of [false, true]) {
       const owner = await page.evaluate(purpose => window.secretaryTest.mountPendingConversation(purpose), purpose);
       await page.getByText(purpose ? '记成待办还是日记？' : '几点提醒你？', { exact: true }).waitFor();
@@ -596,7 +612,7 @@ const server = http.createServer((req, res) => {
       if (mode === 'time') assert.equal(todos[0].dueTime, '15:00');
       pass(`actual contextual control writes the expected database result: ${mode}`);
     }
-    await page.screenshot({ path: path.join(root, 'secretary-pending-conversation.png') });
+    await page.screenshot({ path: path.join(screenshotRoot, 'secretary-pending-conversation.png') });
     const continuedOwner = await page.evaluate(() => window.secretaryTest.mountPendingConversation());
     const composer = page.getByPlaceholder('发消息…');
     await composer.fill('暂停一下'); await composer.press('Enter');
@@ -729,9 +745,10 @@ const server = http.createServer((req, res) => {
     for (const custom of [false, true]) {
       const weekly = await page.evaluate(custom => window.secretaryTest.mountWeeklyEditor(custom), custom);
       const sheet = page.locator('.vg-todo-sheet'); await sheet.waitFor();
+      if (custom) await sheet.getByLabel('日期修改范围').selectOption('future');
       if (!custom) await sheet.getByLabel('重复').selectOption('weekly');
-      await sheet.getByLabel('日期', { exact: true }).fill(weekly.nextDate);
-      await sheet.getByRole('button', { name: '保存待办', exact: true }).click();
+      await sheet.getByLabel('截止日期', { exact: true }).fill(weekly.nextDate);
+      await sheet.getByRole('button', { name: '保存行动', exact: true }).click();
       await sheet.waitFor({ state: 'hidden' });
       const saved = await page.evaluate(id => window.secretaryTest.db.todos.get(id), weekly.id);
       assert.equal(saved.dueDate, weekly.nextDate);

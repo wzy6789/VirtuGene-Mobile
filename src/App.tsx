@@ -1,9 +1,7 @@
-import { useEffect, useRef, useState, lazy, Suspense } from 'react';
+import { lazyFeature } from './components/ui/lazyFeature';
+import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { useAuthStore } from './store/auth-store';
-import { useThemeStore } from './store/theme-store';
 import { ipc } from './lib/ipc-client';
-import { AuthPage } from './pages/AuthPage';
-import { ChatPage } from './pages/ChatPage';
 import { MainLayout } from './components/layout/MainLayout';
 import { SplashScreen } from './components/splash/SplashScreen';
 import { UpdateNotesModal } from './components/update/UpdateNotesModal';
@@ -16,20 +14,22 @@ import { getChangelog, LAST_SEEN_VERSION_KEY } from './lib/changelog';
 import { notifyLocal, requestNotificationPermission } from './lib/notify';
 import { loadPersistedApiKey } from './lib/api-key-storage';
 import { useGroupStore } from './store/group-store';
-import { momentsRepo } from './db/moments-repo';
 import { hasAiGatewayAccess, isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from './lib/ai/gateway';
 import { loadMomentsPreferences } from './lib/moments/preferences';
 import { UseTimeReminder } from './components/compliance/UseTimeReminder';
-import { processMemoryJobs } from './lib/memory-jobs';
 import { useSlideOutCancel } from './components/ui/useSlideOutCancel';
 import { db } from './db';
 import { canUseAi } from './lib/ai/availability';
 import { todoRepo } from './db/todo-repo';
 
+const AuthPage = lazyFeature(() => import('./pages/AuthPage').then(m => ({ default: m.AuthPage })));
+const ChatPage = lazyFeature(() => import('./pages/ChatPage').then(m => ({ default: m.ChatPage })));
+const MomentsPage = lazyFeature(() => import('./components/moments/MomentsPage').then(m => ({ default: m.MomentsPage })));
+
 // 手账按需加载：首次进入才拉取日记相关代码，加快主聊天页启动
 const DiaryPage = lazy(() => import('./pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
+const ActionCabinPage = lazy(() => import('./components/todo/ActionCabinPage').then(m => ({ default: m.ActionCabinPage })));
 const TodoPage = lazy(() => import('./components/todo/TodoPage').then(m => ({ default: m.TodoPage })));
-const MomentsPage = lazy(() => import('./components/moments/MomentsPage').then(m => ({ default: m.MomentsPage })));
 
 export default function App() {
   useSlideOutCancel();
@@ -37,11 +37,11 @@ export default function App() {
   const activeUserId = useAuthStore((s) => s.userId);
   const apiKey = useAuthStore((s) => s.apiKey);
 
-  const theme = useThemeStore((s) => s.theme);
   const activeView = useUIStore((s) => s.activeView);
   const didResize = useRef(false);
   const [ready, setReady] = useState(false);
   const [splashGone, setSplashGone] = useState(false);
+  const finishSplash = useCallback(() => setSplashGone(true), []);
   const [updateNotes, setUpdateNotes] = useState<{ version: string; notes: string[] } | null>(null);
 
   useEffect(() => {
@@ -108,11 +108,17 @@ export default function App() {
   // Jobs contain source ids and witness snapshots, never copied private text.
   useEffect(() => {
     if (!isLoggedIn || !activeUserId) return;
+    let alive = true;
     let busy = false;
     const run = async () => {
-      if (busy || document.visibilityState !== 'visible') return;
+      if (!alive || busy || document.visibilityState !== 'visible') return;
       busy = true;
-      try { await processMemoryJobs(activeUserId, apiKey, 2); }
+      try {
+        if (!canUseAi()) return;
+        const { processMemoryJobs } = await import('./lib/memory-jobs');
+        if (!alive || useAuthStore.getState().userId !== activeUserId || document.visibilityState !== 'visible') return;
+        await processMemoryJobs(activeUserId, apiKey, 2);
+      } catch { /* Retry on the next foreground pulse. */ }
       finally { busy = false; }
     };
     const initial = window.setTimeout(() => { void run(); }, 5_000);
@@ -120,18 +126,12 @@ export default function App() {
     const onVisible = () => { if (document.visibilityState === 'visible') void run(); };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
+      alive = false;
       window.clearTimeout(initial);
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [isLoggedIn, activeUserId, apiKey, gatewayAccessToken]);
-
-  // Splash 淡出过渡：ready 后先淡出再卸载
-  useEffect(() => {
-    if (!ready) return;
-    const t = setTimeout(() => setSplashGone(true), 400);
-    return () => clearTimeout(t);
-  }, [ready]);
 
   // Show the update announcement once per version change
   useEffect(() => {
@@ -145,11 +145,6 @@ export default function App() {
       }
     });
   }, [ready]);
-
-  // Apply theme class at the root so both auth and chat screens are themed
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-  }, [theme]);
 
   useEffect(() => {
     if (isLoggedIn && !didResize.current) {
@@ -185,9 +180,9 @@ export default function App() {
         if (list.length > 0) return;
         // 手机端走系统本地通知；桌面端走 Electron 通知
         if (IS_MOBILE) {
-          void notifyLocal('📓 我的手账', '今天还没有写日记，要不要记下点什么？');
+          void notifyLocal('我的手账', '今天还没有写日记，要不要记下点什么？');
         } else {
-          void ipc.app.notify('📓 我的手账', '今天还没有写日记，要不要记下点什么？');
+          void ipc.app.notify('我的手账', '今天还没有写日记，要不要记下点什么？');
         }
         localStorage.setItem(KEY, today);
       });
@@ -221,6 +216,7 @@ export default function App() {
   // 角色看动态、点赞和评论在应用前台持续推进；用户离开朋友圈也不会让任务停住。
   useEffect(() => {
     if (!isLoggedIn || !activeUserId) return;
+    let alive = true;
     let running = false;
     let hiddenAt: number | undefined = document.visibilityState === 'hidden' ? Date.now() : undefined;
     let openingAuthRetries = 0;
@@ -229,9 +225,11 @@ export default function App() {
     const openingKey = `virtugene-moments:last-opening:${activeUserId}`;
     const check = async (trigger: 'opening' | 'background' = 'background') => {
       const userId = useAuthStore.getState().userId;
-      if (!userId || running || document.visibilityState !== 'visible') return;
+      if (!alive || !userId || userId !== activeUserId || running || document.visibilityState !== 'visible') return;
       running = true;
       try {
+        const { momentsRepo } = await import('./db/moments-repo');
+        if (!alive || useAuthStore.getState().userId !== activeUserId || document.visibilityState !== 'visible') return;
         if (trigger === 'opening') {
           if (openingGenerations >= 3) return;
           // 先让一条新动态尽快落到列表；互动任务在这轮生成结束后继续处理。
@@ -251,7 +249,7 @@ export default function App() {
     };
 
     const startOpeningPulse = () => {
-      if (useAuthStore.getState().userId !== activeUserId || document.visibilityState !== 'visible') return;
+      if (!alive || useAuthStore.getState().userId !== activeUserId || document.visibilityState !== 'visible') return;
       const auth = useAuthStore.getState();
       const preferences = loadMomentsPreferences(activeUserId);
       if (!preferences.autonomousPostsEnabled) return;
@@ -275,11 +273,13 @@ export default function App() {
       openingGenerations = 0;
 
       const runStage = async (stage: 1 | 2) => {
-        if (useAuthStore.getState().userId !== activeUserId) return;
+        if (!alive || useAuthStore.getState().userId !== activeUserId) return;
         if (document.visibilityState !== 'visible' || running) {
           timers.push(window.setTimeout(() => { void runStage(stage); }, 20_000));
           return;
         }
+        const { momentsRepo } = await import('./db/moments-repo');
+        if (!alive || useAuthStore.getState().userId !== activeUserId) return;
         const contacts = await momentsRepo.contacts(activeUserId);
         const minimumContacts = stage === 1 ? 4 : 8;
         if (contacts.length < minimumContacts) return;
@@ -308,6 +308,7 @@ export default function App() {
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
+      alive = false;
       window.clearTimeout(first);
       window.clearInterval(timer);
       timers.forEach((id) => window.clearTimeout(id));
@@ -322,34 +323,31 @@ export default function App() {
     setUpdateNotes(null);
   };
 
-  if (!splashGone) {
-    return (
-      <div className={`fixed inset-0 z-[100] bg-app transition-opacity duration-300 ${ready ? 'opacity-0' : 'opacity-100'}`}>
-        <SplashScreen />
-      </div>
-    );
-  }
-
   return (
-    <div className="h-full w-full bg-app text-ink">
-      {isLoggedIn ? (
+    <>
+    {/* Prepare the actual destination under the splash; fading never reveals an
+        empty app background. Covered controls cannot receive focus or input. */}
+    <div className="h-full w-full bg-app text-ink" inert={!splashGone} aria-hidden={!splashGone || undefined}>
+      {ready && (isLoggedIn ? (
         <MainLayout>
           <Suspense fallback={<div className="h-full w-full flex items-center justify-center text-sm text-gray-500">正在唤醒手账…</div>}>
-            {activeView === 'todo' ? <TodoPage /> : activeView === 'moments' ? <MomentsPage /> : activeView === 'chat' ? <ChatPage /> : <DiaryPage />}
+            {activeView === 'actionCabin' ? <ActionCabinPage /> : activeView === 'todo' ? <TodoPage /> : activeView === 'moments' ? <MomentsPage /> : activeView === 'chat' ? <ChatPage /> : <DiaryPage />}
           </Suspense>
         </MainLayout>
       ) : (
-        <AuthPage />
-      )}
+        <Suspense fallback={<div className="vg-loading" role="status" aria-busy="true" />}><AuthPage /></Suspense>
+      ))}
       <UpdateNotesModal
-        open={!!updateNotes}
+        open={splashGone && !!updateNotes}
         onClose={handleCloseUpdateNotes}
         version={updateNotes?.version ?? ''}
         notes={updateNotes?.notes ?? []}
       />
-      {isLoggedIn && <UseTimeReminder />}
+      {splashGone && isLoggedIn && <UseTimeReminder />}
       {/* 新手引导：手机端展示完整说明，桌面端继续提供锚点式指引 */}
-      {isLoggedIn && <OnboardingGuide key={activeUserId} blocked={!!updateNotes} />}
+      {splashGone && isLoggedIn && <OnboardingGuide key={activeUserId} blocked={!!updateNotes} />}
     </div>
+    {!splashGone && <SplashScreen ready={ready} onComplete={finishSplash} />}
+    </>
   );
 }
