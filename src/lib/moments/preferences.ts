@@ -33,7 +33,7 @@ export interface MomentsAudiencePreference {
 export interface MomentsPreferences {
   /** 新动态的默认可见范围 */
   audience: MomentsAudiencePreference;
-  /** 未读红点：互动条上的红点 + 「世界 → 朋友圈」入口角标 */
+  /** 「世界 → 朋友圈」入口角标；朋友圈内用头像和数量显示新消息。 */
   showUnreadBadge: boolean;
   /** 列表密度：紧凑档压缩封面与条目间距，首屏能多放一条动态 */
   density: MomentsDensity;

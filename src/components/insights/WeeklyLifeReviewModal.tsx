@@ -106,34 +106,34 @@ export function WeeklyLifeReviewModal({ open, onClose }: { open: boolean; onClos
   return (
     <Modal open={open} onClose={onClose} title="本周生命回顾" width="max-w-md">
       <div className="max-h-[78vh] overflow-y-auto p-4 sm:p-5">
-        <section className="relative overflow-hidden rounded-[26px] border border-white/10 bg-[#17152D] px-5 py-5 shadow-[0_16px_42px_rgba(45,29,112,0.28)]">
+        <section className="vg-weekly-review-hero relative overflow-hidden rounded-[26px] border border-line bg-panel px-5 py-5 shadow-[0_16px_42px_var(--vg-shadow)]">
           <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full border border-life-cyan/20" />
           <div className="absolute -bottom-12 left-8 h-32 w-32 rounded-full bg-gene-purple/30 blur-3xl" />
           <div className="relative">
-            <p className="text-[10px] tracking-[0.26em] text-life-cyan/80">WEEKLY LIFE REVIEW</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight text-white">这一周，你的世界<br />留下了新的光。</h2>
-            <p className="mt-2 text-xs leading-relaxed text-white/55">每段对话、每次记录与每个共同瞬间，都在让关系成为独一无二的轨迹。</p>
+            <p className="text-xs tracking-[0.26em] text-[color:var(--vg-cyan)]">WEEKLY LIFE REVIEW</p>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight text-ink">这一周，你的世界<br />留下了新的光。</h2>
+            <p className="mt-2 text-xs leading-relaxed text-sub">每段对话、每次记录与每个共同瞬间，都在让关系成为独一无二的轨迹。</p>
           </div>
-          <div className="relative mt-5 grid grid-cols-3 divide-x divide-white/10 rounded-2xl border border-white/10 bg-white/[0.06] py-3">
-            <Metric value={activeCharacters} label="活跃角色" accent="text-white" />
-            <Metric value={milestoneCount} label="关系进阶" accent="text-life-cyan" />
-            <Metric value={memoryCount} label="新记忆" accent="text-[#B7A8FF]" />
+          <div className="relative mt-5 grid grid-cols-3 divide-x divide-line rounded-2xl border border-line bg-surface py-3">
+            <Metric value={activeCharacters} label="活跃角色" accent="text-ink" />
+            <Metric value={milestoneCount} label="关系进阶" accent="text-[color:var(--vg-cyan)]" />
+            <Metric value={memoryCount} label="新记忆" accent="text-[color:var(--vg-accent)]" />
           </div>
         </section>
 
         {loading ? (
-          <div className="py-12 text-center text-sm text-gray-500">正在整理这一周的生命轨迹…</div>
+          <div className="py-12 text-center text-sm text-sub">正在整理这一周的生命轨迹…</div>
         ) : (
           <div className="mt-4 space-y-4">
             <section className="rounded-2xl border border-line bg-panel/65 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[10px] tracking-[0.18em] text-gray-500">YOUR INNER WEATHER</p>
+                  <p className="text-xs tracking-[0.18em] text-sub">YOUR INNER WEATHER</p>
                   <p className="mt-1 text-sm font-semibold text-ink">{averageMood == null ? '还没有留下随记' : `这周的你，${moodLabel(averageMood)}`}</p>
                 </div>
                 <div className="rounded-xl bg-gene-purple/10 px-3 py-2 text-right">
-                  <div className="text-lg font-bold text-gene-purple">{diaryCount}</div>
-                  <div className="text-[10px] text-gray-500">篇随记</div>
+                  <div className="text-lg font-bold text-[color:var(--vg-accent)]">{diaryCount}</div>
+                  <div className="text-xs text-sub">篇随记</div>
                 </div>
               </div>
               {averageMood != null && (
@@ -146,13 +146,13 @@ export function WeeklyLifeReviewModal({ open, onClose }: { open: boolean; onClos
             <section className="rounded-2xl border border-line bg-panel/65 p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] tracking-[0.18em] text-gray-500">SHARED TRAIL</p>
+                  <p className="text-xs tracking-[0.18em] text-sub">SHARED TRAIL</p>
                   <h3 className="mt-1 text-sm font-semibold text-ink">共同轨迹</h3>
                 </div>
-                <span className="text-xs text-life-cyan">{totalMoments} 个瞬间</span>
+                <span className="text-xs text-[color:var(--vg-cyan)]">{totalMoments} 个瞬间</span>
               </div>
               {trail.length === 0 ? (
-                <p className="mt-4 rounded-xl border border-dashed border-line px-3 py-5 text-center text-xs leading-relaxed text-gray-500">从一次对话或一篇随记开始，下一次打开这里时，就会看到世界如何慢慢生长。</p>
+                <p className="mt-4 rounded-xl border border-dashed border-line px-3 py-5 text-center text-xs leading-relaxed text-sub">从一次对话或一篇随记开始，下一次打开这里时，就会看到世界如何慢慢生长。</p>
               ) : (
                 <div className="mt-3 space-y-2.5">
                   {trail.map((item) => {
@@ -166,9 +166,9 @@ export function WeeklyLifeReviewModal({ open, onClose }: { open: boolean; onClos
                         <div className="min-w-0 flex-1 border-b border-line/70 pb-2.5 last:border-b-0">
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-xs font-medium text-ink truncate">{character?.name ?? '你的世界'}</span>
-                            <span className="text-[10px] text-gray-400 shrink-0">{shortDate(item.createdAt)}</span>
+                            <span className="text-xs text-sub shrink-0">{shortDate(item.createdAt)}</span>
                           </div>
-                          <p className="mt-0.5 text-xs leading-relaxed text-gray-500 line-clamp-2"><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${color}`} />{item.title}</p>
+                          <p className="mt-0.5 text-xs leading-relaxed text-sub line-clamp-2"><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${color}`} />{item.title}</p>
                         </div>
                       </div>
                     );
@@ -184,5 +184,5 @@ export function WeeklyLifeReviewModal({ open, onClose }: { open: boolean; onClos
 }
 
 function Metric({ value, label, accent }: { value: number; label: string; accent: string }) {
-  return <div className="px-2 text-center"><span className={`block text-base font-semibold tabular-nums ${accent}`}>{value}</span><span className="mt-0.5 block text-[10px] text-white/50">{label}</span></div>;
+  return <div className="px-2 text-center"><span className={`block text-base font-semibold tabular-nums ${accent}`}>{value}</span><span className="mt-0.5 block text-xs text-sub">{label}</span></div>;
 }

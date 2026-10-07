@@ -1,8 +1,8 @@
 import { useId, useState } from 'react';
-import { LLM_PROVIDERS, type LLMModel, type ProviderId } from '../../lib/ai/llm';
+import { LLM_PROVIDERS, normalizeModelId, type LLMModel, type ProviderId } from '../../lib/ai/llm';
 
 export function modelChoiceKey(provider: string, model: string) {
-  return JSON.stringify([provider, model]);
+  return JSON.stringify([provider, normalizeModelId(model, provider)]);
 }
 
 export function ModelList({ models, ready, value, onChange, mode = 'radio', includeDefault, defaultLabel = '系统默认', defaultDetail = '使用软件的默认模型', defaultUnavailable = false }: {
@@ -26,7 +26,7 @@ export function ModelList({ models, ready, value, onChange, mode = 'radio', incl
     ...filtered.map(model => ({ key: modelChoiceKey(model.provider, model.id), label: model.label, detail: LLM_PROVIDERS[model.provider].name, model, available: Boolean(ready[model.provider]) })),
   ];
   return <div className="vg-model-list">
-    <label className="vg-model-search">
+    <label className="vg-search-field vg-model-search">
       <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
       <input type="search" aria-label="搜索模型" placeholder="搜索模型或服务商" value={query} onChange={event => setQuery(event.target.value)} />
     </label>

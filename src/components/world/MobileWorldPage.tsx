@@ -1,3 +1,4 @@
+import { Icon } from '../ui/Icon';
 import { PressLightCard } from '../ui/PhysicalInteractions';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
@@ -259,29 +260,29 @@ export function MobileWorldPage() {
           <SpaceHeading eyebrow="LIVING WORLD" title="世界" detail="你的生活，与他们的时间在这里相遇。" />
           <nav className="vg-world-life-entries" aria-label="世界入口">
             <PressLightCard type="button" className="vg-world-life-entry is-moments" onClick={openMoments}>
-              <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8A2.5 2.5 0 0 1 17.5 16H11l-5 4v-4.2A2.5 2.5 0 0 1 4 13.5v-8Z" /><path d="M8 8h8M8 11h5" /></svg>
+              <Icon name="moment" size={30} />
               <strong>朋友圈</strong>
               <span>分享今天的片段</span>
               {momentUnread > 0 && <em className="vg-world-moment-badge">{momentUnread > 99 ? '99+' : momentUnread} 条新互动</em>}
-              <i aria-hidden="true">↗</i>
+              <i aria-hidden="true"><Icon name="arrow" size={18} /></i>
             </PressLightCard>
             <PressLightCard type="button" className="vg-world-life-entry is-diary" onClick={openDiary}>
-              <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h6a3 3 0 0 1 3 3v14a4 4 0 0 0-4-2H4V4Z" /><path d="M13 7a3 3 0 0 1 3-3h4v15h-3a4 4 0 0 0-4 2M7 8h3M7 12h3" /></svg>
+              <Icon name="diary" size={30} />
               <strong>日记</strong>
               <span>留下今天的故事</span>
-              <i aria-hidden="true">↗</i>
+              <i aria-hidden="true"><Icon name="arrow" size={18} /></i>
             </PressLightCard>
             <PressLightCard type="button" className="vg-world-life-entry is-todo" onClick={openTodo}>
-              <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="5" width="16" height="16" rx="3" /><path d="M8 3v4M16 3v4M4 10h16M8 15l3 3 5-5" /></svg>
+              <Icon name="calendar" size={30} />
               <strong>待办</strong>
               <span>安排接下来的事</span>
-              <i aria-hidden="true">↗</i>
+              <i aria-hidden="true"><Icon name="arrow" size={18} /></i>
             </PressLightCard>
             <PressLightCard type="button" className="vg-world-life-entry is-stage" onClick={openTheater}>
-              <svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-11Z" /><path d="m9 8 6 4-6 4V8Z" /></svg>
+              <Icon name="play" size={30} />
               <strong>星域</strong>
               <span>进入正在发生的世界</span>
-              <i aria-hidden="true">↗</i>
+              <i aria-hidden="true"><Icon name="arrow" size={18} /></i>
             </PressLightCard>
           </nav>
         </div>

@@ -5,6 +5,7 @@ import { persistApiKey, clearPersistedApiKey } from '../../lib/api-key-storage';
 import { userRepo } from '../../db/user-repo';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
 import { LegalNoticeModal, type LegalDocument } from '../compliance/LegalNoticeModal';
+import { GeneGlyph } from '../ui/GeneGlyph';
 
 interface Props {
   onSwitch: () => void;
@@ -68,7 +69,7 @@ export function LoginCard({ onSwitch }: Props) {
     <form onSubmit={handleSubmit} className="w-full space-y-5">
       {/* Header */}
       <div className="text-center space-y-2">
-        <div className="text-3xl">🧬</div>
+        <div className="flex justify-center text-[color:var(--vg-accent)]"><GeneGlyph size={36} /></div>
         <h2 className="text-lg font-semibold text-ink">唤醒数字灵魂</h2>
       </div>
 
@@ -78,45 +79,49 @@ export function LoginCard({ onSwitch }: Props) {
         </div>
       )}
 
-      {/* Inputs — WeChat bottom-border style */}
-      <div className="space-y-1">
+      {/* Reuse the conversation search surface and its inner focus highlight. */}
+      <div className="space-y-3">
         <input
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           placeholder="用户名"
-          className="w-full px-1 py-3 bg-transparent border-b border-line-strong text-ink text-sm placeholder-gray-500 focus:outline-none focus:border-gene-purple transition-colors"
+          aria-label="用户名"
+          autoComplete="username"
+          className="vg-text-field w-full px-3 py-3 text-base"
         />
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="密码"
-          className="w-full px-1 py-3 bg-transparent border-b border-line-strong text-ink text-sm placeholder-gray-500 focus:outline-none focus:border-gene-purple transition-colors"
+          aria-label="密码"
+          autoComplete="current-password"
+          className="vg-text-field w-full px-3 py-3 text-base"
         />
       </div>
 
       <label className="flex items-start gap-2.5 rounded-lg border border-line bg-surface/60 px-3 py-2.5 cursor-pointer">
         <input type="checkbox" checked={adultConfirmed} onChange={(event) => setAdultConfirmed(event.target.checked)} className="mt-0.5 accent-[#6C5CE7]" />
-        <span className="text-[11px] leading-relaxed text-gray-400">我已年满18周岁，并知悉角色回复由人工智能生成。</span>
+        <span className="text-xs leading-relaxed text-sub">我已年满18周岁，并知悉角色回复由人工智能生成。</span>
       </label>
-      <p className="text-center text-[10px] text-gray-500">
-        <button type="button" onClick={() => setLegalDocument('privacy')} className="text-life-cyan hover:underline">隐私说明</button>
+      <p className="text-center text-xs text-sub">
+        <button type="button" onClick={() => setLegalDocument('privacy')} className="text-[color:var(--vg-cyan)] hover:underline">隐私说明</button>
         {' · '}
-        <button type="button" onClick={() => setLegalDocument('terms')} className="text-life-cyan hover:underline">使用说明</button>
+        <button type="button" onClick={() => setLegalDocument('terms')} className="text-[color:var(--vg-cyan)] hover:underline">使用说明</button>
       </p>
 
       <button
         type="submit"
         disabled={loading || !adultConfirmed}
-        className="w-full py-2.5 rounded-lg bg-gene-purple text-white text-sm font-medium hover:bg-[#5B4BD4] transition-colors disabled:opacity-50"
+        className="w-full min-h-11 py-2.5 rounded-lg bg-gene-purple text-white text-sm font-medium hover:bg-[#5B4BD4] transition-colors disabled:opacity-50"
       >
         {loading ? '正在唤醒...' : '登录'}
       </button>
 
-      <p className="text-center text-xs text-gray-500">
+      <p className="text-center text-xs text-sub">
         尚无基因序列？{' '}
-        <button type="button" onClick={onSwitch} className="text-life-cyan hover:underline">
+        <button type="button" onClick={onSwitch} className="text-[color:var(--vg-cyan)] hover:underline">
           注册你的基因
         </button>
       </p>

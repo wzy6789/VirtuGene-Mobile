@@ -1,33 +1,41 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { ChatPage } from '../../pages/ChatPage';
+import { lazyFeature } from '../ui/lazyFeature';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { MobileChatListPage } from '../chat/MobileChatListPage';
 import { NotificationCloud } from '../chat/NotificationCloud';
-import { useUIStore, MOBILE_TABS, IMMERSIVE_VIEWS, isWorldOverlay, type MobileTab } from '../../store/ui-store';
+import { useUIStore, MOBILE_TABS, IMMERSIVE_VIEWS, CHAT_DETAIL_VIEWS, isWorldOverlay, type MobileTab } from '../../store/ui-store';
 import { useChatStore } from '../../store/chat-store';
-import { MobileWorldPage } from '../world/MobileWorldPage';
-import { MobileCharacterPage } from '../character/MobileCharacterPage';
-import { MobileMePage } from './MobileMePage';
-import { MobileRelationsPage } from '../world/MobileRelationsPage';
-import { MobileStagePage } from '../world/MobileStagePage';
-import { WorldCanvas } from '../world/WorldCanvas';
-import { WorldMemoryPage } from '../world/WorldMemoryPage';
-import { WorldTimelinePage } from '../world/WorldTimelinePage';
-import { WorldSettingsPage } from '../world/WorldSettingsPage';
-import { MomentsPage } from '../moments/MomentsPage';
 import { MobileTabSwipe } from '../ui/MobileTabSwipe';
 import { SwipeBackView } from '../ui/SwipeBackView';
 import type { ActiveView } from '../../store/ui-store';
 import { SoulAtmosphere } from '../ui/SoulAtmosphere';
+import { useAuthStore } from '../../store/auth-store';
+import { breathe } from '../../lib/haptics';
+import { beginSoulHandoff, cancelSoulHandoff, soulElement, soulHandoffTo } from '../../lib/soul-handoff';
 import { useMobilePageMotion } from '../ui/useMobilePageMotion';
+import { openAssistantWorkspace } from '../../lib/secretary/navigation';
+
+const ChatPage = lazyFeature(() => import('../../pages/ChatPage').then(m => ({ default: m.ChatPage })));
+const MobileWorldPage = lazyFeature(() => import('../world/MobileWorldPage').then(m => ({ default: m.MobileWorldPage })));
+const MobileCharacterPage = lazyFeature(() => import('../character/MobileCharacterPage').then(m => ({ default: m.MobileCharacterPage })));
+const MobileMePage = lazyFeature(() => import('./MobileMePage').then(m => ({ default: m.MobileMePage })));
+const MobileRelationsPage = lazyFeature(() => import('../world/MobileRelationsPage').then(m => ({ default: m.MobileRelationsPage })));
+const MobileStagePage = lazyFeature(() => import('../world/MobileStagePage').then(m => ({ default: m.MobileStagePage })));
+const WorldCanvas = lazyFeature(() => import('../world/WorldCanvas').then(m => ({ default: m.WorldCanvas })));
+const WorldMemoryPage = lazyFeature(() => import('../world/WorldMemoryPage').then(m => ({ default: m.WorldMemoryPage })));
+const WorldTimelinePage = lazyFeature(() => import('../world/WorldTimelinePage').then(m => ({ default: m.WorldTimelinePage })));
+const WorldSettingsPage = lazyFeature(() => import('../world/WorldSettingsPage').then(m => ({ default: m.WorldSettingsPage })));
+const MomentsPage = lazyFeature(() => import('../moments/MomentsPage').then(m => ({ default: m.MomentsPage })));
 
 // 手账包含日历、导出和多种 AI 辅助；仅在用户从「世界 → 日记」进入时下载。
 const DiaryPage = lazy(() => import('../../pages/DiaryPage').then((m) => ({ default: m.DiaryPage })));
+const ActionCabinPage = lazyFeature(() => import('../secretary/SecretaryHubPage').then(m => ({ default: m.SecretaryHubPage })));
 const TodoPage = lazy(() => import('../todo/TodoPage').then((m) => ({ default: m.TodoPage })));
-// Primary tabs must never replace the transition surface with a first-visit loading fallback.
+// Keep the navigation and transition surface mounted while a feature loads.
 
-/** 未读总数上限显示 99+ */
-function formatUnread(n: number): string {
-  return n > 99 ? '99+' : String(n);
+function preloadTab(tab: MobileTab) {
+  if (tab === 'world') MobileWorldPage.preload();
+  else if (tab === 'characters') MobileCharacterPage.preload();
+  else if (tab === 'me') MobileMePage.preload();
 }
 
 type MobileNavSnapshot = {
@@ -119,7 +127,6 @@ export function MobileLayout() {
   const chatFromList = useUIStore((s) => s.chatFromList);
   const canvasSceneId = useUIStore((s) => s.canvasSceneId);
   const worldTheaterOpen = useUIStore((s) => s.worldTheaterOpen);
-  const unreadByCharacter = useChatStore((s) => s.unreadByCharacter);
   const fetchUnreadCounts = useChatStore((s) => s.fetchUnreadCounts);
   /** 键盘弹出（输入聚焦）时隐藏底部 tab */
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -129,12 +136,6 @@ export function MobileLayout() {
     suppressNextCommit: boolean;
     timer?: ReturnType<typeof setTimeout>;
   } | null>(null);
-
-  // 聊天 tab 总未读 = 各角色未读之和（微信式：红点 + 数字）
-  const totalUnread = useMemo(
-    () => Object.values(unreadByCharacter).reduce((sum, n) => sum + (n || 0), 0),
-    [unreadByCharacter],
-  );
 
   // 沉浸式视图（世界空间）：隐藏底部一级导航，进入真正的"世界"（§67）
   const immersive = IMMERSIVE_VIEWS.includes(activeView);
@@ -151,7 +152,8 @@ export function MobileLayout() {
   const timelineOpen = activeView === 'timeline';
   const settingsOpen = activeView === 'worldSettings';
   const overlayOpen = isWorldOverlay(activeView);
-  const activeTab: MobileTab = overlayOpen ? 'world' : tab;
+  const chatDetailOpen = CHAT_DETAIL_VIEWS.includes(activeView);
+  const activeTab: MobileTab = chatDetailOpen ? 'chat' : overlayOpen ? 'world' : tab;
 
   /** 受保护的移动端 history 栈：详情先返回，最后才允许离开应用。 */
   useEffect(() => {
@@ -225,6 +227,17 @@ export function MobileLayout() {
     };
   }, [activeView, tab, chatFromCharacters, chatFromList, canvasSceneId, worldTheaterOpen]);
 
+  useEffect(() => {
+    const unsubscribe = useUIStore.subscribe((state, before) => {
+      if (state.mobileTab !== before.mobileTab || state.activeView !== before.activeView && state.activeView !== 'chat' && !(state.activeView === 'actionCabin' && soulHandoffTo('cabin'))) { cancelSoulHandoff(); chatEntry.current++; return; }
+      if ((before.chatFromList && !state.chatFromList || before.chatFromCharacters && !state.chatFromCharacters) && state.mobileTab === before.mobileTab && state.activeView === 'chat' && !soulHandoffTo('list')) {
+        const id = useChatStore.getState().selectedCharacterId;
+        if (id) beginSoulHandoff(`avatar:${id}`,soulElement(`avatar:${id}`,'chat'),'list');
+      }
+    });
+    return () => { unsubscribe(); cancelSoulHandoff(); };
+  },[]);
+
   // 定时刷新未读数（主动消息到达时保持 tab 徽标新鲜；角色页也会自行拉取）
   useEffect(() => {
     void fetchUnreadCounts();
@@ -276,7 +289,11 @@ export function MobileLayout() {
     };
   }, []);
 
-  const switchTab = (t: MobileTab) => {
+  const chatEntry = useRef(0);
+
+  const switchTab = (t: MobileTab, clicked = false) => {
+    chatEntry.current++; cancelSoulHandoff();
+    if (clicked && t !== activeTab) breathe();
     // 切换 tab 时确保导航恢复显示
     setKeyboardOpen(false);
     // 离开聊天/角色 tab 时清掉推入状态，避免残留
@@ -290,14 +307,20 @@ export function MobileLayout() {
 
   /** 进入聊天：从会话列表或角色页推入（微信式），只保留当前来源的推入标记 */
   const openChat = (from: 'list' | 'characters') => {
+    const chat = useChatStore.getState();
+    if (chat.characters.find(c => c.id === chat.selectedCharacterId)?.agentProfile === 'secretary') {
+      useUIStore.setState({ chatFromList: false, chatFromCharacters: false });
+      openAssistantWorkspace('chat');
+      return;
+    }
     useUIStore.getState().setChatFromList(from === 'list');
     useUIStore.getState().setChatFromCharacters(from === 'characters');
   };
 
   const pageKey = activeView + tab + (chatFromCharacters || chatFromList ? '-chat' : '');
   const pageMotionRef = useMobilePageMotion({
-    key: pageKey, tab,
-    depth: immersive ? 2 : overlayOpen || chatFromCharacters || chatFromList ? 1 : 0,
+    key: pageKey, tab: activeTab,
+    depth: immersive ? 2 : overlayOpen || chatDetailOpen || chatFromCharacters || chatFromList ? 1 : 0,
   });
 
   return (
@@ -315,6 +338,7 @@ export function MobileLayout() {
 
       {/* 内容区从深色条下方开始（同样叠加 24px 兜底） */}
       <div
+        data-soul-host
         className="relative z-10 flex flex-col h-full"
         style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 24px)' }}
       >
@@ -328,7 +352,7 @@ export function MobileLayout() {
             enabled={activeView === 'chat' && !chatFromCharacters && !chatFromList && !keyboardOpen && !worldTheaterOpen}
             onTabSwipe={switchTab}
           >
-          <SwipeBackView enabled={overlayOpen || (worldTheaterOpen && !immersive)} onBack={() => window.history.back()}>
+          <SwipeBackView enabled={overlayOpen || chatDetailOpen || (worldTheaterOpen && !immersive)} onBack={() => window.history.back()}>
           <div
             ref={pageMotionRef}
             key={pageKey}
@@ -357,6 +381,8 @@ export function MobileLayout() {
               <Suspense fallback={<div className="h-full flex items-center justify-center text-sm text-gray-500">正在打开我的生活…</div>}>
                 <DiaryPage />
               </Suspense>
+            ) : activeView === 'actionCabin' ? (
+              <ActionCabinPage />
             ) : todoOpen ? (
               <TodoPage />
             ) : momentsOpen ? (
@@ -368,7 +394,7 @@ export function MobileLayout() {
                     /* 微信式：会话列表推入聊天，返回回到会话列表（底部 tab 仍高亮「消息」） */
                     <ChatPage />
                   ) : (
-                    <MobileChatListPage onSelect={(c) => { void useChatStore.getState().selectCharacter(c.id); openChat('list'); }} />
+                    <MobileChatListPage onSelect={(c) => { const entry = ++chatEntry.current, owner = useAuthStore.getState().userId; void useChatStore.getState().selectCharacter(c.id).then(() => { if (entry !== chatEntry.current || owner !== useAuthStore.getState().userId || useChatStore.getState().selectedCharacterId !== c.id) return; beginSoulHandoff(`avatar:${c.id}`,soulElement(`avatar:${c.id}`,'list'),'chat'); openChat('list'); }).catch(() => cancelSoulHandoff()); }} />
                   ))}
                 {tab === 'world' && <MobileWorldPage />}
                 {tab === 'characters' && (
@@ -408,14 +434,11 @@ export function MobileLayout() {
                 className={`vg-nav-tab relative flex-1 h-14 flex flex-col items-center justify-center gap-1 text-[11px] transition-colors active:bg-surface ${
                   active ? 'text-life-cyan' : 'text-gray-400'
                 }`}
-                onClick={() => switchTab(t.key)}
+                onPointerEnter={() => preloadTab(t.key)}
+                onPointerDown={() => preloadTab(t.key)}
+                onFocus={() => preloadTab(t.key)}
+                onClick={() => switchTab(t.key,true)}
               >
-                {/* 聊天 tab 未读徽标（微信式红点 + 数字） */}
-                {t.key === 'chat' && totalUnread > 0 && (
-                  <span className="vg-nav-unread absolute top-0.5 right-1/2 translate-x-[14px] min-w-[15px] h-3.5 px-1 rounded-full bg-red-500 text-white text-[9px] font-medium flex items-center justify-center leading-none shadow-[0_1px_4px_rgba(239,68,68,0.45)]">
-                    {formatUnread(totalUnread)}
-                  </span>
-                )}
                 {/* 激活态图标胶囊高亮 */}
                 <span className="vg-nav-icon flex items-center justify-center w-10 h-7 rounded-full">
                   <TabIcon name={t.key} active={active} />

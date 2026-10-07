@@ -139,6 +139,7 @@ export async function gatewayChat(params: ChatParams, options: { baseUrl?: strin
         character: params.character,
         sessionModel: params.sessionModel,
         forceVision: params.forceVision,
+        disableThinking: params.disableThinking,
         ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
         ...(params.structuredOutput ? { disableThinking: true, structuredOutput: true } : {}),
       }),
@@ -201,6 +202,7 @@ export async function gatewayChatStream(
         forceVision: params.forceVision,
         ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
         ...(params.disableThinking ? { disableThinking: true } : {}),
+        ...(params.structuredOutput ? { structuredOutput: true } : {}),
       }),
       signal: controller.signal,
     });

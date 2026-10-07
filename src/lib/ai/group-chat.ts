@@ -4,11 +4,16 @@
  * - AI 输出 JSON 数组 [{"speaker":"角色名","content":"..."}]，speaker 硬校验必须在群成员内
  * - 非流式（项目铁律）；群聊用全局默认对话模型（成员各自模型 P1）
  */
-import { resolveModel, findModel, getAvailableModels, type LLMModel, type LLMChatResult } from './llm';
+import { DEEPSEEK_MODEL_ID, resolveModel, findModel, getAvailableModels, type LLMModel, type LLMChatResult } from './llm';
 import { taskChat } from './task-client';
 import { stripRoleplayActions } from './text';
 import { buildTimeContext } from '../chat-context';
 import { containsPrivateMemoryEcho } from '../memory-disclosure';
+import { inspectChatOutput } from '../chat-output-quality';
+import { normalizeBubbleText } from '../chat-pacing';
+import { recordQualityEvent } from '../chat-quality-metrics';
+import { useAuthStore } from '../../store/auth-store';
+import { emotionalExpressionGuidance } from '../chat-emotional-expression';
 
 export interface GroupMemberBrief {
   id: string;
@@ -16,6 +21,9 @@ export interface GroupMemberBrief {
   /** Short, non-secret description used by the shared speaker selector. */
   publicPersona?: string;
   persona: string;
+  voiceCard?: string;
+  catchphrase?: string;
+  tags?: string[];
   /** 当前群全体成员都可知的共同资料；不能放入某一成员的私聊或私密状态。 */
   memory?: string;
   /** Actor-only memory. It is never interpolated into the shared director prompt. */
@@ -70,27 +78,46 @@ export interface GroupTurnParams {
 }
 
 export async function generateGroupTurn(params: GroupTurnParams): Promise<{ turns: GroupTurn[]; error?: string }> {
+  const owner=useAuthStore.getState().userId;
   const selected = resolveModel();
   const model = params.image && !selected.vision ? getAvailableModels(selected.provider).find(item => item.vision) : selected;
   if (!model) return { turns: [], error: '当前服务商没有配置支持图片的模型，请在 AI 连接中添加。' };
-  const fallback = findModel('deepseek-v4-flash')!;
+  const fallback = findModel(DEEPSEEK_MODEL_ID, 'deepseek')!;
 
   const first = await attemptTurn(params, model);
+  if(useAuthStore.getState().userId!==owner) return {turns:[]};
   if (first.turns.length > 0) {
-    const turns = await generateActorTurns(params, first.turns, model);
-    return { turns: turns.length ? turns : first.turns };
+    if(useAuthStore.getState().userId!==owner) return {turns:[]};
+    const turns = await generateActorTurns(params, first.turns, model,owner);
+    if(useAuthStore.getState().userId!==owner) return {turns:[]};
+    return { turns: filterGroupQuality(params, turns) };
   }
 
   // Existing DeepSeek retries stay within the explicitly selected provider.
   if (model.provider === 'deepseek' && model.id !== fallback.id) {
     const fb = await attemptTurn(params, fallback);
+    if(useAuthStore.getState().userId!==owner) return {turns:[]};
     if (fb.turns.length > 0) {
-      const turns = await generateActorTurns(params, fb.turns, fallback);
-      return { turns: turns.length ? turns : fb.turns };
+      if(useAuthStore.getState().userId!==owner) return {turns:[]};
+      const turns = await generateActorTurns(params, fb.turns, fallback,owner);
+      if(useAuthStore.getState().userId!==owner) return {turns:[]};
+      return { turns: filterGroupQuality(params, turns) };
     }
     return { turns: [], error: `默认模型失败：${first.error ?? '未知'}；兜底模型也失败：${fb.error ?? '未知'}` };
   }
   return { turns: [], error: first.error ?? '生成结果为空' };
+}
+
+function filterGroupQuality(params: GroupTurnParams, turns: GroupTurn[]): GroupTurn[] {
+  const accepted: GroupTurn[] = [];
+  for (const turn of turns) {
+    const member = params.members.find(m => m.id === turn.senderId);
+    if (!member) continue;
+    const recentReplies = [...params.history.filter(h => h.role === 'assistant' && h.senderName === member.name).map(h => h.content), ...accepted.filter(t => t.senderId === member.id).map(t => t.content)];
+    const inspected = inspectChatOutput(turn.content, { mode:params.mode === 'user' || !params.mode ? 'group' : 'proactive', userMessage:params.userMessage, recentReplies,recentUserMessages:params.history.filter(h=>h.role==='user').map(h=>h.content),catchphrase:member.catchphrase,persona:member.persona });
+    if (inspected.check.ok) accepted.push({ ...turn, content:normalizeBubbleText(inspected.content) });
+  }
+  return accepted;
 }
 
 /**
@@ -99,10 +126,11 @@ export async function generateGroupTurn(params: GroupTurnParams): Promise<{ turn
  * generation call. A disclosure review sees only that one character's private
  * memory; if it fails or flags the draft, we regenerate from public context.
  */
-async function generateActorTurns(params: GroupTurnParams, selected: GroupTurn[], model: LLMModel): Promise<GroupTurn[]> {
+async function generateActorTurns(params: GroupTurnParams, selected: GroupTurn[], model: LLMModel,owner:string|null): Promise<GroupTurn[]> {
   const out: GroupTurn[] = [];
   const sharedHistory = [...params.history.slice(-16)];
   for (const selection of selected.slice(0, params.maxTurns ?? 3)) {
+    if(useAuthStore.getState().userId!==owner)return [];
     const member = params.members.find((item) => item.id === selection.senderId);
     if (!member) continue;
     const prior = out.map((turn) => ({
@@ -111,23 +139,22 @@ async function generateActorTurns(params: GroupTurnParams, selected: GroupTurn[]
       content: turn.content,
     }));
     const privateMemory = member.privateMemory?.trim() ?? '';
-    const personalDraft = await generateActorReply(params, member, model, [...sharedHistory, ...prior], true);
-    if (!personalDraft) {
-      // The director draft was created without any actor-private memory.
-      out.push(selection);
-      continue;
+    const started=performance.now();
+    const qualityBudget = {remaining:1,owner};
+    const personalDraft = await generateActorReply(params, member, model, [...sharedHistory, ...prior], true, qualityBudget);
+    if(useAuthStore.getState().userId!==owner)return [];
+    let draft=personalDraft || selection.content;
+    if(personalDraft && privateMemory) {
+      const safe=await reviewActorDisclosure(params,member,model,[...sharedHistory,...prior],personalDraft);
+      if(!safe || containsPrivateMemoryEcho(personalDraft,privateMemory)) {
+        draft=await generateActorReply(params,member,model,[...sharedHistory,...prior],false,qualityBudget) || selection.content;
+      }
     }
-    if (!privateMemory) {
-      out.push({ senderId: selection.senderId, content: personalDraft });
-      continue;
-    }
-    const safe = await reviewActorDisclosure(params, member, model, [...sharedHistory, ...prior], personalDraft);
-    if (safe && !containsPrivateMemoryEcho(personalDraft, privateMemory)) {
-      out.push({ senderId: selection.senderId, content: personalDraft });
-      continue;
-    }
-    const publicDraft = await generateActorReply(params, member, model, [...sharedHistory, ...prior], false);
-    out.push({ senderId: selection.senderId, content: publicDraft || selection.content });
+    if(useAuthStore.getState().userId!==owner)return [];
+    const inspected=inspectChatOutput(draft,{mode:params.mode==='user'||!params.mode?'group':'proactive',userMessage:params.userMessage,persona:member.persona,catchphrase:member.catchphrase,
+      recentReplies:[...sharedHistory,...prior].filter(h=>h.role==='assistant'&&h.senderName===member.name).map(h=>h.content),recentUserMessages:sharedHistory.filter(h=>h.role==='user').map(h=>h.content)});
+    if(inspected.check.ok)out.push({senderId:selection.senderId,content:normalizeBubbleText(inspected.content)});
+    recordQualityEvent(owner ?? '',{mode:'group',issue:inspected.check.issue,retries:1-qualityBudget.remaining,blocked:!inspected.check.ok,streamed:false,durationMs:performance.now()-started});
   }
   return out;
 }
@@ -178,7 +205,7 @@ async function callMemberText(params: {
       maxTokens: 420,
       timeoutMs: 90_000,
     }, params.model);
-    return stripRoleplayActions(result.content).replace(/[\r\n]+/g, ' ').trim().slice(0, 500);
+    return normalizeBubbleText(stripRoleplayActions(result.content)).slice(0, 500);
   } catch (error) {
     console.warn('[group-chat] actor generation failed:', (error as Error)?.message ?? error);
     return '';
@@ -191,6 +218,7 @@ async function generateActorReply(
   model: LLMModel,
   history: GroupTurnParams['history'],
   includePrivate: boolean,
+  qualityBudget: {remaining:number;owner:string|null},
 ): Promise<string> {
   const shared = member.memory ? `\n\n【群成员共同知道的经历】\n${member.memory}` : '';
   const roster = params.members.map((item) => item.name).join('、');
@@ -200,8 +228,21 @@ async function generateActorReply(
   const relationship = includePrivate && member.relationshipContext
     ? `\n\n${member.relationshipContext}`
     : '';
-  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【完整角色设定（只有你自己的）】\n${member.persona}${shared}${personal}${relationship}\n\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
-  return callMemberText({ apiKey: params.apiKey, model, system, history, userContent: actorUserContent(params, model) });
+  const feeling=params.mode==='user'||!params.mode?emotionalExpressionGuidance(params.userMessage??'',history.filter(h=>h.role==='user'||h.senderName===member.name),{tags:member.tags??[],systemPrompt:member.persona,catchphrase:member.catchphrase}):'';
+  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【完整角色设定（只有你自己的）】\n${member.persona}${shared}${personal}${relationship}\n\n${member.voiceCard ?? ''}\n${feeling}\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
+  const recentReplies = history.filter(h => h.role === 'assistant' && h.senderName === member.name).map(h => h.content);
+  let hint = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if(useAuthStore.getState().userId!==qualityBudget.owner)return '';
+    const draft = await callMemberText({ apiKey:params.apiKey, model, system:system + hint, history, userContent:actorUserContent(params,model) });
+    if(useAuthStore.getState().userId!==qualityBudget.owner)return '';
+    const inspected = inspectChatOutput(draft, { mode:params.mode === 'user' || !params.mode ? 'group' : 'proactive', userMessage:params.userMessage, recentReplies,recentUserMessages:history.filter(h=>h.role==='user').map(h=>h.content),catchphrase:member.catchphrase,persona:member.persona });
+    if (inspected.check.ok) return inspected.content;
+    if (!draft || qualityBudget.remaining <= 0 || attempt === 1) return '';
+    qualityBudget.remaining--;
+    hint = '\n' + inspected.check.retryHint;
+  }
+  return '';
 }
 
 async function reviewActorDisclosure(

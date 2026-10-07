@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { breathe } from '../../lib/haptics';
 import { AnimatedValue } from './AnimatedValue';
 import { prefersReducedMotion, subscribeReducedMotion } from '../../lib/mobile-motion';
 
@@ -146,7 +147,7 @@ export function FontRuler({ value, onChange }: { value: number; onChange: (value
   const [landing, setLanding] = useState<number | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const changing = useRef(false);
-  const drag = useRef<{ id: number; x: number; left: number } | null>(null);
+  const drag = useRef<{ id: number; x: number; left: number; initial: number } | null>(null);
   const latest = useRef(onChange); latest.current = onChange;
   const normalized = Math.min(22, Math.max(12, Math.round(value || 14)));
   const selected = useRef(normalized); selected.current = normalized;
@@ -166,7 +167,8 @@ export function FontRuler({ value, onChange }: { value: number; onChange: (value
     const unsubscribe = subscribeReducedMotion(clear);
     return () => { unsubscribe(); clear(); };
   }, []);
-  const release = () => {
+  const release = (cancelled = false) => {
+    const gesture = drag.current;
     drag.current = null;
     setLanding(null);
     const el = scroll.current; if (!el) return;
@@ -180,6 +182,7 @@ export function FontRuler({ value, onChange }: { value: number; onChange: (value
     }
     el.style.scrollSnapType = '';
     const n = Math.max(12, Math.min(22, 12 + Math.round(el.scrollLeft / 32)));
+    if (!cancelled && gesture && n !== gesture.initial) breathe();
     latest.current(n); el.scrollTo({ left: (n - 12) * 32, behavior: reduced() ? 'instant' : 'smooth' });
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => { changing.current = false; }, 180);
@@ -195,7 +198,7 @@ export function FontRuler({ value, onChange }: { value: number; onChange: (value
         e.currentTarget.scrollTo({ left: e.currentTarget.scrollLeft, behavior: 'instant' });
         changing.current = true; if (timer.current) clearTimeout(timer.current);
         const virtualOffset = elastic ? Math.sign(elastic) * -90 * Math.log(Math.max(.001, 1 - Math.abs(elastic) / 28)) : 0;
-        drag.current = { id: e.pointerId, x: e.clientX, left: e.currentTarget.scrollLeft - virtualOffset };
+        drag.current = { id: e.pointerId, x: e.clientX, left: e.currentTarget.scrollLeft - virtualOffset, initial: selected.current };
         setLanding(normalized); e.currentTarget.style.scrollSnapType = 'none';
       }}
       onPointerMove={e => {
@@ -208,12 +211,12 @@ export function FontRuler({ value, onChange }: { value: number; onChange: (value
         const n = Math.max(12, Math.min(22, 12 + Math.round(e.currentTarget.scrollLeft / 32)));
         setLanding(n); if (n !== normalized) latest.current(n);
       }}
-      onPointerUp={release} onPointerCancel={release}
+      onPointerUp={() => release()} onPointerCancel={() => release(true)}
       onKeyDown={e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
         e.preventDefault(); const n = e.key === 'Home' ? 12 : e.key === 'End' ? 22 : Math.max(12, Math.min(22, normalized + (e.key === 'ArrowRight' ? 1 : -1)));
         if (timer.current) clearTimeout(timer.current); changing.current = false; rebound.current?.cancel();
         if (ticks.current) ticks.current.style.transform = '';
-        e.currentTarget.scrollTo({ left: (n - 12) * 32, behavior: 'instant' }); latest.current(n);
+        e.currentTarget.scrollTo({ left: (n - 12) * 32, behavior: 'instant' }); if (n !== normalized) breathe(); latest.current(n);
       } }}
       onScroll={e => {
         const el = e.currentTarget; const n = Math.max(12, Math.min(22, 12 + Math.round(el.scrollLeft / 32)));

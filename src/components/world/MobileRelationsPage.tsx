@@ -147,7 +147,7 @@ export function MobileRelationsPage() {
 
           {/* ---------- 你和他们 ---------- */}
           <div>
-            <p className="mb-2 text-[10px] tracking-[0.16em] uppercase text-gray-500">你和他们</p>
+            <p className="mb-2 text-[12px] tracking-[0.16em] uppercase text-gray-500">你和他们</p>
             {myCharacters.length === 0 ? (
               <p className="rounded-2xl border border-line bg-surface/60 px-4 py-5 text-center text-xs text-gray-500">
                 你还没有角色。先去「角色」里认识一个吧。
@@ -171,11 +171,11 @@ export function MobileRelationsPage() {
                         <Avatar avatar={c.avatar} size="sm" className="ring-1 ring-life-cyan/30" />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-ink">{c.name}</p>
-                          <p className="mt-0.5 text-[11px] text-life-cyan">{levelName} · {level.desc}</p>
+                          <p className="mt-0.5 text-[12px] text-life-cyan">{levelName} · {level.desc}</p>
                         </div>
                       </div>
 
-                      <p className="mt-2.5 text-[11px] leading-5 text-gray-500">
+                      <p className="mt-2.5 text-[12px] leading-5 text-gray-500">
                         {memories > 0 && `你们一起经历过 ${memories} 件事`}
                         {memories > 0 && threads > 0 && ' · '}
                         {threads > 0 && `还有 ${threads} 件没做完`}
@@ -185,7 +185,7 @@ export function MobileRelationsPage() {
                       {facets.length > 0 && (
                         <p className="mt-1.5 flex flex-wrap gap-1.5">
                           {facets.map((f) => (
-                            <span key={f.facet} className="rounded-full bg-gene-purple/10 px-2 py-0.5 text-[10px] text-gene-purple">
+                            <span key={f.facet} className="rounded-full bg-gene-purple/10 px-2 py-0.5 text-[12px] text-gene-purple">
                               {f.text}
                             </span>
                           ))}
@@ -193,9 +193,9 @@ export function MobileRelationsPage() {
                       )}
 
                       <div className="mt-3 border-t border-line pt-2.5">
-                        <p className="text-[10px] text-gray-500">为什么会变成这样</p>
+                        <p className="text-[12px] text-gray-500">为什么会变成这样</p>
                         {reasons.length === 0 ? (
-                          <p className="mt-1.5 text-[11px] leading-5 text-gray-500">
+                          <p className="mt-1.5 text-[12px] leading-5 text-gray-500">
                             还没有记录到变化。等阶升级、一起经历的事，会慢慢出现在这里。
                           </p>
                         ) : (
@@ -205,7 +205,7 @@ export function MobileRelationsPage() {
                                 <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-life-cyan" />
                                 <span className="min-w-0 flex-1">
                                   <span className="block text-[12px] leading-5 text-ink/90">{reasonText(e)}</span>
-                                  <span className="text-[10px] text-gray-500">{relativeDay(e.createdAt)}</span>
+                                  <span className="text-[12px] text-gray-500">{relativeDay(e.createdAt)}</span>
                                 </span>
                               </li>
                             ))}
@@ -221,7 +221,7 @@ export function MobileRelationsPage() {
 
           {/* ---------- 他们之间 ---------- */}
           <div>
-            <p className="mb-2 text-[10px] tracking-[0.16em] uppercase text-gray-500">他们之间</p>
+            <p className="mb-2 text-[12px] tracking-[0.16em] uppercase text-gray-500">他们之间</p>
             {pairStates.length === 0 ? (
               <p className="rounded-2xl border border-line bg-surface/60 px-4 py-5 text-center text-xs leading-6 text-gray-500">
                 角色之间还没有发生能被记下来的事。<br />
@@ -238,13 +238,13 @@ export function MobileRelationsPage() {
                       {facets.length > 0 ? (
                         <p className="mt-1.5 flex flex-wrap gap-1.5">
                           {facets.map((f) => (
-                            <span key={f.facet} className="rounded-full bg-gene-purple/10 px-2 py-0.5 text-[10px] text-gene-purple">
+                            <span key={f.facet} className="rounded-full bg-gene-purple/10 px-2 py-0.5 text-[12px] text-gene-purple">
                               {f.text}
                             </span>
                           ))}
                         </p>
                       ) : (
-                        <p className="mt-1.5 text-[11px] text-gray-500">还没有记录到他们之间的具体变化。</p>
+                        <p className="mt-1.5 text-[12px] text-gray-500">还没有记录到他们之间的具体变化。</p>
                       )}
                       {reasons.length > 0 && (
                         <ul className="mt-2.5 space-y-1.5 border-t border-line pt-2.5">
@@ -253,14 +253,14 @@ export function MobileRelationsPage() {
                               <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-life-cyan" />
                               <span className="min-w-0 flex-1">
                                 <span className="block text-[12px] leading-5 text-ink/90">{reasonText(e)}</span>
-                                <span className="text-[10px] text-gray-500">{relativeDay(e.createdAt)}</span>
+                                <span className="text-[12px] text-gray-500">{relativeDay(e.createdAt)}</span>
                               </span>
                             </li>
                           ))}
                         </ul>
                       )}
                       {!hasExplainableRecord(s, eventsOf(s.pairKey)) && (
-                        <p className="mt-1.5 text-[11px] text-gray-500">
+                        <p className="mt-1.5 text-[12px] text-gray-500">
                           他们在同一个世界里，但还没有留下能解释的变化。
                         </p>
                       )}
@@ -271,7 +271,7 @@ export function MobileRelationsPage() {
             )}
           </div>
 
-          <p className="pb-2 text-center text-[10px] leading-relaxed text-gray-600">
+          <p className="pb-2 text-center text-[12px] leading-relaxed text-gray-600">
             这里只写真实发生过的变化：等阶升级、约定与共同经历。<br />
             不显示任何内部数值。
           </p>

@@ -16,6 +16,7 @@ const server = http.createServer((request, response) => {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   let checks = 0, responses = 'ok';
+  const capturedRequests = [];
   const check = (value, label) => { assert.ok(value, label); checks++; };
   const fakeKey = 'fixture-only-key-not-a-real-credential';
   await page.route('**/favicon.ico', route => route.fulfill({ status: 204 }));
@@ -23,6 +24,7 @@ const server = http.createServer((request, response) => {
     if (responses === 'slow') await new Promise(resolve => setTimeout(resolve, 550));
     const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+    if (route.request().method() === 'POST') capturedRequests.push(route.request().postDataJSON());
     if (responses === 'auth') return route.fulfill({ status: 401, headers, json: { error: 'credentials withheld' } });
     return route.fulfill({ status: 200, headers, json: { data: [{ id: 'exact-model/ui' }, { id: 'discovered-model/ui' }], choices: [{ message: { content: 'OK' }, finish_reason: 'stop' }] } });
   });
@@ -36,6 +38,22 @@ const server = http.createServer((request, response) => {
     check(await page.getByRole('dialog').evaluate(el => getComputedStyle(el).backgroundColor === 'rgb(17, 23, 41)'), 'API directory retains starfield navy settings surfaces');
     check(await page.locator('.vg-provider-status[data-ready=true]').count() === 0, 'an untouched localhost preset is not advertised as configured');
     await shot('providers-dark');
+    await page.evaluate(key => window.modelsUITest.useAuthStore.setState({ apiKey: key }), fakeKey);
+    await mount('providers');
+    await page.getByRole('button', { name: '配置 DeepSeek', exact: true }).click();
+    check(await page.getByLabel('测试模型', { exact: true }).inputValue() === 'deepseek-flash' && await page.getByLabel('测试模型', { exact: true }).locator('option').count() === 1, 'DeepSeek exposes only the latest canonical Flash model');
+    check(await page.getByLabel('添加模型 ID', { exact: true }).count() === 0, 'managed Flash cannot be replaced by a Pro/custom model');
+    await page.getByLabel('API 根地址', { exact: true }).fill('https://mock-model-ui.invalid/v1');
+    await page.getByRole('button', { name: '测试连接', exact: true }).click();
+    await page.getByText('DeepSeek Flash 实际调用成功。未保存的地址仍需要保存配置。', { exact: true }).waitFor();
+    check(capturedRequests.at(-1)?.model === 'deepseek-flash' && capturedRequests.at(-1)?.max_tokens === 16 && capturedRequests.at(-1)?.thinking.type === 'disabled', 'Flash test actually generates at unsaved endpoint');
+    check(await page.getByText(/测试会向所选模型发送/).count() === 1, 'Flash minimal generation cost is explained');
+    await page.evaluate(() => window.modelsUITest.useSettingsStore.setState({ defaultModel: { provider: 'deepseek', model: 'deepseek-v4-pro' } }));
+    await mount('default');
+    check(await page.locator('.vg-model-option.is-selected').innerText().then(text => text.includes('DeepSeek V4.1 Flash')) && await page.locator('.vg-model-option.is-selected input').isChecked(), 'old Pro selection visibly highlights Flash');
+    check(await page.getByText('deepseek-v4-pro', { exact: true }).count() === 0, 'retired DeepSeek model does not reappear in default choices');
+    await page.evaluate(() => { window.modelsUITest.useSettingsStore.setState({ defaultModel: null }); window.modelsUITest.useAuthStore.setState({ apiKey: null }); });
+    await mount('providers');
     await page.getByRole('searchbox', { name: '搜索服务商' }).fill('claude');
     check(await page.locator('.vg-provider-row').count() === 1, 'provider search matches common model family names');
     await page.getByRole('button', { name: '配置 Anthropic Claude', exact: true }).click();
@@ -127,6 +145,8 @@ const server = http.createServer((request, response) => {
     await page.getByRole('button', { name: '清除密钥', exact: true }).click();
     await page.getByText('此服务商的设备密钥已清除，模型和地址配置保留。', { exact: true }).waitFor();
     check(await page.evaluate(async () => !(await window.modelsUITest.loadSecret('openai-key'))), 'clearing a provider removes its encrypted credential');
+    check(await page.locator('.vg-feedback-card[data-tone="success"]').count() === 1, 'cleared provider key uses the shared success receipt');
+    await shot('key-cleared-dark');
     check(await page.evaluate(() => window.modelsUITest.getProviderConfig('openai').models.length === 2), 'clearing a key preserves model and address configuration');
     await mount('speech');
     check(await page.locator('.vg-provider-row').count() === 0, 'speech-only settings do not include chat providers');
@@ -137,6 +157,7 @@ const server = http.createServer((request, response) => {
     check(await page.evaluate(async () => !(await window.modelsUITest.loadSecret('siliconflow-key'))), 'saving speech cannot configure the separate SiliconFlow chat key');
     await page.getByRole('button', { name: '清除语音密钥', exact: true }).click();
     await page.getByText('语音识别密钥已清除。', { exact: true }).waitFor();
+    check(await page.getByRole('status').getByText('语音识别密钥已清除。', { exact: true }).evaluate(el => getComputedStyle(el).fontSize === '14px'), 'cleared speech key has readable shared status copy');
     for (const width of [320, 390, 430]) {
       await page.setViewportSize({ width, height: 640 });
       for (const mode of ['providers', 'default', 'picker', 'speech']) {
@@ -155,7 +176,7 @@ const server = http.createServer((request, response) => {
     await mount('providers');
     check(await page.locator('.vg-provider-row').first().evaluate(el => getComputedStyle(el).transitionDuration === '0s'), 'API controls respect reduced motion');
     await page.getByRole('searchbox', { name: '搜索服务商' }).focus();
-    check(await page.getByRole('searchbox', { name: '搜索服务商' }).evaluate(el => getComputedStyle(el).outlineStyle !== 'none'), 'search supports visible keyboard focus');
+    check(await page.getByRole('searchbox', { name: '搜索服务商' }).evaluate(el => getComputedStyle(el.closest('.vg-search-field')).boxShadow.includes('inset') && getComputedStyle(el).outlineStyle === 'none'), 'search shell supports visible keyboard focus without a second inner outline');
     check(errors.length === 0, errors.join('\n'));
     fs.writeFileSync(path.join(output, 'result.txt'), `PASS ${checks} model/API UI checks\n`);
     console.log(`PASS ${checks} model/API UI checks`);

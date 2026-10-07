@@ -41,18 +41,34 @@ try {
   check(await page.locator('[data-streaming-reply]').count() === 0, 'final rows replace preview');
   check(split[0].createdAt > (await test('records'))[0].createdAt && split[1].createdAt > split[0].createdAt, 'saved reply ordering survives reopening');
 
+  await ready(0); await test('submit', '说说今天'); await waitRequests(1);
+  await test('push', 0, '长长的第一条---嗯---啊---长长的第四条');
+  await page.waitForFunction(() => document.querySelectorAll('.vg-streaming-part').length === 4);
+  check((await test('records')).filter(m => m.role === 'assistant').length === 0, 'four visible bubbles remain transient until transport finishes');
+  await test('push', 0, '---最后'); await test('finish', 0); await done();
+  const fourRows = (await test('records')).filter(m => m.role === 'assistant');
+  check(fourRows.length === 4 && fourRows.map(m => m.content).join('|') === '长长的第一条|嗯|啊|长长的第四条最后' && fourRows.every(m => m.replyBatchSize === 4), 'four streamed bubbles and overflow commit once with matching batch metadata');
+  check((await page.evaluate(() => window.virtugeneChatQuality.report())).samples.at(-1).differenceRatio === 0, 'stream metrics compare actual raw text with all four persisted rows');
+
   await ready(0); await test('denyNext'); await test('submit', '凭据失败后重发'); await waitRequests(1); await done();
   check((await test('records'))[0].failed && (await test('requests')).length === 1, 'credential failure marks a retryable message without auto-retry');
   await page.getByTitle('发送失败，点击重发', { exact: true }).click(); await waitRequests(2);
   await test('push', 1, '这次收到你的消息了。'); await test('finish', 1); await done();
   check((await test('records')).filter(m => m.role === 'user').length === 1 && !(await test('records'))[0].failed, 'manual retry reuses the original user message');
 
-  await ready(40); await test('submit', '详细说说你的想法'); await waitRequests(1);
+  await ready(40);
+  // Virtualized historical fixture can initially open mid-history. Establish
+  // the user's explicit latest position before checking live following.
+  const latest = page.getByRole('button', { name: '回到最新消息', exact: true });
+  if (await latest.isVisible()) await latest.click();
+  await page.waitForFunction(() => { const el = document.querySelector('.chat-thread'); return el.scrollHeight - el.scrollTop - el.clientHeight < 8; });
+  await test('submit', '详细说说你的想法'); await waitRequests(1);
   await test('push', 0, '我想和你聊聊今天。'); await page.locator('[data-streaming-reply]').waitFor();
   const storeBefore = await test('storeChanges');
   await test('push', 0, '今天路过书店。'.repeat(100)); await page.waitForTimeout(200);
   check(await test('storeChanges') === storeBefore, 'stream updates do not invalidate the historical message store');
-  check(await page.locator('.chat-thread').evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight < 8), 'long reply follows bottom smoothly');
+  const longGeometry = await page.locator('.chat-thread').evaluate(el => ({ height: el.scrollHeight, top: el.scrollTop, viewport: el.clientHeight, gap: el.scrollHeight - el.scrollTop - el.clientHeight }));
+  check(longGeometry.gap < 8, `long reply follows bottom smoothly ${JSON.stringify(longGeometry)}`);
   await page.locator('.chat-thread').evaluate(el => { el.dispatchEvent(new WheelEvent('wheel', { deltaY: -400 })); el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
   const readTop = await page.locator('.chat-thread').evaluate(el => el.scrollTop);
   await test('push', 0, '后来我又去看了展览。'.repeat(60)); await page.waitForTimeout(180);

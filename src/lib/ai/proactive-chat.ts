@@ -1,6 +1,8 @@
-import { stripRoleplayActions } from './text';
 import { taskChat } from './task-client';
-import { normalizeChatResponse } from '../chat-pacing';
+import { inspectChatOutput } from '../chat-output-quality';
+import { withChatMessagingPolicy } from '../../../server/chat-messaging-policy.mjs';
+import { recordQualityEvent } from '../chat-quality-metrics';
+import { useAuthStore } from '../../store/auth-store';
 
 const PROACTIVE_INSTRUCTION =
   '你是下面描述的角色。用户已经有一段时间没有给你发消息了。请基于你的性格，主动发起一次自然的对话。\n\n' +
@@ -9,7 +11,7 @@ const PROACTIVE_INSTRUCTION =
   '- 具体发多长由你的性格决定：话痨角色可以多说几句，高冷角色可以只说一两个字\n' +
   '- 内容要符合你的性格设定，让用户感觉是"这个角色在想我"，而不是系统在推送通知\n' +
   '- 可以是一句突如其来的感慨、一个问题、一个分享、或者一个撒娇\n' +
-  '- 不要用"你好"、"在吗"这类模板化开场\n' +
+  '- 问候可以自然出现，但不要反复照搬同一句开场\n' +
   '- 不要在消息中提到"主动发消息"、"推送"等机制性词汇\n' +
   '- 不要用任何 Markdown 或列表符号（#、*、-、数字编号），就是纯文本打字\n' +
   '- 不要用括号描述动作或表情\n' +
@@ -31,6 +33,9 @@ export interface ProactiveMessageParams {
   memoryContext?: string;
   /** 角色自己的近期生活线；只允许引用已有记录，不要求模型凭空编造。 */
   lifeHints?: string[];
+  catchphrase?: string;
+  signal?: AbortSignal;
+  voiceCard?: string;
 }
 
 function buildTimeContext(lastMessageAt?: number): string {
@@ -49,6 +54,7 @@ function buildTimeContext(lastMessageAt?: number): string {
 }
 
 export async function generateProactiveMessage(params: ProactiveMessageParams): Promise<string> {
+  const owner=useAuthStore.getState().userId ?? '',started=performance.now();
   const { apiKey, systemPrompt, lastMessages, characterName, affinity, mood, lastMessageAt } = params;
 
   const contextLines = lastMessages.slice(-6).map((m) => {
@@ -61,10 +67,10 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
   // 每日问候：早安/晚安额外加场景引导（每日灵魂互动）
   if (params.kind === 'morning') {
     systemContent +=
-      '\n\n[现在是早晨] 角色正在给用户发早安问候。像真人朋友一样自然地问早：可以问昨晚睡得如何、今天打算做什么、随口提一件小事；简短温暖，不要模板化的"早安！"开场，不要提"问候/推送"等机制词。';
+      '\n\n[现在是早晨] 按角色性格自然问早，可以简短问候或随口聊一句；不必固定追问睡眠和安排，不提问候机制。';
   } else if (params.kind === 'night') {
     systemContent +=
-      '\n\n[现在是夜晚] 角色正在向用户道晚安。像真人朋友一样自然地告别这一天：可以关心今天过得怎么样、叮嘱早点休息、说一句心里话；简短温暖，不要模板化的"晚安！"结尾，不要提"问候/推送"等机制词。';
+      '\n\n[现在是夜晚] 按角色性格自然告别这一天，可以说晚安，不必固定叮嘱或追问，不提问候机制。';
   }
   if (affinity != null && mood != null) {
     systemContent +=
@@ -102,10 +108,19 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
     { role: 'user', content: userPrompt },
   ];
 
-  const result = await taskChat({
-    apiKey, messages, maxTokens: 300, temperature: 1,
-    disableThinking: true, timeoutMs: 30_000,
-  });
-  return stripRoleplayActions(normalizeChatResponse(result.content)).trim();
+  messages[0].content = withChatMessagingPolicy(messages[0].content + (params.voiceCard ? '\n\n' + params.voiceCard : ''));
+  const recentReplies = lastMessages.filter(m => m.role === 'assistant').map(m => m.content);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (params.signal?.aborted || (useAuthStore.getState().userId ?? '') !== owner) return '';
+    const result = await taskChat({ apiKey, messages, maxTokens: 300, temperature: 1,
+      disableThinking: true, timeoutMs: 30_000, signal: params.signal });
+    if (params.signal?.aborted || (useAuthStore.getState().userId ?? '') !== owner) return '';
+    const inspected = inspectChatOutput(result.content, { mode:'proactive', recentReplies, catchphrase:params.catchphrase,persona:params.systemPrompt });
+    if (inspected.check.ok) {recordQualityEvent(owner,{mode:'proactive',retries:attempt,blocked:false,streamed:false,durationMs:performance.now()-started});return inspected.content;}
+    if(attempt === 1) recordQualityEvent(owner,{mode:'proactive',issue:inspected.check.issue,retries:1,blocked:true,streamed:false,durationMs:performance.now()-started});
+    messages[1].content = userPrompt + '\n' + inspected.check.retryHint;
+  }
+  // A proactive message may be omitted; never replace a bad draft with a canned greeting.
+  return '';
 
 }

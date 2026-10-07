@@ -1,9 +1,9 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useId, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { memo, useCallback, useEffect, useState } from 'react';
+import { Modal } from '../ui/Modal';
 import type { Character } from '../../db/index';
 import { sessionRepo } from '../../db/session-repo';
 import type { SceneAtmosphere, SceneTimeOfDay } from '../../lib/chat-context';
-import { prefersReducedMotion } from '../../lib/mobile-motion';
+import { useAuthStore } from '../../store/auth-store';
 
 interface Props {
   character: Character;
@@ -59,64 +59,10 @@ function getSceneTime(slot?: SceneTimeOfDay) {
  * Shared Space 2.0 —— 角色此刻的"在场感"。
  * 这里仅管理本会话的场域设置；全部读写本地 Session，不在这里发任何 AI 请求。
  */
-export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId }: Props) {
+export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId, userId }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const [closing, setClosing] = useState(false);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const closePanel = useCallback(() => {
-    if (closeTimer.current) return;
-    setClosing(true);
-    closeTimer.current = setTimeout(() => { closeTimer.current = null; setExpanded(false); setClosing(false); }, 180);
-  }, []);
-  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ pointerId: number; y: number; started: number; distance: number } | null>(null);
-  const resetDrag = () => {
-    if (panelRef.current) { panelRef.current.style.transform = ''; panelRef.current.style.transition = ''; }
-    drag.current = null;
-  };
-  const panelId = useId();
-  const [placement, setPlacement] = useState({ top: 80, left: 16, width: 320, height: 480 });
-  useLayoutEffect(() => {
-    if (!expanded) return;
-    const position = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const viewport = window.visualViewport;
-      const bottom = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight);
-      const top = Math.max(16, Math.min(rect.bottom + 8, bottom - 220));
-      const width = Math.min(rect.width, window.innerWidth - 32, 640);
-      setPlacement({ top, left: Math.max(16, Math.min(rect.left, window.innerWidth - width - 16)), width, height: Math.max(120, bottom - top - 16) });
-    };
-    position();
-    window.addEventListener('resize', position);
-    window.visualViewport?.addEventListener('resize', position);
-    window.visualViewport?.addEventListener('scroll', position);
-    return () => {
-      window.removeEventListener('resize', position);
-      window.visualViewport?.removeEventListener('resize', position);
-      window.visualViewport?.removeEventListener('scroll', position);
-    };
-  }, [expanded]);
-  useEffect(() => { if (closeTimer.current) clearTimeout(closeTimer.current); closeTimer.current = null; setExpanded(false); setClosing(false); }, [sessionId]);
-  useEffect(() => {
-    if (!expanded) return;
-    panelRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { event.preventDefault(); closePanel(); }
-      if (event.key !== 'Tab') return;
-      const nodes = [...(panelRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled)') ?? [])];
-      const first = nodes[0], last = nodes[nodes.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-    };
-    document.addEventListener('keydown', onKey);
-    const onBack = (event: Event) => { if (!event.defaultPrevented) { event.preventDefault(); closePanel(); } };
-    window.addEventListener('vg:back-request', onBack);
-    const trigger = triggerRef.current;
-    return () => { document.removeEventListener('keydown', onKey); window.removeEventListener('vg:back-request', onBack); if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
-  }, [expanded, closePanel]);
+  const closePanel = useCallback(() => setExpanded(false), []);
+  useEffect(() => { setExpanded(false); }, [sessionId]);
   const [sceneSlot, setSceneSlot] = useState<SceneTimeOfDay | undefined>();
   const [scenePlace, setScenePlace] = useState('');
   const [scenePlaceDraft, setScenePlaceDraft] = useState('');
@@ -189,12 +135,10 @@ export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId }
       <div className="scene-orb scene-orb-a" />
       <div className="scene-orb scene-orb-b" />
       <button
-        ref={triggerRef}
         type="button"
         onClick={() => expanded ? closePanel() : setExpanded(true)}
         className="relative z-[1] w-full flex items-center gap-3 px-3.5 py-2.5 text-left"
         aria-expanded={expanded}
-        aria-controls={expanded ? panelId : undefined}
         aria-haspopup="dialog"
       >
         <span className="scene-presence-mark" aria-hidden="true"><i /></span>
@@ -207,39 +151,8 @@ export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId }
         <span className={`text-white/40 text-xs transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`}>⌄</span>
       </button>
 
-      {expanded && createPortal(<div className="scene-settings-overlay" data-no-page-swipe="true">
-        <button type="button" className="scene-settings-backdrop" tabIndex={-1} aria-label="收起此刻设置" onClick={closePanel} />
-        <div ref={panelRef} id={panelId} role="dialog" aria-modal="true" aria-label="此刻设置" className={`scene-settings-panel scene-card scene-card-expanded scene-${scene.tone} ${closing ? 'is-closing' : ''}`} style={{ top: placement.top, left: placement.left, width: placement.width, maxHeight: placement.height }}>
-          <div className="scene-grain" aria-hidden="true" />
-          <div className="scene-orb scene-orb-a" aria-hidden="true" />
-          <div className="scene-orb scene-orb-b" aria-hidden="true" />
-          <header className="scene-settings-panel-header"
-            onPointerDown={(event) => {
-              if (closing || (event.target as HTMLElement).closest('button') || !event.isPrimary || event.button !== 0) return;
-              drag.current = { pointerId: event.pointerId, y: event.clientY, started: performance.now(), distance: 0 };
-              event.currentTarget.setPointerCapture(event.pointerId);
-            }}
-            onPointerMove={(event) => {
-              const current = drag.current;
-              if (!current || current.pointerId !== event.pointerId || !panelRef.current) return;
-              current.distance = Math.max(0, Math.min(140, event.clientY - current.y));
-              panelRef.current.style.transition = 'none';
-              panelRef.current.style.transform = `translate3d(0,${current.distance * .65}px,0)`;
-            }}
-            onPointerUp={(event) => {
-              const current = drag.current;
-              if (!current || current.pointerId !== event.pointerId) return;
-              const dismiss = current.distance > 72 || (current.distance > 28 && current.distance / Math.max(1, performance.now() - current.started) > .55);
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-              resetDrag();
-              if (dismiss) closePanel();
-              else if (panelRef.current) {
-                panelRef.current.animate([{ transform: `translateY(${current.distance * .65}px)` }, { transform: 'translateY(0)' }], { duration: prefersReducedMotion() ? 0 : 180, easing: 'cubic-bezier(.2,.8,.2,1)' });
-              }
-            }}
-            onPointerCancel={resetDrag}
-            onLostPointerCapture={() => { if (drag.current) resetDrag(); }}
-          ><strong>此刻 · {scene.label}</strong><button type="button" aria-label="收起此刻设置" onClick={closePanel}>⌃</button></header>
+      <Modal open={expanded} onClose={closePanel} title="此刻设置" canSnapshotOnExit={() => useAuthStore.getState().userId === userId}>
+        <div className={`scene-card scene-card-expanded scene-${scene.tone} vg-scene-page-content`}>
           <div className="scene-settings-scroll px-4 pb-3.5">
             <div className="scene-time-picker" aria-label="选择这段对话的时段">
               <div className="scene-time-picker-heading">
@@ -309,7 +222,7 @@ export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId }
             <p className="scene-time-picker-note">只影响聊天里的环境、节奏和语气，不会改动消息显示的发送时间。选择“跟随现在”后，时段会随现实时间变化。</p>
           </div>
         </div>
-      </div>, document.body)}
+      </Modal>
 
     </section>
   );

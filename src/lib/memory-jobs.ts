@@ -46,7 +46,7 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
       try {
         const sourceIds = [...new Set(activeJobs.flatMap((job) => job.sourceIds))];
         const messages = (await db.messages.bulkGet(sourceIds))
-          .filter((message): message is Message => Boolean(message))
+          .filter((message): message is Message => Boolean(message) && message?.secretaryDispatch?.bodyOrigin !== 'composed')
           .sort((a, b) => a.createdAt - b.createdAt);
         const messageById = new Map(messages.map((message) => [message.id, message]));
         const slices: { sourceId: string; revision: number; text: string; at: number; start: number; end: number }[] = [];

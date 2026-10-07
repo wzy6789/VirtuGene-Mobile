@@ -2,9 +2,14 @@ import type { Diary, Todo, TodoOccurrence, MomentVisibility } from '../../db';
 import type { SecretaryPersonality } from './personality';
 import type { SecretaryWorkPreferences } from './work-preferences';
 
-export type SecretaryActionKind = 'diary.save' | 'diary.search' | 'moment.draft' | 'moment.publish' | 'moment.search' | 'todo.create' | 'todo.list' | 'todo.complete' | 'todo.reopen' | 'todo.reschedule' | 'todo.update' | 'todo.cancel' | 'todo.steps' | 'app.open';
+export type SecretaryActionKind = 'diary.save' | 'diary.search' | 'moment.draft' | 'moment.publish' | 'moment.search' | 'todo.create' | 'todo.list' | 'todo.complete' | 'todo.reopen' | 'todo.reschedule' | 'todo.update' | 'todo.cancel' | 'todo.steps' | 'app.open' | 'character.message.send';
 export type SecretaryDestination = 'diary' | 'todo' | 'moments' | 'memory' | 'timeline' | 'relations' | 'stage' | 'worldSettings';
 export interface SecretaryAction {
+  focusDate?: string | null;
+  workStatus?: 'todo' | 'doing' | 'waiting' | 'blocked';
+  waitingFor?: string | null;
+  blockedReason?: string | null;
+  followupDate?: string | null;
   kind: SecretaryActionKind;
   title?: string;
   content?: string;
@@ -28,6 +33,8 @@ export interface SecretaryAction {
   stepQuery?: string;
 }
 export interface SecretaryResult {
+  occurrenceUndo?: NonNullable<Awaited<ReturnType<typeof import('../../db/todo-repo').todoRepo.updateOccurrence>>>;
+  dispatch?: import('./character-messaging').CharacterDispatch;
   instruction?: import('./operation-contract').OperationContract;
   planningError?: string;
   action: SecretaryAction;
@@ -63,6 +70,7 @@ export interface SecretaryResult {
   stepCandidates?: { index: number; title: string }[];
 }
 export interface SecretaryTask {
+  todoContext?: import('./workspace-todo').SecretaryTodoContext;
   id: string;
   userId: string;
   characterId: string;

@@ -34,7 +34,7 @@ export function UseTimeReminder() {
   }, []);
 
   return (
-    <Modal open={open} onClose={() => setOpen(false)} width="max-w-sm" closeOnBackdrop={false}>
+    <Modal presentation="dialog" open={open} onClose={() => setOpen(false)} width="max-w-sm" closeOnBackdrop={false}>
       <div className="p-6 text-center">
         <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full border border-life-cyan/30 bg-life-cyan/10 text-xl">◌</div>
         <h2 className="text-base font-semibold text-ink">回到现实，休息一会儿</h2>

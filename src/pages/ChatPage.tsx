@@ -1,12 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { ChatWindow } from '../components/chat/ChatWindow';
-import { EmotionPanel } from '../components/chat/EmotionPanel';
-import { EmotionToggleButton } from '../components/chat/EmotionToggleButton';
 import { RelationMilestoneToast } from '../components/chat/RelationMilestoneToast';
 import { useChatStore } from '../store/chat-store';
 import { useAuthStore } from '../store/auth-store';
 import { useEmotionStore } from '../store/emotion-store';
 import { useCharacterStateStore } from '../store/character-state-store';
+import { useUIStore } from '../store/ui-store';
 
 function useProactiveTimer() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -59,8 +58,8 @@ function SettleToast() {
 
   if (!notice) return null;
   return (
-    <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[65] pointer-events-none animate-cloud-in glass-card rounded-full px-4 py-1.5 text-xs text-ink shadow-lg flex items-center gap-1.5">
-      <span>🧬</span>
+    <div className="absolute top-14 left-1/2 -translate-x-1/2 vg-layer-toast pointer-events-none animate-cloud-in glass-card rounded-full px-4 py-1.5 text-xs text-ink shadow-lg flex items-center gap-1.5">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M7 3c0 9 10 9 10 18M17 3c0 9-10 9-10 18M8 6h8M8 18h8M10 9h4M10 15h4" /></svg>
       <span>{notice}</span>
     </div>
   );
@@ -69,14 +68,14 @@ function SettleToast() {
 export function ChatPage() {
   useProactiveTimer();
 
-  const isPanelOpen = useEmotionStore((s) => s.isPanelOpen);
-  const togglePanel = useEmotionStore((s) => s.togglePanel);
-  const currentSnapshot = useEmotionStore((s) => s.currentSnapshot);
   const currentSessionId = useChatStore((s) => s.currentSessionId);
   const loadSessionSnapshots = useEmotionStore((s) => s.loadSessionSnapshots);
   const clearCurrent = useEmotionStore((s) => s.clearCurrent);
   const selectedCharacterId = useChatStore((s) => s.selectedCharacterId);
   const assistant = useChatStore(s => s.characters.find(c => c.id === s.selectedCharacterId)?.agentProfile === 'secretary');
+  useEffect(() => {
+    if (assistant) useUIStore.setState({ activeView: 'actionCabin', assistantTab: 'chat', mobileTab: 'chat' });
+  }, [assistant]);
   const loadCharacterState = useCharacterStateStore((s) => s.load);
 
   // Load snapshots when session changes (if panel is open)
@@ -97,22 +96,14 @@ export function ChatPage() {
     }
   }, [selectedCharacterId, loadCharacterState, assistant]);
 
-  const emotionToggle = (
-    <EmotionToggleButton
-      isOpen={isPanelOpen}
-      hasData={currentSnapshot != null}
-      valence={currentSnapshot?.dimensions.valence}
-      onClick={togglePanel}
-    />
-  );
+  if (assistant) return <div role="status" className="vg-loading">正在打开对话…</div>;
 
   return (
     <div className="relative h-full flex">
       {!assistant && <SettleToast />}
       <div className="flex-1 min-w-0 flex flex-col">
-        <ChatWindow emotionToggle={emotionToggle} />
+        <ChatWindow />
       </div>
-      {!assistant && <EmotionPanel />}
       {!assistant && <RelationMilestoneToast />}
     </div>
   );

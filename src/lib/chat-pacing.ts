@@ -2,11 +2,13 @@
  * 自然聊天节奏：真人不会一次把三句话同时甩出来，也不会每条都等一样久。
  *
  * 规则（与产品约定一致）：
- * - 默认只发 1 条；只有内容本身自然分成 2~3 段时才分条，最多 3 条
+ * - 尊重反应条与内容条，最多 4 条；短反应不补长、不强制拼回完整句
  * - 第一条 350~900ms 出现，后续短句 450~1100ms，长句最多 1800ms
  * - 一轮总等待不超过 3500ms
  * - 用户开启「减少动态效果」时整体压缩，不做长时间等待
  */
+
+import { collapseChatNewlines } from './ai/text';
 
 export const MIN_FIRST_DELAY = 350;
 export const MAX_FIRST_DELAY = 900;
@@ -16,7 +18,25 @@ export const MAX_TOTAL_DELAY = 3500;
 /** 一条消息超过这个字数就算"长句"，等待上限放宽到 1800ms */
 const LONG_MESSAGE_CHARS = 60;
 /** 普通私聊超过这个长度时，优先在自然标点处分成多个气泡，避免一整块文字压满手机屏幕。 */
-const NATURAL_SPLIT_CHARS = 104;
+const NATURAL_SPLIT_CHARS = 60;
+export const MAX_REPLY_PARTS = 4;
+
+export function joinReplyText(left: string, right: string): string {
+  return /[A-Za-z0-9]$/u.test(left) && /^[A-Za-z0-9]/u.test(right) ? `${left} ${right}` : left + right;
+}
+/** Preserve order; smallest adjacent sum wins, with earliest pair breaking ties. */
+export function mergeReplyParts(parts: string[], maxParts = MAX_REPLY_PARTS): string[] {
+  const merged = [...parts];
+  const limit = Math.max(1, Math.floor(maxParts));
+  while (merged.length > limit) {
+    let best = 0;
+    for (let i = 1; i < merged.length - 1; i++) {
+      if (merged[i].length + merged[i + 1].length < merged[best].length + merged[best + 1].length) best = i;
+    }
+    merged.splice(best, 2, joinReplyText(merged[best], merged[best + 1]));
+  }
+  return merged;
+}
 
 /**
  * 单个聊天气泡的最终排版协议。
@@ -26,10 +46,9 @@ const NATURAL_SPLIT_CHARS = 104;
  * 空行藏在同一个气泡里。
  */
 export function normalizeBubbleText(content: string): string {
-  return content
+  return collapseChatNewlines(content
     .replace(/\r\n?/g, '\n')
-    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```(?:\w+)?/g, ''))
-    .replace(/[ \t]*\n+[ \t]*/g, ' ')
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```(?:\w+)?/g, '')))
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/^[ \t]+|[ \t]+$/g, '')
     .trim();
@@ -45,8 +64,7 @@ export function normalizeChatResponse(content: string): string {
       const messages = (candidate as { messages: unknown[] }).messages
         .filter((item): item is string => typeof item === 'string')
         .map(normalizeBubbleText)
-        .filter(Boolean)
-        .slice(0, 3);
+        .filter(Boolean);
       if (messages.length > 0) return messages.join('\n---\n');
     }
   } catch {
@@ -79,10 +97,10 @@ export function followUpDelay(part: string): number {
 }
 
 /**
- * 把一段模型回复切成要发出的分条（最多 3 条）。
+ * 把一段模型回复切成要发出的分条（最多 4 条）。
  * 内容里有 `---` 时尊重模型分段；普通闲聊偶尔过长，则只在自然标点处补分段，避免一整面文字挤在一个气泡里。
  */
-export function splitReplyParts(content: string, maxParts = 3, options: { longForm?: boolean } = {}): string[] {
+export function splitReplyParts(content: string, maxParts = MAX_REPLY_PARTS, options: { longForm?: boolean } = {}): string[] {
   const normalized = normalizeChatResponse(content);
   const parts = normalized
     .split(/\n?-{3,}\n?/)
@@ -94,11 +112,11 @@ export function splitReplyParts(content: string, maxParts = 3, options: { longFo
     // 模型偶尔会忽略短回复协议。普通聊天在自然标点处拆开，
     // 让手机端保留“说一句、停一下”的节奏；明确要长文时保留原段落。
     if (!options.longForm && single.length > NATURAL_SPLIT_CHARS) {
-      const sentences = single.match(/[^。！？!?；;]+[。！？!?；;]?/g)?.map((p) => p.trim()).filter(Boolean) ?? [single];
+      const sentences = single.match(/[^。！？!?；;]+[。！？!?；;]*|[。！？!?；;]+/g)?.map((p) => p.trim()).filter(Boolean) ?? [single];
       if (sentences.length > 1) {
         const chunks: string[] = [];
         let current = '';
-        // 让超长回复尽量平均落在最多三个气泡里，避免前两句很短、最后一段又变成半篇文章。
+        // 让超长回复尽量平均落在最多四个气泡里。
         const targetChunkLength = Math.max(58, Math.ceil(single.length / maxParts));
         for (const sentence of sentences) {
           const next = current ? `${current}${sentence}` : sentence;
@@ -120,10 +138,7 @@ export function splitReplyParts(content: string, maxParts = 3, options: { longFo
     return [single];
   }
   if (parts.length <= maxParts) return parts;
-  // 超过上限：把多出来的并进最后一条，而不是丢掉
-  const head = parts.slice(0, maxParts - 1);
-  head.push(parts.slice(maxParts - 1).join(' '));
-  return head.map(normalizeBubbleText).filter(Boolean);
+  return mergeReplyParts(parts, maxParts);
 }
 
 /** 保留 API 兼容名；现在单气泡内部不插入空行，停顿由多条消息承担。 */

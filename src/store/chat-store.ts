@@ -1,27 +1,23 @@
+import { loadForAccount } from '../lib/load-for-account';
 import { create } from 'zustand';
 import { cleanSecretaryPreferences, isSecretaryPersonality, secretaryPersonality, secretaryGreeting, isGeneratedSecretaryGreeting, withSecretaryPersonality } from '../lib/secretary/personality';
 import { db, type Character, type Session, type Message } from '../db/index';
 import { characterRepo } from '../db/character-repo';
 import { sessionRepo } from '../db/session-repo';
 import { messageRepo, MESSAGE_PAGE_SIZE } from '../db/message-repo';
-import { buildCharacterMemoryContext } from '../lib/character-memory';
 import { memoryRepo } from '../db/memory-repo';
 import { stateRepo } from '../db/state-repo';
 import { continuityRepo } from '../db/continuity-repo';
 import { sharedEventRepo } from '../db/shared-event-repo';
-import { momentsRepo } from '../db/moments-repo';
 import { worldRepo } from '../db/world-repo';
 import { useAuthStore } from './auth-store';
 import { useCharacterStateStore } from './character-state-store';
 import { deriveProactivity, GREETING_PROACTIVITY_THRESHOLD } from '../lib/personality';
-import { generateProactiveMessage } from '../lib/ai/proactive-chat';
-import { generateCharacterImage } from '../lib/ai/image-gen';
 import { notifyLocal } from '../lib/notify';
 import { IS_MOBILE } from '../lib/platform';
 import { ipc } from '../lib/ipc-client';
 import { useNotificationStore } from './notification-store';
 import { useDiaryStore } from './diary-store';
-import { assignVoice } from '../lib/ai/voice-assigner';
 import { sanitizeVoiceProfile, completeVoiceProfile, ALL_VOICES, type VoiceProfile } from '../lib/voice-map';
 import { canUseAi } from '../lib/ai/availability';
 import { isDouluoPreset, syncDouluoRelations, withDouluoRelations } from '../lib/douluo-relations';
@@ -32,13 +28,13 @@ async function assignVoiceIfNeeded(characterId: string, userId: string): Promise
     const apiKey = useAuthStore.getState().apiKey ?? '';
     if (!canUseAi()) return;
     const char = await characterRepo.getById(characterId);
-    if (!char || char.voice || char.agentProfile === 'secretary') return; // 助理不使用普通角色的 AI 声线推断。
-    const r = await assignVoice({
+    if (!char || char.voice || char.agentProfile === 'secretary' || char.createdBy !== userId && !char.isPreset) return; // 助理不使用普通角色的 AI 声线推断。
+    const r = await (await loadForAccount(userId, () => import('../lib/ai/voice-assigner'))).assignVoice({
       apiKey,
       characterId,
       character: { name: char.name, systemPrompt: char.systemPrompt, tags: char.tags },
     });
-    if (r.voice) {
+    if (r.voice && useAuthStore.getState().userId === userId) {
       const full = completeVoiceProfile(sanitizeVoiceProfile(r.voice), characterId);
       await characterRepo.update(characterId, { voice: full });
       // 同步内存中的角色
@@ -54,7 +50,7 @@ async function assignVoiceIfNeeded(characterId: string, userId: string): Promise
 /** Provide the conversation to the common service; no separate follow-up selection. */
 async function recallProactiveMemory(characterId: string, userId: string, sessionId: string, messages: Message[]): Promise<string> {
   const recent = messages.filter(message => !message.failed && message.role !== 'system');
-  const memory = await buildCharacterMemoryContext({
+  const memory = await (await loadForAccount(userId, () => import('../lib/character-memory'))).buildCharacterMemoryContext({
     userId, characterId,
     mode: 'proactive-chat',
     topic: [...recent].reverse().find(message => message.role === 'user')?.content,
@@ -86,7 +82,7 @@ interface ChatState {
   pendingDiarySend: { sessionId: string; text: string } | null;
 
   loadCharacters: () => Promise<void>;
-  selectCharacter: (id: string) => Promise<void>;
+  selectCharacter: (id: string, sessionId?: string) => Promise<void>;
   /** 确保角色有声线：无则后台 AI 判定补分配（幂等；供点 🔊 时兜底调用） */
   ensureCharacterVoice: (id: string) => Promise<void>;
   /** 手动设置角色声线（方言切换等；落库并同步内存） */
@@ -185,6 +181,8 @@ function weightedPick(chars: Character[]): Character {
   return chars[chars.length - 1];
 }
 
+let selectionGeneration = 0;
+
 export const useChatStore = create<ChatState>((set, get) => ({
   selectedCharacterId: null,
   currentSessionId: null,
@@ -223,7 +221,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  selectCharacter: async (id) => {
+  selectCharacter: async (id, requestedSessionId) => {
+    const generation = ++selectionGeneration;
     const userId = useAuthStore.getState().userId ?? '';
     // 重新进入某角色聊天 → 自动从「已删除列表」恢复显示（删除仅隐藏，重新聊天即重现）
     const char = await characterRepo.getById(id);
@@ -231,17 +230,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       await characterRepo.update(id, { chatListHidden: false });
     }
     const existing = await sessionRepo.getByCharacter(id, userId);
-    const session = await getOrCreateSession(id, userId);
+    const session = requestedSessionId ? existing.find(s => s.id === requestedSessionId && s.type !== 'group') : await getOrCreateSession(id, userId);
+    if (!session || requestedSessionId && char?.createdBy !== userId) throw new Error('原聊天已不可用，请重新打开。');
     if (existing.length === 0) {
       await seedGreeting(id, session.id);
     }
     // 只加载最近 MESSAGE_PAGE_SIZE 条，更早消息按需加载
     const msgs = await messageRepo.getPage(session.id, { limit: MESSAGE_PAGE_SIZE });
     const total = await messageRepo.countBySession(session.id);
+    if (useAuthStore.getState().userId !== userId || generation !== selectionGeneration) return;
     // Clear unread for this character (user's own sessions only)
     for (const s of existing) {
       await sessionRepo.clearUnread(s.id);
     }
+    if (useAuthStore.getState().userId !== userId || generation !== selectionGeneration) return;
     const { unreadByCharacter } = get();
     unreadByCharacter[id] = 0;
     set({
@@ -401,10 +403,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const state = await stateRepo.getOrCreate(target.id, userId);
       const lastMessageAt = msgs.length > 0 ? msgs[msgs.length - 1].createdAt : undefined;
 
-      const content = await generateProactiveMessage({
+      const {readVoiceSampleCharacter} = await loadForAccount(userId,()=>import('../lib/chat/voice-sample-cache'));
+      const {buildCharacterVoiceCard} = await loadForAccount(userId,()=>import('../lib/chat-humanizer'));
+      const voiced = await readVoiceSampleCharacter(target,userId);
+
+      const content = await (await loadForAccount(userId, () => import('../lib/ai/proactive-chat'))).generateProactiveMessage({
         apiKey: apiKey ?? '',
         systemPrompt: target.systemPrompt,
         characterName: target.name,
+        voiceCard:buildCharacterVoiceCard(voiced),
+        catchphrase:target.catchphrase,
         lastMessages,
         affinity: state.affinity,
         mood: state.mood,
@@ -413,17 +421,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
         // 自己的经历继续由统一记忆入口提供，不预选一个问题反复追问。
         memoryContext: await recallProactiveMemory(target.id, userId, session.id, msgs),
       });
-      if (content) {
+      const currentMessages = await messageRepo.getBySession(session.id);
+      const currentTarget = await characterRepo.getById(target.id);
+      if (content && useAuthStore.getState().userId === userId && currentTarget && currentTarget.systemPrompt === target.systemPrompt &&
+        currentMessages[currentMessages.length - 1]?.id === msgs[msgs.length - 1]?.id) {
         await get().addProactiveMessage(target.id, content);
         if (IS_MOBILE) void notifyLocal(`💬 ${target.name}`, content.slice(0, 40));
         // 角色主动发图（P1）：约 30% 概率配一张随手拍；无硅基 Key / 失败时静默跳过
         if (Math.random() < 0.3) {
           void (async () => {
             try {
-              const dataUrl = await generateCharacterImage(
+              const dataUrl = await (await loadForAccount(userId, () => import('../lib/ai/image-gen'))).generateCharacterImage(
                 `手机随手一拍风格的照片，主题：${target.name}想分享的一个生活小瞬间（风景/食物/小物件），温馨自然，画面中不要出现文字`,
               );
-              if (dataUrl) {
+              if (dataUrl && useAuthStore.getState().userId === userId) {
                 await get().addProactiveMessage(target.id, '', dataUrl);
               }
             } catch {
@@ -505,6 +516,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         apiKey: apiKey ?? '',
         systemPrompt: targetChar.systemPrompt,
         characterName: targetChar.name,
+        voiceCard:(await loadForAccount(userId,()=>import('../lib/chat-humanizer'))).buildCharacterVoiceCard(await (await loadForAccount(userId,()=>import('../lib/chat/voice-sample-cache'))).readVoiceSampleCharacter(targetChar,userId)),
+        catchphrase:targetChar.catchphrase,
         lastMessages,
         affinity: state.affinity,
         mood: state.mood,
@@ -516,7 +529,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ].filter((value): value is string => Boolean(value?.trim())).slice(0, 4),
       });
 
-      if (result.content) {
+      const currentMessages = await messageRepo.getBySession(session.id);
+      const currentTarget = await characterRepo.getById(targetChar.id);
+      if (result.content && useAuthStore.getState().userId === userId && currentTarget && proactivityOf(currentTarget) >= 0.15 &&
+        currentTarget.systemPrompt === targetChar.systemPrompt && currentMessages[currentMessages.length - 1]?.id === msgs[msgs.length - 1]?.id) {
         await get().addProactiveMessage(targetChar.id, result.content);
       } else if (result.error) {
         console.warn('[proactive] generate error:', result.error);
@@ -541,7 +557,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const now = Date.now();
     const userId = useAuthStore.getState().userId ?? '';
     if (data.agentProfile === 'secretary') {
-      const { createSecretary, openSecretary } = await import('../lib/secretary/character');
+      const { createSecretary, openSecretary } = await loadForAccount(userId, () => import('../lib/secretary/character'));
       const assistant = await createSecretary(userId, data.name, { personality: data.secretaryPersonality, appearance: data.secretaryAppearance, preferences: data.secretaryPreferences });
       await openSecretary(assistant);
       return assistant;
@@ -616,7 +632,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const userId = useAuthStore.getState().userId ?? '';
     const sessions = await sessionRepo.getByCharacter(id, userId);
     const sessionIds = sessions.map((s) => s.id);
-    await momentsRepo.deleteCharacterData(userId, id);
+    await (await loadForAccount(userId, () => import('../db/moments-repo'))).momentsRepo.deleteCharacterData(userId, id);
     if (sessionIds.length > 0) {
       // 删除情绪快照（按会话关联）
       await db.emotionSnapshots.where('sessionId').anyOf(sessionIds).delete();
@@ -711,6 +727,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   deleteAccount: async () => {
     const userId = useAuthStore.getState().userId ?? '';
+    const { momentsRepo } = await loadForAccount(userId, () => import('../db/moments-repo'));
     await db.secretaryBindings.delete(userId);
     await db.secretaryTasks.where('userId').equals(userId).delete();
 
@@ -774,38 +791,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
     useDiaryStore.getState().reset();
   },
 
-  /** 把日记文本作为用户消息发给指定角色：先切到 TA 的会话，再标记待发送 */
+  /** 用户主动分享日记：打开角色聊天，整轮与普通发送及代发共用会话队列。 */
   shareDiaryToCharacter: async (characterId, text) => {
     const userId = useAuthStore.getState().userId ?? '';
     await get().selectCharacter(characterId);
     const sessionId = get().currentSessionId;
-    if (!sessionId) return;
-    // 直接把日记作为用户消息落库（ChatWindow 会立即触发 AI 回复）
-    const msg: Message = {
-      id: crypto.randomUUID(),
-      sessionId,
-      role: 'user',
-      content: text,
-      createdAt: Date.now(),
-      isProactive: false,
-    };
-    await messageRepo.create(msg);
-    await sessionRepo.touch(sessionId);
-    // 追加到当前消息列表
-    set((s) => ({
-      messages: [...s.messages, msg],
-      charPreviews: {
-        ...s.charPreviews,
-        [characterId]: { content: text, createdAt: msg.createdAt },
-      },
-      // 标记待发送：ChatWindow 消费后触发 AI 回复
-      pendingDiarySend: { sessionId, text },
-    }));
+    if (!sessionId || get().selectedCharacterId !== characterId || useAuthStore.getState().userId !== userId) return;
+    const { sendRoleTextMessage } = await loadForAccount(userId, () => import('../lib/chat/send-service'));
+    await sendRoleTextMessage(userId, characterId, sessionId, text);
   },
 
   consumeDiarySend: () => set({ pendingDiarySend: null }),
 
   reset: () => {
+    selectionGeneration++;
     set({
       selectedCharacterId: null,
       currentSessionId: null,

@@ -1,4 +1,4 @@
-import { isProviderId, LLM_MODELS, LLM_PROVIDERS, type LLMModel, type ProviderId } from './provider-registry';
+import { DEEPSEEK_MODEL_ID, isProviderId, LLM_MODELS, LLM_PROVIDERS, type LLMModel, type ProviderId } from './provider-registry';
 
 export interface ProviderConfig {
   baseUrl: string;
@@ -50,6 +50,9 @@ export function normalizeProviderBaseUrl(value: string, provider: ProviderId): s
 }
 function cleanModels(provider: ProviderId, value: unknown): LLMModel[] {
   if (!Array.isArray(value)) return [];
+  // DeepSeek has one managed model. Old catalog overrides cannot remove vision
+  // support or restore a retired/Pro option on rehydration.
+  if (provider === 'deepseek') return [];
   const unique = new Map<string, LLMModel>();
   for (const item of value.slice(0, 300)) {
     if (!item || typeof item !== 'object' || typeof item.id !== 'string') continue;
@@ -87,6 +90,9 @@ export function getAvailableModels(provider?: ProviderId): LLMModel[] {
     for (const model of config.models) models.set(model.id, { ...models.get(model.id), ...model });
     return [...models.values()];
   });
+}
+export function normalizeModelId(id: string, provider: string): string {
+  return provider === 'deepseek' ? DEEPSEEK_MODEL_ID : id;
 }
 export function providerRequiresKey(provider: ProviderId, baseUrl?: string): boolean {
   return provider !== 'custom' || !isLocalProviderUrl(baseUrl ?? getProviderConfig(provider).baseUrl);

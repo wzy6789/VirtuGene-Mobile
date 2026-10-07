@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Icon } from '../ui/Icon';
 import { useUIStore } from '../../store/ui-store';
 import { Modal } from '../ui/Modal';
 import { SECRETARY_CAPABILITIES } from '../../lib/secretary/capabilities';
@@ -7,7 +8,7 @@ import { SecretaryMemoryModal } from './SecretaryMemoryModal';
 import { SecretaryIcon, type SecretaryIconName } from './SecretaryIcon';
 import { SecretarySurfaceIntro } from './SecretarySurfaceIntro';
 
-export function SecretaryMoreMenu({ onInbox, onReview, onManage, disabled }: { onInbox: () => void; onReview: () => void; onManage: () => void; disabled: boolean }) {
+export function SecretaryMoreMenu({ onInbox, onReview, onManage, disabled, name }: { onInbox: () => void; onReview: () => void; onManage: () => void; disabled: boolean; name?: string }) {
   const [open, setOpen] = useState(false);
   const [showCapabilities, setShowCapabilities] = useState(false);
   const [showWorkPreferences, setShowWorkPreferences] = useState(false);
@@ -24,8 +25,8 @@ export function SecretaryMoreMenu({ onInbox, onReview, onManage, disabled }: { o
   return <>
     {showWorkPreferences && <SecretaryWorkPreferencesModal open onClose={() => setShowWorkPreferences(false)} />}
     {showMemory && <SecretaryMemoryModal open onClose={() => setShowMemory(false)} />}
-    <button type="button" aria-label="助理更多操作" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} className="vg-secretary-more flex h-12 w-12 items-center justify-center rounded-xl text-sub"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg></button>
-    <Modal open={open} onClose={() => setOpen(false)} title="助理工作台" width="max-w-sm" panelClassName="vg-settings-panel" footer={<div className="vg-secretary-ui vg-secretary-form-footer vg-secretary-workbench-footer"><div className="vg-secretary-record-links grid grid-cols-3 gap-2">{[['日记', 'diary'], ['朋友圈', 'moments'], ['待办', 'todo']].map(([label, view]) => <button key={view} type="button" onClick={() => go(() => useUIStore.getState().setActiveView(view as 'diary' | 'moments' | 'todo'))} className="min-h-12 rounded-xl border border-line text-xs text-sub">查看{label}</button>)}</div></div>}>
+    <button type="button" title="助理设置与管理" aria-label="助理更多操作" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)} className="vg-secretary-more flex h-12 w-12 items-center justify-center rounded-xl text-sub"><Icon name="gear" size={21}/></button>
+    <Modal open={open} onClose={() => setOpen(false)} title={name ?? '助理工作台'} width="max-w-sm" panelClassName="vg-settings-panel" footer={<div className="vg-secretary-ui vg-secretary-form-footer vg-secretary-workbench-footer"><div className="vg-secretary-record-links grid grid-cols-3 gap-2">{[['日记', 'diary'], ['朋友圈', 'moments'], ['待办', 'todo']].map(([label, view]) => <button key={view} type="button" onClick={() => go(() => useUIStore.getState().setActiveView(view as 'diary' | 'moments' | 'todo'))} className="min-h-12 rounded-xl border border-line text-xs text-sub">查看{label}</button>)}</div></div>}>
       <div className="vg-settings-design vg-secretary-ui vg-secretary-menu space-y-4 p-5">
         <SecretarySurfaceIntro icon="spark" title="生活里的事，一起理顺" detail="办事有结果，记录有去处。日记私密保存，朋友圈由你选择发布。" />
         <div className="vg-secretary-menu-actions">{actions.map((item, index) => <button key={item.label} type="button" aria-label={item.label} disabled={item.disabled} onClick={() => go(item.action)} className={`vg-secretary-menu-row ${index < 2 ? 'is-featured' : ''} disabled:opacity-40`}><span className="vg-secretary-icon-tile"><SecretaryIcon name={item.icon} size={20} /></span><span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">{item.title}</span><span className="mt-1 block text-xs text-sub">{item.detail}</span></span><SecretaryIcon name="chevron" size={14} className="text-sub" /></button>)}</div>

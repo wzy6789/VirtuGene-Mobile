@@ -45,7 +45,7 @@ with user tokens.
 
 聊天响应始终经过服务端安全指令。明确、紧迫的自伤风险会在调用模型前进入固定的现实安全引导。客户端还需要持续显示 AI 内容标识，并在累计使用两小时后提醒休息。
 
-将 `server/gateway.mjs` 上传至 `/opt/virtugene/gateway.mjs`，将 `server/virtugene-gateway.service` 上传至 `/etc/systemd/system/virtugene-gateway.service`。创建 `/etc/virtugene/gateway.env`，其中至少包含 `DEEPSEEK_API_KEY`、`GATEWAY_AUTH_SECRET`、`GATEWAY_CORS_ORIGIN`。`VIRTUGENE_GATEWAY_TOKEN` 仅在迁移期间保留。启用服务：
+将 `server/gateway.mjs`、`server/deepseek-policy.mjs` 和 `server/chat-messaging-policy.mjs` 一起上传至 `/opt/virtugene/`，保持三个模块在同一目录。将 `server/virtugene-gateway.service` 上传至 `/etc/systemd/system/virtugene-gateway.service`。创建 `/etc/virtugene/gateway.env`，其中至少包含 `DEEPSEEK_API_KEY`、`GATEWAY_AUTH_SECRET`、`GATEWAY_CORS_ORIGIN`。`VIRTUGENE_GATEWAY_TOKEN` 仅在迁移期间保留。启用服务：
 
 ```bash
 systemctl daemon-reload

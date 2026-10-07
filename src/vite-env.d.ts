@@ -38,6 +38,8 @@ interface VirtuGeneAPI {
       sessionModel?: { provider: string; model: string } | null;
       forceVision?: boolean;
       onDelta?: (accumulated: string, delta: string) => void;
+      /** In-memory diagnostics only; never persisted as a second chat transcript. */
+      onRawResponse?: (raw: string) => void;
       signal?: AbortSignal;
     }) => Promise<{
       content?: string;
@@ -98,6 +100,8 @@ interface VirtuGeneAPI {
       followUp?: string;
       memoryContext?: string;
       lifeHints?: string[];
+      voiceCard?: string;
+      catchphrase?: string;
     }) => Promise<{ content?: string; error?: string }>;
   };
   memory: {

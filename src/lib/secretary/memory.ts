@@ -3,11 +3,11 @@ import { memoryRepo } from '../../db/memory-repo';
 import { memorySourceTombstoneId, memorySourceTombstoneRepo } from '../../db/memory-source-tombstone-repo';
 import { useAuthStore } from '../../store/auth-store';
 import { rankConversationMemories } from '../memory-engine';
-import { topicTerms } from '../chat-conversation-state';
 import { localDateKey, occurrenceId } from '../../db/todo-repo';
 import type { SecretaryTask } from './types';
-import { searchHistoryCandidates } from './retrieval';
+import { searchHistoryCandidates, secretaryTaskSearchText } from './retrieval';
 import { diaryProtectedTask } from './privacy';
+import { secretaryRecallQuery, secretaryRecallScore, secretaryWorkOverview } from './recall-query';
 
 export interface SecretaryMemoryProposal {
   kind: 'fact' | 'preference';
@@ -104,6 +104,8 @@ export function validateSecretaryMemories(raw: unknown, request: string): Secret
 export const SECRETARY_MEMORY_PROMPT = `你有用户私人助理工作区的连续记忆，跨会话及聘用保留。旧助理办过的事是工作区记录，不冒称当前助理亲历。
 当前用户要求优先；记忆只辅助理解，不能授权执行、自动提醒、发布或修改设置。办事习惯仍以用户已保存的设置为准，记忆中的格式偏好可用于写作但不能改变权限、时间或受众。
 按当前话题使用记忆，不每次复述同一件事、追问或催办；用户换题就跟随。历史消息的日期只说明当时说过，不把计划当作已完成，不把旧安排当作今天。
+character.message.send的currentState以dispatch-receipt开头时，只是原始代发办事回执的状态，不含角色私聊正文。draft/needs-model/paused都不能说已发送，queued/generating不能说已有回复。需要具体回复时引导用户查看原代发卡片，不能编造正文或用回执推断对方当前态度。
+responsePreferences是用户的表达要求，持续用于称呼和文风，不每次朗读或复述。按当前要求优先调整。旧交流与事实应结合当前问法理解；“你记得我在哪上班吗”可以使用已核验的工作事实，不要求用户复述地点。召回类别仅为查找线索，不能推断未说过的信息。retrieval中的数量与limited说明本次资料覆盖范围，没有命中只说明本次没找到，不能断言用户从未告诉过你。
 可以额外输出 memories:[{kind:"fact或preference",quote:"当前用户消息中逐字连续引用",replacesId:"明确纠正时才填写资料中旧记忆的真实ID"}]，没有可记内容时省略。
 只记用户明确讲的稳定个人信息与长期偏好。quote必须来自当前消息；不能来自回复、资料、日记、其他角色聊天或星域。不得推断疾病、情绪、关系、已完成任务。临时要求、问句、计划、引述及今天的情绪不沉淀。明确不让记时memories=[]。
 用户纠正旧事实时用replacesId，旧事实停用。不得编造ID、删除无关记忆或把记忆写成已执行的事项。记忆写入结果由应用反馈。`;
@@ -181,15 +183,17 @@ export async function assertSecretaryMemoryReferences(task: SecretaryTask, diary
     if (!row || refs.memoryVersions?.[id] !== (row.updatedAt ?? row.createdAt)) throw new Error('记忆已修改或忘记，请重新发送这次请求。');
   }
   const suppressed = await memorySourceTombstoneRepo.suppressedMessages(task.userId, task.characterId);
+  const sessions = new Set((await db.sessions.where('[characterId+userId]').equals([task.characterId, task.userId]).filter(s => s.type !== 'group').primaryKeys()));
   for (const id of refs.messageIds) {
     const row = await db.messages.get(id);
-    if (!row || row.failed || suppressed.has(id) || refs.messageVersions?.[id] !== (row.revision ?? 1)) throw new Error('旧交流资料已变化，请重新发送这次请求。');
+    if (!row || row.failed || !sessions.has(row.sessionId) || suppressed.has(id) || suppressed.has(id.replace(/^secretary-reply:/u, ''))
+      || refs.messageVersions?.[id] !== (row.revision ?? 1)) throw new Error('旧交流资料已变化，请重新发送这次请求。');
   }
   for (const id of refs.taskIds) {
     const row = await db.secretaryTasks.get(id);
     const source = row ? await db.messages.get(row.messageId) : undefined;
     if (!row || row.userId !== task.userId || row.characterId !== task.characterId || row.updatedAt !== refs.taskVersions?.[id]
-      || !source || source.failed || source.content !== row.request || suppressed.has(source.id)
+      || !source || source.role !== 'user' || source.failed || source.content !== row.request || suppressed.has(source.id)
       || source.sessionId !== row.sessionId || refs.taskSourceVersions?.[id] !== (source.revision ?? 1)) throw new Error('任务进展已变化，请重新查询后继续。');
   }
   for (const ref of refs.recordVersions ?? []) {
@@ -200,23 +204,38 @@ export async function assertSecretaryMemoryReferences(task: SecretaryTask, diary
   }
 }
 
-function relevance(text: string, query: string): number {
-  const terms = topicTerms(query), source = normalize(text);
-  return [...terms].filter(t => source.includes(t)).length;
-}
-
-// Single nouns such as “茶” can be meaningful without broadening every query to all facts.
-const COMMON_TOPIC_CHARS = new Set(Array.from('我你他她它们的了是这那着就也都把让在有不吗呢吧啊呀和与又很今天现在以前喜欢偏好习惯知道记住什么怎么一下长期告诉助理用户帮请想要能会可对还再事些个种说回'));
-const MEMORY_GENERIC_TERMS = new Set(['喜欢', '不喜', '偏好', '习惯', '记住', '记忆', '助理', '用户', '关于', '告诉', '长期', '知道', '还记', '信息', '内容']);
-function memoryRelevance(text: string, query: string): number {
-  const content = normalize(text);
-  const score = [...topicTerms(query)].filter(term => !MEMORY_GENERIC_TERMS.has(term) && content.includes(term)).length;
-  if (score) return score;
-  const chars = new Set(Array.from(query).filter(c => /[\u4e00-\u9fff]/u.test(c) && !COMMON_TOPIC_CHARS.has(c)));
-  return [...chars].some(c => text.includes(c)) ? 0.5 : 0;
-}
+const relevance = secretaryRecallScore;
+const memoryRelevance = secretaryRecallScore;
 function expressionPreference(row: MemoryItem): boolean {
   return row.memoryKind === 'preference' && /回复|回应|称呼|叫我|表情|文风|语气|说话|简短|少问|不要催/u.test(row.content);
+}
+
+/** Remove only known fact spans; a second detail in the same turn must stay searchable. */
+function remainingEvidence(message: Message, memories: MemoryItem[]): string {
+  const spans: { start: number; end: number }[] = [];
+  for (const row of memories) {
+    if (!row.sourceMessageIds?.includes(message.id) || (row.sourceMessageRevisions?.[message.id] ?? 1) !== (message.revision ?? 1)) continue;
+    const start = row.sourceMessageOffsets?.[message.id] ?? message.content.indexOf(row.content);
+    const end = row.sourceMessageEndOffsets?.[message.id] ?? start + row.content.length;
+    // Legacy evidence lacking a usable segment stays out rather than bypassing cooldown.
+    if (start < 0 || end <= start || end > message.content.length) return '';
+    spans.push({ start, end });
+  }
+  let result = message.content;
+  for (const { start, end } of spans.sort((a, b) => b.start - a.start)) result = result.slice(0, start) + ' '.repeat(end - start) + result.slice(end);
+  return result.trim();
+}
+
+/** Keep the matching passage of a long source, not always its opening paragraph. */
+function evidenceExcerpt(text: string, query: string, limit = 900): string {
+  if (text.length <= limit) return text;
+  let bestAt = 0, bestScore = -1;
+  for (let start = 0; start < text.length; start += 300) {
+    const score = relevance(text.slice(start, start + 600), query);
+    if (score > bestScore) { bestScore = score; bestAt = start; }
+  }
+  const start = Math.max(0, Math.min(text.length - limit, bestAt - 150));
+  return text.slice(start, start + limit);
 }
 
 /** Read-only, query-driven recall. Live records remain the authority for task progress. */
@@ -228,49 +247,60 @@ export async function buildSecretaryMemoryContext(task: SecretaryTask, recent: M
   const sessions = await db.sessions.where('[characterId+userId]').equals([task.characterId, task.userId]).filter(s => s.type !== 'group').toArray();
   const owned = new Set(sessions.map(s => s.id));
   const cutoff = (await db.messages.get(task.messageId))?.createdAt ?? task.createdAt;
-  const safeRecent = recent.filter(m => m.id !== task.messageId && !m.failed && !suppressed.has(m.id)
+  const safeRecent = recent.filter(m => owned.has(m.sessionId) && m.id !== task.messageId && !m.failed && !suppressed.has(m.id)
     && m.createdAt <= cutoff && !suppressed.has(m.id.replace(/^secretary-reply:/u, ''))
     && !(m.role === 'user' && parseSecretaryMemoryCommand(m.content)?.kind === 'forget')
     && !(m.contextTrace?.memoryIds ?? []).some(id => !byId.has(id) || (byId.get(id)!.updatedAt ?? 0) > m.contextTrace!.at));
+  const recentTasks = (await db.secretaryTasks.bulkGet(recent.map(m => `secretary-task:${task.userId}:${m.id.replace(/^secretary-reply:/u, '')}`))).filter((t): t is SecretaryTask => !!t && t.userId === task.userId && t.characterId === task.characterId);
+  const lockedTopics = new Set(diaryUnlocked ? [] : recentTasks.filter(diaryProtectedTask).map(t => t.messageId));
+  const query = secretaryRecallQuery(task.request, [...safeRecent].reverse().find(m => m.role === 'user' && !lockedTopics.has(m.id))?.content);
+  const overview = secretaryWorkOverview(task.request);
   const mentioned = new Set(safeRecent.filter(m => m.role === 'assistant').flatMap(m => m.contextTrace?.spokenMemoryIds ?? []));
-  const relevant = all.filter(row => memoryRelevance(row.content, task.request) > 0 || expressionPreference(row));
+  const relevant = all.filter(row => memoryRelevance(row.content, query) > 0 || expressionPreference(row));
   // An explicit return to the subject reopens it; style preferences alone do not.
-  const cooled = new Set([...mentioned].filter(id => !memoryRelevance(byId.get(id)?.content ?? '', task.request)));
-  const memories = rankConversationMemories(relevant, task.request, cooled, 12);
+  const cooled = new Set([...mentioned].filter(id => !memoryRelevance(byId.get(id)?.content ?? '', query)));
+  const memories = rankConversationMemories([...relevant].sort((a, b) => memoryRelevance(b.content, query) - memoryRelevance(a.content, query)), query, cooled, 12);
   const recentIds = new Set(recent.map(m => m.id));
   // Keep verified stable memories and recent conversation, including lock checks.
   // A clearly casual turn need not flush/backfill/search the whole work history.
-  const recentTasks = (await db.secretaryTasks.bulkGet(recent.map(m => `secretary-task:${task.userId}:${m.id.replace(/^secretary-reply:/u, '')}`))).filter((t): t is SecretaryTask => !!t && t.userId === task.userId && t.characterId === task.characterId);
   const candidates = light ? { messages: [], tasks: recentTasks, incomplete: true }
-    : await searchHistoryCandidates(task.userId, task.characterId, task.request);
+    : await searchHistoryCandidates(task.userId, task.characterId, query);
   const historic: Message[] = [];
   const messages = candidates.messages.filter(m => owned.has(m.sessionId) && m.role === 'user' && !m.failed && m.id !== task.messageId && m.createdAt <= cutoff
-    && !recentIds.has(m.id) && !suppressed.has(m.id) && parseSecretaryMemoryCommand(m.content)?.kind !== 'forget' && relevance(m.content, task.request) > 0);
+    && !recentIds.has(m.id) && !suppressed.has(m.id) && parseSecretaryMemoryCommand(m.content)?.kind !== 'forget');
   for (const message of messages) {
-    if (!await memorySourceTombstoneRepo.blocksImport({ userId: task.userId, sourceType: 'message', sourceId: message.id, sourceRevision: message.revision ?? 1 })) historic.push(message);
+    const content = remainingEvidence(message, all);
+    if (relevance(content, query) > 0 && !await memorySourceTombstoneRepo.blocksImport({ userId: task.userId, sourceType: 'message', sourceId: message.id, sourceRevision: message.revision ?? 1 })) historic.push({ ...message, content });
   }
-  historic.sort((a, b) => relevance(b.content, task.request) - relevance(a.content, task.request) || b.createdAt - a.createdAt);
+  historic.sort((a, b) => relevance(b.content, query) - relevance(a.content, query) || b.createdAt - a.createdAt);
   const tasks = candidates.tasks.filter(t => t.userId === task.userId && t.characterId === task.characterId && t.status === 'finished' && owned.has(t.sessionId) && t.id !== task.id && t.createdAt < task.createdAt && !suppressed.has(t.messageId));
   const taskEvidence = new Map<string, { sourceVersion: number; records: NonNullable<SecretaryMemoryReferences['recordVersions']>; diary: boolean }>();
   const seenRecords = new Set<string>();
   const receipts: { id: string; date: string; previousEmployment: boolean; results: { kind: string; status: string; title?: string; content?: string; targetId?: string; currentState?: string; date?: string; steps?: { title: string; completed: boolean }[] }[] }[] = [];
-  for (const previous of tasks.sort((a, b) => relevance(b.request, task.request) - relevance(a.request, task.request) || b.updatedAt - a.updatedAt)) {
+  for (const previous of tasks.sort((a, b) => (overview ? 0 : relevance(secretaryTaskSearchText(b), query) - relevance(secretaryTaskSearchText(a), query)) || b.updatedAt - a.updatedAt)) {
     if (receipts.length >= 4) break;
     if (!diaryUnlocked && diaryProtectedTask(previous)) continue;
     const source = await db.messages.get(previous.messageId);
-    if (!source || source.failed || source.content !== previous.request || source.sessionId !== previous.sessionId
-      || !relevance(previous.request, task.request) || await memorySourceTombstoneRepo.blocksImport({ userId: task.userId, sourceType: 'message', sourceId: source.id, sourceRevision: source.revision ?? 1 })) continue;
+    if (!source || source.role !== 'user' || source.failed || source.content !== previous.request || source.sessionId !== previous.sessionId
+      || !overview && !relevance(secretaryTaskSearchText(previous), query) || await memorySourceTombstoneRepo.blocksImport({ userId: task.userId, sourceType: 'message', sourceId: source.id, sourceRevision: source.revision ?? 1 })) continue;
     const results: typeof receipts[number]['results'] = [];
     const records: NonNullable<SecretaryMemoryReferences['recordVersions']> = [];
     let usesDiary = diaryProtectedTask(previous);
     for (const r of previous.results) {
-      if (r.action.kind.startsWith('moment.') && /朋友圈|动态|文案|草稿|发布/u.test(task.request)
+      if (r.action.kind === 'character.message.send' && r.dispatch) {
+        // Canonical receipts only: mirrored continuation cards must not duplicate work.
+        if (r.dispatch.taskId !== previous.id || seenRecords.has(`dispatch:${r.dispatch.taskId}`)) continue;
+        seenRecords.add(`dispatch:${r.dispatch.taskId}`);
+        results.push({ kind: r.action.kind, status: r.status, title: r.dispatch.recipientName, currentState: `dispatch-receipt:${r.dispatch.state}` });
+        continue;
+      }
+      if (r.action.kind.startsWith('moment.') && (overview || /朋友圈|动态|文案|草稿|发布/u.test(task.request))
         && (!previous.dailyReview?.includeDiary || diaryUnlocked)) {
         if (r.status === 'draft') {
           const key = `draft:${r.operationId ?? `${previous.id}:${previous.results.indexOf(r)}`}`;
           if (seenRecords.has(key)) continue;
           seenRecords.add(key);
-          results.push({ kind: r.action.kind, status: r.status, currentState: 'draft; not published', content: r.action.content?.slice(0, 1600) });
+          results.push({ kind: r.action.kind, status: r.status, currentState: 'draft; not published', ...(overview ? {} : { content: r.action.content?.slice(0, 1600) }) });
           usesDiary ||= !!previous.dailyReview?.includeDiary;
         }
         else if (r.targetId) {
@@ -280,12 +310,12 @@ export async function buildSecretaryMemoryContext(task: SecretaryTask, recent: M
             records.push({ kind: 'moment', id: moment.id, version: moment.updatedAt });
             usesDiary ||= !!previous.dailyReview?.includeDiary;
             results.push({ kind: r.action.kind, status: r.status, targetId: moment.id,
-              currentState: moment.deleted ? 'withdrawn' : 'published', ...(moment.deleted ? {} : { content: moment.text.slice(0, 1600) }) });
+              currentState: moment.deleted ? 'withdrawn' : 'published', ...(moment.deleted || overview ? {} : { content: moment.text.slice(0, 1600) }) });
           }
         }
         continue;
       }
-      if (r.action.kind === 'diary.save' && /日记|手账/u.test(task.request) && diaryUnlocked && r.targetId) {
+      if (r.action.kind === 'diary.save' && (overview || /日记|手账/u.test(task.request)) && diaryUnlocked && r.targetId) {
         const diary = await db.diaries.get(r.targetId);
         if (diary?.userId === task.userId && !diary.deletedAt && !diary.characterId && diary.visibility !== 'world' && !seenRecords.has(`diary:${diary.id}`)) {
           seenRecords.add(`diary:${diary.id}`);
@@ -316,10 +346,16 @@ export async function buildSecretaryMemoryContext(task: SecretaryTask, recent: M
   }
   // One bounded payload, with only complete selected entries referenced in the receipt.
   const refs: SecretaryMemoryReferences = { memoryIds: [], messageIds: [], taskIds: [], memoryVersions: {}, messageVersions: {}, taskVersions: {}, taskSourceVersions: {}, recordVersions: [] };
-  const data: { memories: { id: string; kind?: string; content: string }[]; previousUserMessages: { id: string; date: string; content: string }[]; taskProgress: typeof receipts } = { memories: [], previousUserMessages: [], taskProgress: [] };
+  const data: { memories: { id: string; kind?: string; content: string }[]; responsePreferences: { id: string; content: string }[]; previousUserMessages: { id: string; date: string; content: string }[]; taskProgress: typeof receipts } = { memories: [], responsePreferences: [], previousUserMessages: [], taskProgress: [] };
   let budget = 5000;
   const add = (value: unknown) => { const size = JSON.stringify(value).length; if (size > budget) return false; budget -= size; return true; };
   for (const row of memories) { const value = { id: row.id, kind: row.memoryKind, content: row.content }; if (add(value)) { data.memories.push(value); refs.memoryIds.push(row.id); refs.memoryVersions![row.id] = row.updatedAt ?? row.createdAt; } }
+  // A spoken preference cools down as a topic, but keeps guiding the user's work style.
+  for (const row of all.filter(expressionPreference).slice(0, 4)) {
+    if (refs.memoryIds.includes(row.id)) continue;
+    const value = { id: row.id, content: row.content };
+    if (add(value)) { data.responsePreferences.push(value); refs.memoryIds.push(row.id); refs.memoryVersions![row.id] = row.updatedAt ?? row.createdAt; }
+  }
   for (const row of receipts) {
     if (!add(row)) continue;
     data.taskProgress.push(row); refs.taskIds.push(row.id); refs.taskVersions![row.id] = tasks.find(t => t.id === row.id)!.updatedAt;
@@ -333,17 +369,20 @@ export async function buildSecretaryMemoryContext(task: SecretaryTask, recent: M
   // the task. Derived drafts and pending requests need the same lock as diaries.
   const diaryTaskIds = new Set([...tasks, ...recentTasks, ...historicTasks].filter(diaryProtectedTask).map(t => t.messageId));
   if (diaryUnlocked && safeRecent.some(m => diaryTaskIds.has(m.id.replace(/^secretary-reply:/u, '')))) refs.requiresDiaryUnlocked = true;
-  // Cooling or budget exclusion must not revive a fact through its raw evidence.
-  const selectedEvidence = new Set(all.flatMap(m => m.sourceMessageIds ?? []));
   for (const row of historic) {
-    if (selectedEvidence.has(row.id)) continue;
     if (!diaryUnlocked && diaryTaskIds.has(row.id) || data.previousUserMessages.length >= 4) continue;
-    const value = { id: row.id, date: localDateKey(new Date(row.createdAt)), content: row.content.slice(0, 900) };
+    const value = { id: row.id, date: localDateKey(new Date(row.createdAt)), content: evidenceExcerpt(row.content, query) };
     if (add(value)) {
       data.previousUserMessages.push(value); refs.messageIds.push(row.id); refs.messageVersions![row.id] = row.revision ?? 1;
       refs.requiresDiaryUnlocked ||= diaryTaskIds.has(row.id);
     }
   }
+  const visibleRecent = safeRecent.filter(m => diaryUnlocked || !diaryTaskIds.has(m.id.replace(/^secretary-reply:/u, '')));
+  // Recent dialogue is also evidence: editing it while generating must cancel the late answer.
+  for (const row of visibleRecent) {
+    if (!refs.messageIds.includes(row.id)) refs.messageIds.push(row.id);
+    refs.messageVersions![row.id] = row.revision ?? 1;
+  }
   await owner(task.userId, task.characterId);
-  return { data: { ...data, retrieval: { limited: true, indexBuilding: candidates.incomplete } }, references: refs, recent: safeRecent.filter(m => diaryUnlocked || !diaryTaskIds.has(m.id.replace(/^secretary-reply:/u, ''))) };
+  return { data: { ...data, retrieval: { limited: true, indexBuilding: candidates.incomplete, matchingFacts: relevant.length, includedFacts: data.memories.length, factsLimited: relevant.length > data.memories.length } }, references: refs, recent: visibleRecent.map(m => ({ ...m, content: evidenceExcerpt(m.content, query, 1200) })) };
 }

@@ -18,7 +18,7 @@ export function quotedTodoPayload(request: string): { text: string; start: numbe
 }
 
 /** Scope comes from the current user instruction, never from recalled documents. */
-export function actionAllowed(action: SecretaryAction, request: string): boolean {
+export function actionAllowed(action: SecretaryAction, request: string, selectedTodo = false): boolean {
   const quotedTodo = quotedTodoPayload(request);
   if (quotedTodo && action.kind !== 'todo.create') return false;
   // Commands in quoted data are never permission. An explicit tool instruction
@@ -35,12 +35,14 @@ export function actionAllowed(action: SecretaryAction, request: string): boolean
   const moment = /朋友圈|动态|文案/u.test(request);
   const publish = /(?:发布|发(?:布|出|一条|个|条|一下|到)|发(?=朋友圈|动态)|直接发|帮我发)/u.test(request)
     && !/(?:不要|别|先不|暂时不|不用|不必|不)(?:直接|帮我|再|继续|现在)*(?:发|发布)|只(?:写|要).*草稿/u.test(request);
-  const todo = /待办|提醒|安排|日程|计划|加一项|加个|新增|记个任务|记一项/u.test(request);
+  const todo = selectedTodo || /待办|提醒|安排|日程|计划|加一项|加个|新增|记个任务|记一项/u.test(request);
   const naturalTodo = !/日记|手账|朋友圈|动态|文案/u.test(request)
     && /(?:帮我|替我|给我|麻烦|请).*(?:记上|记一下|记下来|记着)|^(?:请|麻烦)?记上.+|别让我忘(?:了|记)|不要让我忘(?:了|记)|记得叫我(?:一声)?/u.test(request)
     && !/(?:不要|别|不用|不必|先不|暂时不).*?(?:记上|记一下|记下来|记着|保存|叫我)/u.test(request);
   const stepIntent = /步骤|子任务/u.test(request) || explicitStepIndex(request) != null;
   switch (action.kind) {
+    // Messaging authorization is handled by the dedicated source-checked workflow.
+    case 'character.message.send': return false;
     case 'todo.steps': {
       if (!todo || !(stepIntent || /拆|分解/u.test(request)) || /(?:不要|别|不用|不必).*(?:拆|分解|添加|新增|完成|勾|恢复|保存)|只(?:要|给|提供)?(?:建议|拆分建议)|(?:先不|不)保存/u.test(request)) return false;
       if (action.stepMode === 'add') return /拆|分解|加|新增|补/u.test(request);
@@ -65,7 +67,7 @@ export function actionAllowed(action: SecretaryAction, request: string): boolean
       && !stepIntent
       && !/(?:还?没(?:有)?|未|尚未|不算)(?:做完|完成|办完)|(?:不要|别|不用|不必).*(?:划掉|勾掉|完成|打勾)/u.test(request);
     case 'todo.reopen': return /恢复|撤销|取消完成|没做完|还没完成|重新打开/u.test(request) && !stepIntent && !/(?:不要|别|不用|不必).*(?:恢复|撤销|取消完成|重新打开)/u.test(request);
-    case 'todo.reschedule': return /改|挪|推迟|提前|调整/u.test(request) && /待办|安排|日程|提醒|改到|挪到|改成/u.test(request)
+    case 'todo.reschedule': return /改|挪|推迟|提前|调整/u.test(request) && (selectedTodo || /待办|安排|日程|提醒|改到|挪到|改成/u.test(request))
       && !stepIntent
       && !/(?:不要|别|不用|不必).*(?:改|挪|推迟|提前|调整)/u.test(request);
   }

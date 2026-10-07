@@ -1,8 +1,8 @@
 import { db } from '../../db';
 import { localDateKey, expandOccurrenceDates, occurrenceId } from '../../db/todo-repo';
 import { useAuthStore } from '../../store/auth-store';
-import { assertPendingSources, pendingQuestion } from './pending-context';
 import { saveWorkPreferences, workPreferencesOrDefault } from './work-preferences';
+import { readActionDay } from '../action-cabin/query';
 
 export interface SecretarySuggestion { key: string; text: string; kind: 'todo' | 'pending' | 'review'; todoId?: string; date?: string }
 const owned = (userId: string) => useAuthStore.getState().userId === userId;
@@ -18,18 +18,15 @@ export async function readSecretarySuggestion(userId: string, now = new Date(), 
     const task = await db.secretaryTasks.get(binding.pendingFocusTaskId);
     if (task?.userId === userId && task.characterId === binding.characterId && task.employmentId === binding.employmentId && task.pendingContext?.state === 'waiting') {
       try {
+        const { assertPendingSources, pendingQuestion } = await import('./pending-context');
+        if (!owned(userId)) return;
         await assertPendingSources(task);
         suggestions.push({ key: `pending:${task.id}:${task.updatedAt}`, kind: 'pending', text: `还有一件事待补充：${pendingQuestion(task.pendingContext)}` });
       } catch { /* Invalid references must never become a prompt to resume stale work. */ }
     }
   }
-  const todos = await db.todos.where('userId').equals(userId).filter(t => t.status === 'todo' && !!t.dueDate && t.dueDate <= today).limit(256).toArray();
-  const candidates = todos.flatMap(todo => {
-    const date = todo.recurrence.kind === 'none' ? todo.dueDate! : expandOccurrenceDates(todo, today, today)[0];
-    return date ? [{ todo, date }] : [];
-  });
-  const occurrences = await db.todoOccurrences.bulkGet(candidates.map(r => occurrenceId(r.todo.id, r.date)));
-  const pending = candidates.filter((_r, i) => occurrences[i]?.status !== 'completed');
+  const snapshot=await readActionDay(userId,now);
+  const pending=snapshot.dueOrOverdue.map(r=>({todo:{...r.todo,dueTime:r.occurrence.dueTime},date:r.occurrence.dueDate}));
   const todayRows = pending.filter(r => r.date === today);
   for (const row of todayRows) {
     if (!row.todo.dueTime) continue;

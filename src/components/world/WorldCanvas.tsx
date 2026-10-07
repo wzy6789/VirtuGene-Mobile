@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLatestMessageScroll } from '../ui/useLatestMessageScroll';
 import type { WorldAgentState, WorldLocation, WorldPresence, WorldScene, WorldSceneEntry } from '../../db/index';
+import { useFeedback } from '../../lib/feedback';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
@@ -28,6 +29,7 @@ import { worldSceneRepo } from '../../db/world-scene-repo';
 import { worldLocationRepo } from '../../db/world-location-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
 import { Avatar } from '../ui/Avatar';
+import { Icon } from '../ui/Icon';
 import {
   canvasPresence,
   ensureCanvasScene,
@@ -106,7 +108,7 @@ export function WorldCanvas() {
     window.addEventListener('vg-close-canvas-sheet', closeSheet);
     return () => window.removeEventListener('vg-close-canvas-sheet', closeSheet);
   }, []);
-  const [toast, setToast] = useState<string | null>(null);
+  const setToast = useFeedback();
   const [entryMemoryMode, setEntryMemoryMode] = useState<'memory' | 'present' | 'amnesiac'>('memory');
   const [exploreOpen, setExploreOpen] = useState(false);
   const [locations, setLocations] = useState<WorldLocation[]>([]);
@@ -280,12 +282,6 @@ export function WorldCanvas() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [sheetOpen]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2600);
-    return () => clearTimeout(timer);
-  }, [toast]);
 
   /* ------------------------------ 滚动跟随（§70） ------------------------------ */
   const scrollToBottom = useCallback((smooth = false) => {
@@ -616,7 +612,7 @@ export function WorldCanvas() {
     >
       {/* 顶部只留入口、当前片段和两个动作；地点/人物详情点开再看。 */}
       <div className="vg-canvas-top">
-        <button type="button" className="vg-canvas-back" onClick={() => void exitCanvas()} aria-label="离开世界">‹</button>
+        <button type="button" className="vg-canvas-back" onClick={() => void exitCanvas()} aria-label="离开世界"><Icon name="back" size={20} /></button>
         <div className="vg-canvas-title-stack">
           <p className="vg-canvas-title">{scene?.title || '世界'}</p>
           <p className="vg-canvas-place">{scene ? `${scene.place} · ${worldTimeLabel(scene)}` : '正在进入世界…'}</p>
@@ -767,7 +763,6 @@ export function WorldCanvas() {
         onAction={(action) => void runControl(action)}
       />
 
-      {toast && <div className="vg-toast">{toast}</div>}
     </div>
   );
 }

@@ -1,20 +1,28 @@
+import { Icon } from '../ui/Icon';
 import { MultiFilterChips } from '../ui/PhysicalInteractions';
 import { AnimatedValue } from '../ui/AnimatedValue';
 import { ConnectionEmptyState } from '../ui/ConnectionEmptyState';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat-store';
+import { useFeedback } from '../../lib/feedback';
 import { useAuthStore } from '../../store/auth-store';
 import { CharacterAddModal } from './CharacterAddModal';
 import { CharacterProfileModal } from './CharacterProfileModal';
 import { GroupChatPage } from '../chat/GroupChatPage';
 import { RelationNetworkModal } from './RelationNetworkModal';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
 import { Modal } from '../ui/Modal';
+import { beginSoulHandoff, soulElement } from '../../lib/soul-handoff';
+import { resonate } from '../../lib/haptics';
 import { Avatar } from '../ui/Avatar';
 import { BrandWordmark } from '../ui/BrandWordmark';
 import { getSortKey } from '../../lib/pinyin';
 import type { Character } from '../../db/index';
 import { isStoryCharacter } from '../../lib/character-domain';
 import { SecretaryWorkspaceCard } from '../secretary/SecretaryWorkspaceCard';
+import { ensureOwnedChatCharacter } from '../../lib/character-chat';
+
+let savedCharacters: {owner:string;top:number;search:string;filter:'all'|'own';tags:string[]} | undefined;
 
 export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
   const characters = useChatStore(s => s.characters);
@@ -22,22 +30,30 @@ export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
   const fetchUnreadCounts = useChatStore(s => s.fetchUnreadCounts);
   const selectCharacter = useChatStore(s => s.selectCharacter);
   const deleteCharacter = useChatStore(s => s.deleteCharacter);
+  const feedback = useFeedback();
   const userId = useAuthStore(s => s.userId) ?? '';
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'own'>('all');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [search, setSearch] = useState(() => savedCharacters?.owner === userId ? savedCharacters.search : '');
+  const [filter, setFilter] = useState<'all' | 'own'>(() => savedCharacters?.owner === userId ? savedCharacters.filter : 'all');
+  const [selectedTags, setSelectedTags] = useState<string[]>(() => savedCharacters?.owner === userId ? savedCharacters.tags : []);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const savedState = useRef({search,filter,tags:selectedTags}); savedState.current = {search,filter,tags:selectedTags};
+  useLayoutEffect(() => { if (scrollRef.current && savedCharacters?.owner === userId) scrollRef.current.scrollTop = savedCharacters.top; return () => { if (scrollRef.current) savedCharacters = {owner:userId,top:scrollRef.current.scrollTop,...savedState.current}; }; },[userId]);
   const tagOptions = useMemo(() => {
     const counts = new Map<string, number>();
     characters.filter(isStoryCharacter).forEach(c => new Set(c.tags ?? []).forEach(t => { if (t.trim()) counts.set(t, (counts.get(t) ?? 0) + 1); }));
     return [...new Set([...[...counts].sort((a, b) => b[1] - a[1]).map(([tag]) => tag).slice(0, 16), ...selectedTags])];
   }, [characters, selectedTags]);
-  useEffect(() => { setSelectedTags([]); }, [userId]);
+  const previousOwner = useRef(userId);
+  useEffect(() => { if (previousOwner.current !== userId) { previousOwner.current = userId; setSelectedTags([]); setSearch(''); setFilter('all'); } },[userId]);
   const [editor, setEditor] = useState<{ character?: Character } | null>(null);
   const [manage, setManage] = useState<Character | null>(null);
   const [profile, setProfile] = useState<Character | null>(null);
+  const profileRef = useRef(profile); profileRef.current = profile;
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; },[]);
   const [deleting, setDeleting] = useState<Character | null>(null);
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
@@ -63,13 +79,17 @@ export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
   }, [characters, search, filter, userId, selectedTags]);
 
   const enterChat = async (c: Character) => {
-    await selectCharacter(c.id);
+    const target = await ensureOwnedChatCharacter(c, userId);
+    if (useAuthStore.getState().userId !== userId) return;
+    await selectCharacter(target.id);
+    if (!mounted.current || profileRef.current?.id !== c.id || useAuthStore.getState().userId !== userId || useChatStore.getState().selectedCharacterId !== target.id) return;
+    beginSoulHandoff(`avatar:${target.id}`,soulElement(`avatar:${c.id}`,'profile'),'chat');
     setProfile(null); onSelect();
   };
   const remove = async () => {
     if (!deleting || lock.current) return;
     lock.current = true; setBusy(true); setError('');
-    try { await deleteCharacter(deleting.id); setDeleting(null); }
+    try { resonate('warning'); await deleteCharacter(deleting.id); feedback('角色与关联记录已删除', { tone: 'success' }); setDeleting(null); }
     catch { setError('删除未完成，请重试。'); }
     finally { lock.current = false; setBusy(false); }
   };
@@ -78,14 +98,14 @@ export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
     <header className="vg-character-heading shrink-0 px-5 pt-5 pb-3">
       <div className="flex items-center justify-between gap-3">
         <div><p className="vg-brand-wordmark"><BrandWordmark /></p><h1 className="mt-1 text-2xl font-semibold text-ink">角色</h1></div>
-        <button onClick={() => setEditor({})} className="vg-primary-action min-h-11 rounded-full px-4 text-sm">＋ 添加角色</button>
+        <button aria-label="＋ 添加角色" onClick={() => setEditor({})} className="vg-primary-action min-h-11 rounded-full px-4 text-sm inline-flex items-center gap-2"><Icon name="plus" size={16} />添加角色</button>
       </div>
-      <div className="vg-conversation-search mt-4 flex min-h-11 items-center rounded-2xl border border-line bg-surface px-3">
+      <div className="vg-search-field vg-conversation-search mt-4 flex items-center px-3">
         <input aria-label="搜索角色" placeholder="搜索名字、签名或标签" value={search} onChange={e => setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none" />
-        {search && <button aria-label="清空搜索" className="h-11 w-11 text-sub" onClick={() => setSearch('')}>×</button>}
+        {search && <button aria-label="清空搜索" className="h-11 w-11 text-sub" onClick={() => setSearch('')}><Icon name="close" size={18} /></button>}
       </div>
     </header>
-    <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-6">
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-6">
       <div className="vg-character-shortcuts grid grid-cols-2 gap-3 mb-4">
         <button onClick={() => setNetwork(true)} className="is-relations min-h-20 rounded-2xl border border-life-cyan/20 px-4 text-left">
           <span className="vg-shortcut-title text-base font-medium text-ink">
@@ -120,10 +140,10 @@ export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
         </>}
       </div>
     </Modal>
-    <Modal open={!!deleting} onClose={() => { if (!busy) setDeleting(null); }} title="删除角色" width="max-w-sm" closeOnBackdrop={false}>
-      <div className="p-5 text-sm text-sub"><p>确定删除「{deleting?.name}」？关联的对话、记忆和关系也会清除，无法恢复。</p>{error && <p role="alert" className="mt-3 text-red-400">{error}</p>}<div className="mt-5 flex gap-3"><button disabled={busy} className="flex-1 min-h-11 rounded-xl border border-line" onClick={() => setDeleting(null)}>取消</button><button disabled={busy} onClick={() => void remove()} className="flex-1 min-h-11 rounded-xl bg-red-500/15 text-red-400">{busy ? '正在删除…' : '确认删除'}</button></div></div>
+    <Modal presentation="dialog" open={!!deleting} onClose={() => { if (!busy) setDeleting(null); }} title="删除角色" width="max-w-sm" closeOnBackdrop={false}>
+      <div className="vg-delete-confirmation m-5"><p>确定删除「{deleting?.name}」？关联的对话、记忆和关系也会清除，无法恢复。</p>{error && <FeedbackNotice className="mt-3" message={error} tone="error" />}<div className="mt-5 flex gap-3"><button disabled={busy} className="flex-1 min-h-11 rounded-xl border border-line" onClick={() => setDeleting(null)}>取消</button><button disabled={busy} onClick={() => void remove()} className="flex-1 min-h-11 rounded-xl bg-red-500/15 text-red-400">{busy ? '正在删除…' : '确认删除'}</button></div></div>
     </Modal>
-    {profile && <CharacterProfileModal key={profile.id} character={characters.find(c => c.id === profile.id) ?? profile} worldCharacters={characters} userId={userId} onClose={() => setProfile(null)} onChat={enterChat} onAdd={enterChat} />}
+    {profile && <CharacterProfileModal key={profile.id} character={characters.find(c => c.id === profile.id) ?? profile} worldCharacters={characters} userId={userId} onClose={() => setProfile(null)} onChat={enterChat} />}
     {editor && <CharacterAddModal key={editor.character?.id ?? 'new'} open onClose={() => setEditor(null)} editCharacter={editor.character} onSelected={() => { if (!editor.character) onSelect(); }} />}
     {groups && <GroupChatPage onClose={() => setGroups(false)} />}
     {network && <RelationNetworkModal open onClose={() => setNetwork(false)} characters={characters.filter(isStoryCharacter)} userId={userId} />}
@@ -141,9 +161,9 @@ function CharacterRow({ character: c, onOpen, onManage }: { character: Character
       onPointerDown={e => { cancel(); held.current = false; origin.current = { x: e.clientX, y: e.clientY }; if (onManage && e.button === 0) timer.current = setTimeout(() => { held.current = true; onManage(); }, 550); }}
       onPointerMove={e => { if (Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) > 8) cancel(); }} onPointerUp={cancel} onPointerCancel={cancel} onPointerLeave={cancel}
       onContextMenu={e => { if (onManage) { e.preventDefault(); cancel(); held.current = true; onManage(); } }}>
-      <Avatar avatar={c.avatar} size="lg" className="!w-12 !h-12" />
+      <Avatar avatar={c.avatar} size="lg" className="!w-12 !h-12" soulKey={`avatar:${c.id}`} soulRole="list" />
       <span className="min-w-0 flex-1"><span className="block truncate text-base font-medium text-ink">{c.name}</span><span className="mt-1 block truncate text-xs text-sub">{c.signature || (c.tags ?? []).slice(0, 3).join(' · ') || '点击查看角色'}</span></span>
     </button>
-    {onManage && <button aria-label={`管理${c.name}`} onClick={onManage} className="min-h-12 w-11 shrink-0 text-xl text-sub">⋯</button>}
+    {onManage && <button aria-label={`管理${c.name}`} onClick={onManage} className="min-h-12 w-11 shrink-0 text-sub grid place-items-center"><Icon name="more" size={20} /></button>}
   </div>;
 }

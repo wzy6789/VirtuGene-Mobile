@@ -1,0 +1,7 @@
+{
+  "templates": 120,
+  "instances": 11070,
+  "median": 15.100000001490116,
+  "p95": 18.200000002980232,
+  "note": "Chrome browser wall time; not Android WebView/GPU frame time"
+}

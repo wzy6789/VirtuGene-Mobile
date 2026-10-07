@@ -12,7 +12,7 @@
  *    所有模型都无法给出内容才**如实报错**，绝不编造内容。
  */
 import { llmChat, getProviderKey } from './llm';
-import { findModel, resolveModel, type LLMModel } from './llm';
+import { DEEPSEEK_MODEL_ID, findModel, resolveModel, type LLMModel } from './llm';
 import { safeParseAIResponse, safeParseObject } from './safe-json';
 import { worldChat } from '../world/world-ai-client';
 import { buildWorldTimeContext } from '../world/world-time';
@@ -105,8 +105,8 @@ export interface SceneDirectorResult {
   llmCalls?: number;
 }
 
-/** 舞台专用模型顺序：稳定的 Flash 优先，随后是更强的 Pro，再尝试用户已配置的其他供应商。 */
-const SCENE_MODEL_ORDER = ['deepseek-v4-flash', 'deepseek-v4-pro', 'qwen3.7-plus', 'mimo-v2.5'] as const;
+/** 舞台专用模型顺序：Flash 优先，再尝试用户已配置的其他供应商。 */
+const SCENE_MODEL_ORDER = [DEEPSEEK_MODEL_ID, 'qwen3.7-plus', 'mimo-v2.5'] as const;
 function sceneModelChain(primary: LLMModel): LLMModel[] {
   const rest = SCENE_MODEL_ORDER
     .map((id) => findModel(id))
@@ -458,7 +458,7 @@ export async function proposeSceneSettlement(
 - 每条 relationshipChanges 必须带 reason；没有原因的不要写。
 - 不要输出 JSON 以外的任何文字。`;
 
-  const flash = findModel('deepseek-v4-flash') ?? resolveModel();
+  const flash = findModel(DEEPSEEK_MODEL_ID, 'deepseek') ?? resolveModel();
   const models = sceneModelChain(flash);
   const messages = [
     { role: 'system', content: `${instruction}\n\n出场角色：${params.memberNames.map((m) => m.name).join('、')}（用户也在这个世界里）` },

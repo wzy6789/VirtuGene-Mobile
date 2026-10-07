@@ -1,3 +1,4 @@
+import { useFeedback } from '../../lib/feedback';
 import { useAiAvailability } from '../settings/useAiAvailability';
 import { avatarImageSrc } from '../../lib/avatar';
 import { TagInput, DIARY_TAGS } from '../ui/PhysicalInteractions';
@@ -32,6 +33,7 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
   const getOrCreateForDate = useDiaryStore((s) => s.getOrCreateForDate);
   const updateDiary = useDiaryStore((s) => s.updateDiary);
   const deleteDiary = useDiaryStore((s) => s.deleteDiary);
+  const feedback = useFeedback();
   const apiKey = useAuthStore((s) => s.apiKey) ?? '';
   const hasAiAccess = useAiAvailability();
   const diaryAiEnabled = useSettingsStore((s) => s.diaryAiEnabled);
@@ -792,17 +794,15 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
       )}
 
       {/* 删除确认 */}
-      <Modal open={showDelete} onClose={() => setShowDelete(false)} width="max-w-sm" closeOnBackdrop={false}>
-        <div className="p-6">
+      <Modal presentation="dialog" open={showDelete} onClose={() => setShowDelete(false)} width="max-w-sm" closeOnBackdrop={false}>
+        <div className="vg-delete-confirmation m-5">
           <p className="text-sm text-sub mb-2">删除这一天（{formatDateFull(date)}）的日记？</p>
-          <p className="text-xs text-gray-500 mb-6">这段基因序列将被永久抹除。</p>
+          <p className="text-xs text-gray-500 mb-6">日记会移入回收站，7 天内可以恢复。</p>
           <div className="flex gap-3 justify-end">
             <button onClick={() => setShowDelete(false)} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
             <button
               onClick={() => {
-                void deleteDiary(diary.id);
-                setShowDelete(false);
-                onBack();
+                void deleteDiary(diary.id).then(() => { if (useAuthStore.getState().userId !== diary.userId) return; feedback('日记已移入回收站，7 天内可以恢复', { tone: 'success' }); setShowDelete(false); onBack(); }).catch(() => feedback('日记未能删除，内容已保留', { tone: 'error' }));
               }}
               className="px-4 py-2 rounded-lg text-sm bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
             >
@@ -824,7 +824,7 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
       />
 
       {/* 把这一天发给角色 */}
-      <Modal open={shareOpen} onClose={() => setShareOpen(false)} width="max-w-sm" closeOnBackdrop={false}>
+      <Modal open={shareOpen} onClose={() => setShareOpen(false)} title="分享日记" width="max-w-sm" closeOnBackdrop={false}>
         <div className="p-6">
           <p className="text-sm text-sub mb-1">把这一天发给角色</p>
           <p className="text-xs text-gray-500 mb-4">会以你的身份把这篇日记发到 TA 的会话里，TA 会回应你的一天。</p>

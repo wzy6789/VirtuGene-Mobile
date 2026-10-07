@@ -36,7 +36,7 @@ async function run(){
   root.render(h('div',{className:'px-4 h-full overflow-y-auto'},h(WorldSceneConstellation,{scene:sectorScene,entries:sectorEntries,characters:[c],entriesLoading:false,onBack:()=>{},onContinue:()=>{}})));
   return;
  }
- if(params.has('visual')) {const page=params.get('visual');root.render(page==='chat'?chat():page==='world'?h(MobileWorldPage):page==='characters'?h(MobileCharacterPage,{onSelect:()=>{}}):page==='profile'?h(CharacterProfileModal,{character:{...c,greeting:'今天来得正好。坐一会儿？',tags:['安静','观察细致','有自己的节奏']},userId:'',onClose:()=>{},onAdd:()=>{},onChat:()=>{}}):h(MobileChatListPage,{onSelect:()=>{}}));return;}
+ if(params.has('visual')) {const page=params.get('visual');root.render(page==='chat'?chat():page==='world'?h(MobileWorldPage):page==='characters'?h(MobileCharacterPage,{onSelect:()=>{}}):page==='profile'?h(CharacterProfileModal,{character:{...c,greeting:'今天来得正好。坐一会儿？',tags:['安静','观察细致','有自己的节奏']},userId:'',onClose:()=>{},onChat:()=>{}}):h(MobileChatListPage,{onSelect:()=>{}}));return;}
  for(const dark of [true,false]) for(const width of [360,390,430]) {
   document.documentElement.classList.toggle('dark',dark);host.style.width=`${width}px`;
   root.render(h(MobileChatListPage,{onSelect:()=>{}}));await wait();

@@ -1,3 +1,4 @@
+import { useFeedback } from '../../lib/feedback';
 import { useCallback, useEffect, useState } from 'react';
 import type { Character, SharedStoryEvent } from '../../db/index';
 import { sharedEventRepo, SHARED_EVENT_TYPES, type SharedEventType } from '../../db/shared-event-repo';
@@ -22,6 +23,7 @@ export function SharedStoryEventsModal({
   userId: string;
 }) {
   const [events, setEvents] = useState<SharedStoryEvent[]>([]);
+  const feedback = useFeedback();
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -207,13 +209,13 @@ export function SharedStoryEventsModal({
                       {event.viewpoints?.[b.id] && <p className="text-[11px] text-gray-500">{b.name}：{event.viewpoints[b.id]}</p>}
                     </div>
                   )}
-                  <div className="mt-2 flex justify-end gap-1.5">
+                  <div className={confirmId === event.id ? 'vg-delete-confirmation vg-delete-inline mt-2' : 'mt-2 flex justify-end gap-1.5'}>
                     {confirmId === event.id ? (
                       <>
-                        <span className="text-[10px] text-gray-500">这段故事将被永久抹除</span>
+                        <span>这段故事删除后无法恢复</span>
                         <button onClick={() => setConfirmId(null)} className="rounded-lg px-2 py-1 text-[10px] text-gray-500">取消</button>
                         <button
-                          onClick={() => void sharedEventRepo.remove(event.id).then(() => { setConfirmId(null); return reload(); })}
+                          onClick={() => void sharedEventRepo.remove(event.id).then(() => { setConfirmId(null); feedback('共同故事已删除', { tone: 'success' }); return reload(); }).catch(() => feedback('故事删除或列表刷新未完成，请重试', { tone: 'error' }))}
                           className="rounded-lg bg-red-500/15 px-2 py-1 text-[10px] text-red-400"
                         >
                           删除

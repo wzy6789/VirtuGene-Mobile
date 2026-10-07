@@ -1,3 +1,4 @@
+import { useFeedback } from '../../lib/feedback';
 import { useCallback, useEffect, useState } from 'react';
 import type { Character, MemoryClaim, MemoryEvidence, MemoryItem } from '../../db/index';
 import { db } from '../../db/index';
@@ -26,6 +27,7 @@ export function MemoryArchiveModal({
   userId: string;
 }) {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const feedback = useFeedback();
   const [crossClaims, setCrossClaims] = useState<{ claim: MemoryClaim; sources: MemoryEvidence[] }[]>([]);
   const [jobStatus, setJobStatus] = useState({ pending: 0, failed: 0 });
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
@@ -213,11 +215,11 @@ export function MemoryArchiveModal({
                     </button>
                   )}
                   {confirmId === memory.id ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-gray-500">这段记忆将被永久抹除</span>
+                    <div className="vg-delete-confirmation vg-delete-inline">
+                      <span>这条记忆删除后无法恢复</span>
                       <button onClick={() => setConfirmId(null)} className="rounded-lg px-2 py-1 text-[10px] text-gray-500">取消</button>
                       <button
-                        onClick={() => void memoryRepo.deleteById(memory.id).then(() => { setConfirmId(null); return reload(); })}
+                        onClick={() => void memoryRepo.deleteById(memory.id).then(() => { setConfirmId(null); feedback('这条记忆已删除', { tone: 'success' }); return reload(); }).catch(() => feedback('记忆删除或列表刷新未完成，请重试', { tone: 'error' }))}
                         className="rounded-lg bg-red-500/15 px-2 py-1 text-[10px] text-red-400"
                       >
                         删除

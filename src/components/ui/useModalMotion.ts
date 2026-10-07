@@ -2,7 +2,7 @@
 import { IS_MOBILE } from '../../lib/platform';
 import { prefersReducedMotion, restoreSnapshotScroll, settleFrames, subscribeReducedMotion, visualSnapshot } from '../../lib/mobile-motion';
 
-interface Handoff { top: number; opacity: number; panelOpacity: number }
+interface Handoff { left: number; opacity: number; panelOpacity: number }
 interface ClosingFrame {
   depth: number;
   remove: () => void;
@@ -11,9 +11,9 @@ interface ClosingFrame {
 const closingFrames = new Map<HTMLElement, ClosingFrame>();
 // DOM insertion and ref detachment do not necessarily follow sibling order. In
 // particular, a replacement portal can already exist while its old ref detaches.
-// Track committed refs so that a replacement is not mistaken for a nested sheet.
+// Track committed refs so that a replacement is not mistaken for a nested page.
 const liveOverlays = new Set<HTMLElement>();
-const translateY = (style: CSSStyleDeclaration) => style.transform === 'none' ? 0 : new DOMMatrixReadOnly(style.transform).m42;
+const translateX = (style: CSSStyleDeclaration) => style.transform === 'none' ? 0 : new DOMMatrixReadOnly(style.transform).m41;
 
 /** A closing frame can finish even when the caller immediately unmounts the Modal. */
 export function useModalMotion(canSnapshotOnExit?: () => boolean) {
@@ -41,8 +41,9 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
       const panelStyle = getComputedStyle(panel);
       const rootOpacity = Number(rootStyle.opacity);
       const panelOpacity = Number(panelStyle.opacity);
-      const panelY = translateY(panelStyle);
-      const panelTop = panel.getBoundingClientRect().top;
+      const panelX = translateX(panelStyle);
+      const panelLeft = panel.getBoundingClientRect().left;
+      const page = panel.classList.contains('vg-mobile-page');
       const backgroundColor = rootStyle.backgroundColor;
       const depth = live.depth;
       const snapshot = visualSnapshot(live.node);
@@ -52,7 +53,7 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
       snapshot.style.backgroundColor = backgroundColor;
       snapshot.style.opacity = String(rootOpacity);
       const frozenPanel = snapshot.querySelector<HTMLElement>(':scope > .vg-modal-panel')!;
-      frozenPanel.style.transform = `translate3d(0,${panelY}px,0)`;
+      frozenPanel.style.transform = `translate3d(${panelX}px,0,0)`;
       frozenPanel.style.opacity = String(panelOpacity);
       frozenPanel.style.willChange = 'transform,opacity';
       document.body.append(snapshot);
@@ -83,7 +84,7 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
       // allocation/cancellation. Hold the captured pose until that decision is known.
       startFrame = requestAnimationFrame(() => {
         if (!allowed()) { remove(); return; }
-        leave = frozenPanel.animate(settleFrames(panelY, panelY + 20, panelOpacity, .74, 'y', 3), { duration: 180, easing: 'linear' });
+        leave = frozenPanel.animate(settleFrames(panelX, page ? panelX + 48 : panelX, panelOpacity, .74, 'x', 3), { duration: 180, easing: 'linear' });
         shade = snapshot.animate([{ opacity: rootOpacity }, { opacity: 0 }], { duration: 180, easing: 'cubic-bezier(.4,0,1,1)' });
         shade.onfinish = remove;
       });
@@ -92,17 +93,17 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
         if (released || !allowed()) { remove(); return; }
         const opacity = Number(getComputedStyle(snapshot).opacity);
         const style = getComputedStyle(frozenPanel);
-        const y = translateY(style);
+        const x = translateX(style);
         const ownOpacity = Number(style.opacity);
-        const top = panelTop + y - panelY;
+        const left = panelLeft + x - panelX;
         cancelAnimationFrame(startFrame); leave?.cancel(); shade?.cancel();
         // The incoming overlay owns one continuous scrim. Its predecessor is an
-        // inert visual under the new panel, including when replacing a nested sheet.
+        // inert visual under the new panel, including when replacing a nested page.
         snapshot.style.backgroundColor = 'transparent'; snapshot.style.opacity = '1'; snapshot.style.zIndex = '0';
         overlay.prepend(snapshot);
-        leave = frozenPanel.animate(settleFrames(y, y - 8, ownOpacity, 0, 'y', 3), { duration: 140, easing: 'linear' });
+        leave = frozenPanel.animate(settleFrames(x, page ? x - 8 : x, ownOpacity, 0, 'x', 3), { duration: 140, easing: 'linear' });
         leave.onfinish = remove;
-        return { top, opacity, panelOpacity: ownOpacity };
+        return { left, opacity, panelOpacity: ownOpacity };
       } });
       const unsubscribe = subscribeReducedMotion(remove);
       document.addEventListener('visibilitychange', hidden);
@@ -112,15 +113,16 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
     const animations: Animation[] = [];
     const panel = node.querySelector<HTMLElement>(':scope > .vg-modal-panel');
     const depth = liveOverlays.size + 1;
+    node.style.setProperty('--vg-modal-depth', String(depth - 1));
     liveOverlays.add(node);
     const candidate = IS_MOBILE && !prefersReducedMotion() && !document.hidden
       ? [...closingFrames.values()].find(frame => frame.depth === depth) : undefined;
     closingFrames.forEach(frame => { if (frame !== candidate) frame.remove(); });
-    const targetTop = candidate && panel ? panel.getBoundingClientRect().top : 0;
+    const targetLeft = candidate && panel ? panel.getBoundingClientRect().left : 0;
     const source = candidate?.attachTo(node);
     if (IS_MOBILE && panel && !prefersReducedMotion() && !document.hidden) {
-      const fullHeight = panel.classList.contains('vg-mobile-sheet-full');
-      const distance = source ? Math.max(-30, Math.min(30, source.top - targetTop)) : fullHeight ? 14 : 24;
+      const page = panel.classList.contains('vg-mobile-page');
+      const distance = page ? source ? Math.max(-48, Math.min(48, source.left - targetLeft)) : Math.min(80, innerWidth * .2) : 0;
       if (!source || source.opacity < .999) {
         node.style.willChange = 'opacity';
         const shade = node.animate([{ opacity: source?.opacity ?? 0 }, { opacity: 1 }], { duration: 140, easing: 'cubic-bezier(.16,1,.3,1)' });
@@ -128,7 +130,7 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
         animations.push(shade);
       }
       panel.style.willChange = 'transform,opacity';
-      const enter = panel.animate(settleFrames(distance, 0, source ? Math.min(.94, source.panelOpacity) : .92, 1, 'y', 3), { duration: source ? 260 : 300, easing: 'linear' });
+      const enter = panel.animate(settleFrames(distance, 0, source ? Math.min(.94, source.panelOpacity) : .92, 1, 'x', 3), { duration: source ? 220 : 240, easing: 'linear' });
       enter.onfinish = () => { panel.style.willChange = ''; };
       animations.push(enter);
     }

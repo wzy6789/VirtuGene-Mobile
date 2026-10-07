@@ -231,11 +231,11 @@ export function buildChatConversationStateContext(state: Partial<ChatConversatio
   if (current.userWantsToShift) lines.push('用户刚刚明确想转向。旧话题暂停，本轮不要追问旧事。');
   if (prefs.brevity === 'short') lines.push('用户偏好短回复，先说最重要的一句。');
   if (prefs.brevity === 'detailed') lines.push('用户最近明确希望展开，可以比普通聊天多说一些，但仍保持口语。');
-  if (prefs.questionTolerance === 'low') lines.push('用户不喜欢连续被提问，每两轮最多问一个必要问题。');
+  if (prefs.questionTolerance === 'low') lines.push('用户不喜欢连续被提问，优先回应，确实需要时再补问。');
   if (prefs.adviceStyle === 'listen') lines.push('用户更希望先被听见，未经请求不要立刻给解决方案。');
   if (prefs.adviceStyle === 'direct') lines.push('用户在需要建议时偏好直接、具体的判断。');
   if (current.recentActions.length > 0) {
-    lines.push(`最近已经用过的回复动作：${current.recentActions.map((action) => ACTION_LABELS[action] ?? action).join('、')}。下一轮换一个合适的动作，不要机械重复。`);
+    lines.push(`最近的交流：${current.recentActions.map((action) => ACTION_LABELS[action] ?? action).join('、')}。只作为上下文，不强制轮换反应或语气。`);
   }
   return lines.length > 1 ? lines.join('\n') : '';
 }

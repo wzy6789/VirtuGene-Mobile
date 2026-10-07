@@ -7,7 +7,7 @@ import { useChatStore } from '../../store/chat-store';
 import { useSettingsStore } from '../../store/settings-store';
 import { continueSecretaryAction, undoSecretaryAction, saveSecretaryDraft, dismissSecretaryAction, diaryAccessAllowed } from '../../lib/secretary/agent';
 import type { SecretaryAction, SecretaryResult, SecretaryTask } from '../../lib/secretary/types';
-import { AUDIENCE_MODE_LABELS } from '../../lib/moments/preferences';
+import { AUDIENCE_MODE_LABELS, loadMomentsPreferences } from '../../lib/moments/preferences';
 import { readOwnedSecretaryTask } from '../../lib/secretary/inbox';
 import { SECRETARY_DESTINATIONS } from '../../lib/secretary/capabilities';
 import { isDiaryUnlocked, subscribeDiaryUnlock } from '../../lib/diary-unlock';
@@ -16,6 +16,7 @@ import { readTodoReceipt, readNotificationReceipt } from '../../lib/secretary/re
 import { REMINDER_STATUS_LABELS } from '../../lib/todo-reminders';
 import { todoRepo } from '../../db/todo-repo';
 import { requestNotificationPermission } from '../../lib/notify';
+import { CharacterDispatchCard } from '../secretary/CharacterDispatchCard';
 
 function ReminderState({ userId, todoId, date }: { userId: string; todoId: string; date?: string }) {
   const [state, setState] = useState<{ labels: string[]; retry: boolean; permission: boolean }>();
@@ -106,8 +107,8 @@ function ResultCard({ task, result, index }: { task: SecretaryTask; result: Secr
   const [date, setDate] = useState(result.action.date ?? '');
   const [time, setTime] = useState(result.action.time ?? '');
   const [intervalDays, setIntervalDays] = useState(String(result.action.intervalDays ?? ''));
-  const [visibility, setVisibility] = useState(result.action.visibility ?? '');
-  const [audience, setAudience] = useState<string[]>(result.action.audienceIds ?? []);
+  const [visibility, setVisibility] = useState(() => result.action.visibility ?? loadMomentsPreferences(task.userId).audience.mode);
+  const [audience, setAudience] = useState<string[]>(() => result.action.audienceIds ?? loadMomentsPreferences(task.userId).audience.contactIds);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -123,7 +124,7 @@ function ResultCard({ task, result, index }: { task: SecretaryTask; result: Secr
   const reviewEditable = !!task.dailyReview && ['needs-input', 'failed'].includes(result.status) && !inactive && !lockedDiary;
   useEffect(() => { setText(result.action.content ?? ''); }, [result.action.content]);
   useEffect(() => { setIntervalDays(String(result.action.intervalDays ?? '')); }, [result.action.intervalDays]);
-  useEffect(() => { setTitle(result.action.title ?? ''); setDate(result.action.date ?? ''); setTime(result.action.time ?? ''); setVisibility(result.action.visibility ?? ''); setAudience(result.action.audienceIds ?? []); }, [result.action.title, result.action.date, result.action.time, result.action.visibility, result.action.audienceIds]);
+  useEffect(() => { setTitle(result.action.title ?? ''); setDate(result.action.date ?? ''); setTime(result.action.time ?? ''); const saved = loadMomentsPreferences(task.userId).audience; setVisibility(result.action.visibility ?? saved.mode); setAudience(result.action.audienceIds ?? (result.action.visibility == null || result.action.visibility === saved.mode ? saved.contactIds : [])); }, [result.action.title, result.action.date, result.action.time, result.action.visibility, result.action.audienceIds, task.userId]);
   const run = async (work: () => Promise<unknown>) => {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError(''); setNotice('');
@@ -146,6 +147,10 @@ function ResultCard({ task, result, index }: { task: SecretaryTask; result: Secr
     const record = result.targetId ? await (destination === 'diary' ? db.diaries : destination === 'moments' ? db.moments : db.todos).get(result.targetId) : undefined;
     if (useAuthStore.getState().userId !== task.userId) return;
     if (result.targetId && (!record || record.userId !== task.userId)) throw new Error('没有找到这项记录。');
+    if (destination === 'todo' && task.todoContext) {
+      useUIStore.setState({ activeView: 'actionCabin', assistantTab: 'today', mobileTab: 'chat', lifeRecordFocus: record ? { userId: task.userId, kind: 'todo', id: record.id, date: result.targetDate } : null });
+      return;
+    }
     useUIStore.setState({ chatFromList: false, chatFromCharacters: false, mobileTab: 'world', activeView: destination,
       lifeRecordFocus: record ? { userId: task.userId, kind: destination, id: record.id, date: result.targetDate ?? ('date' in record ? record.date : 'dueDate' in record ? record.dueDate : undefined) } : null });
   };
@@ -168,10 +173,10 @@ function ResultCard({ task, result, index }: { task: SecretaryTask; result: Secr
       <button type="button" disabled={busy || (result.action.kind === 'diary.save' ? !text.trim() : !title.trim())} onClick={() => void proceed({ title, content: text })} className="min-h-11 rounded-xl bg-gene-purple px-3 text-xs text-white">{result.action.kind === 'diary.save' ? '采用并保存日记' : '采用并创建待办'}</button>
     </div>}
     {editable && !lockedDiary && <div className="mt-3 space-y-2">
-      <label className="block text-xs text-sub">发布给谁看<select aria-label="朋友圈可见范围" value={visibility} onChange={e => setVisibility(e.target.value)} className="mt-2 w-full min-w-0 min-h-11 rounded-lg border border-line bg-surface px-2 text-sm text-ink"><option value="">沿用已保存的发布偏好</option>{Object.entries(AUDIENCE_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label className="block text-xs text-sub">发布给谁看<select aria-label="朋友圈可见范围" value={visibility} onChange={e => setVisibility(e.target.value as NonNullable<SecretaryAction['visibility']>)} className="mt-2 w-full min-w-0 min-h-11 rounded-lg border border-line bg-surface px-2 text-sm text-ink">{Object.entries(AUDIENCE_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       {(visibility === 'selected' || visibility === 'excluded') && <div className="flex flex-wrap gap-2">{characters.map(c => <label key={c.id} className="flex min-h-11 items-center gap-2 text-xs text-ink"><input type="checkbox" checked={audience.includes(c.id)} onChange={e => setAudience(ids => e.target.checked ? [...ids, c.id] : ids.filter(id => id !== c.id))} />{c.name}</label>)}</div>}
       <div className="flex flex-wrap gap-2"><button disabled={busy || !text.trim()} onClick={() => void run(async () => { await saveSecretaryDraft(task.userId, task.id, index, text); setNotice('草稿已保存。'); })} className="min-h-11 rounded-xl border border-line px-3 text-xs text-ink">保存草稿</button>
-        <button disabled={busy || !text.trim()} onClick={() => void proceed({ kind: 'moment.publish', content: text, ...(visibility ? { visibility: visibility as SecretaryAction['visibility'], audienceIds: audience } : {}) })} className="min-h-11 rounded-xl bg-gene-purple px-4 text-xs text-white">{busy ? '正在处理…' : '发布朋友圈'}</button></div>
+        <button disabled={busy || !text.trim()} onClick={() => void proceed({ kind: 'moment.publish', content: text, visibility, audienceIds: visibility === 'selected' || visibility === 'excluded' ? audience : [] })} className="min-h-11 rounded-xl bg-gene-purple px-4 text-xs text-white">{busy ? '正在处理…' : '发布朋友圈'}</button></div>
     </div>}
     {result.candidates && !lockedDiary && !inactive && <div className="mt-3 space-y-2">{result.candidates.map(c => <button key={`${c.id}:${c.date}`} disabled={busy} onClick={() => void proceed({ targetId: c.id })} className="block w-full min-h-11 rounded-xl border border-line px-3 py-2 text-left text-sm text-ink">{c.label}<span className="ml-2 text-xs text-sub">{c.date === '9999-12-31' ? '未安排日期' : c.date}</span></button>)}</div>}
     {result.stepCandidates && !lockedDiary && !inactive && <div className="mt-3 space-y-2">{result.stepCandidates.map(step => <button key={step.index} type="button" disabled={busy} onClick={() => void proceed({ stepIndex: step.index })} className="block min-h-11 w-full rounded-xl border border-line px-3 py-2 text-left text-sm text-ink">第{step.index}步 · {step.title}</button>)}</div>}
@@ -258,5 +263,5 @@ export function SecretaryTaskCards({ taskId, context = 'chat', onAnswer, busy }:
   const displayed = continuation ? { ...task, pendingContext: continuation.pendingContext } : task;
   const pending = (activeFocus || continuation) && displayed.pendingContext && ['waiting', 'paused'].includes(displayed.pendingContext.state) && onAnswer && (!!continuation || !task.results.length || displayed.pendingContext.awaitingFields.includes('operation'));
   if (!task.results.length && !pending) return null;
-  return <div className={`vg-secretary-results ${context === 'chat' ? 'ml-10 mb-4 is-chat' : ''} max-w-lg space-y-3`} data-no-page-swipe>{task.assistantName && context === 'chat' && !!task.results.length && <p className="vg-secretary-receipt text-xs text-sub"><SecretaryIcon name="inbox" size={13} />{task.assistantName} · 当时的办事记录</p>}{pending && <PendingControls key={`${task.id}:${continuation?.updatedAt ?? ''}`} task={displayed} onAnswer={onAnswer} disabled={busy} />}{task.results.map((result, index) => <ResultCard key={index} task={task} result={result} index={index} />)}</div>;
+  return <div className={`vg-secretary-results ${context === 'chat' ? 'ml-10 mb-4 is-chat' : ''} max-w-lg space-y-3`} data-no-page-swipe>{task.assistantName && context === 'chat' && !!task.results.length && <p className="vg-secretary-receipt text-xs text-sub"><SecretaryIcon name="inbox" size={13} />{task.assistantName} · 当时的办事记录</p>}{pending && <PendingControls key={`${task.id}:${continuation?.updatedAt ?? ''}`} task={displayed} onAnswer={onAnswer} disabled={busy} />}{task.results.map((result, index) => result.dispatch ? <CharacterDispatchCard key={index} userId={userId} taskId={result.dispatch.taskId} /> : <ResultCard key={index} task={task} result={result} index={index} />)}</div>;
 }

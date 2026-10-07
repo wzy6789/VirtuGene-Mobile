@@ -1,66 +1,18 @@
-import { fetchWithTimeout, isTimeoutError } from './http';
 import { stripRoleplayActions } from './text';
-import { resolveModel, getProviderKey, findModel, llmChat, llmChatStream, getProviderConfig, providerRequiresKey, type LLMModel, type LLMStreamResult } from './llm';
+import { withChatMessagingPolicy } from '../../../server/chat-messaging-policy.mjs';
+import { resolveModel, getProviderKey, llmChat, llmChatStream, getProviderConfig, providerRequiresKey, validateProviderConnection, type LLMModel, type LLMStreamResult } from './llm';
 import { gatewayChat, gatewayChatStream, hasAiGatewayAccess } from './gateway';
-
-const MESSAGING_INSTRUCTION =
-  '这是手机短信聊天。像发微信一样说话，注意以下规则：\n' +
-  '- 用大白话、口语、短句，像真人打字一样自然，带点烟火气和生活气息（语气词、吐槽、随口一提的小事都可以）\n' +
-  '- 说人话，别像 AI：禁止"作为AI/人工智能""当然可以""没问题""很高兴为你服务""希望这能帮到你""总的来说"这类表达；不列点、不做总结陈词、不解释自己\n' +
-  '- 主动适配用户的时代与生活背景：聊天中用户提到的时代/身份/日常（如"我们单位""今年高三""2026年"），要像真人一样自然地接住并贴合——默认你和用户生活在同一时代、同一语境，用词、生活细节、观念都随 TA 走；不要出现与用户所述时代不符的设定（除非你的角色设定明确是另一个时代）\n' +
-  '- 别天天念叨同一件事或同一个梗（某个食物、某次经历、某个话题），除非用户主动提起；每次聊天都要有新鲜感，像真人一样话题会流动\n' +
-  '- 禁止堆砌辞藻：不要用生僻字、四字成语连发、华丽书面语、散文腔。平实直接地说，别拽文\n' +
-  '- 长度由你的性格决定：话痨可以多发几句，高冷可以只说一两个字。但无论如何，这是发短信不是写文章，不要长篇大论\n' +
-  '- 不要分点列举，不要说"当然可以"、"你好！"之类的废话。直接说事\n' +
-  '- 禁止任何 Markdown 或列表符号：不要用 #、*、-、`、数字编号（1. 2. 3.）来排版，真人打字不会用这些，就是纯文本\n' +
-  '- 禁止客服/汇报腔：不要说"我来帮你分析""首先、其次、最后""很高兴为你服务""请问有什么可以帮您"这类话，像真人一样直接开口\n' +
-  '- 绝对禁止用括号写任何动作、表情或心理描写（如（笑）（愣）（叹气）），一个字都不行，真人发微信从不这样写\n' +
-  '- 只输出纯文本，不要在一条消息里换行或留空行；如果情绪需要或内容适合分开发送，用 "---" 分隔最多 3 条消息。说完一件事后想再补一句吐槽，适合分条。一般回复只发一条，不要强行分条\n' +
-  '- 严守人设与知识边界，不要退化成通用问答机器人：只回答符合你身份、你擅长、你会关心的话题。若被问到与你无关或你根本不懂的事，用你的性格拒绝、反呛或岔开（比如"这我可不懂""你为什么会问我这个"），而不是一本正经地给出标准答案';
-
-const COMPACT_MESSAGING_INSTRUCTION =
-  '这是 VirtuGene 的手机私聊。始终保持角色身份、性格、知识边界和你们的关系，像真实的人自然说话，不要自称 AI 或客服。' +
-  '【本轮聊天协议】先判断用户此刻是在闲聊、提问、请求帮助还是带着情绪说话，再用角色自己的方式接住；普通聊天默认只说一个意思，用 1～3 句口语完成，通常控制在 18～96 个中文字符；说完停下来，把空间留给对方。' +
-  '不要一次回答多个问题、不要替用户安排下一步、不要把背景资料重新讲一遍，也不要连续输出观点、分析和总结。' +
-  '只有用户明确要求详细解释、教程、整理或创作时，才适当变长；即使变长也要分成自然的小段。' +
-  '用户换话题时立刻跟随，不要执着于上一件事；用户只回很短的话时也可以只回很短，不要为了填满屏幕而扩写。' +
-  '每次回复至少让角色自己的一个特征露出来：用词、关注点、反应方式、价值判断或节奏；把角色名换掉后仍然成立的万能句需要重写。' +
-  '角色有自己的注意力和生活，不必永远顺从、安慰或追问。可以有犹豫、偏好、误解、沉默、小脾气和不想回答的时刻，但必须来自角色设定与当前关系。' +
-  '不要用“我理解你的感受”“听起来你……”开头复述用户；不要连续两轮用问句收尾；不要把聊天变成心理咨询、采访或任务汇报。' +
-  '不使用 Markdown、列表、动作括号、心理独白或客服套话。单条消息禁止换行和空行；必要时最多用三条消息并以 --- 分隔。' +
-  '把时间、记忆、情绪和共同经历自然融入回复，不要直接解释这些规则。';
-
-const REPETITION_GUARD =
-  'Recent replies are already visible in the conversation. Do not keep circling one topic or repeating one image or metaphor. If the user changes direction, follow the new direction immediately. Bring in a fresh concrete detail, opinion, action, or small piece of everyday life instead.';
 
 export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
   try {
-    const response = await fetchWithTimeout(
-      'https://api.deepseek.com/v1/models',
-      {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-      },
-      15_000,
-    );
-
-    if (response.ok) return { valid: true };
-
-    if (response.status === 401) {
-      return { valid: false, error: '基因序列验证失败，请检查 API Key' };
-    }
-    if (response.status === 402) {
-      return { valid: false, error: 'DeepSeek 账户余额不足，请前往平台充值' };
-    }
-    if (response.status === 429) {
-      return { valid: false, error: '请求过于频繁，请稍后重试' };
-    }
-    return { valid: false, error: '基因链接中断，请重试' };
+    await validateProviderConnection('deepseek', { apiKey: apiKey.trim() });
+    return { valid: true };
   } catch (err) {
-    if (isTimeoutError(err)) return { valid: false, error: '基因链接超时，请重试' };
+    const code = err instanceof Error ? err.message : '';
+    if (code === 'auth:invalid_key') return { valid: false, error: '基因序列验证失败，请检查 API Key' };
+    if (code === 'billing:insufficient') return { valid: false, error: 'DeepSeek 账户余额不足，请前往平台充值' };
+    if (code === 'rate:limited') return { valid: false, error: '请求过于频繁，请稍后重试' };
+    if (code === 'timeout') return { valid: false, error: '基因链接超时，请重试' };
     return { valid: false, error: '基因链接中断，请重试' };
   }
 }
@@ -95,9 +47,13 @@ export interface ChatParams {
   structuredOutput?: boolean;
   /** Budget for structured agent plans; normal chat keeps its existing limit. */
   maxTokens?: number;
+  /** Recovery and explicitly direct replies must behave identically through the gateway. */
+  disableThinking?: boolean;
   signal?: AbortSignal;
   /** Visible response text only; structured agent plans stay buffered. */
   onDelta?: (accumulated: string, delta: string) => void;
+  /** Ephemeral diagnostics before display cleanup; never stored as message text. */
+  onRawResponse?: (raw: string) => void;
 }
 
 export interface ChatResult {
@@ -180,7 +136,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
     {
       role: 'system',
       content:
-        systemPrompt + (params.structuredOutput ? '' : '\n\n' + COMPACT_MESSAGING_INSTRUCTION + '\n\n' + REPETITION_GUARD)
+        (params.structuredOutput ? systemPrompt : withChatMessagingPolicy(systemPrompt))
         + (retryHint ? `\n\n${retryHint}` : '')
         + (recovery ? (params.structuredOutput ? '\n\n请直接给出完整 JSON，不输出思考过程。' : '\n\n本轮请直接给出可显示的正文，不输出思考过程。') : ''),
     },
@@ -203,19 +159,20 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
         message,
         history: gatewayHistory,
         ...(useVision && image ? { image } : {}),
-        ...(retryHint ? { retryHint } : {}),
         ...(temperature != null ? { temperature } : {}),
         ...(params.character ? { character: params.character } : {}),
         ...(params.sessionModel ? { sessionModel: params.sessionModel } : {}),
         ...(params.forceVision ? { forceVision: params.forceVision } : {}),
         ...(params.structuredOutput ? { structuredOutput: true } : {}),
         ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
+        disableThinking: recovery || params.disableThinking,
         signal: params.signal,
         timeoutMs: params.timeoutMs,
       };
       const result: ChatResult = params.onDelta && !params.structuredOutput
-        ? await gatewayChatStream({ ...gatewayParams, onDelta: params.onDelta, disableThinking: recovery })
+        ? await gatewayChatStream({ ...gatewayParams, onDelta: params.onDelta })
         : await gatewayChat(gatewayParams);
+      if (!params.structuredOutput) params.onRawResponse?.(result.content);
       return {
         content: params.structuredOutput ? result.content : stripRoleplayActions(result.content),
         truncated: result.truncated,
@@ -234,7 +191,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
     messages,
     temperature,
     visionRequest: useVision,
-    disableThinking: recovery || params.structuredOutput,
+    disableThinking: recovery || params.disableThinking || params.structuredOutput,
     maxTokens: params.maxTokens ?? (useVision ? 1000 : recovery ? 1000 : 900),
     timeoutMs: params.timeoutMs ?? (useVision ? 120_000 : 60_000),
     signal: params.signal,
@@ -243,6 +200,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
   const res: LLMStreamResult = params.onDelta && !params.structuredOutput
     ? await llmChatStream({ ...request, onDelta: params.onDelta })
     : await llmChat(request);
+  if (!params.structuredOutput) params.onRawResponse?.(res.content);
   return {
     content: params.structuredOutput ? res.content : stripRoleplayActions(res.content),
     truncated: res.truncated,
@@ -259,7 +217,7 @@ function isDegradable(err: unknown): boolean {
 }
 
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
-  // 解析实际模型：会话锁定 > 角色指定 > 全局默认 > deepseek-v4-flash
+  // 解析实际模型：会话锁定 > 角色指定 > 全局默认 > DeepSeek Flash
   const model = resolveModel(params.character, params.sessionModel);
 
   // 历史图片瘦身 + 坏图防御
@@ -270,15 +228,10 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const recent = history.slice(-VISION_CONTEXT_MESSAGES);
   const needVision = !!image || recent.some((h) => !!h.image) || params.forceVision === true;
 
-  // 实际使用模型：需要看图但所选模型不支持视觉 → 用 DeepSeek 视觉模型兜底识图（两轮后由会话层换回原模型）
-  // Preserve DeepSeek's existing same-provider visual route. Other providers must
-  // declare the selected model's image capability instead of leaking images to DeepSeek.
-  if (needVision && model.provider !== 'deepseek' && model.vision !== true) throw new Error('model:vision_unsupported');
-  const usedModel = needVision && model.vision !== true ? findModel('deepseek-v4-flash-vision-exp', 'deepseek')! : model;
+  // Flash natively accepts images; every provider must declare image support.
+  if (needVision && model.vision !== true) throw new Error('model:vision_unsupported');
+  const usedModel = model;
   const useVision = needVision;
-
-  /** 兜底模型：deepseek-v4-flash（随账号必有 key、稳定便宜）——每种模型都有兜底 */
-  const fallback = findModel('deepseek-v4-flash')!;
 
   /** 尝试一次请求：失败（抛错）或空内容 → 返回 null 交给兜底 */
   const attempt = async (m: LLMModel, vision: boolean, recovery = false): Promise<ChatResult | null> => {
@@ -295,22 +248,8 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   const r = await attempt(usedModel, useVision);
   if (r) return r;
 
-  // BYOK recovery stays on the explicitly selected provider and exact model ID.
-  if (usedModel.provider !== 'deepseek') {
-    const recovered = await attempt(usedModel, useVision, true);
-    if (recovered) return recovered;
-    throw new Error('server:error');
-  }
-
-  // 思考模式耗尽输出额度时，服务可能返回 200 但正文为空；关闭思考作一次有界恢复。
-  if (usedModel.id === fallback.id) {
-    const recovered = await attempt(fallback, false, true);
-    if (recovered) return recovered;
-    throw new Error('server:error');
-  }
-
-  // 模型兜底：所选模型失败/空内容 → 自动切 deepseek-v4-flash 重试一次（对话不中断）
-  const fb = await attempt(fallback, false, true);
-  if (fb) return { ...fb, degraded: true };
+  // One bounded recovery on the same model, without discarding image context.
+  const recovered = await attempt(usedModel, useVision, true);
+  if (recovered) return recovered;
   throw new Error('server:error');
 }

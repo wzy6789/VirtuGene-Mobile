@@ -31,7 +31,7 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
   };
   const capture = async name => { await settle(); await page.screenshot({ path: path.join(output, `${name}.png`) }); };
   const close = async () => {
-    await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click(); await settle();
+    await page.getByRole('dialog').getByRole('button', { name: '返回', exact: true }).click(); await settle();
   };
   const fits = async label => {
     for (const width of [320, 390, 430, 768]) {

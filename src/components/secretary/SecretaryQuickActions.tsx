@@ -7,9 +7,10 @@ const writingActions: [string, string, SecretaryIconName][] = [
   ['加待办', '帮我添加待办：', 'todo'],
 ];
 
-export function SecretaryQuickActions({ busy, vacant, onDraft, onSend, onInbox, onManage, onReview }: {
+export function SecretaryQuickActions({ busy, vacant, onDraft, onSend, onInbox, onManage, onReview, embedded = false }: {
   busy: boolean; vacant: boolean; onDraft: (draft: string) => void; onSend: (request: string) => void;
   onInbox: () => void; onManage: () => void; onReview: () => void;
+  embedded?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const disabled = busy || vacant;
@@ -22,8 +23,8 @@ export function SecretaryQuickActions({ busy, vacant, onDraft, onSend, onInbox, 
   };
   return <div className="vg-secretary-tools shrink-0 border-b border-line">
     <div className="vg-secretary-tool-heading flex items-center justify-between gap-2">
-      <button type="button" onClick={onInbox} className="vg-secretary-inbox-link"><SecretaryIcon name="inbox" size={17} />办事收件箱<SecretaryIcon name="chevron" size={12} /></button>
-      <button type="button" aria-label="助理管理" disabled={busy} onClick={onManage} className="vg-secretary-manage-link disabled:opacity-40"><SecretaryIcon name="profile" size={15} />{vacant ? '聘用助理' : '助理管理'}</button>
+      <button type="button" onClick={onInbox} className="vg-secretary-inbox-link"><SecretaryIcon name="inbox" size={17} />{embedded ? '待处理' : '办事收件箱'}<SecretaryIcon name="chevron" size={12} /></button>
+      {!embedded && <button type="button" aria-label="助理管理" disabled={busy} onClick={onManage} className="vg-secretary-manage-link disabled:opacity-40"><SecretaryIcon name="profile" size={15} />{vacant ? '聘用助理' : '助理管理'}</button>}
     </div>
     <div className="vg-secretary-quick-grid" role="group" aria-label="助理快捷办事">
       {writingActions.map(([label, draft, icon]) => <button key={label} type="button" disabled={disabled} onClick={() => onDraft(draft)} className="vg-secretary-shortcut disabled:opacity-40"><SecretaryIcon name={icon} size={17} />{label}</button>)}
@@ -32,6 +33,7 @@ export function SecretaryQuickActions({ busy, vacant, onDraft, onSend, onInbox, 
     <div ref={detailsRef} id={detailsId} inert={!expanded} aria-hidden={!expanded} className={`vg-secretary-quick-details ${expanded ? 'is-expanded' : ''}`}>
       <div className="vg-secretary-quick-clip">
         <div className="vg-secretary-quick-secondary" role="group" aria-label="更多助理办事">
+          <button type="button" disabled={disabled} onClick={() => onSend('帮我给角色发消息。')} className="vg-secretary-shortcut disabled:opacity-40"><SecretaryIcon name="profile" size={17} />代发消息</button>
           <button type="button" disabled={disabled} onClick={() => onSend('今天还有什么待办没完成？')} className="vg-secretary-shortcut disabled:opacity-40"><SecretaryIcon name="calendar" size={17} />今天安排</button>
           <button type="button" disabled={disabled} onClick={() => onDraft('帮我查找日记，关键词是：')} className="vg-secretary-shortcut disabled:opacity-40"><SecretaryIcon name="search" size={17} />查记录</button>
           <button type="button" disabled={disabled} onClick={() => onDraft('帮我修改待办：')} className="vg-secretary-shortcut disabled:opacity-40"><SecretaryIcon name="edit" size={17} />改待办</button>

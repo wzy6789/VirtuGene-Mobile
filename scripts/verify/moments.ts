@@ -97,7 +97,7 @@ function makeCharacter(id: string, name: string): Character {
 function openSheetTitle(): string {
   const dialog = document.querySelector('[role="dialog"]');
   if (dialog) return dialog.querySelector('h2')?.textContent?.trim() ?? '';
-  const sheet = host?.querySelector('.vg-moment-sheet');
+  const sheet = document.querySelector('.vg-moment-sheet');
   if (!sheet) return '';
   return (sheet.querySelector('header strong')?.textContent ?? '').trim();
 }
@@ -231,10 +231,10 @@ async function run(): Promise<void> {
     && (inbox.compareDocumentPosition(firstCard) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
   check('⑥ 互动条位于「名片」之下、「动态流」之上', orderOk);
   const inboxText = inbox ? (inbox as HTMLElement).innerText.replace(/\s+/g, ' ') : '';
-  check('⑦ 有未读时显示「N 条新互动」并带红点',
-    inboxText.includes('2 条新互动') && (inbox?.querySelector('.vg-moments-inbox-dot') ?? null) !== null, inboxText);
-  const inboxAvatars = inbox ? inbox.querySelectorAll('.vg-moments-inbox-avatars > *').length : 0;
-  check('⑧ 互动条显示最近互动者头像（去重后 2 个）', inboxAvatars === 2, { inboxAvatars, pageHead: pageText.slice(0, 80) });
+  check('⑦ 有未读时显示准确的「N 条新消息」并提供查看入口',
+    inboxText.includes('2 条新消息') && inbox?.getAttribute('aria-label') === '查看 2 条新消息', inboxText);
+  const inboxAvatars = inbox ? inbox.querySelectorAll('.vg-moments-inbox-avatar').length : 0;
+  check('⑧ 互动条显示最新互动者的单个头像', inboxAvatars === 1 && inbox?.querySelector('.vg-moments-inbox-avatar')?.textContent === char2.avatar, { inboxAvatars, pageHead: pageText.slice(0, 80) });
   const firstCardTopBeforeRead = (firstCard as HTMLElement | null)?.getBoundingClientRect().top ?? 0;
   (inbox as HTMLButtonElement | null)?.click();
   await sleep(300);
@@ -245,7 +245,7 @@ async function run(): Promise<void> {
       && (await momentsRepo.notifications(U)).length === 2
       && firstCardTopAfterRead < firstCardTopBeforeRead - 10,
     { firstCardTopBeforeRead, firstCardTopAfterRead });
-  clickText('完成', host?.querySelector('.vg-moment-notification-sheet') ?? null);
+  clickText('完成', document.querySelector('.vg-moment-notification-sheet') ?? null);
 
   // ---------- C. 通栏列表 + ··· 气泡 ----------
   const card = host?.querySelector(`#moment-${first.id}`) as HTMLElement | null;
@@ -280,7 +280,7 @@ async function run(): Promise<void> {
   await sleep(400);
   const settingsText = openSheetTitle() === '朋友圈设置' && host ? (document.querySelector('.vg-moment-settings-sheet') as HTMLElement).innerText.replace(/\s+/g, ' ') : '';
   const settingGroups = ['消息与提醒', '好友分享', '可见范围', '发布与显示'];
-  const settingRows = ['互动消息', '新互动红点', '发布后提示', '允许好友主动分享', '默认分享节奏', '单独调整好友', '不让谁看我的朋友圈', '不看他（她）的朋友圈', '允许角色查看我的历史动态', '默认可见范围', '朋友圈封面', '列表密度'];
+  const settingRows = ['互动消息', '世界入口未读提示', '发布后提示', '允许好友主动分享', '默认分享节奏', '单独调整好友', '不让谁看我的朋友圈', '不看他（她）的朋友圈', '允许角色查看我的历史动态', '默认可见范围', '朋友圈封面', '列表密度'];
   check('⑭ 齿轮直接打开完整朋友圈设置，四个分组齐全',
     openedSettings && openSheetTitle() === '朋友圈设置' && settingGroups.every((group) => settingsText.includes(group)), { openedSettings, title: openSheetTitle(), settingsText: settingsText.slice(0, 160) });
   check('⑮ 设置项齐全（消息/红点/提示/屏蔽/不看/历史/默认范围/封面/密度）',
@@ -300,12 +300,12 @@ async function run(): Promise<void> {
     && compactAvatar.top >= compactCover.top && compactAvatar.bottom <= compactCover.bottom));
 
   // ---------- E2. 红点开关 ----------
-  const badgeToggle = document.querySelector<HTMLButtonElement>('[role="switch"][aria-label="新互动红点"]');
+  const badgeToggle = document.querySelector<HTMLButtonElement>('[role="switch"][aria-label="世界入口未读提示"]');
   if (badgeToggle) badgeToggle.click();
   await sleep(250);
   await render();
-  check('⑱ 关掉「新互动红点」后互动条不再显示红点',
-    readPref()?.showUnreadBadge === false && (host?.querySelector('.vg-moments-inbox-dot') ?? null) === null,
+  check('⑱ 关闭世界入口提示会落盘，已读互动入口仍保持收起',
+    badgeToggle !== null && readPref()?.showUnreadBadge === false && (host?.querySelector('.vg-moments-inbox') ?? null) === null,
     { pref: readPref()?.showUnreadBadge, dot: host?.querySelector('.vg-moments-inbox-dot') !== null });
   // 打开回来，后续断言仍按默认行为走
   saveMomentsPreferences(U, { ...loadMomentsPreferences(U), showUnreadBadge: true });
@@ -352,7 +352,7 @@ async function run(): Promise<void> {
   mineTarget?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
   await sleep(300);
   const deleteTitle = openSheetTitle();
-  const confirmed = clickText('删除评论', host?.querySelector('.vg-moment-delete-sheet') ?? null);
+  const confirmed = clickText('删除评论', document.querySelector('.vg-moment-delete-sheet') ?? null);
   await sleep(450);
   const remaining = await db.momentReactions.get('moment-comment:user-1');
   check('㉔ 长按自己的评论弹出删除确认', deleteTitle === '删除这条评论？', { deleteTitle, hasRow: mineRow !== null });

@@ -17,14 +17,6 @@ function compact(text: string): string {
   return text.trim().replace(/\s+/g, ' ');
 }
 
-function recentAssistantQuestionCount(history: Array<{ role: string; content: string }>): number {
-  return history
-    .filter((item) => item.role === 'assistant')
-    .slice(-2)
-    .filter((item) => /[?？]\s*$/u.test(item.content.trim()))
-    .length;
-}
-
 function needFor(intent: ChatIntent, action: ConversationAction): CharacterIntentPlan['need'] {
   if (intent === 'emotional') return '陪伴';
   if (intent === 'question') return '获得答案';
@@ -53,7 +45,9 @@ export function planCharacterIntent(
   const recentUsers = history.filter((item) => item.role === 'user').map((item) => item.content).slice(-5);
   const signals = detectHumanTurn(text, recentUsers);
   const action = chooseConversationAction(text, history, character ? { name: '', tags: [], proactivity: character.proactivity ?? 0.5, signature: '', greeting: '', catchphrase: '', boundaries: '', systemPrompt: '' } : undefined, {});
-  const questionBlocked = (state?.preferences?.questionTolerance === 'low') || recentAssistantQuestionCount(history) >= 1;
+  // Repeated punctuation and last turn's question do not remove this character's
+  // freedom to ask. Only the user's explicit preference constrains follow-ups.
+  const questionBlocked = state?.preferences?.questionTolerance === 'low';
   const mayAskQuestion = !questionBlocked && intent !== 'closing' && intent !== 'request' && intent !== 'topic-shift' && action !== 'short-close';
   const avoidTopics = (state?.pausedTopics ?? []).filter(Boolean).slice(0, 3);
   const rationale = signals.topicShift
@@ -87,7 +81,7 @@ export function buildCharacterIntentContext(plan: CharacterIntentPlan): string {
     'short-close': '顺势收住',
     react: '自然回应',
   };
-  const question = plan.mayAskQuestion ? '可以在自然需要时问一个问题' : '本轮不要用问题收尾';
+  const question = plan.mayAskQuestion ? '需要时可以自然接问，不必每轮发问' : '先回应眼前的话，不为了延长聊天追加追问';
   const avoid = plan.avoidTopics.length > 0 ? `暂时不要主动拉回：${plan.avoidTopics.map((item) => `「${item}」`).join('、')}。` : '';
   return [
     '[人物心意：这一轮想怎样回应]',

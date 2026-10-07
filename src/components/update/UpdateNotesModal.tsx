@@ -9,7 +9,7 @@ interface Props {
 
 export function UpdateNotesModal({ open, onClose, version, notes }: Props) {
   return (
-    <Modal open={open} onClose={onClose} width="max-w-md">
+    <Modal open={open} onClose={onClose} title="更新说明" width="max-w-md">
       <div className="relative overflow-hidden">
         {/* Brand header with DNA accent */}
         <div className="px-6 pt-6 pb-5 bg-gradient-to-br from-gene-purple/15 via-transparent to-life-cyan/10 border-b border-line">

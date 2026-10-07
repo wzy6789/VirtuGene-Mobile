@@ -14,7 +14,6 @@ interface CharacterProfileModalProps {
   character: Character;
   userId: string;
   onClose: () => void | Promise<void>;
-  onAdd: (clone: Character) => void | Promise<void>;
   onChat: (c: Character) => void | Promise<void>;
   worldCharacters?: Character[];
 }
@@ -31,9 +30,9 @@ function groupTags(tags: string[]): Partial<Record<TagCategory, string[]>> {
 /**
  * 角色资料卡（手机端美化版）：
  * 品牌渐变头部 + 圆形大头像 + 签名 + 分类标签 + 开场白 + 基因序列。
- * 点「开始聊天」进入对话；自定义角色显示「编辑」。
+ * 点「开始聊天」加入自己的角色并进入对话；已添加时继续原会话。
  */
-export function CharacterProfileModal({ character, userId, onClose, onAdd, onChat, worldCharacters = [] }: CharacterProfileModalProps) {
+export function CharacterProfileModal({ character, userId, onClose, onChat, worldCharacters = [] }: CharacterProfileModalProps) {
   const actionLock = useRef(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState('');
@@ -66,25 +65,24 @@ export function CharacterProfileModal({ character, userId, onClose, onAdd, onCha
   }, [character.id, userId, isOwn]);
 
   return (
-    <Modal open onClose={() => { if (!busy) void onClose(); }} title="角色" width="max-w-md">
+    <Modal open onClose={() => { if (!busy) void onClose(); }} title="角色资料" width="max-w-md" panelClassName="vg-character-profile">
       <div className="vg-profile-hero">
-        <Avatar avatar={character.avatar} size="lg" className="vg-profile-avatar" />
+        <Avatar avatar={character.avatar} size="lg" className="vg-profile-avatar" soulKey={`avatar:${character.id}`} soulRole="profile" />
         <div className="vg-profile-identity">
           <h3>{character.name}</h3>
-          <p>{character.signature || character.greeting || '从这里，继续认识彼此。'}</p>
+          <p>{character.signature || '从这里，继续认识彼此。'}</p>
           {(character.tags ?? []).length > 0 && <div className="vg-profile-traits" aria-label="性格特点">{character.tags.slice(0, 3).map(tag => <span key={tag}>{tag}</span>)}</div>}
           {lifeState && <span className="vg-profile-relation">{getRelationLevel(lifeState.affinity).level.name}</span>}
         </div>
       </div>
       <div className="vg-profile-body p-5">
-        {character.greeting && <p className="vg-profile-greeting">“{character.greeting}”</p>}
+        {character.greeting && <div className="vg-profile-intro"><span className="vg-profile-caption">开场白</span><p className="vg-profile-greeting">{character.greeting}</p></div>}
         {actionError && <p role="alert" className="text-sm text-red-400">{actionError}</p>}
         <div className="vg-profile-actions">
-          <button disabled={busy} onClick={() => void act(() => onChat(character))} className="vg-profile-primary">{busy ? '正在进入…' : '开始聊天'}</button>
-          {!isOwn && <button disabled={busy} onClick={() => void act(() => onAdd(character))} className="vg-profile-secondary">添加到我</button>}
+          <button type="button" disabled={busy} aria-busy={busy} onClick={() => void act(() => onChat(character))} className="vg-profile-primary"><span>{busy ? '正在进入…' : '开始聊天'}</span></button>
         </div>
         <details className="vg-profile-details">
-          <summary>更多关于 {character.name} <span aria-hidden="true">⌄</span></summary>
+          <summary>角色档案 <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="m7 10 5 5 5-5" /></svg></summary>
         {/* 分类标签 */}
         <div className="space-y-2.5">
           {CATEGORY_ORDER.map((cat) => {

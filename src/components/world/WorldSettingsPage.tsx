@@ -12,6 +12,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
+import { useFeedback } from '../../lib/feedback';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
 import { worldRepo } from '../../db/world-repo';
@@ -40,6 +41,7 @@ export function WorldSettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const feedback = useFeedback();
 
   const reload = useCallback(async () => {
     if (!userId) return;
@@ -118,9 +120,9 @@ export function WorldSettingsPage() {
           >
             {busy ? '正在记下…' : '记下来'}
           </button>
-          <span className="text-[10.5px] text-gray-500">也可以在世界里直接说，效果完全一样。</span>
+          <span className="text-[12px] text-gray-500">也可以在世界里直接说，效果完全一样。</span>
         </div>
-        {notice && <p className="mt-2 text-[11px] text-life-cyan">{notice}</p>}
+        {notice && <p className="mt-2 text-[12px] text-life-cyan">{notice}</p>}
       </section>
 
       {loading ? (
@@ -189,7 +191,7 @@ export function WorldSettingsPage() {
           </section>
         ))
       )}
-      <Modal open={!!deletingId} onClose={() => setDeletingId(null)} title="删除长期设定？" panelClassName="vg-settings-panel"><div className="vg-settings-design"><p className="vg-settings-intro">这条设定将从长期规则中删除。如果只是暂时不用，可以选择“暂停”。</p><div className="flex gap-3"><button type="button" className="flex-1 text-sub" onClick={() => setDeletingId(null)}>保留设定</button><button type="button" className="flex-1 rounded-xl bg-red-500/15 text-red-400" onClick={() => { if (!deletingId) return; void removeWorldSetting(deletingId, userId ?? undefined).then(async () => { setDeletingId(null); await reload(); }); }}>删除设定</button></div></div></Modal>
+      <Modal presentation="dialog" open={!!deletingId} onClose={() => setDeletingId(null)} title="删除长期设定？" panelClassName="vg-settings-panel"><div className="vg-settings-design vg-delete-confirmation m-5"><p className="vg-settings-intro">这条设定将从长期规则中删除。如果只是暂时不用，可以选择“暂停”。</p><div className="flex gap-3"><button type="button" className="flex-1 text-sub" onClick={() => setDeletingId(null)}>保留设定</button><button type="button" className="flex-1 rounded-xl bg-red-500/15 text-red-400" onClick={() => { if (!deletingId) return; void removeWorldSetting(deletingId, userId ?? undefined).then(async () => { setDeletingId(null); feedback('长期设定已删除', { tone: 'success' }); await reload(); }).catch(() => feedback('设定删除或列表刷新未完成，请重试', { tone: 'error' })); }}>删除设定</button></div></div></Modal>
     </div>
   );
 }

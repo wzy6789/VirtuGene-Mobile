@@ -75,7 +75,7 @@ export const messageRepo = {
       const witnessedBy = group && group.userId === session?.userId ? [...new Set(group.characterIds)] : undefined;
       const stored = { ...message, revision: message.revision ?? 1, witnessedBy };
       await db.messages.add(stored);
-      if (session && stored.role === 'user' && stored.content.trim()) {
+      if (session && stored.role === 'user' && stored.content.trim() && stored.secretaryDispatch?.bodyOrigin !== 'composed') {
         const characterIds = [...new Set(witnessedBy?.length ? witnessedBy : [session.characterId])];
         await queueMemoryExtraction(stored, session.userId, characterIds, session.type === 'group' ? 'group' : 'chat');
       }
@@ -186,6 +186,7 @@ async function queueMemoryExtraction(
   characterIds: string[],
   sourceType: 'chat' | 'group',
 ): Promise<void> {
+  if (message.secretaryDispatch?.bodyOrigin === 'composed') return;
   const content = message.content.trim();
   const audience = [...new Set(characterIds.filter(Boolean))];
   if (!content || !audience.length) return;

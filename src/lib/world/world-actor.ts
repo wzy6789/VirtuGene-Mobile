@@ -12,7 +12,7 @@
  */
 import { safeParseObject, salvagePlainText } from '../ai/safe-json';
 import { worldChat, type WorldLlmCaller } from './world-ai-client';
-import { findModel, resolveModel, getProviderKey } from '../ai/llm';
+import { DEEPSEEK_MODEL_ID, findModel, resolveModel, getProviderKey } from '../ai/llm';
 import { entryLine, renderCharacterContext, type WorldContext } from './world-context';
 import type { TurnSpeaker } from './world-director';
 import { buildConversationFocus } from './user-profile';
@@ -223,7 +223,7 @@ export async function actAsCharacter(params: ActorParams): Promise<ActorBeat> {
 
     // 只有“没有可用正文”才切换备用模型；正常回答绝不平白增加调用。
     const primary = resolveModel();
-    const fallback = findModel('deepseek-v4-flash');
+    const fallback = findModel(DEEPSEEK_MODEL_ID, 'deepseek');
     const canFallback = fallback && (params.call || await getProviderKey(fallback.provider));
     try {
       // 格式不兼容时改用自然语言请求；依然是完整响应，绝不逐字输出。

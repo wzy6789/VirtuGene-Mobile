@@ -1,22 +1,15 @@
 import { useId, type ReactNode } from 'react';
+import { breathe } from '../../lib/haptics';
+import { Icon, type IconName } from '../ui/Icon';
 
 const icons = {
-  account: 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M4 21v-2a8 8 0 0 1 16 0v2',
-  appearance: 'M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9',
-  voice: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3 M5 10v2a7 7 0 0 0 14 0v-2 M12 19v3',
-  connection: 'M8 4v4 M16 4v4 M5 8h14v2a7 7 0 0 1-14 0V8 M12 17v5',
-  privacy: 'M12 3 3 7v5c0 5 9 9 9 9s9-4 9-9V7l-9-4 M8 12l3 3 5-6',
-  data: 'M12 3c5 0 9 2 9 4s-4 4-9 4-9-2-9-4 4-4 9-4 M3 7v10c0 2 4 4 9 4s9-2 9-4V7 M3 12c0 2 4 4 9 4s9-2 9-4',
-  about: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M12 11v6 M12 7v.1',
-  world: 'M12 3 14 9 21 12 14 15 12 21 10 15 3 12 10 9 12 3',
-  diary: 'M4 4h7a3 3 0 0 1 3 3v14a4 4 0 0 0-4-2H4V4 M14 7a3 3 0 0 1 3-3h3v15h-3 M7 8h3 M7 12h3',
-  clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18 M12 7v5l4 2',
-  search: 'm16 16 4 4 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
-  edit: 'm15 4 5 5-11 11H4v-5L15 4 M12 7l5 5',
-} as const;
+  account: 'profile', appearance: 'moon', voice: 'mic', connection: 'connection',
+  privacy: 'shield', data: 'database', about: 'info', world: 'spark',
+  diary: 'diary', clock: 'clock', search: 'search', edit: 'edit',
+} as const satisfies Record<string, IconName>;
 export type SettingsIconName = keyof typeof icons;
 export function SettingsIcon({ name }: { name: SettingsIconName }) {
-  return <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={icons[name]} /></svg>;
+  return <Icon name={icons[name]} size={20} />;
 }
 export function SettingsOverview() {
   return <div className="vg-settings-overview">
@@ -37,7 +30,7 @@ export function SettingsRow({ title, detail, value, icon, onClick, danger = fals
 }
 export function SettingsSwitch({ title, detail, checked, onChange, disabled, label }: { title: string; detail?: string; checked: boolean; onChange: (value: boolean) => void; disabled?: boolean; label?: string }) {
   const id = useId();
-  return <div className="vg-preference-row"><span className="vg-preference-copy"><strong>{title}</strong>{detail && <small id={id}>{detail}</small>}</span><button type="button" role="switch" aria-label={label ?? title} aria-describedby={detail ? id : undefined} aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)} className="vg-preference-toggle"><span aria-hidden="true" /></button></div>;
+  return <div className="vg-preference-row"><span className="vg-preference-copy"><strong>{title}</strong>{detail && <small id={id}>{detail}</small>}</span><button type="button" role="switch" aria-label={label ?? title} aria-describedby={detail ? id : undefined} aria-checked={checked} disabled={disabled} onClick={() => { onChange(!checked); breathe(); }} className="vg-preference-toggle"><span aria-hidden="true" /></button></div>;
 }
 export function SettingsChoices<T extends string | number>({ label, value, options, onChange, disabled }: { label: string; value: T; options: { value: T; title: string; detail?: string }[]; onChange: (value: T) => void; disabled?: boolean }) {
   const name = useId();

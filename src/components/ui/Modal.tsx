@@ -18,12 +18,15 @@ interface ModalProps {
   /** An optional action area outside the scrolling form. */
   footer?: React.ReactNode;
   panelClassName?: string;
+  /** Mobile forms and detail views are pages; brief confirmations stay centered. */
+  presentation?: 'page' | 'dialog';
   onBack?: () => void;
   /** Recheck access at unmount before retaining any visual copy for the exit animation. */
   canSnapshotOnExit?: () => boolean;
 }
 
-export function Modal({ open, onClose, title, children, width = 'max-w-lg', closeOnBackdrop = true, mobileFullHeight = false, footer, canSnapshotOnExit, panelClassName = '', onBack }: ModalProps) {
+export function Modal({ open, onClose, title, children, width = 'max-w-lg', closeOnBackdrop = true, mobileFullHeight = false, footer, canSnapshotOnExit, panelClassName = '', onBack, presentation = 'page' }: ModalProps) {
+  const mobilePage = IS_MOBILE && presentation === 'page';
   const overlayRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const motionRef = useModalMotion(canSnapshotOnExit);
@@ -91,7 +94,7 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', clos
       ref={overlayMotionRef}
       data-no-page-swipe
       style={{ overscrollBehavior: 'none' }}
-      className={`vg-modal-overlay fixed inset-0 z-50 flex justify-center bg-black/60 ${IS_MOBILE ? 'items-end' : 'items-center'}`}
+      className={`vg-modal-overlay fixed inset-0 flex justify-center items-center ${mobilePage ? 'vg-page-overlay' : ''}`}
       onClick={(e) => {
         if (closeOnBackdrop && e.target === overlayRef.current) onClose();
       }}
@@ -103,13 +106,13 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', clos
         aria-modal="true"
         aria-label={title ? undefined : '弹窗'}
         aria-labelledby={title ? titleId : undefined}
-        className={`vg-modal-panel ${panelClassName} relative z-10 rounded-2xl w-[calc(100%-2rem)] ${width} p-0 overflow-hidden ${footer ? 'vg-modal-with-footer' : ''} ${IS_MOBILE && mobileFullHeight ? 'vg-mobile-sheet vg-mobile-sheet-full' : `animate-fade-in ${IS_MOBILE ? 'vg-mobile-sheet' : ''}`}`}
+        className={`vg-modal-panel ${panelClassName} relative z-10 rounded-2xl w-[calc(100%-2rem)] ${width} p-0 overflow-hidden ${footer ? 'vg-modal-with-footer' : ''} ${mobilePage ? 'vg-mobile-page' : IS_MOBILE ? 'vg-mobile-dialog' : 'animate-fade-in'} ${mobileFullHeight ? 'vg-modal-long-form' : ''}`}
       >
-        {title && (
-          <div className="shrink-0 flex items-center justify-between px-6 py-4 border-b border-line">
-            {onBack && <button type="button" aria-label="返回设置" onClick={onBack} className="vg-settings-back"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m15 5-7 7 7 7" /></svg></button>}
+        {(title || mobilePage) && (
+          <div className={`vg-modal-header shrink-0 flex items-center justify-between px-6 py-4 border-b border-line ${mobilePage ? 'vg-page-header' : ''}`}>
+            {(onBack || mobilePage) && <button type="button" aria-label={onBack ? '返回设置' : '返回'} onClick={onBack ?? onClose} className="vg-settings-back vg-page-back"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m15 5-7 7 7 7" /></svg></button>}
             <h2 id={titleId} className="text-base font-semibold text-ink">{title}</h2>
-            <button
+            {!mobilePage && <button
               onClick={onClose}
               aria-label="关闭"
               className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-ink hover:bg-surface transition-colors"
@@ -117,7 +120,7 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', clos
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               </svg>
-            </button>
+            </button>}
           </div>
         )}
         <div data-modal-scroll className={`overflow-y-auto ${IS_MOBILE && mobileFullHeight ? 'vg-modal-form-scroll' : 'max-h-[70vh]'}`}>{children}</div>

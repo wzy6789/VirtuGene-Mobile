@@ -1,35 +1,16 @@
 /** Unified BYOK client. Native Claude/Gemini protocols and OpenAI-compatible providers. */
 import { isTimeoutError } from './http';
 import { useAuthStore } from '../../store/auth-store';
-import { useSettingsStore } from '../../store/settings-store';
 import { loadSecret } from '../api-key-storage';
-import { DEFAULT_MODEL_ID, isProviderId, LLM_MODELS, LLM_PROVIDERS, type LLMModel, type ProviderId } from './provider-registry';
-import { getAvailableModels, getProviderConfig, normalizeProviderBaseUrl, providerRequiresKey } from './provider-config';
+import { DEEPSEEK_MODEL_ID, isProviderId, LLM_PROVIDERS, type LLMModel, type ProviderId } from './provider-registry';
+import { getProviderConfig, normalizeProviderBaseUrl, providerRequiresKey } from './provider-config';
 import { buildProviderRequest, parseProviderResponse, providerHeaders, readProviderSseResponse, throwForProviderStatus } from './provider-protocols';
 export * from './provider-registry';
 export * from './provider-config';
 
-/** Provider and model together identify a selection; exact custom IDs remain usable. */
-export function findModel(id?: string, provider?: string): LLMModel | undefined {
-  if (!id) return undefined;
-  if (provider && !isProviderId(provider)) return undefined;
-  return getAvailableModels(provider as ProviderId | undefined).find(model => model.id === id && (!provider || model.provider === provider));
-}
-export function estimateCost(modelId: string, inputTokens: number, outputTokens: number, provider?: ProviderId): number {
-  const price = findModel(modelId, provider)?.pricing;
-  return price ? (inputTokens * price.in + outputTokens * price.out) / 1_000_000 : 0;
-}
-type ModelSelection = { provider: string; model: string };
-export function resolveModel(character?: { model?: ModelSelection } | null, sessionModel?: ModelSelection | null): LLMModel {
-  const selected = sessionModel?.model ? sessionModel : character?.model?.model ? character.model : useSettingsStore.getState().defaultModel;
-  if (selected?.model) {
-    if (!isProviderId(selected.provider)) throw new Error('config:invalid_provider');
-    const id = selected.model.trim();
-    if (!id || id.length > 240 || /[\r\n\u0000-\u001f]/.test(id)) throw new Error('config:invalid_model');
-    return findModel(id, selected.provider) ?? { id, label: id, provider: selected.provider };
-  }
-  return findModel(DEFAULT_MODEL_ID, 'deepseek') ?? LLM_MODELS[0];
-}
+export { findModel, resolveModel, estimateCost } from './model-selection';
+import { findModel } from './model-selection';
+
 export async function getProviderKey(provider: ProviderId): Promise<string | null> {
   if (provider === 'deepseek') return useAuthStore.getState().apiKey;
   const name = LLM_PROVIDERS[provider]?.keyStorage;
@@ -150,6 +131,13 @@ export async function fetchProviderModels(provider: ProviderId, options: Provide
         if (meta.protocol === 'gemini' && !entry.supportedGenerationMethods?.includes('generateContent')) continue;
         const id = meta.protocol === 'gemini' ? String(entry.name ?? '').replace(/^models\//, '') : entry.id;
         if (typeof id !== 'string' || !id || id.length > 240 || /[\r\n\u0000-\u001f]/.test(id)) continue;
+        if (provider === 'deepseek') {
+          if ([DEEPSEEK_MODEL_ID, 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'].includes(id)) {
+            const flash = findModel(DEEPSEEK_MODEL_ID, 'deepseek')!;
+            models.set(flash.id, flash);
+          }
+          continue;
+        }
         const known = findModel(id, provider);
         const modalities = entry.architecture?.input_modalities ?? entry.input_modalities;
         models.set(id, { id, label: entry.displayName ?? entry.display_name ?? entry.name ?? id, provider, vision: known?.vision === true || meta.protocol === 'anthropic' || (Array.isArray(modalities) && modalities.includes('image')) });
@@ -163,6 +151,12 @@ export async function fetchProviderModels(provider: ProviderId, options: Provide
   return [...models.values()];
 }
 export async function validateProviderConnection(provider: ProviderId, options: ProviderConnectionParams = {}): Promise<void> {
+  if (provider === 'deepseek') {
+    // A readable catalog alone does not prove Flash access, balance or generation.
+    const result = await llmChat({ provider, model: DEEPSEEK_MODEL_ID, apiKey: options.apiKey ?? await getProviderKey(provider) ?? '', baseUrl: options.baseUrl ?? getProviderConfig(provider).baseUrl, signal: options.signal, messages: [{ role: 'user', content: 'Reply OK.' }], disableThinking: true, maxTokens: 16, timeoutMs: 15_000 });
+    if (!result.content.trim()) throw new Error('server:error');
+    return;
+  }
   if (LLM_PROVIDERS[provider].modelDiscovery) {
     const models = await fetchProviderModels(provider, options);
     const selectedModel = options.model?.replace(/^models\//, '');

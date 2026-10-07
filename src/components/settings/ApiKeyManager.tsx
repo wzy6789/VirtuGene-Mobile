@@ -1,3 +1,4 @@
+import { Icon } from '../ui/Icon';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
 import { persistSecret, loadSecret, clearSecret } from '../../lib/api-key-storage';
@@ -5,6 +6,7 @@ import { fetchProviderModels, getAvailableModels, getProviderKey, LLM_MODELS, LL
 import { getProviderConfig, normalizeProviderBaseUrl, providerRequiresKey, saveProviderConfig } from '../../lib/ai/provider-config';
 import { checkGatewayHealth, hasAiGatewayAccess } from '../../lib/ai/gateway';
 import { CLOUD_ASR_KEY_NAME } from '../../lib/cloud-asr';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
 import { Modal } from '../ui/Modal';
 import { notifyProviderCredentialsChanged, useModelCatalog } from './useModelCatalog';
 import '../../styles/model-settings.css';
@@ -27,7 +29,7 @@ function connectionError(error: unknown): string {
 }
 
 function FeedbackLine({ feedback }: { feedback: Feedback | null }) {
-  return feedback ? <p className="vg-provider-message" data-tone={feedback.tone} role={feedback.tone === 'error' ? 'alert' : 'status'}>{feedback.text}</p> : null;
+  return feedback ? <FeedbackNotice className="mt-3" message={feedback.text} tone={feedback.tone} /> : null;
 }
 
 function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId; onBack: () => void; onChanged: () => void }) {
@@ -121,7 +123,7 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
       const nextModels = pendingModel ? [...models.filter(item => item.id !== pendingModel), { id: pendingModel, label: pendingModel, provider, vision: modelVision }] : models;
       saveProviderConfig(provider, { baseUrl: normalizedUrl, enabled, models: nextModels });
       setBaseUrl(normalizedUrl);
-      setModels(nextModels);
+      setModels(getProviderConfig(provider).models);
       if (pendingModel) { setTestModel(pendingModel); setModelId(''); setModelVision(false); }
       notifyProviderCredentialsChanged();
       onChanged();
@@ -177,7 +179,7 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
       } else {
         await validateProviderConnection(provider, { apiKey: key, baseUrl: url, model: modelId.trim() || testModel, signal: controller.signal });
         if (!isCurrent(token)) return;
-        setFeedback({ tone: 'success', text: definition.modelDiscovery ? '服务商已响应，密钥可读取模型列表。具体模型权限以实际调用为准。' : '服务商已响应，测试模型调用成功。未保存的内容仍需要保存配置。' });
+        setFeedback({ tone: 'success', text: provider === 'deepseek' ? 'DeepSeek Flash 实际调用成功。未保存的地址仍需要保存配置。' : definition.modelDiscovery ? '服务商已响应，密钥可读取模型列表。具体模型权限以实际调用为准。' : '服务商已响应，测试模型调用成功。未保存的内容仍需要保存配置。' });
       }
     } catch (error) {
       if (isCurrent(token)) setFeedback({ tone: 'error', text: connectionError(error) });
@@ -203,20 +205,22 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
       </section>
       <section className="vg-provider-section" aria-label="模型配置">
         <h4>模型配置</h4>
-        <p className="vg-provider-note">预设模型仅供选择，实际可用性取决于平台和账户。支持填写模型 ID 或推理接入点。</p>
+        <p className="vg-provider-note">{provider === 'deepseek' ? '统一使用 DeepSeek V4.1 Flash，聊天、图片理解和辅助生成共用同一模型。旧会话的 DeepSeek 选择会自动接续到 Flash。' : '预设模型仅供选择，实际可用性取决于平台和账户。支持填写模型 ID 或推理接入点。'}</p>
         {options.size > 0 && <label className="vg-provider-field mt-3"><span>测试模型</span><select aria-label="测试模型" value={testModel} onChange={event => setTestModel(event.target.value)} disabled={Boolean(busy)}>{[...options.values()].map(model => <option key={model.id} value={model.id}>{model.label}</option>)}</select></label>}
+        {provider !== 'deepseek' && <>
         {models.length > 0 && <div className="vg-provider-models">{models.map(model => <div className="vg-provider-model-entry" key={model.id}><code>{model.id}</code>{model.vision && <span>图片</span>}<button type="button" aria-label={`移除模型 ${model.id}`} disabled={Boolean(busy)} onClick={() => removeModel(model.id)}>移除</button></div>)}</div>}
         <label className="vg-provider-field mt-3"><span>添加模型 ID</span><input type="text" aria-label="添加模型 ID" value={modelId} onChange={event => setModelId(event.target.value)} placeholder={definition.modelPlaceholder} autoComplete="off" spellCheck={false} maxLength={240} disabled={Boolean(busy)} /></label>
         <label className="vg-provider-model-vision"><input type="checkbox" checked={modelVision} onChange={event => setModelVision(event.target.checked)} disabled={Boolean(busy)} />此模型支持图片输入（请先根据服务商文档确认）</label>
         <div className="vg-provider-inline-actions"><button type="button" className="vg-provider-button" disabled={Boolean(busy) || !modelId.trim()} onClick={() => addModel({ id: modelId, vision: modelVision })}>添加模型</button>{definition.modelDiscovery && <button type="button" className="vg-provider-button" disabled={Boolean(busy)} onClick={() => void connect('discover')}>{busy === 'discover' ? '查询中…' : '查询可用模型'}</button>}</div>
         {discovered.length > 0 && <div className="mt-3"><label className="vg-provider-field"><span>平台返回的模型</span><select aria-label="平台返回的模型" value={discoveredId} onChange={event => setDiscoveredId(event.target.value)}>{discovered.map(model => <option key={model.id} value={model.id}>{model.id}</option>)}</select></label><button type="button" className="vg-provider-button" disabled={Boolean(busy) || !discoveredId} onClick={() => { const selected = discovered.find(model => model.id === discoveredId); if (selected) addModel(selected); }}>添加所选模型</button><p className="vg-provider-note mt-2">模型列表不一定提供图片能力信息，必要时请手动确认并设置。</p></div>}
+        </>}
       </section>
       <div className="vg-provider-actions">
         <div className="vg-provider-savebar"><button type="button" className="vg-provider-button is-primary" onClick={() => void save()} disabled={Boolean(busy)}>{busy === 'save' ? '保存中…' : '保存配置'}</button><button type="button" className="vg-provider-button" onClick={() => void connect('test')} disabled={Boolean(busy)}>{busy === 'test' ? '测试中…' : '测试连接'}</button>{(busy === 'test' || busy === 'discover') && <button type="button" className="vg-provider-button" onClick={cancel}>取消请求</button>}</div>
-        {!definition.modelDiscovery && <p className="vg-provider-note mt-2">测试会向所选模型发送一个极短请求，可能产生少量接口费用。</p>}
+        {(!definition.modelDiscovery || provider === 'deepseek') && <p className="vg-provider-note mt-2">测试会向所选模型发送一个极短请求，可能产生少量接口费用。</p>}
         <FeedbackLine feedback={feedback}/>
       </div>
-      <a className="vg-provider-docs" href={definition.docsUrl} target="_blank" rel="noreferrer">查看服务商 API 文档 ↗</a>
+      <a className="vg-provider-docs" href={definition.docsUrl} target="_blank" rel="noreferrer">查看服务商 API 文档 <Icon name="arrow" size={16} /></a>
     </div>
   </div>;
 }
@@ -278,7 +282,7 @@ export function ApiKeyManager({ onClose, embedded = false, onlySpeech = false }:
   const content = <div ref={surfaceRef} className="vg-settings-design vg-provider-settings">
     {onlySpeech ? <><p className="vg-settings-intro">云端识别在设备没有系统识别服务时使用。密钥仅保存在此设备，对话模型和语音服务分开管理。</p><SpeechKeyEditor key={owner}/></> : provider ? <ProviderEditor key={`${owner}:${provider}`} provider={provider} onBack={() => setProvider(null)} onChanged={() => setRevision(value => value + 1)}/> : <>
       <div className="vg-provider-intro"><h3>连接你习惯的 AI</h3><p>选择服务商，配置密钥和模型。支持官方接口、区域地址以及本机或局域网的兼容服务。</p></div>
-      <label className="vg-model-search"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input type="search" aria-label="搜索服务商" placeholder="搜索服务商，如 Claude、Kimi" value={query} onChange={event => setQuery(event.target.value)}/></label>
+      <label className="vg-search-field vg-model-search"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input type="search" aria-label="搜索服务商" placeholder="搜索服务商，如 Claude、Kimi" value={query} onChange={event => setQuery(event.target.value)}/></label>
       <div className="vg-provider-filters" aria-label="服务商筛选"><button type="button" aria-pressed={!configuredOnly} onClick={() => setConfiguredOnly(false)}>全部服务商 · {PROVIDERS.length}</button><button type="button" aria-pressed={configuredOnly} onClick={() => setConfiguredOnly(true)}>已配置 · {loading ? '…' : configured}</button></div>
       <div className="vg-provider-directory" key={revision}>{filtered.map(id => <button type="button" className="vg-provider-row" key={id} onClick={() => openProvider(id)} aria-label={`配置 ${LLM_PROVIDERS[id].name}`}><span className="vg-provider-mark" aria-hidden="true">{MARKS[id]}</span><span className="vg-provider-copy"><strong>{LLM_PROVIDERS[id].name}</strong><small>{id === 'deepseek' ? '使用登录账号连接' : id === 'custom' ? '本地模型、代理及兼容服务' : LLM_PROVIDERS[id].protocol === 'openai' ? '兼容接口 · 可自定义模型' : '原生接口 · 可自定义模型'}</small></span><span className="vg-provider-status" data-ready={Boolean(ready[id])}>{loading ? '读取中' : getProviderConfig(id).enabled === false ? '已暂停' : ready[id] ? '已配置' : '待配置'}</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m9 5 7 7-7 7"/></svg></button>)}</div>
       {filtered.length === 0 && <p className="vg-model-empty">{configuredOnly ? '没有符合条件的已配置服务商。切换到全部服务商即可添加。' : '没有找到匹配的服务商。兼容接口可通过「自定义」接入。'}</p>}

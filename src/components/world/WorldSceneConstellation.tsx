@@ -1,4 +1,5 @@
-﻿import type { Character, WorldScene, WorldSceneEntry } from '../../db/index';
+﻿import { Icon } from '../ui/Icon';
+import type { Character, WorldScene, WorldSceneEntry } from '../../db/index';
 import { cleanConstellationTitle } from '../../lib/world/constellation-typography';
 
 function statusLabel(status: WorldScene['status']): string {
@@ -24,7 +25,7 @@ export function WorldSceneConstellation({ scene, entries, characters, entriesLoa
   ];
   return <section className="vg-scene-constellation vg-sector-detail" aria-label={`世界星域：${scene.title}`}>
     <header className="vg-scene-constellation-header">
-      <button type="button" onClick={onBack} className="vg-scene-back">‹ 世界星域</button>
+      <button type="button" onClick={onBack} className="vg-scene-back"><Icon name="back" size={18} /> 世界星域</button>
       <span className={`vg-world-scene-status is-${scene.status}`}>{statusLabel(scene.status)}</span>
     </header>
     <div className="vg-sector-identity">
@@ -47,7 +48,7 @@ export function WorldSceneConstellation({ scene, entries, characters, entriesLoa
     <div className="vg-sector-enter">
       <button type="button" className="vg-scene-constellation-continue" onClick={onContinue}>
         <span className="vg-scene-constellation-continue-label">{scene.status === 'finished' ? '回看世界' : '继续生活'}</span>
-        <span className="vg-scene-continue-arrow" aria-hidden="true">↗</span>
+        <span className="vg-scene-continue-arrow" aria-hidden="true"><Icon name="arrow" size={18} /></span>
       </button>
     </div>
     <section className="vg-sector-recent" aria-label="最近发生">

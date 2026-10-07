@@ -35,7 +35,7 @@ export function useSlideOutCancel() {
       if (!button || button.disabled || event.button !== 0 || !event.isPrimary || button.closest('.vg-voice-tools,[data-pointer-action]')) return;
       cancelled.delete(button);
       const box = button.getBoundingClientRect();
-      const themed = !button.matches('.vg-press-card') && !!button.closest('.mobile-layout,.vg-mobile-sheet,.vg-settings-panel,.vg-settings-design');
+      const themed = !button.matches('.vg-press-card') && !!button.closest('.mobile-layout,.vg-mobile-page,.vg-mobile-dialog,.vg-settings-panel,.vg-settings-design');
       forgetLight(button);
       press = { id: event.pointerId, button, outside: false, box, themed };
       if (themed && !prefersReducedMotion()) {

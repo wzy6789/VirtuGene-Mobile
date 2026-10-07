@@ -3,14 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <!-- viewport-fit=cover：让 env(safe-area-inset-*) 生效，状态栏/刘海区域正确铺底 -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0F0F1A" />
     <title>VirtuGene</title>
     <link rel="preload" href="/src/assets/fonts/noto-sans-sc-ui.woff2" as="font" type="font/woff2" crossorigin />
     <style>
-      /* 首帧防白：应用加载前页面底色即为品牌深色（手机状态栏区域同理） */
-      html { background: #0F0F1A; }
+      /* 在应用加载前提供主题底色，避免加载过程出现反色闪屏。 */
+      html { background:#f5f6fc; color-scheme:light; }
+      html.dark { background:#0c1020; color-scheme:dark; }
     </style>
+    <script>
+      // Apply the persisted choice before loading styles or drawing the first frame.
+      (() => { let theme='dark'; try { const state=JSON.parse(localStorage.getItem('virtugene-theme') || 'null')?.state;
+        const choice=state?.preference ?? state?.theme ?? 'dark';
+        theme=choice === 'light' || choice === 'system' && !matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark';
+      } catch {} document.documentElement.classList.toggle('dark',theme === 'dark'); document.documentElement.dataset.vgTheme=theme;
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content',theme === 'dark' ? '#0c1020' : '#f5f6fc'); })();
+    </script>
   </head>
   <body class="overflow-hidden select-none">
     <div id="root"></div>

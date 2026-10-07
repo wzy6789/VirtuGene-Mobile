@@ -25,7 +25,7 @@ export function buildSceneTimeContext(slot?: SceneTimeOfDay, place?: string, atm
     low: '有些低落',
   };
   const parts = [slot ? `时段：${label[slot]}` : '', place ? `地点：${place}` : '', atmosphere ? `气氛：${atmosphereLabel[atmosphere]}` : ''].filter(Boolean);
-  return `\n\n[当前聊天场域]\n${parts.join('；')}。请让环境、节奏和角色语气自然贴合这个场域；它只是叙事氛围，不改变现实日期、消息发送时间或时间分隔线。不要每轮复述场域，不要让它盖过角色本来的性格；用户明显换话题时顺着用户。`;
+  return `\n\n[当前聊天场域]\n${parts.join('；')}。这是用户选择的叙事氛围，只影响选词、语气和交流节奏，不证明你与用户同处一室，也不要求续演环境。不要从时段或地点编出门、食物、身体动作，亲近气氛也不要求把心意写成文学独白；只有用户明确要求创作或扮演时才展开场景。不改变现实日期、消息发送时间或时间分隔线，不盖过角色性格；用户换话题时顺着用户。`;
 }
 
 /**

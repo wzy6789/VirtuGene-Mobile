@@ -33,8 +33,9 @@ async function run(): Promise<void> {
   const character = { name: '星遥', tags: [], proactivity: 0.5, signature: '', greeting: '', catchphrase: '', boundaries: '', systemPrompt: '' };
   const history = [{ role: 'user', content: '今天有点空闲' }, { role: 'assistant', content: '我也有空。' }];
   const opts = { proactiveTopics: ['附近新开的书店'], turnNumber: 5 };
-  check(buildHumanConversationContext('今天仍然有点空闲', history, character, opts).includes('附近新开的书店'), 'proactive cadence uses persistent turn count');
-  check(!buildHumanConversationContext('今天仍然有点空闲', history, character, { ...opts, turnNumber: 6 }).includes('附近新开的书店'), 'no opener on every turn');
+  const opportunities = Array.from({ length: 80 }, (_, i) => buildHumanConversationContext('今天仍然有点空闲', history, character, { ...opts, turnNumber: i + 1 }).includes('打开一个具体小话题'));
+  check(opportunities.some(Boolean) && opportunities.filter(Boolean).length < 40, 'probabilistic sharing uses persistent turn count with room for silence');
+  check(!opportunities.some((active, i) => active && opportunities[i - 1]), 'no proactive opener on consecutive turns');
   check(!buildHumanConversationContext('今天仍然有点空闲', [...history, { role: 'assistant', content: '附近新开的书店挺有趣。' }], character, opts).includes('打开一个具体小话题：「附近新开的书店」'), 'recently spoken seed cools down');
 
   const ctx = {

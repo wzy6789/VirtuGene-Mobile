@@ -1,6 +1,8 @@
 # 打包与发布方法（VirtuGene-Mobile Android）
 
 给负责打包的人 / AI 助手看的操作手册。全部命令都在 **PowerShell** 下、在项目根目录执行。
+
+> 6.0.0 当前处于功能冻结：只修 bug，先核对 [冻结与发布记录](RELEASE-6.0.0-GATE.md) 以及候选安装包。用户最新决定不需要真机验收，五项实测不再作为发布门槛，仍记录为未实测。
 本项目另外有一份技能说明 `dsi-publish-virtugene-mobile`（构建 → 改版本 → `git credential fill` 取 token → 发 GitHub Releases），本文档是它的落地细节版，并补上 Windows 上 Gradle 缓存锁冲突的排查方法。
 
 ---

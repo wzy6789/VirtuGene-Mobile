@@ -46,7 +46,8 @@ async function setup(history = 0) {
   useAuthStore.getState().login(uid, 'stream tester', 'sk-fake', '');
   useSettingsStore.setState({ aiVoiceMode: false, ttsEnabled: true, defaultModel: { provider: 'deepseek', model: 'deepseek-v4-flash' } });
   useUIStore.setState({ mobileTab: 'chat', activeView: 'chat' });
-  const chars = ['a', 'b'].map(key => fakeCharacter(key, key === 'a' ? '星遥' : '林霜', uid));
+  // Stream-only fixtures already have reviewed examples; legacy generation is covered separately.
+  const chars = ['a', 'b'].map(key => fakeCharacter(key, key === 'a' ? '星遥' : '林霜', uid, { systemPrompt: '你有自己的说话方式。\n对话样本：用户说你好 → 你说来啦。' }));
   await db.characters.bulkAdd(chars);
   const now = Date.now();
   await db.sessions.bulkAdd(chars.map(char => ({ id: char.id, characterId: char.id, userId: uid, title: char.name, createdAt: now, updatedAt: now, modelAsked: true, model: { provider: 'deepseek', model: 'deepseek-v4-flash' } })));
@@ -77,7 +78,9 @@ async function unitChecks() {
   check(snapshot('你好-') === '你好' && snapshot('你好--') === '你好' && snapshot('你好---再见') === '你好|再见', 'fragmented separators');
   check(snapshot('（笑') === '' && snapshot('（笑）你好') === '你好', 'no transient roleplay actions');
   check(snapshot('{"messages":["你好"') === '' && snapshot('{"messages":["你好","再见"]}') === '你好|再见', 'no partial JSON syntax');
-  check(streamedReplyParts('一---二---三---四', true).join('|') === '一|二|三 四', 'extra parts retained');
+  check(streamedReplyParts('一---二---三---四', true).join('|') === '一|二|三|四', 'four independent parts retained');
+  check(streamedReplyParts('长长的第一条---嗯---啊---长长的第四条---最后', true).join('|') === '长长的第一条|嗯啊|长长的第四条|最后', 'buffered fifth part merges shortest adjacent pair');
+  check(streamedReplyParts('长长的第一条---嗯---啊---長長的第四条---最后', true, true).join('|') === '长长的第一条|嗯|啊|長長的第四条最后', 'published stream never rewrites earlier bubbles when fifth part arrives');
   let starts = 0, publishes = 0;
   const stream = new ChatReplyStream('unit', () => starts++);
   stream.subscribe(() => publishes++);
@@ -85,6 +88,12 @@ async function unitChecks() {
   await new Promise(resolve => setTimeout(resolve, 45));
   check(starts === 1 && publishes === 2 && stream.getSnapshot()[0].length === 101, 'burst coalescing without text loss');
   stream.finish('终稿'); check(stream.getSnapshot()[0] === '终稿', 'completion flush'); stream.dispose();
+  const four = new ChatReplyStream('four', () => undefined);
+  four.push('长长的第一条---嗯---啊---长长的第四条');
+  const originalIds = [...four.ids];
+  four.finish('长长的第一条---嗯---啊---长长的第四条---最后');
+  check(four.getSnapshot().join('|') === '长长的第一条|嗯|啊|长长的第四条最后' && four.ids.length === 4 && four.ids.every((id, i) => id === originalIds[i]), 'real stream class preserves four published row identities through overflow');
+  four.dispose();
   const bytes = encoder.encode(frame('你好🌙') + 'data: [DONE]\r\n\r\n');
   const seen: string[] = [];
   const parsed = await readSseResponse(new Response(new ReadableStream({ start(c) { for (const byte of bytes) c.enqueue(new Uint8Array([byte])); c.close(); } })), all => seen.push(all));

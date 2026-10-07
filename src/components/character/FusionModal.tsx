@@ -1,3 +1,6 @@
+import { useAuthStore } from '../../store/auth-store';
+import { Modal } from '../ui/Modal';
+import { GeneGlyph } from '../ui/GeneGlyph';
 import { useState } from 'react';
 import { useChatStore } from '../../store/chat-store';
 import { fuseSouls, type FusionResult } from '../../lib/ai/fusion';
@@ -8,6 +11,7 @@ import type { Character } from '../../db/index';
  * 融合结果可预览/改名/微调后再创建。
  */
 export function FusionModal({ onClose }: { onClose: () => void }) {
+  const userId = useAuthStore(state => state.userId);
   const characters = useChatStore((s) => s.characters);
   const createCharacter = useChatStore((s) => s.createCharacter);
   const [aId, setAId] = useState('');
@@ -81,16 +85,7 @@ export function FusionModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[95] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-lg glass-card rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-4 py-3 border-b border-line flex items-center justify-between shrink-0">
-          <span className="text-sm font-medium text-ink">🧬 基因融合 · 灵魂杂交</span>
-          <button onClick={onClose} className="text-gray-400 hover:text-ink text-lg leading-none">×</button>
-        </div>
-
+    <Modal open onClose={onClose} title="基因融合 · 灵魂杂交" canSnapshotOnExit={() => useAuthStore.getState().userId === userId}><div>
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {/* 选择两个角色 */}
           {!result ? (
@@ -116,7 +111,7 @@ export function FusionModal({ onClose }: { onClose: () => void }) {
                           </option>
                         ))}
                     </select>
-                    {src && <p className="text-[10px] text-gray-500 mt-1 line-clamp-2">{src.signature}</p>}
+                    {src && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{src.signature}</p>}
                   </div>
                 ))}
               </div>
@@ -133,7 +128,7 @@ export function FusionModal({ onClose }: { onClose: () => void }) {
                     正在融合基因序列…
                   </>
                 ) : (
-                  '🔀 融合两颗灵魂'
+                  <><GeneGlyph size={18} />融合两颗灵魂</>
                 )}
               </button>
               {error && <p className="text-xs text-red-400 text-center">{error}</p>}
@@ -192,12 +187,12 @@ export function FusionModal({ onClose }: { onClose: () => void }) {
                 disabled={creating}
                 className="w-full py-2.5 rounded-xl bg-gene-purple text-white text-sm font-medium hover:bg-[#5B4BD4] transition-all disabled:opacity-30 flex items-center justify-center gap-2"
               >
-                {creating ? '正在孵化…' : '✨ 孵化这个数字灵魂'}
+                {creating ? '正在孵化…' : <><GeneGlyph size={18} />孵化这个数字灵魂</>}
               </button>
             </>
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -8,6 +8,8 @@ export interface PromptSection {
   key: string;
   text: string;
   priority: number;
+  /** Reserve bounded space and place character voice immediately before transport rules. */
+  placement?: 'tail';
 }
 
 export interface CompiledChatContext {
@@ -48,10 +50,11 @@ export function compileChatContext(
     }, [])
     .sort((a, b) => b.priority - a.priority);
 
-  for (const section of ordered) {
+  const tails: string[] = [];
+  for (const section of [...ordered.filter(s => s.placement === 'tail'), ...ordered.filter(s => s.placement !== 'tail')]) {
     const text = section.text.trim();
     if (text.length <= remaining) {
-      output.push(text);
+      (section.placement === 'tail' ? tails : output).push(text);
       remaining -= text.length;
       included.push(section.key);
       continue;
@@ -61,7 +64,7 @@ export function compileChatContext(
     // is too small. This keeps the identity and current-turn instructions intact.
     const minimum = Math.min(text.length, section.priority >= 80 ? 500 : 240);
     if (remaining >= minimum) {
-      output.push(text.slice(0, remaining));
+      (section.placement === 'tail' ? tails : output).push(text.slice(0, remaining));
       // 截断：区块里的条目可能有部分没进去，因此只报 partial，不谎报"完整注入"
       partial.push(section.key);
       remaining = 0;
@@ -70,7 +73,7 @@ export function compileChatContext(
     }
   }
 
-  return { prompt: output.filter(Boolean).join('\n\n'), included, partial, omitted };
+  return { prompt: [...output, ...tails].filter(Boolean).join('\n\n'), included, partial, omitted };
 }
 
 /** Selects relevant memories without a vector database. Exact words are enough for

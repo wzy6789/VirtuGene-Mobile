@@ -1,5 +1,6 @@
 import { avatarImageSrc } from '../../lib/avatar';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { GeneGlyph } from '../ui/GeneGlyph';
 import { useChatStore } from '../../store/chat-store';
 import { useAuthStore } from '../../store/auth-store';
 import { characterRepo } from '../../db/character-repo';
@@ -9,6 +10,7 @@ import { IS_MOBILE } from '../../lib/platform';
 import { CharacterProfileModal } from './CharacterProfileModal';
 import { FusionModal } from './FusionModal';
 import type { Character } from '../../db/index';
+import { ensureOwnedChatCharacter } from '../../lib/character-chat';
 
 interface GenePoolTabProps {
   onSelect: (character: Character) => void;
@@ -27,10 +29,10 @@ const FILTERS: { key: FilterTab; label: string }[] = [
 ];
 
 function getBadge(char: Character, userId: string, cloned: boolean) {
-  if (cloned) {
+  if (cloned || !char.isPreset && char.createdBy === userId && char.sourcePresetId) {
     return { text: '已添加', className: 'bg-life-cyan/15 text-life-cyan' };
   }
-  if (char.isPreset || char.sourcePresetId) {
+  if (char.isPreset) {
     return { text: '预设基因', className: 'bg-gene-purple/20 text-gene-purple' };
   }
   if (char.published && char.createdBy !== userId) {
@@ -51,7 +53,6 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const selectedCharacterId = useChatStore((s) => s.selectedCharacterId);
   const selectCharacter = useChatStore((s) => s.selectCharacter);
-  const createCharacter = useChatStore((s) => s.createCharacter);
   const userId = useAuthStore((s) => s.userId) ?? '';
   /** 手机端屏幕小：强制列表视图，不用网格（微信/QQ 通讯录式） */
   const effectiveView: ViewMode = IS_MOBILE ? 'az' : view;
@@ -135,41 +136,13 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
 
   const presentLetters = useMemo(() => new Set(grouped.map((g) => g.letter)), [grouped]);
 
-  const clonePresetIfNeeded = async (character: Character): Promise<Character> => {
-    const mine = await characterRepo.getByCreator(userId);
-    if (character.isPreset) {
-      const existing = mine.find((c) => c.sourcePresetId === character.id);
-      if (existing) return existing;
-    } else {
-      const existing = mine.find((c) => c.name === character.name);
-      if (existing) return existing;
-    }
-    return createCharacter({
-      name: character.name,
-      avatar: character.avatar,
-      systemPrompt: character.systemPrompt,
-      tags: character.tags,
-      signature: character.signature,
-      greeting: character.greeting,
-      sourcePresetId: character.isPreset ? character.id : undefined,
-      isPreset: false,
-      isCustom: false,
-      published: false,
-      createdBy: userId,
-      proactivity: character.proactivity,
-    });
-  };
-
-  const handleAdd = async (character: Character) => {
-    const clone = await clonePresetIfNeeded(character);
-    setProfileChar(null);
-    onSelect(clone);
-  };
-
   const handleChat = async (character: Character) => {
-    await selectCharacter(character.id);
+    const target = await ensureOwnedChatCharacter(character, userId);
+    if (useAuthStore.getState().userId !== userId) return;
+    await selectCharacter(target.id);
+    if (useAuthStore.getState().userId !== userId || useChatStore.getState().selectedCharacterId !== target.id) return;
     setProfileChar(null);
-    onSelect(character);
+    onSelect(target);
   };
 
   const scrollToLetter = (letter: string) => {
@@ -197,8 +170,9 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            aria-label="搜索基因序列"
             placeholder="搜索基因序列..."
-            className="w-full pl-10 pr-4 py-2.5 bg-surface border border-line-strong rounded-xl text-sm text-ink placeholder-gray-500 focus:outline-none focus:border-gene-purple/50 transition-colors"
+            className="vg-text-field w-full pl-10 pr-4 py-2.5 text-sm"
           />
         </div>
         {/* 视图切换（手机端屏幕小，强制列表视图，隐藏网格切换） */}
@@ -229,7 +203,7 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
         onClick={() => setShowFusion(true)}
         className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gene-purple/30 bg-gene-purple/8 text-gene-purple text-xs font-medium hover:bg-gene-purple/15 transition-colors"
       >
-        🧬 基因融合 · 杂交出新的数字灵魂
+        <GeneGlyph size={18} /> 基因融合 · 杂交出新的数字灵魂
       </button>
 
       {/* Source filter tabs */}
@@ -269,7 +243,7 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
       {/* Results */}
       {filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-          <span className="text-4xl mb-3">🧬</span>
+          <GeneGlyph size={40} className="mb-3 text-[color:var(--vg-accent)]" />
           <span className="text-sm">未找到匹配的基因序列</span>
         </div>
       ) : effectiveView === 'grid' ? (
@@ -277,7 +251,7 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
           {filtered.map((char) => {
             const isSelected = char.id === selectedCharacterId;
             const isShared = char.published && !char.isPreset && char.createdBy !== userId;
-            const badge = getBadge(char, userId, char.isPreset && mineBySource.has(char.id));
+            const badge = getBadge(char, userId, mineBySource.has(char.id));
             return (
               <button
                 key={char.id}
@@ -300,25 +274,25 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium text-ink truncate">{char.name}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${badge.className}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${badge.className}`}>
                         {badge.text}
                       </span>
                     </div>
                     {char.signature && (
-                      <p className="text-[11px] text-gray-500 line-clamp-1 mt-0.5">{char.signature}</p>
+                      <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{char.signature}</p>
                     )}
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {char.tags.map((tag) => (
                         <span
                           key={tag}
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-surface text-gray-400"
+                          className="text-xs px-1.5 py-0.5 rounded bg-surface text-gray-400"
                         >
                           {tag}
                         </span>
                       ))}
                     </div>
                     {isShared && (
-                      <span className="inline-block mt-2 text-[10px] text-life-cyan">
+                      <span className="inline-block mt-2 text-xs text-life-cyan">
                         ⧉ 点击查看档案
                       </span>
                     )}
@@ -338,12 +312,12 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
                   groupRefs.current[group.letter] = el;
                 }}
               >
-                <div className="px-2 pt-3 pb-1 text-[11px] font-semibold text-life-cyan">
+                <div className="px-2 pt-3 pb-1 text-xs font-semibold text-life-cyan">
                   {group.letter}
                 </div>
                 {group.chars.map((char) => {
                   const isSelected = char.id === selectedCharacterId;
-                  const badge = getBadge(char, userId, char.isPreset && mineBySource.has(char.id));
+                  const badge = getBadge(char, userId, mineBySource.has(char.id));
                   return (
                     <button
                       key={char.id}
@@ -360,12 +334,12 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium text-ink truncate">{char.name}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${badge.className}`}>
+                          <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${badge.className}`}>
                             {badge.text}
                           </span>
                         </div>
                         {char.signature && (
-                          <p className="text-[11px] text-gray-500 truncate mt-0.5">{char.signature}</p>
+                          <p className="text-xs text-gray-500 truncate mt-0.5">{char.signature}</p>
                         )}
                       </div>
                     </button>
@@ -376,7 +350,7 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
           </div>
 
           {/* Letter index bar */}
-          <div className="shrink-0 self-start sticky top-16 flex flex-col justify-center gap-0.5 text-[10px] text-gray-500">
+          <div className="shrink-0 self-start sticky top-16 flex flex-col justify-center gap-0.5 text-xs text-gray-500">
             {INDEX_LETTERS.map((l) => (
               <button
                 key={l}
@@ -399,7 +373,6 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
           character={profileChar}
           userId={userId}
           onClose={() => setProfileChar(null)}
-          onAdd={handleAdd}
           onChat={handleChat}
         />
       )}

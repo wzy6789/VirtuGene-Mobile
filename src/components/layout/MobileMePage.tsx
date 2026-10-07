@@ -55,7 +55,7 @@ export function MobileMePage() {
   const avatar = useAuthStore((s) => s.avatar);
   const logout = useAuthStore((s) => s.logout);
   const theme = useThemeStore((s) => s.theme);
-  const toggleTheme = useThemeStore((s) => s.toggle);
+  const themePreference = useThemeStore((s) => s.preference);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsInitialPage, setSettingsInitialPage] = useState<SettingsPage>('home');
   const [showProfile, setShowProfile] = useState(false);
@@ -125,7 +125,7 @@ export function MobileMePage() {
         <span className="absolute -right-7 -bottom-10 h-36 w-36 rounded-full border border-life-cyan/20" />
         <div className="relative shrink-0">
           <Avatar avatar={avatar ?? DEFAULT_USER_AVATAR} size="lg" className="relative ring-2 ring-white/35" />
-          <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-gene-purple/15 border border-line flex items-center justify-center text-[10px]">
+          <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-gene-purple/15 border border-line flex items-center justify-center text-xs">
             ✎
           </span>
         </div>
@@ -138,9 +138,9 @@ export function MobileMePage() {
 
       {/* 功能列表 */}
       <div className="vg-personal-stats mx-4 mt-3 grid grid-cols-3 overflow-hidden rounded-2xl border border-line bg-surface/80">
-        <div className="border-r border-line px-2 py-3 text-center"><span className="block text-base font-semibold text-ink">{useChatStore.getState().characters.length}</span><span className="text-[10px] text-gray-500">角色</span></div>
-        <div className="border-r border-line px-2 py-3 text-center"><span className="block text-base font-semibold text-life-cyan">{Object.keys(useCharacterStateStore.getState().affinityByCharacter).length}</span><span className="text-[10px] text-gray-500">连接</span></div>
-        <div className="px-2 py-3 text-center"><span className="block text-base font-semibold text-gene-purple">{version ? `v${version}` : '—'}</span><span className="text-[10px] text-gray-500">版本</span></div>
+        <div className="border-r border-line px-2 py-3 text-center"><span className="block text-base font-semibold text-ink">{useChatStore.getState().characters.length}</span><span className="text-xs text-gray-500">角色</span></div>
+        <div className="border-r border-line px-2 py-3 text-center"><span className="block text-base font-semibold text-life-cyan">{Object.keys(useCharacterStateStore.getState().affinityByCharacter).length}</span><span className="text-xs text-gray-500">连接</span></div>
+        <div className="px-2 py-3 text-center"><span className="block text-base font-semibold text-gene-purple">{version ? `v${version}` : '—'}</span><span className="text-xs text-gray-500">版本</span></div>
       </div>
 
       <button
@@ -150,14 +150,14 @@ export function MobileMePage() {
         <span className="absolute -right-5 -bottom-8 h-24 w-24 rounded-full border border-life-cyan/15" />
         <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gene-purple/15 text-lg">✦</span>
         <span className="relative ml-3 min-w-0 flex-1">
-          <span className="block text-[10px] tracking-[0.18em] text-life-cyan/80">WEEKLY LIFE REVIEW</span>
+          <span className="block text-xs tracking-[0.18em] text-life-cyan/80">WEEKLY LIFE REVIEW</span>
           <span className="mt-0.5 block text-sm font-semibold text-ink">本周生命回顾</span>
-          <span className="mt-0.5 block text-[11px] text-gray-500">看看关系、记忆与情绪如何一起生长</span>
+          <span className="mt-0.5 block text-xs text-gray-500">看看关系、记忆与情绪如何一起生长</span>
         </span>
         <span className="relative self-center text-life-cyan">›</span>
       </button>
 
-      <p className="mx-5 mt-6 text-[10px] tracking-[0.22em] text-gray-500">YOUR SPACE</p>
+      <p className="mx-5 mt-6 text-xs tracking-[0.22em] text-gray-500">YOUR SPACE</p>
       <div className="vg-personal-settings mx-4 mt-2 rounded-2xl bg-surface border border-line overflow-hidden divide-y divide-line">
         <button className={rowCls} onClick={() => { setSettingsInitialPage('connection'); setShowSettings(true); }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-gene-purple/70 shrink-0">
@@ -171,10 +171,11 @@ export function MobileMePage() {
           <span className="flex-1 text-left">设置</span>
           <span className="text-gray-400 text-xs">›</span>
         </button>
-        <button className={rowCls} onClick={toggleTheme}>
+        <button className={rowCls} onClick={() => { setSettingsInitialPage('appearance'); setShowSettings(true); }}>
           <RowIcon name="theme" />
-          <span className="flex-1 text-left">深色模式</span>
-          <span className="text-xs text-life-cyan">{theme === 'dark' ? '已开启' : '已关闭'}</span>
+          <span className="flex-1 text-left">外观与阅读</span>
+          <span className="text-xs text-sub">{themePreference === 'system' ? `跟随系统 · ${theme === 'dark' ? '深色' : '浅色'}` : theme === 'dark' ? '深色' : '浅色'}</span>
+          <span aria-hidden="true" className="text-xs text-sub">›</span>
         </button>
         {/* 版本号（不可点）+ 下方「检查更新」入口 */}
         <div className={rowCls}>
@@ -229,7 +230,7 @@ export function MobileMePage() {
       <WeeklyLifeReviewModal open={showWeeklyReview} onClose={() => setShowWeeklyReview(false)} />
 
       {/* 断开灵魂链接二次确认 */}
-      <Modal open={showLogoutConfirm} onClose={() => setShowLogoutConfirm(false)} width="max-w-sm" closeOnBackdrop={false}>
+      <Modal presentation="dialog" open={showLogoutConfirm} onClose={() => setShowLogoutConfirm(false)} width="max-w-sm" closeOnBackdrop={false}>
         <div className="p-6">
           <p className="text-sm text-sub mb-2">断开灵魂链接？</p>
           <p className="text-xs text-gray-500 mb-6">断开后将返回登录页，本地数据（角色、对话、记忆）都会保留，下次登录继续。</p>

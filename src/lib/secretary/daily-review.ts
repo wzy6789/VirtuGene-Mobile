@@ -1,5 +1,6 @@
 import { db } from '../../db';
 import { addLocalDays, localDateKey, occurrenceId, expandOccurrenceDates } from '../../db/todo-repo';
+import { readTodoInstances } from '../action-cabin/query';
 import { useAuthStore } from '../../store/auth-store';
 import type { DailyReviewOptions, DailyReviewOutput, DailyReviewSources, SecretaryAction, SecretaryTask } from './types';
 
@@ -55,29 +56,15 @@ export async function collectDailyReview(userId: string, options: DailyReviewOpt
       .filter(d => !d.deletedAt && !d.characterId && d.visibility !== 'world').toArray() : [];
     if (diaries.length > 20) throw new Error('这一天的日记较多，请先整理日记，或只使用补充事实。');
     const todos = options.includeTodos ? await db.todos.where('userId').equals(userId).filter(t => t.status !== 'deleted' && t.status !== 'cancelled').toArray() : [];
-    const occurrences = options.includeTodos ? await db.todoOccurrences.where('userId').equals(userId).toArray() : [];
-    const byId = new Map(occurrences.map(o => [o.id, o]));
     const nextDate = addLocalDays(options.date, 1);
     const rows: DailyReviewTodoRow[] = [];
     const sources: DailyReviewSources = { diaries: diaries.map(d => ({ id: d.id, version: d.updatedAt })), todos: [] };
-    for (const todo of todos) {
-      const completed = occurrences.filter(o => o.todoId === todo.id && o.status === 'completed' && o.completedAt != null && localDateKey(new Date(o.completedAt)) === options.date);
-      for (const o of completed) {
-        rows.push({ id: todo.id, title: todo.title, date: o.dueDate, time: o.dueTime, state: 'completed-that-day', occurrenceId: o.id });
-        sources.todos.push({ id: todo.id, version: todo.updatedAt, occurrenceId: o.id, occurrenceVersion: o.updatedAt });
-      }
-      if (!completed.length && todo.recurrence.kind === 'none' && todo.status === 'completed' && todo.completedAt != null && localDateKey(new Date(todo.completedAt)) === options.date) {
-        rows.push({ id: todo.id, title: todo.title, date: todo.dueDate, time: todo.dueTime, state: 'completed-that-day' });
-        sources.todos.push({ id: todo.id, version: todo.updatedAt });
-      }
-      if (todo.status === 'completed' && todo.recurrence.kind === 'none') continue;
-      const dates = !todo.dueDate ? [undefined] : todo.recurrence.kind === 'none' ? todo.dueDate <= nextDate ? [todo.dueDate] : [] : expandOccurrenceDates(todo, options.date, nextDate);
-      for (const date of dates) {
-        const o = byId.get(occurrenceId(todo.id, date ?? '9999-12-31'));
-        if (o && o.status !== 'todo') continue;
-        rows.push({ id: todo.id, title: todo.title, date, time: todo.dueTime, state: date === nextDate ? 'next-day' : 'pending', occurrenceId: o?.id });
-        sources.todos.push({ id: todo.id, version: todo.updatedAt, occurrenceId: occurrenceId(todo.id, date ?? '9999-12-31'), occurrenceVersion: o?.updatedAt });
-      }
+    for (const {todo,occurrence:o} of options.includeTodos?await readTodoInstances(userId,nextDate):[]) {
+      const completed=o.status==='completed'&&o.completedAt!=null&&localDateKey(new Date(o.completedAt))===options.date;
+      if(!completed&&(o.status!=='todo'||o.dueDate!=='9999-12-31'&&o.dueDate>nextDate))continue;
+      const date=o.dueDate==='9999-12-31'?undefined:o.dueDate;
+      rows.push({id:todo.id,title:todo.title,date,time:o.dueTime,state:completed?'completed-that-day':date===nextDate?'next-day':'pending',occurrenceId:o.updatedAt?o.id:undefined});
+      sources.todos.push({id:todo.id,version:todo.updatedAt,occurrenceId:o.id,occurrenceVersion:o.updatedAt||undefined});
     }
     if (rows.length > 120) throw new Error('待办资料较多，请缩小范围，或取消使用待办。');
     const byTodoId = new Map(todos.map(todo => [todo.id, todo]));

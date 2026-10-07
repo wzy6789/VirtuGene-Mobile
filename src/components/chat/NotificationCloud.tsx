@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNotificationStore, type NotifyItem } from '../../store/notification-store';
 import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
@@ -10,7 +10,8 @@ import { Avatar } from '../ui/Avatar';
 
 const DISMISS_MS = 5500;
 
-function MessageNotification({ item }: { item: NotifyItem }) {
+const MessageNotification = memo(function MessageNotification({ item }: { item: NotifyItem }) {
+  const preview = useMemo(() => normalizeBubbleText(item.preview) || '发来一条新消息', [item.preview]);
   const ref = useRef<HTMLDivElement>(null);
   const motion = useRef<Animation | null>(null);
   const deadline = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -67,8 +68,8 @@ function MessageNotification({ item }: { item: NotifyItem }) {
   useEffect(() => {
     resume();
     const visibility = () => document.hidden ? pause() : resume();
-    const release = () => finishGesture.current(false);
-    const cancelPress = () => finishGesture.current(true);
+    const release = (event: PointerEvent) => { if (gesture.current?.id === event.pointerId) finishGesture.current(false); };
+    const cancelPress = (event: PointerEvent) => { if (gesture.current?.id === event.pointerId) finishGesture.current(true); };
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('pointerup', release); window.addEventListener('pointercancel', cancelPress);
     const quiet = subscribeReducedMotion(() => {
@@ -165,17 +166,17 @@ function MessageNotification({ item }: { item: NotifyItem }) {
     onPointerUp={() => endGesture(false)} onPointerCancel={() => { ignoreClick.current = true; endGesture(true); }}
     onLostPointerCapture={event => { if (event.target === event.currentTarget && gesture.current) endGesture(true); }}
   >
-    <button type="button" className="vg-notification-open" onClick={event => { if (event.detail === 0) ignoreClick.current = false; open(); }} aria-label={`打开${item.characterName}的消息：${normalizeBubbleText(item.preview) || '发来一条新消息'}`}>
+    <button type="button" className="vg-notification-open" onClick={event => { if (event.detail === 0) ignoreClick.current = false; open(); }} aria-label={`打开${item.characterName}的消息：${preview}`}>
       <span className="vg-notification-avatar" aria-hidden="true"><Avatar avatar={item.avatar} size="md" /><i /></span>
       <span className="vg-notification-copy"><span className="vg-notification-heading"><strong>{item.characterName}</strong><span>新消息</span></span>
-        <span className="vg-notification-preview">{normalizeBubbleText(item.preview) || '发来一条新消息'}</span>
+        <span className="vg-notification-preview">{preview}</span>
       </span>
     </button>
     <button type="button" data-notification-dismiss className="vg-notification-dismiss" aria-label={`关闭${item.characterName}的消息提醒`} onClick={dismiss}>
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="m7 7 10 10M17 7 7 17" /></svg>
     </button>
   </div>;
-}
+});
 
 /** Quiet message previews above the current page, with independent lifetimes. */
 export function NotificationCloud() {
@@ -190,17 +191,23 @@ export function NotificationCloud() {
   }), []);
   useLayoutEffect(() => {
     const nextPositions = new Map<string, number>();
-    root.current?.querySelectorAll<HTMLElement>('[data-notification-slot]').forEach(node => {
+    // Measure the entire stack before cancelling or starting any animation.
+    // Interleaved reads/writes force a fresh layout for every remaining card.
+    const measurements = Array.from(root.current?.querySelectorAll<HTMLElement>('[data-notification-slot]') ?? []).map(node => {
       const id = node.dataset.notificationSlot!;
       const style = getComputedStyle(node);
       const currentY = style.transform === 'none' ? 0 : new DOMMatrixReadOnly(style.transform).m42;
       const top = node.getBoundingClientRect().top - currentY;
       const before = positions.current.get(id);
+      return { node, id, top, offset: before === undefined ? 0 : before + currentY - top };
+    });
+    const quiet = prefersReducedMotion();
+    measurements.forEach(({ node, id, top, offset }) => {
       shifts.current.get(id)?.cancel(); shifts.current.delete(id);
-      if (before !== undefined && Math.abs(before + currentY - top) > 1 && !prefersReducedMotion()) {
-        const animation = node.animate(settleFrames(before + currentY - top, 0, 1, 1, 'y', 3), { duration: 280, easing: 'linear' });
+      if (Math.abs(offset) > 1 && !quiet) {
+        const animation = node.animate(settleFrames(offset, 0, 1, 1, 'y', 3), { duration: 280, easing: 'linear' });
         shifts.current.set(id, animation);
-        animation.onfinish = () => { animation.cancel(); shifts.current.delete(id); };
+        animation.onfinish = () => { animation.cancel(); if (shifts.current.get(id) === animation) shifts.current.delete(id); };
       }
       nextPositions.set(id, top);
     });

@@ -1,20 +1,22 @@
 import Dexie from 'dexie';
 import { db } from '../../db';
 import { useAuthStore } from '../../store/auth-store';
+import { secretaryIndexTerms, secretaryQueryTerms } from './recall-query';
+
+const INDEX_VERSION = 2;
 
 export interface SecretarySearchEntry {
   id: string; userId: string; characterId: string; sourceId: string; sessionId: string;
   kind: 'message' | 'task' | 'suppression'; version: number; createdAt: number; keys: string[];
   permanent?: boolean;
+  indexVersion?: number;
 }
-export interface SecretarySearchCursor { id: string; sessionId?: string; sessionCreatedAt?: number; messageAt: number; messageId: string; complete: boolean }
+export interface SecretarySearchCursor { id: string; sessionId?: string; sessionCreatedAt?: number; messageAt: number; messageId: string; complete: boolean; indexVersion?: number }
 
-function terms(text: string): string[] {
-  const clean = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
-  const tokens = new Set<string>();
-  for (let i = 0; i < clean.length - 1 && tokens.size < 96; i++) tokens.add(clean.slice(i, i + 2));
-  for (const word of text.toLowerCase().match(/[a-z0-9_-]{2,40}/gu) ?? []) tokens.add(word);
-  return [...tokens];
+/** Titles and draft text help find work requested without naming its subject. */
+export function secretaryTaskSearchText(task: import('./types').SecretaryTask): string {
+  return [task.request, ...task.results.flatMap(r => [r.action.title, r.action.query, r.dispatch?.recipientName,
+    ...(r.action.kind.startsWith('moment.') ? [r.action.content] : [])])].filter(Boolean).join('\n');
 }
 const jobs = new Set<Promise<unknown>>();
 const rebuilding = new Set<string>();
@@ -37,10 +39,10 @@ export async function refreshSearchEntry(kind: 'message' | 'task', sourceId: str
     const revision = message && 'revision' in message ? message.revision ?? 1 : 1;
     if (blocked.permanent || blocked.version >= revision) { await db.secretarySearch.delete(id); return; }
   }
-  const text = 'request' in source ? source.request : 'content' in source ? source.content : '';
+  const text = 'request' in source ? secretaryTaskSearchText(source) : 'content' in source ? source.content : '';
   const version = 'request' in source ? source.updatedAt : 'revision' in source ? source.revision ?? 1 : 1;
   await db.secretarySearch.put({ id, kind, sourceId, sessionId: session.id, userId: session.userId, characterId: session.characterId,
-    version, createdAt: source.createdAt, keys: terms(text).map(t => `${session.userId}:${session.characterId}:${t}`) });
+    version, indexVersion: INDEX_VERSION, createdAt: source.createdAt, keys: secretaryIndexTerms(text).map(t => `${session.userId}:${session.characterId}:${t}`) });
 }
 
 // Source hooks schedule work after commit; index writes never break a caller's transaction.
@@ -87,7 +89,8 @@ export async function buildSearchBatch(userId: string, characterId: string): Pro
   if (rebuilding.has(id)) return false;
   rebuilding.add(id);
   try {
-    const cursor = await db.secretarySearchCursors.get(id) ?? { id, messageAt: 0, messageId: '', complete: false };
+    const saved = await db.secretarySearchCursors.get(id);
+    const cursor = saved?.indexVersion === INDEX_VERSION ? saved : { id, messageAt: 0, messageId: '', complete: false, indexVersion: INDEX_VERSION };
     if (cursor.complete || useAuthStore.getState().userId !== userId) return cursor.complete;
     let session = cursor.sessionId ? await db.sessions.get(cursor.sessionId) : undefined;
     if (!session || session.userId !== userId || session.characterId !== characterId) {
@@ -104,7 +107,7 @@ export async function buildSearchBatch(userId: string, characterId: string): Pro
       const last = rows[rows.length - 1]; await db.secretarySearchCursors.put({ ...cursor, sessionId: session.id, sessionCreatedAt: session.createdAt, messageAt: last.createdAt, messageId: last.id }); return false;
     }
     const next = await db.sessions.where('[characterId+userId+createdAt+id]').between([characterId, userId, session.createdAt, session.id], [characterId, userId, Dexie.maxKey, Dexie.maxKey], false, true).first();
-    await db.secretarySearchCursors.put({ id, sessionId: next?.id, sessionCreatedAt: next?.createdAt, messageAt: 0, messageId: '', complete: !next });
+    await db.secretarySearchCursors.put({ id, indexVersion: INDEX_VERSION, sessionId: next?.id, sessionCreatedAt: next?.createdAt, messageAt: 0, messageId: '', complete: !next });
     return !next;
   } finally { rebuilding.delete(id); }
 }
@@ -117,8 +120,22 @@ export function startSearchBackfill(userId: string, characterId: string): void {
 export async function searchHistoryCandidates(userId: string, characterId: string, request: string) {
   await flushSecretarySearchJobs();
   if (useAuthStore.getState().userId !== userId) return { messages: [], tasks: [], incomplete: true };
-  const keys = terms(request).slice(0, 24).map(t => `${userId}:${characterId}:${t}`);
-  const indexed = keys.length ? await db.secretarySearch.where('keys').anyOf(keys).distinct().limit(128).toArray() : [];
+  const queryTerms = secretaryQueryTerms(request);
+  const keys = queryTerms.map(t => `${userId}:${characterId}:${t}`);
+  // Rare subject terms get their own read before common words can exhaust the cap.
+  const frequencies = await Promise.all(keys.map(async key => ({ key, count: await db.secretarySearch.where('keys').equals(key).count() })));
+  const pool = new Map<string, SecretarySearchEntry>();
+  let capped = false;
+  for (const { key, count } of frequencies.filter(f => f.count).sort((a, b) => a.count - b.count)) {
+    if (pool.size >= 512) { capped = true; break; }
+    const rows = await db.secretarySearch.where('keys').equals(key).limit(128).toArray();
+    capped ||= count > rows.length;
+    for (const row of rows) if (pool.size < 512 || pool.has(row.id)) pool.set(row.id, row); else capped = true;
+  }
+  const weights = new Map(frequencies.map(f => [f.key, 1 / Math.log2(f.count + 2)]));
+  const score = (row: SecretarySearchEntry) => keys.reduce((total, key) => total + (row.keys.includes(key) ? weights.get(key)! : 0), 0);
+  const indexed = [...pool.values()].sort((a, b) => score(b) - score(a) || b.createdAt - a.createdAt || a.id.localeCompare(b.id)).slice(0, 128);
+  capped ||= pool.size > indexed.length;
   const sessionRows = await db.sessions.where('[characterId+userId+createdAt+id]').between([characterId, userId, 0, ''], [characterId, userId, Dexie.maxKey, Dexie.maxKey]).reverse().limit(8).toArray();
   const fallback = (await Promise.all(sessionRows.map(s => db.messages.where('[sessionId+createdAt]').between([s.id, 0], [s.id, Dexie.maxKey]).reverse().limit(32).toArray()))).flat();
   const rawMessages = await db.messages.bulkGet(indexed.filter(r => r.kind === 'message').map(r => r.sourceId));
@@ -127,7 +144,9 @@ export async function searchHistoryCandidates(userId: string, characterId: strin
   const indexedTasks = await db.secretaryTasks.bulkGet(indexed.filter(r => r.kind === 'task').map(r => r.sourceId));
   const tasks = [...new Map([...recentTasks, ...indexedTasks.filter((t): t is NonNullable<typeof t> => !!t)].map(t => [t.id, t])).values()];
   startSearchBackfill(userId, characterId);
-  return { messages, tasks, incomplete: !(await db.secretarySearchCursors.get(`${userId}:${characterId}`))?.complete || indexed.length === 128 };
+  const cursor = await db.secretarySearchCursors.get(`${userId}:${characterId}`);
+  if (useAuthStore.getState().userId !== userId) return { messages: [], tasks: [], incomplete: true };
+  return { messages, tasks, incomplete: cursor?.indexVersion !== INDEX_VERSION || !cursor.complete || capped };
 }
 
 export async function recentSecretaryTasks(userId: string, sessionId: string, limit = 4) {

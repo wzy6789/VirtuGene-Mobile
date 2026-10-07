@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Icon } from '../ui/Icon';
 import { useEmotionStore } from '../../store/emotion-store';
 import { useChatStore } from '../../store/chat-store';
 import { useCharacterStateStore } from '../../store/character-state-store';
@@ -7,8 +8,8 @@ import { useRipple } from '../../lib/ripple';
 import { diaryRepo } from '../../db/diary-repo';
 import { moodEmoji as diaryMoodEmoji, moodColor as diaryMoodColor } from '../../lib/diary-utils';
 import { EmotionChart } from './EmotionChart';
+import { GeneGlyph } from '../ui/GeneGlyph';
 import { EmotionCurve } from './EmotionCurve';
-import { StoryTimeline } from './StoryTimeline';
 import { getRelationLevel, levelProgress } from '../../lib/affinity';
 import { messageRepo } from '../../db/message-repo';
 import { memoryRepo } from '../../db/memory-repo';
@@ -93,7 +94,7 @@ function GlassShard({ text, time, variant }: { text: string; time: string; varia
           <polyline points="72,0 66,20 76,38 70,60" stroke="#ffffff" strokeOpacity="0.22" strokeWidth="0.6" fill="none" />
         </svg>
         <p className="text-xs text-ink/90 leading-relaxed italic line-clamp-2">「{text}」</p>
-        <p className="text-[10px] text-gray-500 mt-1 tabular-nums">✦ {time}</p>
+        <p className="text-[12px] text-gray-500 mt-1 tabular-nums">✦ {time}</p>
       </div>
     </div>
   );
@@ -115,16 +116,17 @@ function valenceDotClass(valence: number) {
 
 /** 分区小标题（统一克制风格） */
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <p className="text-[11px] tracking-[0.2em] text-gray-500 uppercase">{children}</p>;
+  return <p className="text-[12px] tracking-[0.2em] text-gray-500 uppercase">{children}</p>;
 }
 
-export function EmotionPanel() {
-  const isPanelOpen = useEmotionStore((s) => s.isPanelOpen);
+export function EmotionPanel({ embedded = false, section }: { embedded?: boolean; section?: 'emotion' | 'relation' } = {}) {
+  const panelOpen = useEmotionStore((s) => s.isPanelOpen);
+  const isPanelOpen = embedded || panelOpen;
   const isAnalyzing = useEmotionStore((s) => s.isAnalyzing);
   const analysisError = useEmotionStore((s) => s.analysisError);
-  const currentSnapshot = useEmotionStore((s) => s.currentSnapshot);
-  const previousSnapshot = useEmotionStore((s) => s.previousSnapshot);
-  const snapshots = useEmotionStore((s) => s.snapshots);
+  const storedSnapshot = useEmotionStore((s) => s.currentSnapshot);
+  const storedPrevious = useEmotionStore((s) => s.previousSnapshot);
+  const storedSnapshots = useEmotionStore((s) => s.snapshots);
   const closePanel = useEmotionStore((s) => s.closePanel);
   const analyzeCurrentSession = useEmotionStore((s) => s.analyzeCurrentSession);
   const loadSessionSnapshots = useEmotionStore((s) => s.loadSessionSnapshots);
@@ -132,12 +134,18 @@ export function EmotionPanel() {
 
   const selectedCharacterId = useChatStore((s) => s.selectedCharacterId);
   const currentSessionId = useChatStore((s) => s.currentSessionId);
+  const currentSnapshot = storedSnapshot?.characterId === selectedCharacterId && storedSnapshot.sessionId === currentSessionId ? storedSnapshot : null;
+  const previousSnapshot = storedPrevious?.characterId === selectedCharacterId && storedPrevious.sessionId === currentSessionId ? storedPrevious : null;
+  const snapshots = storedSnapshots.filter(s => s.characterId === selectedCharacterId && s.sessionId === currentSessionId);
   const characters = useChatStore((s) => s.characters);
   const messages = useChatStore((s) => s.messages);
-  const affinity = useCharacterStateStore((s) => s.affinity);
-  const mood = useCharacterStateStore((s) => s.mood);
-  const milestones = useCharacterStateStore((s) => s.milestones);
-  const tierNames = useCharacterStateStore((s) => s.tierNames);
+  const affinity = useCharacterStateStore((s) => s.characterId === selectedCharacterId ? s.affinity : 0);
+  const mood = useCharacterStateStore((s) => s.characterId === selectedCharacterId ? s.mood : 70);
+  const stateCharacterId = useCharacterStateStore((s) => s.characterId);
+  const storedMilestones = useCharacterStateStore((s) => s.milestones);
+  const storedTierNames = useCharacterStateStore((s) => s.tierNames);
+  const milestones = stateCharacterId === selectedCharacterId ? storedMilestones : [];
+  const tierNames = stateCharacterId === selectedCharacterId ? storedTierNames : {};
   const renameTier = useCharacterStateStore((s) => s.renameTier);
   const userId = useAuthStore((s) => s.userId) ?? '';
 
@@ -150,7 +158,6 @@ export function EmotionPanel() {
   /** 记忆碎片加载中（避免"过一瞬间才蹦出来"的突兀感） */
   const [memoriesLoading, setMemoriesLoading] = useState(false);
   /** 共同时间线（我们的故事） */
-  const [timelineOpen, setTimelineOpen] = useState(false);
   /** 等阶名编辑 */
   const [renamingTier, setRenamingTier] = useState(false);
   const [tierNameInput, setTierNameInput] = useState('');
@@ -159,7 +166,7 @@ export function EmotionPanel() {
   const [myMoods, setMyMoods] = useState<{ date: string; mood: number }[]>([]);
 
   useEffect(() => {
-    if (!isPanelOpen || !userId) return;
+    if (!isPanelOpen || !userId || section) return;
     let alive = true;
     diaryRepo
       .getByUser(userId)
@@ -170,7 +177,7 @@ export function EmotionPanel() {
       })
       .catch(() => {});
     return () => { alive = false; };
-  }, [isPanelOpen, userId]);
+  }, [isPanelOpen, userId, section]);
 
   // 对话统计真值：消息总数 / 相识天数（按第一条消息；不依赖内存分页）
   useEffect(() => {
@@ -192,7 +199,7 @@ export function EmotionPanel() {
 
   // 记忆结晶：该角色的回忆录（新→旧）；每次随机回忆 3 片
   useEffect(() => {
-    if (!isPanelOpen || !selectedCharacterId || !userId) return;
+    if (!isPanelOpen || !selectedCharacterId || !userId || section) return;
     let alive = true;
     setMemoriesLoading(true);
     void memoryRepo.getByCharacter(selectedCharacterId, userId).then((list) => {
@@ -201,11 +208,11 @@ export function EmotionPanel() {
         setMemories(sorted);
         setShards(pickShards(sorted));
       }
-    }).finally(() => {
+    }).catch(() => { if (alive) { setMemories([]); setShards([]); } }).finally(() => {
       if (alive) setMemoriesLoading(false);
     });
     return () => { alive = false; };
-  }, [isPanelOpen, selectedCharacterId, userId]);
+  }, [isPanelOpen, selectedCharacterId, userId, section]);
 
   const { width, startDrag } = useResizable({
     initial: PANEL_DEFAULT,
@@ -248,11 +255,11 @@ export function EmotionPanel() {
   return (
     <div
       className={`vg-emotion-panel h-full flex flex-col bg-app border-l border-line shrink-0 overflow-hidden ${
-        IS_MOBILE ? 'absolute inset-0 z-40' : 'relative'
+        embedded ? 'relative' : IS_MOBILE ? 'absolute inset-0 z-40' : 'relative'
       }`}
-      style={{ width: IS_MOBILE ? '100%' : width }}
+      style={{ width: embedded || IS_MOBILE ? '100%' : width }}
     >
-      {isPanelOpen && !IS_MOBILE && (
+      {isPanelOpen && !embedded && !IS_MOBILE && (
         <div
           onMouseDown={startDrag}
           className="absolute inset-y-0 left-0 w-1.5 cursor-col-resize hover:bg-gene-purple/30 transition-colors z-10"
@@ -260,7 +267,7 @@ export function EmotionPanel() {
       )}
       <div className="flex flex-col h-full min-w-0">
         {/* Header */}
-        <div className="min-h-20 flex items-center justify-between px-5 border-b border-line shrink-0">
+        {!embedded && <div className="min-h-20 flex items-center justify-between px-5 border-b border-line shrink-0">
           <span className="text-sm font-medium text-ink">
             <span className="vg-eyebrow block mb-2">INNER LANDSCAPE</span>
             {character ? `${character.name} 的情绪图谱` : '情绪图谱'}
@@ -275,12 +282,12 @@ export function EmotionPanel() {
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
-        </div>
+        </div>}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {/* 灵魂状态总览卡 */}
-          <div className="relative overflow-hidden rounded-xl border border-gene-purple/25 bg-gradient-to-br from-gene-purple/12 via-transparent to-life-cyan/10 p-4 space-y-3">
+          {section !== 'emotion' && <div className="relative overflow-hidden rounded-xl border border-gene-purple/25 bg-gradient-to-br from-gene-purple/12 via-transparent to-life-cyan/10 p-4 space-y-3">
             <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full bg-gene-purple/20 blur-2xl pointer-events-none" />
             <div className="absolute -bottom-8 -left-8 w-24 h-24 rounded-full bg-life-cyan/15 blur-2xl pointer-events-none" />
 
@@ -365,7 +372,7 @@ export function EmotionPanel() {
                 </div>
               </div>
             ) : (
-              <div className="relative text-[10px] text-gray-500">
+              <div className="relative text-[12px] text-gray-500">
                 已抵达最终等阶，灵魂同频（好感度仍在增长）
               </div>
             )}
@@ -401,17 +408,10 @@ export function EmotionPanel() {
               </div>
             </div>
 
-            {/* 共同时间线入口 */}
-            <button
-              onClick={() => setTimelineOpen(true)}
-              className="relative w-full mt-2 flex items-center justify-center gap-1.5 text-[11px] text-gene-purple hover:bg-gene-purple/10 rounded-lg py-1.5 transition-colors"
-            >
-              📖 查看我们的故事 · 共同时间线
-            </button>
-          </div>
+          </div>}
 
           {/* 我的心情（日记联动） */}
-          {myMoods.length > 0 && (
+          {!section && myMoods.length > 0 && (
             <div className="rounded-xl bg-surface border border-line p-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-gray-500">我的心情（日记）</span>
@@ -432,7 +432,7 @@ export function EmotionPanel() {
                   />
                 ))}
               </div>
-              <div className="flex justify-between mt-1 text-[9px] text-gray-400">
+              <div className="flex justify-between mt-1 text-[12px] text-gray-400">
                 <span>较早</span>
                 <span>最近</span>
               </div>
@@ -440,14 +440,14 @@ export function EmotionPanel() {
           )}
 
               {/* 记忆碎片 · 回忆（随机 3 片，可刷新） */}
-              {(memoriesLoading || memories.length > 0) && (
+              {!section && (memoriesLoading || memories.length > 0) && (
                 <div className="rounded-xl bg-surface border border-line p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-500">记忆碎片 · 回忆</span>
                     {!memoriesLoading && (
                       <button
                         onClick={() => setShards(pickShards(memories))}
-                        className="text-[10px] text-life-cyan hover:underline flex items-center gap-1"
+                        className="text-[12px] text-life-cyan hover:underline flex items-center gap-1"
                       >
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                           <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
@@ -474,11 +474,12 @@ export function EmotionPanel() {
               )}
 
           {/* Analyze button */}
+          {section !== 'relation' && <>
           <button
             onClick={handleAnalyze}
             onPointerDown={ripple.onPointerDown}
             disabled={isAnalyzing || messages.length === 0}
-            className="ripple-host w-full py-2.5 rounded-xl bg-gene-purple hover:bg-[#5B4BD4] disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none text-sm font-medium text-white transition-all flex items-center justify-center gap-2 shadow-[0_2px_14px_rgba(108,92,231,0.35)]"
+            className="vg-emotion-analyze ripple-host w-full py-2.5 rounded-xl bg-gene-purple hover:bg-[#5B4BD4] disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none text-sm font-medium text-white transition-all flex items-center justify-center gap-2 shadow-[0_2px_14px_rgba(108,92,231,0.35)]"
           >
             {isAnalyzing ? (
               <>
@@ -488,7 +489,7 @@ export function EmotionPanel() {
                 正在解析情绪序列...
               </>
             ) : (
-              '⚗ 分析情绪基因'
+              <><Icon name="spark" size={17} />分析情绪基因</>
             )}
           </button>
 
@@ -500,7 +501,7 @@ export function EmotionPanel() {
                 type="button"
                 onClick={handleAnalyze}
                 disabled={isAnalyzing || messages.length === 0}
-                className="shrink-0 rounded-md border border-red-400/30 px-2 py-1 text-[11px] text-red-300 hover:bg-red-400/10 disabled:opacity-40"
+                className="shrink-0 rounded-md border border-red-400/30 px-2 py-1 text-[12px] text-red-300 hover:bg-red-400/10 disabled:opacity-40"
               >
                 重试
               </button>
@@ -510,7 +511,7 @@ export function EmotionPanel() {
           {/* Empty state */}
           {!currentSnapshot && !isAnalyzing && !analysisError && (
             <div className="flex flex-col items-center justify-center py-8 text-gray-500">
-              <span className="text-3xl mb-2">🧬</span>
+              <GeneGlyph size={32} className="mb-2 text-sub" />
               <span className="text-xs">尚未生成情绪图谱</span>
               <span className="text-xs text-gray-600 mt-1">点击上方按钮开始分析</span>
             </div>
@@ -529,12 +530,12 @@ export function EmotionPanel() {
               )}
 
               {/* Radar chart */}
-              <div className="relative overflow-hidden rounded-[24px] border border-gene-purple/20 bg-[#151427] px-2 py-3 shadow-[0_12px_30px_rgba(63,48,128,0.16)]">
+              <div className="relative overflow-hidden rounded-[24px] border border-gene-purple/20 bg-panel px-2 py-3 shadow-[0_12px_30px_rgba(63,48,128,0.16)]">
                 <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full border border-life-cyan/15" />
                 <div className="absolute -bottom-10 -left-8 h-28 w-28 rounded-full bg-gene-purple/15 blur-2xl" />
                 <div className="relative flex items-center justify-between px-3">
-                  <span className="text-[10px] tracking-[0.22em] text-life-cyan/75">EMOTIONAL CONSTELLATION</span>
-                  <span className="text-[10px] text-white/45">六维情绪坐标</span>
+                  <span className="text-[12px] tracking-[0.22em] text-life-cyan/75">EMOTIONAL CONSTELLATION</span>
+                  <span className="text-[12px] text-sub">六维情绪坐标</span>
                 </div>
                 <div className="relative flex justify-center">
                   <EmotionChart
@@ -553,8 +554,8 @@ export function EmotionPanel() {
                 </div>
               )}
 
-              {/* Dominant emotion badge */}
-              <div className="flex justify-center">
+              {/* The role sheet already shows its emotion and expandable interpretation. */}
+              {!(embedded && section === 'emotion') && <><div className="flex justify-center">
                 <span
                   className={`text-xs px-3 py-1 rounded-full border ${getValenceBadgeClass(currentSnapshot.dimensions.valence)}`}
                 >
@@ -565,7 +566,7 @@ export function EmotionPanel() {
               {/* Summary */}
               <p className="text-xs text-gray-400 leading-relaxed text-center">
                 {currentSnapshot.summary}
-              </p>
+              </p></>}
 
               {/* Delta indicators */}
               {previousSnapshot && (
@@ -601,8 +602,8 @@ export function EmotionPanel() {
                         className="snap-start shrink-0 flex flex-col items-center gap-1 px-2.5 py-2 rounded-xl bg-surface border border-line hover:border-life-cyan/40 hover:shadow-[0_0_10px_rgba(0,206,201,0.12)] transition-all"
                       >
                         <span className={`w-2 h-2 rounded-full ${valenceDotClass(snap.dimensions.valence)}`} />
-                        <span className="text-[10px] text-gray-500 whitespace-nowrap">{snap.dominantEmotion}</span>
-                        <span className="text-[9px] text-gray-400 whitespace-nowrap">{formatTime(snap.createdAt)}</span>
+                        <span className="text-[12px] text-gray-500 whitespace-nowrap">{snap.dominantEmotion}</span>
+                        <span className="text-[12px] text-gray-400 whitespace-nowrap">{formatTime(snap.createdAt)}</span>
                       </button>
                     ))}
                   </div>
@@ -610,15 +611,9 @@ export function EmotionPanel() {
               )}
             </>
           )}
+          </>}
         </div>
       </div>
-      {/* 共同时间线 · 我们的故事 */}
-      <StoryTimeline
-        open={timelineOpen}
-        onClose={() => setTimelineOpen(false)}
-        characterId={selectedCharacterId}
-        characterName={character?.name ?? ''}
-      />
     </div>
   );
 }

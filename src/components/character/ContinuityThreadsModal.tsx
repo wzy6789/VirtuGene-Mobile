@@ -1,3 +1,4 @@
+import { useFeedback } from '../../lib/feedback';
 import { useCallback, useEffect, useState } from 'react';
 import type { Character, ContinuityThread } from '../../db/index';
 import { continuityRepo, CONTINUITY_KINDS, KIND_LABEL, MAX_OPEN_THREADS, STATUS_LABEL, type ContinuityKind } from '../../db/continuity-repo';
@@ -22,6 +23,7 @@ export function ContinuityThreadsModal({
   startAdding?: boolean;
 }) {
   const [threads, setThreads] = useState<ContinuityThread[]>([]);
+  const feedback = useFeedback();
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(startAdding);
   const [showHistory, setShowHistory] = useState(false);
@@ -202,11 +204,11 @@ export function ContinuityThreadsModal({
                 </div>
                 {thread.detail && <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">{thread.detail}</p>}
                 {confirmId === thread.id && (
-                  <div className="mt-2 flex flex-wrap justify-end gap-1.5 border-t border-line pt-2">
+                  <div className="vg-delete-confirmation vg-delete-inline mt-2">
                     <button onClick={() => startEdit(thread)} className="rounded-lg px-2 py-1 text-[10px] text-gray-500">编辑</button>
                     <button onClick={() => void continuityRepo.drop(thread.id).then(reload)} className="rounded-lg px-2 py-1 text-[10px] text-gray-500">稍后再说</button>
                     <button
-                      onClick={() => void continuityRepo.remove(thread.id).then(() => { setConfirmId(null); return reload(); })}
+                      onClick={() => void continuityRepo.remove(thread.id).then(() => { setConfirmId(null); feedback('这条约定已删除', { tone: 'success' }); return reload(); }).catch(() => feedback('约定删除或列表刷新未完成，请重试', { tone: 'error' }))}
                       className="rounded-lg bg-red-500/15 px-2 py-1 text-[10px] text-red-400"
                     >
                       删除
@@ -232,7 +234,7 @@ export function ContinuityThreadsModal({
                   </div>
                   <div className="flex shrink-0 gap-1.5">
                     <button onClick={() => void continuityRepo.reopen(thread.id).then(reload)} className="rounded-lg px-2 py-1 text-[10px] text-life-cyan">重新挂起</button>
-                    <button onClick={() => void continuityRepo.remove(thread.id).then(reload)} className="rounded-lg px-2 py-1 text-[10px] text-red-400">删除</button>
+                    <button onClick={() => void continuityRepo.remove(thread.id).then(() => { feedback('这条约定已删除', { tone: 'success' }); return reload(); }).catch(() => feedback('约定删除或列表刷新未完成，请重试', { tone: 'error' }))} className="rounded-lg px-2 py-1 text-[10px] text-red-400">删除</button>
                   </div>
                 </li>
               ))}

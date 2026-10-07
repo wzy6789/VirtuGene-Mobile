@@ -1,9 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { ORB_COLORS, type OrbColor } from '../lib/orb-colors';
 
 interface SettingsState {
+  orbColor: OrbColor;
+  setOrbColor: (color: OrbColor) => void;
   /** Reduce motion throughout the interface; the system preference also applies. */
   reduceMotion: boolean;
+  hapticsEnabled: boolean;
+  setHapticsEnabled: (enabled: boolean) => void;
   setReduceMotion: (enabled: boolean) => void;
   chatFontSize: number;
   setChatFontSize: (size: number) => void;
@@ -41,7 +46,7 @@ interface SettingsState {
   /** AI 语音消息模式：开启后 AI 回复自动合成语音，消息显示为语音气泡（点击播放，文字可展开） */
   aiVoiceMode: boolean;
   setAiVoiceMode: (enabled: boolean) => void;
-  /** 默认对话模型（角色未单独指定时使用；null = deepseek-v4-flash） */
+  /** 默认对话模型（角色未单独指定时使用；null = deepseek-flash） */
   defaultModel: { provider: string; model: string } | null;
   setDefaultModel: (model: { provider: string; model: string } | null) => void;
 }
@@ -49,7 +54,11 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
+      orbColor: 'auto',
+      setOrbColor: (orbColor) => { if(ORB_COLORS.some(color=>color.id===orbColor))set({orbColor}); },
       reduceMotion: false,
+      hapticsEnabled: true,
+      setHapticsEnabled: (hapticsEnabled) => set({ hapticsEnabled }),
       setReduceMotion: (reduceMotion) => set({ reduceMotion }),
       chatFontSize: 14,
       setChatFontSize: (size) => {

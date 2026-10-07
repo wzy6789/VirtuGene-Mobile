@@ -1,0 +1,25 @@
+/* The single reading-surface definition for desktop and mobile chat. */
+.vg-message-bubble {
+  padding:12px 15px; border-radius:18px;
+  font-size:var(--vg-chat-font-size,15px); line-height:1.75; font-weight:400;
+  letter-spacing:normal; white-space:normal; overflow-wrap:anywhere; text-wrap:pretty;
+  box-shadow:0 2px 4px var(--vg-shadow);
+}
+.vg-message-bubble.is-character-bubble {
+  background:var(--msg-ai);
+  border:1px solid var(--vg-edge); border-top-left-radius:6px; color:var(--msg-ai-text);
+}
+.vg-message-bubble.is-user-bubble {
+  background:linear-gradient(135deg,var(--vg-action),var(--msg-user));
+  color:var(--vg-on-action); border:1px solid var(--vg-edge); border-radius:18px 18px 4px 18px;
+}
+.vg-chat-message-row.is-continuation .vg-message-bubble { border-radius:15px; }
+.vg-chat-message-row.is-character.is-continuation .vg-message-bubble { border-top-left-radius:7px; }
+.vg-chat-message-row.is-user.is-continuation .vg-message-bubble { border-bottom-right-radius:4px; }
+.vg-message-bubble[data-length='long'] { padding:var(--vg-space-4); }
+.vg-message-bubble[data-length='short'] { padding:10px 14px; }
+.vg-stream-orb { position:relative; display:inline-block; width:0; height:1em; vertical-align:-.12em; pointer-events:none; }
+.vg-stream-orb::after { display:none; }
+.vg-stream-orb .vg-soul-orb { position:absolute; left:3px; top:-3px; }
+/* Append-only text must not rebalance old lines as the next tokens arrive. */
+.vg-chat-message-row[data-streamed] .vg-message-bubble { text-wrap:wrap; }

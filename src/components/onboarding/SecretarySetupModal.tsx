@@ -71,6 +71,7 @@ export function SecretarySetupModal({ open, onClose, welcome = false }: { open: 
       <div className="vg-secretary-setup-features grid grid-cols-2 gap-3 text-sm text-ink">
         {([['diary', '代写并保存日记'], ['moment', '写应用内朋友圈'], ['calendar', '创建和安排待办'], ['check', '划掉已完成事项']] satisfies [SecretaryIconName, string][]).map(([icon, label]) => <p key={label} className="rounded-xl bg-surface p-3"><SecretaryIcon name={icon} size={18} />{label}</p>)}
       </div>
+      <p className="text-xs leading-relaxed text-sub">行动舱的小球会显示待机、思考、忙碌、完成和遇到困难。具体进展以事项状态和办事记录为准。</p>
       <label className="block text-sm font-medium text-ink">{existing ? '你已经创建了助理' : '你想叫 TA 什么？'}
         <input aria-label="助理名字" value={name} onChange={e => setName(e.target.value)} placeholder="由你取名" maxLength={40} disabled={busy || existing || loading}
           className="mt-2 w-full min-h-12 rounded-xl border border-line bg-surface px-4 text-base text-ink outline-none focus:border-gene-purple"

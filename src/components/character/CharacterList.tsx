@@ -1,6 +1,7 @@
 import { avatarImageSrc } from '../../lib/avatar';
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useChatStore } from '../../store/chat-store';
+import { useFeedback } from '../../lib/feedback';
 import { useAuthStore } from '../../store/auth-store';
 import { useCharacterStateStore } from '../../store/character-state-store';
 import { getRelationLevel } from '../../lib/affinity';
@@ -42,6 +43,7 @@ export function CharacterList({ collapsed }: Props) {
   const loadCharacters = useChatStore((s) => s.loadCharacters);
   const selectCharacter = useChatStore((s) => s.selectCharacter);
   const deleteCharacter = useChatStore((s) => s.deleteCharacter);
+  const feedback = useFeedback();
   const togglePin = useChatStore((s) => s.togglePin);
   const charPreviews = useChatStore((s) => s.charPreviews);
   const unreadByCharacter = useChatStore((s) => s.unreadByCharacter);
@@ -164,8 +166,11 @@ export function CharacterList({ collapsed }: Props) {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    await deleteCharacter(deleteTarget.id);
-    setDeleteTarget(null);
+    try {
+      await deleteCharacter(deleteTarget.id);
+      setDeleteTarget(null);
+      feedback('角色与关联记录已删除', { tone: 'success' });
+    } catch { feedback('角色未能删除，请重试', { tone: 'error' }); }
   };
 
   if (collapsed) {
@@ -208,7 +213,7 @@ export function CharacterList({ collapsed }: Props) {
         <SecretaryWorkspaceCard compact />
         {/* Search */}
         <div className="px-3 pt-2 pb-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface border border-transparent focus-within:border-gene-purple/40 focus-within:shadow-[0_0_0_3px_rgba(108,92,231,0.10),0_0_12px_rgba(108,92,231,0.15)] transition-all">
+          <div className="vg-search-field flex items-center gap-2 px-3 py-1.5">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-gray-400 shrink-0">
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.3-4.3" />
@@ -248,7 +253,7 @@ export function CharacterList({ collapsed }: Props) {
       {contextMenu && (
         <div
           ref={menuRef}
-          className="fixed z-[60] min-w-[140px] py-1.5 glass-card rounded-xl shadow-2xl"
+          className="fixed vg-layer-popover min-w-[140px] py-1.5 glass-card rounded-xl shadow-2xl"
           style={{ left: contextMenu.x + 4, top: contextMenu.y + 4 }}
         >
           {isOwnChar(contextMenu.char) ? (
@@ -299,12 +304,12 @@ export function CharacterList({ collapsed }: Props) {
       )}
 
       {/* Delete confirm modal */}
-      <Modal open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
-        <div className="p-6">
+      <Modal presentation="dialog" open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
+        <div className="vg-delete-confirmation m-5">
           <p className="text-sm text-sub mb-2">
-            这段基因序列将被永久抹除，关联的所有对话记录也会被清除。
+            角色与关联的对话、记忆和关系将被删除，无法恢复。
           </p>
-          <p className="text-xs text-gray-500 mb-6">确认抹除？</p>
+          <p className="text-xs text-gray-500 mb-6">确认删除此角色？</p>
           <div className="flex gap-3 justify-end">
             <button
               onClick={() => setDeleteTarget(null)}
@@ -316,7 +321,7 @@ export function CharacterList({ collapsed }: Props) {
               onClick={handleDelete}
               className="px-4 py-2 rounded-lg text-sm bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
             >
-              确认抹除
+              确认删除
             </button>
           </div>
         </div>

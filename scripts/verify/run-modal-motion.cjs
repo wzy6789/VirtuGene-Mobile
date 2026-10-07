@@ -17,7 +17,7 @@ const fixture = `
   function App() {
     const [panels, setPanels] = useState([]); update = setPanels;
     return <><div className="mobile-layout"><SoulAtmosphere /></div>{panels.includes('prior') && <Modal open title="prior" onClose={() => setPanels([])} mobileFullHeight><p>Inserted before the old menu</p></Modal>}
-    {panels.filter(id => id !== 'prior').map(id => <Modal key={id} open title={id} onClose={() => setPanels(items => items.filter(item => item !== id))} mobileFullHeight canSnapshotOnExit={() => allowed}>
+    {panels.filter(id => id !== 'prior').map(id => <Modal key={id} open title={id} presentation={id === 'confirm' ? 'dialog' : 'page'} onClose={() => setPanels(items => items.filter(item => item !== id))} mobileFullHeight canSnapshotOnExit={() => allowed} footer={<button type="button">保存</button>}>
       <label htmlFor={'field-' + id}>Name</label><input id={'field-' + id} name="testName" defaultValue="User" />
       <input type="password" name="credential" defaultValue="private-motion-secret" />
       {Array.from({length: 55}, (_, i) => <p key={i} style={{height: 30}}>Settings row {i}</p>)}
@@ -35,7 +35,7 @@ const fixture = `
   const output = path.resolve('.tmp-preview/modal-motion-20261002');
   fs.mkdirSync(output, { recursive: true });
   const result = await build({ stdin: { contents: fixture, resolveDir: process.cwd(), sourcefile: 'modal-motion.tsx', loader: 'tsx' }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'import.meta.env': JSON.stringify({ DEV: true }) } });
-  const cssFile = process.env.VG_MOTION_CSS || path.join('dist/renderer/assets', fs.readdirSync('dist/renderer/assets').find(file => file.endsWith('.css')));
+  const cssFile = process.env.VG_MOTION_CSS || path.join('dist/renderer/assets', fs.readdirSync('dist/renderer/assets').find(file => /^index-.*\.css$/.test(file)));
   const css = fs.readFileSync(cssFile);
   const html = '<!doctype html><html class="dark"><head><link rel="stylesheet" href="/styles.css"><style>.vg-motion-snapshot,.vg-motion-snapshot *,.vg-motion-snapshot *::before,.vg-motion-snapshot *::after{animation:none!important;transition:none!important}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>';
   const server = http.createServer((req, res) => {
@@ -54,7 +54,10 @@ const fixture = `
   try {
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.waitForFunction(() => !!window.motionTest);
-    await show(['first']); await page.waitForTimeout(340);
+    await show(['first']);
+    const entrance = await page.getByRole('dialog').evaluate(el => el.getAnimations().flatMap(a => a.effect.getKeyframes()).filter(f => f.transform).map(f => {const m=new DOMMatrixReadOnly(f.transform);return {x:m.m41,y:m.m42};}));
+    check(entrance.some(f => f.x > 0) && entrance.every(f => f.y === 0), 'mobile pages enter horizontally, never rise from the bottom');
+    await page.waitForTimeout(340);
     check(await page.locator('.vg-soul-aura').first().evaluate(el => getComputedStyle(el).animationPlayState === 'paused'), 'covered ambient layers stop compositor work while a sheet is open');
     const replacement = await page.evaluate(() => {
       window.motionTest.show(['second']);
@@ -85,10 +88,10 @@ const fixture = `
     check(await page.locator('.vg-soul-aura').first().evaluate(el => getComputedStyle(el).animationPlayState === 'running'), 'ambient layers resume after live and exiting sheets leave');
     await show(['rapid']); await page.waitForTimeout(45);
     const reversal = await page.evaluate(() => {
-      const before = document.querySelector('[role="dialog"]').getBoundingClientRect().top;
+      const before = document.querySelector('[role="dialog"]').getBoundingClientRect().left;
       window.motionTest.show([]);
       const snapshot = document.querySelector('.vg-modal-exit .vg-modal-panel');
-      return { before, after: snapshot.getBoundingClientRect().top };
+      return { before, after: snapshot.getBoundingClientRect().left };
     });
     check(Math.abs(reversal.before - reversal.after) < 1, 'closing an entering sheet captures its exact interrupted position');
     await show(['rapid-again']);
@@ -99,6 +102,39 @@ const fixture = `
     check(await page.locator('[role="dialog"]').evaluate(el => el.style.willChange) === '', 'resize releases promoted panel layer');
     await show([]); await page.waitForTimeout(260);
     await show(['scroll']); await page.waitForTimeout(340);
+    const fullPage = await page.getByRole('dialog').evaluate(el => {
+      const r = el.getBoundingClientRect(), header = el.querySelector('.vg-page-header');
+      return { x:r.x,y:r.y,width:r.width,height:r.height,radius:getComputedStyle(el).borderRadius,
+        handle:getComputedStyle(header,'::before').content,
+        nav:el.querySelectorAll('.vg-page-back').length, close:el.querySelectorAll('button[aria-label="关闭"]').length };
+    });
+    check(fullPage.x === 0 && fullPage.y === 0 && fullPage.width === 320 && fullPage.height === 700 && fullPage.radius === '0px', 'mobile detail fills the entire viewport without rounded drawer edges');
+    check(fullPage.handle === 'none' && fullPage.nav === 1 && fullPage.close === 0, 'page navigation has one top back button and no drag handle or close cross');
+    await page.getByRole('dialog').locator('input[name="testName"]').fill('保留的草稿');
+    await page.getByRole('dialog').locator('[data-modal-scroll]').evaluate(el => {el.scrollTop = 330;});
+    await show(['scroll','child']); await page.waitForTimeout(300);
+    await page.keyboard.press('Escape'); await page.waitForTimeout(260);
+    check(await page.getByRole('dialog').count() === 1 && await page.getByRole('dialog').getAttribute('aria-labelledby') !== null, 'Escape returns only from the top page');
+    check(await page.getByRole('dialog').locator('input[name="testName"]').inputValue() === '保留的草稿' && await page.getByRole('dialog').locator('[data-modal-scroll]').evaluate(el => el.scrollTop) === 330, 'returning preserves parent draft and scroll position');
+    await show(['scroll','confirm']); await page.waitForTimeout(300);
+    const confirmation = page.getByRole('dialog',{name:'confirm',exact:true});
+    const confirmBox = await confirmation.boundingBox();
+    check(confirmBox.x > 0 && confirmBox.y > 0 && confirmBox.width < 320 && await confirmation.locator('.vg-page-header').count() === 0, 'brief confirmation is centered rather than a bottom drawer or another page');
+    await page.evaluate(() => window.dispatchEvent(new Event('vg:back-request',{cancelable:true})));
+    await page.waitForTimeout(260);
+    check(await page.getByRole('dialog').count() === 1 && await page.getByRole('dialog',{name:'scroll',exact:true}).count() === 1, 'native back dismisses only the top confirmation');
+    for (const width of [320,390,430]) {
+      await page.setViewportSize({width,height:700});
+      await page.evaluate(() => document.documentElement.style.fontSize='22px');
+      check(await page.getByRole('dialog').evaluate(el => el.scrollWidth <= el.clientWidth), `${width}px large text page has no horizontal overflow`);
+      const footer = await page.getByRole('dialog').locator('.vg-modal-footer').boundingBox();
+      check(footer.y + footer.height <= 700 && footer.y >= 0, `${width}px long form keeps its action area visible`);
+    }
+    await page.setViewportSize({width:390,height:440});
+    check((await page.getByRole('dialog').boundingBox()).height === 440, 'page tracks the reduced keyboard-sized viewport');
+    await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
+    await page.setViewportSize({width:390,height:844});
+    await page.getByRole('dialog').locator('[data-modal-scroll]').evaluate(el => {el.scrollTop=330;});
     const scrolling = await page.evaluate(() => {
       const scroll = document.querySelector('[data-modal-scroll]'); scroll.scrollTop = 330;
       window.motionTest.show([]);

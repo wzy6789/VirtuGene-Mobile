@@ -9,6 +9,8 @@ import { useSecretaryDisclosureMotion } from './useSecretaryDisclosureMotion';
 import { AnimatedValue } from '../ui/AnimatedValue';
 import type { Character } from '../../db';
 import { SecretarySuggestionCard } from './SecretarySuggestionCard';
+import { openAssistantWorkspace } from '../../lib/secretary/navigation';
+import { SoulOrb } from '../ui/SoulOrb';
 
 export function SecretaryWorkspaceCard({ onOpen, compact = false }: { onOpen?: (character: Character) => void; compact?: boolean }) {
   const userId = useAuthStore(s => s.userId);
@@ -55,11 +57,15 @@ export function SecretaryWorkspaceCard({ onOpen, compact = false }: { onOpen?: (
     <button ref={toggleRef} type="button" aria-label={expanded ? '收起生活助理工作台' : '展开生活助理工作台'} aria-expanded={expanded} aria-controls={detailsId} onClick={toggle} className="vg-secretary-toggle flex w-full min-w-0 items-center gap-3 text-left">
       {character ? <Avatar avatar={character.avatar} size="lg" className="!h-12 !w-12 shrink-0" /> : <span className="vg-secretary-empty-avatar shrink-0"><SecretaryIcon name="profile" size={24} /></span>}
       <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-center gap-2"><span className="truncate text-base font-medium text-ink">{character?.name ?? '给生活请一位助理'}</span>{character && <span className="vg-secretary-badge shrink-0">助理</span>}</span>
+        <span className="flex min-w-0 items-center gap-2"><span className="truncate text-base font-medium text-ink">{character?.name ?? '聘用助理'}</span>{character && <span className="vg-secretary-badge shrink-0">助理</span>}</span>
         <span className="mt-1 flex min-w-0 items-center gap-2 text-xs text-sub"><span className="vg-secretary-presence truncate" data-active={ready && !error && active ? 'true' : 'false'}>{!ready ? '读取中…' : error ? '读取失败 · 展开重试' : active ? '在职 · 为你办事' : character ? '助理空缺 · 记录保留' : '等待你的聘用'}</span>{snapshot && snapshot.attention > 0 && <span className="vg-secretary-attention shrink-0"><AnimatedValue value={snapshot.attention} /> 待处理</span>}</span>
       </span>
       <svg aria-hidden="true" className="vg-secretary-chevron shrink-0 text-sub" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m8 10 4 4 4-4" /></svg>
     </button>
+    <div className="vg-assistant-home-actions">
+      <button type="button" onClick={() => openAssistantWorkspace('today')} className="vg-assistant-home-today"><SoulOrb size={36} emotion="idle" soulKey={`action-cabin:${userId}`} soulRole="list" /><span>查看今日</span></button>
+      <button type="button" disabled={!ready || error} onClick={enter}>{character ? '继续对话' : '开始聘用'}</button>
+    </div>
     {active && <SecretarySuggestionCard userId={userId} onContinue={enter} />}
     <div ref={detailsRef} id={detailsId} className="vg-secretary-details" aria-hidden={!expanded} inert={!expanded}>
       <div ref={detailsContentRef} className="vg-secretary-details-clip">

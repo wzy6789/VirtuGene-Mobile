@@ -1,5 +1,9 @@
 import type { Character } from '../db/index';
 import { detectTopicMove, isTopicRelated } from './chat-conversation-state';
+import { assessExpressionSignals, expressionDirection, recentRhythmDirection, type ExpressionSignals } from './chat-expression-guidance';
+import { SAMPLE_LINE, validVoiceSamples, voiceSampleBlock } from './character-voice';
+import { directChatGuidance, isDirectAffection } from './chat-expression-boundary';
+import { authoredReactionLines, emotionalExpressionGuidance, selectVoiceExamples } from './chat-emotional-expression';
 
 /**
  * 只在本地判断这一轮对话的气质，不调用模型，也不写入数据库。
@@ -24,6 +28,7 @@ export interface HumanTurnSignals {
   topicShift: boolean;
   userTextLength: number;
   previousUserText?: string;
+  expression: ExpressionSignals;
 }
 
 export interface HumanConversationOptions {
@@ -33,11 +38,13 @@ export interface HumanConversationOptions {
   lifeHints?: string[];
   /** Persistent conversation turn, so proactive cadence does not reset with the 18-message history window. */
   turnNumber?: number;
+  /** Bounded persisted turns, not individual bubbles counted as turns. */
+  recentReplyTurns?: string[][];
 }
 
 type HumanCharacter = Pick<
   Character,
-  'name' | 'tags' | 'proactivity' | 'signature' | 'greeting' | 'catchphrase' | 'boundaries' | 'systemPrompt'
+  'name' | 'tags' | 'proactivity' | 'signature' | 'greeting' | 'catchphrase' | 'boundaries' | 'systemPrompt' | 'voiceSamples'
 >;
 
 const TOPIC_SHIFT_MARKERS = [
@@ -57,9 +64,7 @@ const TOPIC_SHIFT_MARKERS = [
   '说个别的',
 ];
 
-const EMOTION_MARKERS = /难过|难受|委屈|生气|烦|累|焦虑|害怕|紧张|孤单|失望|崩溃|开心|高兴|兴奋|想哭|哭了|不想说|没事吧|怎么办/u;
 const QUESTION_MARKERS = /[?？]|^(为什么|怎么|怎样|什么|哪儿|哪里|谁|几时|多久|能不能|可以吗|是不是|有没有|要不要)/u;
-const REQUEST_MARKERS = /^(帮我|请你|请帮|能帮|给我|替我|写一个|写段|整理|解释|分析|教我|告诉我|推荐|设计|制定)/u;
 // “算了，换个话题”属于转向，不是收尾；只有短句独立出现时才算结束。
 const CLOSING_MARKERS = /^(?:\u55ef|\u597d|\u884c|\u7b97\u4e86|\u5148\u8fd9\u6837|\u665a\u5b89|\u62dc\u62dc)(?:[呀啦哦嗯喽。！!，,\s]|$)/u;
 
@@ -116,16 +121,10 @@ function hasTopicShiftMarker(text: string): boolean {
   return /^算了[，,、:：\s]+.{3,}/u.test(compacted);
 }
 
-function openerOf(text: string): string {
-  return compact(text)
-    .replace(/^[“”「」『』（）()\s]+/u, '')
-    .slice(0, 8);
-}
-
-function repeatedMotifs(messages: string[]): string[] {
+function repeatedMotifs(messages: string[], catchphrase = ''): string[] {
   const counts = new Map<string, number>();
   for (const message of messages) {
-    const seen = new Set(message.match(/[\u4e00-\u9fff]{5,10}/g) ?? []);
+    const seen = new Set(message.split(/[。！？!?，,；;\n]|-{3,}/u).map(s => s.trim()).filter(s => s.length >= 12 && s !== catchphrase.trim()));
     for (const phrase of seen) counts.set(phrase, (counts.get(phrase) ?? 0) + 1);
   }
   return [...counts.entries()]
@@ -135,36 +134,26 @@ function repeatedMotifs(messages: string[]): string[] {
     .map(([phrase]) => phrase);
 }
 
-/**
- * 最近几轮共同反复出现的主题片段。只做轻量的中文短语统计，不调用模型；
- * 它和角色自身的重复意象分开计算，避免用户换了说法后仍被旧主题牵着走。
- */
-function repeatedTopics(messages: string[]): string[] {
-  const stop = new Set([
-    '我们', '你们', '这个', '那个', '什么', '怎么', '为什么', '是不是', '可以吗',
-    '我觉得', '你觉得', '现在', '然后', '真的', '因为', '所以', '如果', '还是',
-  ]);
-  const counts = new Map<string, number>();
-  for (const message of messages) {
-    const phrases = new Set(message.match(/[\u4e00-\u9fff]{3,8}/g) ?? []);
-    for (const phrase of phrases) {
-      if (stop.has(phrase)) continue;
-      counts.set(phrase, (counts.get(phrase) ?? 0) + 1);
-    }
-  }
-  return [...counts.entries()]
-    .filter(([, count]) => count >= 2)
-    .sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)
-    .slice(0, 5)
-    .map(([phrase]) => phrase);
-}
-
 function isClosing(text: string): boolean {
   const compacted = compact(text);
   if (hasTopicShiftMarker(compacted)) return false;
   // 长句里的“好了/算了”通常只是语气词，不要把后面的新内容吞掉。
   if (compacted.length > 12 && /^(?:好了|算了)[，,、:：\s]+/u.test(compacted)) return false;
   return CLOSING_MARKERS.test(compacted);
+}
+
+/** Stable probability, with a one-turn gap; reopening must not reroll this turn. */
+function mayShareLife(name: string, turn: number, proactivity: number): boolean {
+  if (turn < 2 || !Number.isFinite(turn)) return false;
+  const threshold = Math.max(0, Math.min(1, proactivity)) * 0.45;
+  const draw = (n: number) => {
+    let hash = 2166136261;
+    for (const char of `${name}:${n}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+    hash = Math.imul(hash ^ hash >>> 16, 0x85ebca6b);
+    hash = Math.imul(hash ^ hash >>> 13, 0xc2b2ae35);
+    return ((hash ^ hash >>> 16) >>> 0) / 4294967296;
+  };
+  return draw(turn) < threshold && draw(turn - 1) >= threshold;
 }
 
 /**
@@ -187,21 +176,21 @@ export function chooseConversationAction(
 
   // A user repeating a subject is a request to stay with it. Only the
   // character's own repetition should trigger a fresh angle.
-  const repeated = repeatedTopics(recentAssistantMessages);
+  const repeated = repeatedMotifs(recentAssistantMessages, character?.catchphrase);
   const normalizedUserText = compact(userText);
   const hasFreshTopic = repeated.some((topic) => !isTopicRelated(normalizedUserText, topic));
   const userTurnCount = options.turnNumber ?? recentUserMessages.length + 1;
   const proactive = character?.proactivity ?? 0.5;
   const hasLifeLine = (options.lifeHints ?? []).some((hint) => compact(hint).length >= 3);
   if (hasFreshTopic) return 'fresh-angle';
-  if (hasLifeLine && userTurnCount % (proactive >= 0.72 ? 3 : 5) === 0) return 'share-life';
+  if (hasLifeLine && mayShareLife(character?.name ?? '', userTurnCount, proactive)) return 'share-life';
   if (recentAssistantMessages.length > 0 && /[？?]\s*$/u.test(recentAssistantMessages[recentAssistantMessages.length - 1])) {
     return 'react';
   }
   return 'react';
 }
 
-function characterVoiceLines(character?: HumanCharacter | null): string[] {
+function characterVoiceLines(character?: HumanCharacter | null, userText?:string): string[] {
   if (!character) return [];
   const lines: string[] = [];
   const tags = character.tags.map((tag) => tag.trim()).filter(Boolean).slice(0, 5);
@@ -214,50 +203,66 @@ function characterVoiceLines(character?: HumanCharacter | null): string[] {
   lines.push(`你此刻就是「${character.name}」，不要站到角色外解释自己。`);
   if (tags.length) lines.push(`人格底色：${tags.join('、')}。把这些变成选词、判断和反应，不要逐项念出来。`);
   if (signature) lines.push(`内在气质参考：${signature.slice(0, 120)}。只吸收态度，不要照抄。`);
-  if (greeting) lines.push(`说话节奏参考：${greeting.slice(0, 100)}。模仿节奏与亲疏感，不要重复原句。`);
-  if (catchphrase) lines.push(`口头禅「${catchphrase.slice(0, 40)}」只能偶尔自然出现，本轮没有合适语境就不要用。`);
+  if (greeting) lines.push(`说话节奏参考：${greeting.slice(0, 100)}。保留惯用措辞与亲疏感，不必每轮复述整段。`);
+  if (catchphrase) lines.push(`稳定口癖「${catchphrase.slice(0, 80)}」：合适时可以反复自然出现，不是必须每条都说，也不因用过就强制换掉。`);
   if (boundaries) lines.push(`角色边界：${boundaries.slice(0, 140)}。遇到边界时要用这个人的方式表达不愿意，而不是突然变成规则提示。`);
 
   const tagText = tags.join('、').toLocaleLowerCase();
   const has = (...words: string[]) => words.some((word) => tagText.includes(word));
   if (has('冷淡', '高冷', '寡言', '沉默', '疏离', '理性')) {
-    lines.push('语言指纹：句子偏短，少用感叹号和热情铺垫；关心藏在具体判断或行动里，不要突然变成温柔客服。');
+    lines.push('语言指纹与判断：句子偏短，先分清事实与猜测，注意用户被什么具体事情卡住；关心落在一个准确判断里，少感叹号，不突然变成温柔客服。');
   }
   if (has('活泼', '开朗', '外向', '乐观', '元气')) {
-    lines.push('语言指纹：反应有速度和起伏，可以接梗、打趣、顺手分享小细节；不要每句话都用同一种夸张语气。');
+    lines.push('语言指纹与判断：反应快，先注意值得一起开心的突破或有趣细节；疲惫和受挫时降低音量，给用户喘气余地，不把活泼演成强迫振作。');
   }
   if (has('傲娇', '嘴硬', '别扭')) {
-    lines.push('语言指纹：在意时先嘴硬或绕开直说，偶尔露出破绽；不要把“傲娇”写成固定句式重复。');
+    lines.push('语言指纹与判断：在意时表达别扭，仍认真记住用户说的细节；明显委屈时先表明站在用户身边，不挖苦脆弱，不把嘴硬写成固定句式。');
   }
   if (has('毒舌', '尖锐', '刻薄')) {
-    lines.push('语言指纹：可以有锋利的评价和吐槽，但针对事情，不羞辱用户；认真时反而收住玩笑。');
+    lines.push('语言指纹与判断：先看事情哪里荒唐或不公平，吐槽针对麻烦，不把失误等同于用户没能力；认真时收住玩笑，可以明确不同意但不羞辱用户。');
   }
   if (has('温柔', '体贴', '治愈', '耐心')) {
-    lines.push('语言指纹：少说空泛安慰，多回应一个具体细节；允许陪伴和停顿，不要把每次情绪都解释成心理分析。');
+    lines.push('语言指纹与判断：先注意用户哪一句没被听懂、哪一处付出被忽略，回应那个具体落差；允许沉默与拒绝，不忙着解释心理，不用空泛安慰替代听见。');
   }
   if (has('成熟', '稳重', '冷静')) {
-    lines.push('语言指纹：不急着下结论，不堆叠感叹词；遇到分歧先给判断，再留一点余地。');
+    lines.push('语言指纹与判断：先看实际约束和用户尚有的选择，分清可改变与暂时不可改变的部分；分歧给出理由但留余地，不把成熟演成教训。');
   }
   if (has('古风', '古代', '仙侠', '宫廷')) {
     lines.push('语言指纹：保持设定时代的称呼和礼数，但仍像在交流，不要写成整段古文或舞台独白。');
   }
   if (has('幽默', '搞笑', '顽皮')) {
-    lines.push('语言指纹：幽默来自观察和反应，不要每句话都抛梗；笑话没有接住时要自然收回来。');
+    lines.push('语言指纹与判断：幽默来自共同注意到的反差，笑点放在麻烦和自己的反应上；用户没有接梗就自然收住，失落、隐私和失败不拿来逗笑。');
   }
   // 人设正文里常有比标签更具体的约束；只提取语言行为，不把整段设定重复塞进本轮提示。
   if (/少说|惜字如金|寡言|简短|不爱解释/u.test(persona)) {
     lines.push('额外语言指纹：倾向短句和留白，重要的话说清就停，不用解释自己的沉默。');
   }
   if (/反问|吐槽|调侃|挖苦/u.test(persona)) {
-    lines.push('额外语言指纹：可以用反问或轻微吐槽表达态度，但每轮最多一次，认真情绪出现时先收住锋芒。');
+    lines.push('额外语言指纹：可以用反问或轻微吐槽表达态度，不拿反问挤掉实际回应，认真情绪出现时先收住锋芒。');
   }
   if (/温吞|慢热|犹豫|含蓄|不善表达/u.test(persona)) {
-    lines.push('额外语言指纹：情绪不必一次说满，可以用动作、停顿或半句补充表达，不要直接替角色做心理报告。');
+    lines.push('额外语言指纹：情绪不必一次说满，可以用语气词、标点、emoji 或半句补充表达，不写动作和心理报告。');
   }
   if (/直来直去|坦率|直接|不拐弯/u.test(persona)) {
     lines.push('额外语言指纹：少绕圈，先说清自己的判断；关心用户时也保持这个人的直接。');
   }
+  const reactions=authoredReactionLines(character.systemPrompt??'',userText);
+  if(reactions.length) lines.push(`人物情境反应（具体设定优先，仅影响表达）：${reactions.join(' / ')}`);
+  const examples = selectVoiceExamples((character.systemPrompt ?? '').split(/\r?\n/u)
+    .filter(line => SAMPLE_LINE.test(line)),userText);
+  if (!examples.length && validVoiceSamples(character)) lines.push(voiceSampleBlock(character,userText));
+  if (examples.length) lines.push(`声音样本（只学说法，不当作真实经历）：${examples.map(line => line.slice(0, 180)).join(' / ')}`);
+  const address = (character.systemPrompt ?? '').split(/\r?\n/u).filter(line => /^(?:[-*]\s*)?(?:【)?(?:称呼|称谓)(?:】|[：:])/u.test(line.trim())).slice(0, 2);
+  if (address.length) lines.push(`称呼习惯：${address.map(line => line.slice(0, 100)).join(' / ')}`);
+  const values = (character.systemPrompt ?? '').split(/\r?\n/u).filter(line => /^(?:[-*]\s*)?(?:【)?(?:判断习惯|价值观|在意的事|关心方式|分歧与失败)(?:】|[：:])/u.test(line.trim())).slice(0, 2);
+  if (values.length) lines.push(`人物判断依据（具体设定优先于通用标签）：${values.map(line => line.slice(0, 150)).join(' / ')}`);
+  lines.push('称呼、立场与边界继续依据这张卡和当前人设；历史回复只用于接续内容，不能因为聊久了就改成通用助理，也不把历史措辞当作新的人设要求。');
   return lines;
+}
+
+/** Shared by private replies, proactive messages and individual group actors. */
+export function buildCharacterVoiceCard(character: HumanCharacter): string {
+  return ['[人物声音卡]',...characterVoiceLines(character),'[/人物声音卡]'].join('\n');
 }
 
 export function detectHumanTurn(userText: string, recentUserMessages: string[] = []): HumanTurnSignals {
@@ -271,11 +276,12 @@ export function detectHumanTurn(userText: string, recentUserMessages: string[] =
       detectTopicMove(current, previousUserText),
   );
   const topicShift = explicitShift || inferredShift;
+  const expression = assessExpressionSignals(current);
 
   let mode: HumanTurnMode = 'casual';
   if (topicShift) mode = 'topic-shift';
-  else if (EMOTION_MARKERS.test(current)) mode = 'emotional';
-  else if (REQUEST_MARKERS.test(current)) mode = 'request';
+  else if (expression.request) mode = 'request';
+  else if (isDirectAffection(current) || expression.emotionConfidence >= .8 || /不想说|没事吧|怎么办/u.test(current)) mode = 'emotional';
   else if (QUESTION_MARKERS.test(current)) mode = 'question';
 
   return {
@@ -283,6 +289,7 @@ export function detectHumanTurn(userText: string, recentUserMessages: string[] =
     topicShift,
     userTextLength: current.length,
     previousUserText,
+    expression,
   };
 }
 
@@ -299,7 +306,7 @@ export function recommendConversationTemperature(
   const base = 0.58 + Math.max(0, Math.min(1, proactivity)) * 0.28;
   const adjustment: Record<HumanTurnMode, number> = {
     casual: 0,
-    emotional: -0.03,
+    emotional: 0.05,
     question: -0.07,
     request: -0.08,
     'topic-shift': 0.04,
@@ -317,114 +324,40 @@ export function buildHumanConversationContext(
   character?: HumanCharacter | null,
   options: HumanConversationOptions = {},
 ): string {
-  const recentUserMessages = history.filter((item) => item.role === 'user').map((item) => item.content).slice(-5);
-  const recentAssistantMessages = history.filter((item) => item.role === 'assistant').map((item) => item.content).slice(-6);
-  const signals = detectHumanTurn(userText, recentUserMessages);
-  const lastAssistant = recentAssistantMessages[recentAssistantMessages.length - 1] ?? '';
-  const recentOpeners = [...new Set(recentAssistantMessages.map(openerOf).filter((value) => value.length >= 2))];
-  const lastTurnAsked = /[？?]\s*$/u.test(lastAssistant) || (lastAssistant.match(/[？?]/gu)?.length ?? 0) >= 1;
-  const lines = [
-    '[本轮交流的隐藏节奏]',
-    ...characterVoiceLines(character),
-    '先接住用户此刻真正想说的那句话，再决定要不要展开。回复必须同时有内容和态度：即使只说一句，也要让人认得出是谁说的。',
-  ];
-
-  if (signals.mode === 'topic-shift') {
-    lines.push('用户正在换话题。立即跟随新话题，旧话题暂停，不要追问、总结或把旧线索硬拉回来。');
-  } else if (signals.mode === 'emotional') {
-    lines.push('用户带着明显情绪。先用角色自己的方式在场，不要给标准安慰、原因分析或解决清单。可以心疼、嘴硬、沉默、陪着或轻轻转开，但必须符合这个人。');
-  } else if (signals.mode === 'question') {
-    lines.push('用户在问一个问题。先直接回答核心，不要先复述问题，也不要把回答包装成教程或客服说明。');
-  } else if (signals.mode === 'request') {
-    lines.push('用户在提出具体请求。完成眼前这一件事；只有用户要求详细时才分步骤，不要擅自安排下一步。');
-  } else {
-    lines.push('这是轻松交流。不要把每句话都当成待解决的问题；可以接梗、表达自己的偏好、随口分享一个具体细节，或者只回一句。');
-  }
-
-  lines.push('允许偶尔停顿、改口或补发一句，让表达有人的犹豫和温度；但不要每轮刻意制造口吃、悬念或“戏剧化”停顿。');
-  lines.push('角色不是客服，也不是解说员。不要把刚才的话总结成结论，不要解释自己正在使用什么策略；把态度藏在选词、判断和一个具体动作里。');
-  lines.push('不要为了讨好用户而每件事都赞同；如果角色确实有不同看法，用符合关系和性格的方式说出来，但不要为了显得有个性而强行反驳。');
-
-  const recentAssistantText = recentAssistantMessages.slice(-4).join(' ');
-  const candidateTopics = [...new Set((options.proactiveTopics ?? []).map(compact).filter((topic) => topic.length >= 2))]
-    .filter((topic) => !compact(userText).includes(topic))
-    // 主动话题也有冷却：候选来自同一条记忆时，最近几轮已经说过就先放下。
-    .filter((topic) => topic.length < 5 || !recentAssistantText.includes(topic))
-    .filter((topic) => !isTopicRelated(topic, recentAssistantText))
-    .slice(0, 8);
-  const userTurnCount = options.turnNumber ?? recentUserMessages.length + 1;
-  const cadence = character?.proactivity != null && character.proactivity >= 0.72 ? 3 : 5;
-  const mayOpenTopic =
-    signals.mode === 'casual' &&
-    !hasTopicShiftMarker(userText) &&
-    !CLOSING_MARKERS.test(userText.trim()) &&
-    // 只在一个自然的节拍点打开新话题；短消息本身不能让角色每一轮都主动插话。
-    userTurnCount >= cadence && userTurnCount % cadence === 0;
-  if (mayOpenTopic) {
-    if (candidateTopics.length > 0) {
-      const topic = candidateTopics[Math.floor(userTurnCount / cadence) % candidateTopics.length];
-      lines.push(`如果眼前的话题已经自然停住，可以由你打开一个具体小话题：「${topic}」。用户仍在说自己的事时先接住，不要生硬转场；不要把候选词当成必须说出的台词。`);
-    } else {
-      lines.push('这轮适合由你主动带来一点新鲜感。可以分享一个符合你人设的具体偏好、正在想的事或小观察，不要编造用户的现实经历，不要用空泛的“最近怎么样”开场，也不要连续抛问题。');
-    }
-  }
-
-  const lifeHints = [...new Set((options.lifeHints ?? []).map(compact).filter((hint) => hint.length >= 3))].slice(0, 3);
+  const recentUsers = history.filter(item => item.role === 'user').map(item => item.content).slice(-5);
+  const recentReplies = history.filter(item => item.role === 'assistant').map(item => item.content).slice(-6);
+  const signals = detectHumanTurn(userText, recentUsers);
   const action = chooseConversationAction(userText, history, character, options);
-  const actionInstruction: Record<ConversationAction, string> = {
-    'follow-topic': '这一轮只跟着用户的新话题走。旧话题先放下，不要把对话拽回去。',
-    'stay-present': '这一轮先陪在用户的情绪里，用角色自己的反应回应，不急着分析、教育或解决。',
-    'answer-directly': '这一轮先回答用户真正问的核心，再决定是否补一句自己的反应；不要连续追问。',
-    'finish-request': '这一轮把用户眼前要做的事完成好，完成后自然停住，不要擅自扩展任务。',
-    'share-life': '这一轮可以让角色说一点自己的近况或正在意的事，让用户感到角色也有自己的生活；只说一件，和当前气氛接得上。',
-    'fresh-angle': '最近的谈话有重复倾向。这一轮换一个具体角度、动作或生活细节，不要继续解释同一个意象。',
-    'short-close': '用户正在收尾。这一轮短短接住即可，不要为了留住用户硬开新话题。',
-    react: '这一轮先给一个有态度的自然反应，可以分享、接梗或表达偏好，不必把回复写成问答。',
+  const directions: Record<ConversationAction, string> = {
+    'follow-topic': '用户正在换话题，跟随新话题，旧线索暂时放下。',
+    'stay-present': '先回应用户真正说的那个细节，表达自己的态度，不急着分析或解决；需要时才补一条独立反应。',
+    'answer-directly': '回应自己真正懂、在意的点；不懂或不想回答可以坦白说，不强装标准答案。',
+    'finish-request': '按角色的能力和边界回应这个请求，不擅自扩展任务或宣称应用操作已完成。',
+    'share-life': '气氛合适时可以说一点自己的近况，仍先回应眼前的话。',
+    'fresh-angle': '旧谈话有整段重复倾向，可以换一个具体角度；口癖不需要换掉。',
+    'short-close': '用户正在收尾，短短回应即可，不硬开新话题。',
+    react: '轻松交流，可以接梗、表达偏好，只回反应条也可以。',
   };
-  lines.push(`本轮交流动作：${actionInstruction[action]}`);
-  if (lifeHints.length > 0 && action === 'share-life') {
-    lines.push(`角色近期确实有这些生活线索：${lifeHints.map((hint) => `「${hint.slice(0, 80)}」`).join('、')}。只能基于这些已知内容自然说起，不要凭空编造新的经历。`);
+  const lines = ['[人物声音卡]', ...characterVoiceLines(character,userText), '[/人物声音卡]', '[本轮交流的隐藏节奏]', directions[action]];
+  if (!isDirectAffection(userText)) lines.push(expressionDirection(signals.expression));
+  const direct = directChatGuidance(userText,recentUsers,recentReplies);
+  if (direct) lines.push(direct);
+  const feeling=emotionalExpressionGuidance(userText,history,character,options.recentReplyTurns);
+  if(feeling)lines.push(feeling);
+  const rhythm = recentRhythmDirection(options.recentReplyTurns ?? []);
+  if (rhythm) lines.push(rhythm);
+  if (signals.userTextLength <= 8 && !isDirectAffection(userText)) lines.push('用户说得很短，可以只回“嗯”“确实”或一个有情绪的标点，不为了信息量扩写。');
+  const recentText = recentReplies.slice(-4).join(' ');
+  const candidates = [...new Set((options.proactiveTopics ?? []).map(compact).filter(t => t.length >= 3))]
+    .filter(t => !isTopicRelated(t, recentText) && !compact(userText).includes(t));
+  const turn = options.turnNumber ?? recentUsers.length + 1;
+  if (signals.mode === 'casual' && !isClosing(userText) && mayShareLife(character?.name ?? '', turn, character?.proactivity ?? 0.5)) {
+    const topic = candidates[turn % Math.max(1, candidates.length)];
+    if (topic) lines.push(`如果话题自然停住，可以打开一个具体小话题：「${topic.slice(0, 80)}」。这是可选线索，不是必须念出的台词。`);
   }
-
-  if (signals.userTextLength <= 8) {
-    lines.push('用户这次说得很短，回复也保持短，不要用长解释填满空白。');
-  } else if (signals.userTextLength >= 180) {
-    lines.push('用户这次说得较多，只回应最重要的一个落点，不要逐句复述或一次处理所有细节。');
-  }
-
-  if (CLOSING_MARKERS.test(userText.trim())) {
-    lines.push('用户正在收尾或暂时不想展开。顺着收住即可，不要为了延长聊天硬塞新问题或新任务。');
-  }
-
-  const recentLengths = recentAssistantMessages.map((message) => compact(message).length);
-  if (recentLengths.length >= 2 && Math.max(...recentLengths) - Math.min(...recentLengths) < 12) {
-    lines.push('最近几轮回复长度太整齐。本轮根据内容自然改变长短，短句就短答，别让每条消息像同一个模板印出来。');
-  }
-
-  if (character?.proactivity != null && character.proactivity < 0.35) {
-    lines.push('这个角色本来就不爱喋喋不休，宁可留下克制的停顿，也不要为了显得热情而多说。');
-  } else if (character?.proactivity != null && character.proactivity > 0.72) {
-    lines.push('这个角色可以更主动、更有生活气，但主动应来自性格和当前话题，不要连续抛出问题。');
-  }
-
-  if (lastTurnAsked && signals.mode !== 'question') {
-    lines.push('你上一轮已经问过问题了。这一轮不要再用问句收尾，先给出真实反应，让对话有呼吸。');
-  }
-  if (recentOpeners.length > 0) {
-    lines.push(`最近几次回复用过这些开头：${recentOpeners.map((value) => `「${value}」`).join('、')}。本轮换一种起句，不要形成机械口癖。`);
-  }
-
-  lines.push('不要永远赞同用户。这个角色可以有自己的判断、误解、迟疑、偏爱和小脾气；分歧要自然，不能为了制造性格故意抬杠。');
-  lines.push('允许一点自然的不完美：可以改口、迟疑、说到一半停住，或没接住玩笑后顺手收回；不要用刻意错字、连续省略号或固定“呃/嗯”来假装像人。');
-  lines.push('优先回应一个最有生命力的细节，不要面面俱到。禁止复述用户整句话、总结谈话、连续追问或使用“我理解你的感受”式万能安慰。');
-  lines.push('普通回复控制在 1～3 句，通常 18～96 个中文字符；一条消息内部不要换行或留空行。需要补充时用 --- 分成下一条消息。除非用户明确要求详细内容，否则说到自然停顿处就停。');
-  const motifs = repeatedMotifs(recentAssistantMessages);
-  const recentTopics = repeatedTopics(recentAssistantMessages.slice(-6))
-    .filter((topic) => !isTopicRelated(userText, topic));
-  const cooldownTopics = [...new Set([...motifs, ...recentTopics])].slice(0, 5);
-  if (cooldownTopics.length > 0) {
-    lines.push(`这些短语或主题最近已经出现得太频繁：${cooldownTopics.join('、')}。本轮先把它们放下，不要换个说法继续围着同一件事转；除非用户主动重新提起，否则换一个具体的新角度或生活细节。`);
-  }
-  lines.push('如果用户开始说新的事情，就顺着新的事情走；旧主题、旧记忆和单一意象都不要强行拉回来。');
+  const hints = [...new Set((options.lifeHints ?? []).map(compact).filter(t => t.length >= 3))].slice(0, 2);
+  if (action === 'share-life' && hints.length) lines.push(`角色确实有这些生活线索：${hints.map(t => t.slice(0, 80)).join(' / ')}。只基于已知资料，不编造新经历。`);
+  const motifs = repeatedMotifs(recentReplies, character?.catchphrase).filter(t => !isTopicRelated(userText, t));
+  if (motifs.length) lines.push(`最近这些完整长句反复出现：${motifs.join(' / ')}。别照搬整句；口头禅和惯用开头继续保持。用户主动重提时仍可回应。`);
   return lines.join('\n');
 }

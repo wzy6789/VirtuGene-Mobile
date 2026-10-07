@@ -1,0 +1,6 @@
+.vg-soul-ghost { position:fixed; z-index:var(--vg-z-page); transform-origin:left top; pointer-events:none; overflow:hidden; will-change:transform; }
+[data-soul-hidden] { opacity:0!important; }
+.mobile-layout .chat-header-title { display:flex; align-items:center; gap:9px; text-align:left; }
+.mobile-layout .chat-header-title > .vg-chat-identity-copy { min-width:0; }
+.mobile-layout .chat-header-title .vg-chat-identity-copy > div:first-child { font-size:16px; font-weight:var(--vg-weight-strong,700); letter-spacing:.035em; }
+.mobile-layout .chat-header-title .vg-chat-presence { justify-content:flex-start; }

@@ -1,0 +1,65 @@
+/* Search and conversation fields share the home search surface.
+   The rounded shell owns focus; no second outline around its inner input.
+   Repeated class specificity beats older page-level rules without !important.
+   Buttons and unrelated forms keep their focus styles. */
+.vg-search-field.vg-search-field,
+.vg-text-field.vg-text-field {
+  min-height:48px;
+  border:1px solid var(--vg-edge);
+  border-radius:var(--vg-radius-3);
+  background:var(--vg-inset);
+  color:var(--text);
+  caret-color:var(--vg-cyan);
+  box-shadow:inset 0 1px 0 var(--vg-panel-shine);
+  transition:border-color 180ms var(--vg-ease),box-shadow 180ms var(--vg-ease);
+}
+.vg-search-field.vg-search-field {
+  display:flex;
+  align-items:center;
+}
+.vg-search-field.vg-search-field:not(.vg-composer-row) {
+  gap:9px;
+  padding-inline:12px;
+}
+.vg-search-field.vg-search-field:focus-within,
+.vg-text-field.vg-text-field:focus {
+  border-color:color-mix(in srgb,var(--vg-cyan) 40%,var(--border));
+  box-shadow:inset 0 -1px 0 color-mix(in srgb,var(--vg-cyan) 65%,transparent),inset 0 1px 0 var(--vg-panel-shine);
+}
+.vg-search-field.vg-search-field:has(> :is(input,textarea):focus-visible),
+.vg-text-field.vg-text-field:focus-visible {
+  /* A stronger inner rail remains visible for keyboard/switch navigation. */
+  outline:none;
+  box-shadow:inset 0 -2px 0 var(--vg-cyan),inset 0 1px 0 var(--vg-panel-shine);
+}
+.vg-search-field.vg-search-field > :is(input,textarea) {
+  flex:1;
+  min-width:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  color:inherit;
+  caret-color:var(--vg-cyan);
+}
+.vg-search-field.vg-search-field > :is(input,textarea):focus {
+  outline:none;
+  box-shadow:none;
+}
+.vg-search-field.vg-search-field > :is(input,textarea)::placeholder,
+.vg-text-field.vg-text-field::placeholder { color:var(--text-secondary); }
+.vg-search-field.vg-search-field:not(.vg-composer-row) > button { min-width:44px; min-height:44px; }
+.vg-text-field.chat-composer-input {
+  max-height:160px;
+  padding:12px 13px;
+  line-height:1.65;
+  transition:border-color 180ms var(--vg-ease),box-shadow 180ms var(--vg-ease),opacity 150ms var(--vg-ease);
+}
+
+@media(prefers-reduced-motion:reduce) {
+  .vg-search-field.vg-search-field,.vg-text-field.vg-text-field { transition:none; }
+}
+html[data-vg-reduced-motion='true'] :is(.vg-search-field,.vg-text-field) { transition:none; }
+@media(forced-colors:active) {
+  .vg-search-field.vg-search-field:focus-within,
+  .vg-text-field.vg-text-field:focus-visible { outline:2px solid Highlight; outline-offset:2px; }
+}

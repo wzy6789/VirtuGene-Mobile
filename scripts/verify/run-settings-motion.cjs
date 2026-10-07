@@ -13,7 +13,9 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     const live = document.querySelector('.vg-settings-detail:not(.vg-settings-detail-exit)');
     const ghost = document.querySelector('.vg-settings-detail-exit');
     resolve({ ghosts: document.querySelectorAll('.vg-settings-detail-exit').length,
-      safe: !ghost || ghost.inert && ghost.getAttribute('aria-hidden') === 'true' && !ghost.querySelector('[role], [id]'),
+      // The shared snapshot preserves SVG paint resources, but strips HTML IDs/roles.
+      // Resource IDs must remain unique across the outgoing copy and live page.
+      safe: !ghost || ghost.inert && ghost.getAttribute('aria-hidden') === 'true' && !ghost.querySelector('[role]') && [...ghost.querySelectorAll('[id]')].every(node=>node instanceof SVGElement && [...document.querySelectorAll('[id]')].filter(other=>other.id===node.id).length===1),
       liveX: live && getComputedStyle(live).transform !== 'none' ? new DOMMatrixReadOnly(getComputedStyle(live).transform).m41 : 0,
       focus: document.activeElement?.getAttribute('role'), scrollTop: live.closest('[data-modal-scroll]').scrollTop,
     });
@@ -101,7 +103,7 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     assert.equal(await page.locator('.vg-settings-detail-exit').count(), 0);
     await settle(); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.evaluate(() => window.settingsUITest.mount('chat')); await settle();
-    await click('聊天更多操作'); await click('聊天设置'); await settle();
+    await click('聊天设置'); await settle();
     const summary = page.locator('summary').filter({ hasText: '外观与阅读' });
     const details = summary.locator('..');
     const closedHeight = await details.evaluate(el => el.getBoundingClientRect().height);
@@ -118,7 +120,8 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     await page.emulateMedia({ reducedMotion: 'reduce' }); await click(/外观与阅读/);
     assert.equal(await page.locator('.vg-settings-detail-exit').count(), 0);
     assert.equal(await page.locator('.vg-settings-detail').evaluate(el => el.getAnimations().length), 0);
-    await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click();
+    await click('返回设置'); await settle();
+    await page.getByRole('dialog').getByRole('button', { name: '返回', exact: true }).click();
     await settle(); assert.equal(await page.locator('.vg-settings-detail-exit').count(), 0); assert.deepEqual(errors, []);
     await page.setViewportSize({ width: 1024, height: 768 });
     // DEV intentionally forces mobile layout; use the production platform branch
@@ -133,7 +136,7 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     assert.ok(dialogRect.width <= 560 && dialogRect.y >= 0 && dialogRect.y + dialogRect.height <= 768);
     await page.screenshot({ path: path.join(output, 'desktop-dark.png') });
     await click(/外观与阅读/); await settle();
-    await page.getByRole('radio', { name: /浅色/ }).check();
+    await page.getByRole('radio', { name: /^浅色/ }).check();
     assert.ok(await page.getByRole('dialog').evaluate(el => getComputedStyle(el).colorScheme === 'light'));
     await page.screenshot({ path: path.join(output, 'desktop-light.png') });
     assert.deepEqual(errors, []);

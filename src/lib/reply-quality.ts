@@ -3,6 +3,8 @@
  * 命中则返回修正提示，由调用方静默重试一次。
  */
 
+import { collapseChatNewlines } from './ai/text';
+
 export type ReplyIssue =
   | 'empty'
   | 'repeat-user'
@@ -10,7 +12,10 @@ export type ReplyIssue =
   | 'repeat-own'
   | 'too-long'
   | 'over-structured'
-  | 'question-barrage';
+  | 'question-barrage'
+  | 'uninvited-staging'
+  | 'emotional-script'
+  | 'voice-conflict';
 
 export interface ReplyCheck {
   ok: boolean;
@@ -44,17 +49,11 @@ export function polishChatResponse(
       .trim();
   }
 
-  // 不让模型用连续多个问号把聊天变成采访；只保留第一个真正的问题。
-  if (!options.longForm) {
-    let seenQuestion = false;
-    text = text.replace(/[？?]/gu, (mark) => {
-      if (seenQuestion) return '。';
-      seenQuestion = true;
-      return mark;
-    });
-  }
-
-  return text.replace(/[ \t]*\n+[ \t]*/g, ' ').replace(/[ \t]{2,}/g, ' ').trim();
+  // Punctuation carries emotion. Interview-like questioning is checked below,
+  // never silently rewritten into statements.
+  // Keep explicit separators distinct so Chinese newline joining cannot glue
+  // the next message onto a preceding Latin word.
+  return text.split(/\n?-{3,}\n?/u).map(part => collapseChatNewlines(part).replace(/[ \t]{2,}/g, ' ').trim()).join('\n---\n').trim();
 }
 
 /**
@@ -70,13 +69,15 @@ function similarity(a: string, b: string): number {
   for (const c of setA) {
     if (setB.has(c)) inter += 1;
   }
-  return inter / Math.min(setA.size, setB.size);
+  // A short reaction can share every character with a long story without
+  // repeating that story. Compare both vocabularies, not only the smaller one.
+  return inter / Math.max(setA.size, setB.size);
 }
 
 /** Detect a phrase that has already appeared in at least two recent replies. */
-function repeatedMotif(text: string, previous: string[]): string | undefined {
-  if (text.length < 24 || previous.length < 2) return undefined;
-  const phrases = text.match(/[\u4e00-\u9fff]{6,10}/g) ?? [];
+function repeatedMotif(text: string, previous: string[], catchphrase = ''): string | undefined {
+  if (text.length < 12 || previous.length < 2) return undefined;
+  const phrases = text.split(/[。！？!?，,；;\n]|-{3,}/u).map(s => s.trim()).filter(s => s.length >= 12 && s !== catchphrase.trim());
   for (const phrase of phrases) {
     const count = previous.filter((item) => item.includes(phrase)).length;
     if (count >= 2) return phrase;
@@ -88,11 +89,10 @@ function repeatedMotif(text: string, previous: string[]): string | undefined {
 const MIN_REPEAT_LENGTH = 8;
 
 const GENERIC_PATTERNS: RegExp[] = [
-  /^(你好|您好|嗨|哈喽|在吗|当然可以|没问题|好的呢|好呀|嗯嗯|好的好的|很高兴(认识|见到|为你)|有什么可以帮)/,
   /作为(一个)?(AI|人工智能|语言模型|助手)/,
   /我是(一个)?(人工智能|AI|助手|机器人)/,
-  /很(高兴|荣幸)(能|可以)?(为你|帮助)/,
-  /^(我能理解你的感受|我理解你的心情|听起来你|感谢你愿意分享)/,
+  /很(高兴|荣幸)(能|可以)?为(?:你|您)(?:服务|提供帮助)/,
+  /有什么(?:我)?可以(?:帮(?:助)?(?:你|您)|为(?:你|您)效劳)/,
 ];
 
 const OVER_STRUCTURED_PATTERNS: RegExp[] = [
@@ -104,20 +104,23 @@ const OVER_STRUCTURED_PATTERNS: RegExp[] = [
 
 /** 明确要长内容时不限制；普通闲聊超过这个长度先让模型收束一次。 */
 const LONG_FORM_REQUEST = /详细|解释|分析|教程|步骤|整理|总结|长一点|展开|写一篇|创作/;
-const MAX_CONVERSATIONAL_REPLY_CHARS = 128;
+const MAX_CONVERSATIONAL_REPLY_CHARS = 180;
 
 export function isLongFormRequest(message: string): boolean {
   return LONG_FORM_REQUEST.test(message);
 }
 
 const RETRY_HINTS: Record<ReplyIssue, string> = {
+  'uninvited-staging':'刚才把发消息写成了同处一室的表演。保留角色态度和亲密感，直接接这句话；不要安排进门、坐下、看着你或当面再说，不把这些动作换一组继续演。',
+  'emotional-script':'刚才把一句心意写成了层层解释的文学台词。用角色自己的口语表达当下态度；不解释如何接收这句话，不堆意象和仪式，也不强迫回应相同爱意。',
+  'voice-conflict':'遵守人设中的明确表达要求，保留当前内容和角色自己的语气。',
   empty: '你刚才的回复是空的。请用你的性格正常回应用户，直接说事，不要长篇大论。',
   'repeat-user': '你刚才完全复述了用户的话。不要复述用户，用你自己的性格、说法和语气回应。',
-  generic: '你刚才的回复太像通用客服/机器人腔了。记住你的人设：用大白话、口语、带性格地说话，直接说事，禁止"你好""当然可以""有什么可以帮您"这类套话。',
+  generic: '刚才出现了通用客服或模型说明。回到角色自己的说话方式；普通招呼、口头禅和纯反应可以保留，不要自称通用助手或推销服务。',
   'repeat-own': '你刚才重复了自己刚说过的话。换个说法，说点新的内容，不要原地打转。',
-  'too-long': '你刚才说得太满了。普通手机聊天只保留最重要的一两个意思，控制在三句以内，像真人一样说完就停，把话题留给对方。',
+  'too-long': '这一段偏长。保留角色此刻真正想说的内容，在自然停顿处用 --- 分条，不要压成固定三句，也不要删掉情绪反应。',
   'over-structured': '你刚才像在写说明或报告。去掉分点、总结和“首先其次”，只留下这个角色此刻最想说的一两句话，用自然口语重新回答。',
-  'question-barrage': '你刚才连续追问，让聊天像采访。最多保留一个真正必要的问题；更优先给出角色自己的反应、看法或一个具体细节。',
+  'question-barrage': '刚才接连三个实质问题像采访。先接住一两个最在意的点，给出自己的反应；保留原有标点强度，不必把所有问句删掉。',
 };
 
 /**
@@ -130,6 +133,7 @@ export function checkReplyQuality(
   userMessage: string,
   lastAssistantContent?: string,
   recentAssistantContents: string[] = [],
+  voice: { catchphrase?: string } = {},
 ): ReplyCheck {
   const text = content.trim();
   if (text.length === 0) {
@@ -137,7 +141,7 @@ export function checkReplyQuality(
   }
 
   // 复述用户消息：整段相似度过高（仅长文本判定，短句字符集必然重叠会误伤）
-  if (userMessage.trim().length >= MIN_REPEAT_LENGTH && similarity(text, userMessage) >= 0.85) {
+  if (text.length >= MIN_REPEAT_LENGTH && userMessage.trim().length >= MIN_REPEAT_LENGTH && similarity(text, userMessage) >= 0.85) {
     return { ok: false, issue: 'repeat-user', retryHint: RETRY_HINTS['repeat-user'] };
   }
 
@@ -154,22 +158,31 @@ export function checkReplyQuality(
     }
   }
 
-  const questionCount = (text.match(/[？?]/gu) ?? []).length;
-  if (!isLongFormRequest(userMessage) && questionCount >= 2) {
+  const sentences = text.replace(/[“「][^”」]*[”」]/gu, '').replace(/-{3,}/gu, ' ').match(/[^。！？!?；;]*[。！？!?；;]+|[^。！？!?；;]+$/gu) ?? [];
+  let questionRun = 0;
+  const barrage = sentences.some(sentence => {
+    const core = sentence.replace(/[。！？!?；;\s]/gu, '');
+    const question = /[?？]/u.test(sentence) && core.length > 0 && !/^(?:啊|嗯|哈+|哦|诶|哎)$/u.test(core);
+    questionRun = question ? questionRun + 1 : 0;
+    return questionRun >= 3;
+  });
+  if (!isLongFormRequest(userMessage) && barrage) {
     return { ok: false, issue: 'question-barrage', retryHint: RETRY_HINTS['question-barrage'] };
   }
 
   // 重复自己刚说的话（仅长文本判定）
-  if (lastAssistantContent && lastAssistantContent.trim().length >= MIN_REPEAT_LENGTH && similarity(text, lastAssistantContent) >= 0.9) {
+  const withoutCatchphrase = (s: string) => voice.catchphrase?.trim() ? s.split(voice.catchphrase.trim()).join('').trim() : s.trim();
+  const own = withoutCatchphrase(text), previous = withoutCatchphrase(lastAssistantContent ?? '');
+  if (own.length >= 20 && previous.length >= 20 && own === previous) {
     return { ok: false, issue: 'repeat-own', retryHint: RETRY_HINTS['repeat-own'] };
   }
 
-  const motif = repeatedMotif(text, recentAssistantContents);
+  const motif = repeatedMotif(text, recentAssistantContents, voice.catchphrase);
   if (motif) {
     return {
       ok: false,
       issue: 'repeat-own',
-      retryHint: `不要继续重复最近几轮已经用过的“${motif}”。换一个具体动作、观点或生活细节，让对话往前走。`,
+      retryHint: `不要继续重复最近几轮已经用过的“${motif}”。回应用户当前内容，说自己的判断或新想法；不要为了换说法再编一组动作和布景。`,
     };
   }
 

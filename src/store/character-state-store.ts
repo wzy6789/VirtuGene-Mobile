@@ -3,6 +3,7 @@ import { stateRepo } from '../db/state-repo';
 import { useAuthStore } from './auth-store';
 import type { RelationMilestone } from '../db/index';
 import { db } from '../db/index';
+let characterLoadSequence = 0;
 
 interface CharacterStateState {
   characterId: string | null;
@@ -35,9 +36,11 @@ export const useCharacterStateStore = create<CharacterStateState>((set, get) => 
   milestone: null,
 
   load: async (characterId) => {
+    const sequence = ++characterLoadSequence;
     const userId = useAuthStore.getState().userId ?? '';
-    if ((await db.characters.get(characterId))?.agentProfile === 'secretary') { get().clear(); return; }
+    if ((await db.characters.get(characterId))?.agentProfile === 'secretary') { if (sequence === characterLoadSequence && userId === useAuthStore.getState().userId) get().clear(); return; }
     const state = await stateRepo.getOrCreate(characterId, userId);
+    if (sequence !== characterLoadSequence || useAuthStore.getState().userId !== userId) return;
     set({ characterId, affinity: state.affinity, mood: state.mood, milestones: state.milestones ?? [], tierNames: state.tierNames ?? {} });
   },
 

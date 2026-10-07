@@ -1,11 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
+import { settingsSearchIndexPlugin } from './scripts/settings-search-index.mjs';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [settingsSearchIndexPlugin(), react()],
   root: '.',
   base: './',
   define: {
@@ -18,6 +19,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (/\/src\/lib\/(soul-orb-motion|orb-motion-profiles|orb-attention|use-orb-attention|orb-render|orb-personality)\.ts$/.test(id)) return 'orb-motion';
           if (!id.includes('node_modules')) return;
           if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'react-vendor';
           if (id.includes('/dexie/')) return 'storage-vendor';

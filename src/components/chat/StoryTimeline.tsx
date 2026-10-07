@@ -1,3 +1,4 @@
+import { Modal } from '../ui/Modal';
 import { useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
 import { messageRepo } from '../../db/message-repo';
@@ -91,12 +92,7 @@ export function StoryTimeline({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[96] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-md glass-card rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
-        <div className="px-4 py-3 border-b border-line flex items-center justify-between shrink-0">
-          <span className="text-sm font-medium text-ink">📖 我们的故事 · 共同时间线</span>
-          <button onClick={onClose} className="text-gray-400 hover:text-ink text-lg leading-none">×</button>
-        </div>
+    <Modal open onClose={onClose} title="我们的故事 · 共同时间线" canSnapshotOnExit={() => useAuthStore.getState().userId === userId}><div>
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {items === null ? (
             <div className="flex items-center justify-center gap-2 text-xs text-gray-500 py-8">
@@ -152,6 +148,6 @@ export function StoryTimeline({
           )}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

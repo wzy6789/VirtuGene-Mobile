@@ -1,20 +1,12 @@
 /* Living light: shared mobile tokens, stable typography, inexpensive effects. */
-.mobile-layout {
-  --vg-radius-control:14px;
-  --vg-radius-card:20px;
-  --vg-duration:180ms;
-  --vg-ease:cubic-bezier(.2,.8,.2,1);
-}
 .mobile-layout :is(button,input,textarea) { -webkit-tap-highlight-color:transparent; }
 .mobile-layout :is(.vg-space-heading h1,.vg-canvas-title,.vg-moments-header h1) { overflow-wrap:anywhere; }
 .mobile-layout .vg-conversation-brand { display:flex; align-items:center; gap:12px; max-width:100%; padding:22px 20px 8px; }
-.mobile-layout .vg-conversation-app-icon { flex-shrink:0; width:36px; height:36px; object-fit:contain; filter:drop-shadow(0 0 8px rgba(154,134,245,.22)); user-select:none; }
-.mobile-layout .vg-conversation-search { min-height:48px; border-radius:16px; }
 .mobile-layout .vg-conversation-scroll { scrollbar-width:thin; scrollbar-color:rgba(150,134,229,.2) transparent; }
 .mobile-layout .vg-conversation-shell { border-radius:18px; }
 .mobile-layout .vg-conversation-shell.is-pinned { box-shadow:inset 3px 0 0 rgba(161,140,239,.35),inset 0 1px 0 rgba(176,155,245,.1); }
 .mobile-layout .vg-conversation-row:active { background:linear-gradient(110deg,rgba(154,132,235,.15),rgba(97,208,198,.045)); }
-.mobile-layout .vg-wordmark { isolation:isolate; padding:3px 0 5px; font-size:17px; line-height:1.5; font-weight:750; letter-spacing:.17em; }
+.mobile-layout .vg-wordmark { isolation:isolate; padding:3px 0 5px; font-size:17px; line-height:1.5; font-weight:700; letter-spacing:.17em; }
 /* Signature wordmark: readable metallic type, quiet DNA filaments and a traveling glint.
    Only the message header uses this variant; decoration cannot intercept a tap. */
 .mobile-layout .vg-wordmark.is-signature {
@@ -67,7 +59,6 @@
 .mobile-layout .chat-header { min-height:58px; }
 .mobile-layout .chat-header-title { letter-spacing:.045em; }
 .mobile-layout .vg-chat-message-row { animation:vg-message-arrive 180ms var(--vg-ease) both; }
-.mobile-layout .vg-message-bubble { overflow-wrap:anywhere; }
 .mobile-layout .chat-composer { box-shadow:inset 0 1px 0 rgba(162,147,239,.1); }
 .mobile-layout .chat-room:has(.scene-morning) .chat-thread { background:radial-gradient(ellipse at 90% 0%,rgba(118,191,189,.1),transparent 70%),var(--bg); }
 .mobile-layout .chat-room:has(.scene-day) .chat-thread { background:radial-gradient(ellipse at 90% 0%,rgba(123,169,221,.1),transparent 70%),var(--bg); }
@@ -249,14 +240,12 @@ html[data-vg-background] :is(.mobile-layout,.scene-settings-overlay,.vg-modal-ov
 .mobile-layout .vg-character-shortcuts > button::before { animation:none; border:1px solid rgba(var(--entry-light),.08); width:170px; height:170px; right:-60px; top:-78px; }
 .mobile-layout .vg-character-shortcuts > button > span:first-child { position:relative; font-size:17px; line-height:1.35; }
 .mobile-layout .vg-character-shortcuts > button > span:last-child { position:relative; font-size:12px; line-height:1.5; }
-.mobile-layout .vg-character-row { position:relative; overflow:hidden; border-radius:19px; background:radial-gradient(ellipse 80% 120% at 100% 0%,rgba(149,127,222,.14),transparent 82%),var(--bg-panel); }
-.mobile-layout .vg-character-row::before { content:''; position:absolute; pointer-events:none; top:12px; bottom:12px; left:0; width:2px; border-radius:3px; background:linear-gradient(180deg,transparent,rgba(148,212,206,.5),rgba(166,138,230,.32),transparent); }
+.mobile-layout .vg-character-row { position:relative; overflow:hidden; border-radius:var(--vg-radius-4); background:var(--bg-panel); border-color:var(--vg-elev-edge); box-shadow:inset 0 1px 0 var(--vg-elev-highlight),var(--vg-elev-shadow-1); }
 .mobile-layout .vg-character-row button:first-child > img,.mobile-layout .vg-character-row button:first-child > span.rounded-full { box-shadow:0 0 0 2px rgba(142,126,216,.13); }
-.mobile-layout .vg-character-row:active { background:linear-gradient(105deg,rgba(148,127,223,.12),rgba(93,182,186,.08)),var(--bg-panel); }
+.mobile-layout .vg-character-row:active { background:var(--bg-surface); }
 
 .mobile-layout .vg-conversations { background:radial-gradient(ellipse 115% 300px at 100% 0%,rgba(141,108,222,.17),transparent 74%),radial-gradient(ellipse 100% 360px at 0% 100%,rgba(62,179,178,.055),transparent 78%),var(--bg); }
 .mobile-layout .vg-conversation-brand { padding-top:21px; padding-bottom:8px; }
-.mobile-layout .vg-conversation-search { box-shadow:inset 0 1px 0 rgba(172,155,236,.07),0 6px 18px rgba(10,10,35,.06); }
 .mobile-layout .vg-conversation-shell { border:1px solid rgba(149,129,221,.16); background:radial-gradient(ellipse at 100% 0%,rgba(157,131,230,.13),transparent 78%),var(--bg-panel); box-shadow:inset 0 1px 0 rgba(174,160,238,.08),0 5px 16px rgba(10,9,33,.06); }
 .mobile-layout .vg-conversation-shell.is-pinned { border-color:rgba(157,133,229,.32); }
 .mobile-layout .vg-conversation-row { min-height:84px; }
@@ -264,13 +253,11 @@ html[data-vg-background] :is(.mobile-layout,.scene-settings-overlay,.vg-modal-ov
 .mobile-layout .vg-conversation-row .font-medium { letter-spacing:.01em; }
 .mobile-layout .vg-conversation-row p { opacity:.88; }
 .mobile-layout .chat-thread { background:radial-gradient(ellipse 95% 340px at 100% 0%,rgba(131,109,207,.095),transparent 76%),radial-gradient(ellipse 90% 370px at 0% 100%,rgba(78,159,173,.04),transparent 80%),var(--bg); }
-.mobile-layout .vg-message-bubble.is-character-bubble { box-shadow:inset 0 1px 0 rgba(176,164,232,.07),0 3px 9px rgba(9,9,30,.05) !important; }
 .mobile-layout .chat-composer { background:radial-gradient(ellipse at 100% 0%,rgba(132,120,216,.1),transparent 76%),var(--bg-panel); }
 
 .mobile-layout .vg-moments-header { background:radial-gradient(ellipse 80% 130% at 100% 0%,rgba(230,175,111,.12),transparent 80%); }
 .mobile-layout .vg-moments-cover:not([style]) { background-image:radial-gradient(ellipse 75% 95% at 88% 0%,rgba(227,190,137,.28),transparent 76%),radial-gradient(ellipse 95% 90% at 5% 110%,rgba(137,125,215,.22),transparent 78%),linear-gradient(125deg,rgba(136,111,202,.12),rgba(61,154,171,.1)); }
 .mobile-layout .vg-moments-profile-row { text-shadow:0 1px 4px rgba(0,0,0,.4); }
-.mobile-layout .vg-moments-inbox { border-radius:16px; }
 .mobile-layout .vg-moment-media button:active img { transform:scale(1.015); }
 .mobile-layout .vg-moment-media img { transition:transform .18s ease; }
 

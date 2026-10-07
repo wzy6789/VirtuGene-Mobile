@@ -1,3 +1,4 @@
+import { Icon } from '../ui/Icon';
 /**
  * 世界空间的交互件（5.0.0 Living World §12 / §19 / §37 / §39 / §40）
  *
@@ -87,7 +88,7 @@ export function WorldSuggestions({ options, onPick, onDismiss }: {
     <div className="vg-suggestions is-open">
       <div className="vg-suggestions-head">
         <span className="vg-suggestions-label">如果你想换个方向</span>
-        <button type="button" className="vg-suggestion-close" onClick={() => { setOpen(false); onDismiss(); }} aria-label="收起灵感">×</button>
+        <button type="button" className="vg-suggestion-close" onClick={() => { setOpen(false); onDismiss(); }} aria-label="收起灵感"><Icon name="close" size={18} /></button>
       </div>
       {options.map((option) => (
         <button key={option} type="button" className="vg-suggestion" onClick={() => onPick(option)}>
@@ -142,7 +143,7 @@ export function WorldControlSheet(params: {
         <SettingsGroup title="结束与结算"><div inert={params.busy}><SettingsRow title="结束这一段世界" detail="结算经历与关系变化，之后只可回看" danger icon="world" onClick={() => setConfirmFinish(true)} /></div></SettingsGroup>
       </div>
     </Modal>
-    <Modal open={confirmFinish} onClose={() => setConfirmFinish(false)} title="结束这一段世界？" panelClassName="vg-settings-panel"><div className="vg-settings-design"><p className="vg-settings-intro">经历、共同记忆与关系变化会按原有规则结算。这一段结束后只能回看；想稍后继续，请选择“暂时离开”。</p><div className="flex gap-3"><button type="button" className="flex-1 text-sub" onClick={() => setConfirmFinish(false)}>继续参与</button><button type="button" disabled={params.busy} className="flex-1 rounded-xl bg-red-500/15 text-red-400" onClick={() => { act({ kind: 'finish' }); setConfirmFinish(false); }}>确认结束</button></div></div></Modal>
+    <Modal presentation="dialog" open={confirmFinish} onClose={() => setConfirmFinish(false)} title="结束这一段世界？" panelClassName="vg-settings-panel"><div className="vg-settings-design"><p className="vg-settings-intro">经历、共同记忆与关系变化会按原有规则结算。这一段结束后只能回看；想稍后继续，请选择“暂时离开”。</p><div className="flex gap-3"><button type="button" className="flex-1 text-sub" onClick={() => setConfirmFinish(false)}>继续参与</button><button type="button" disabled={params.busy} className="flex-1 rounded-xl bg-red-500/15 text-red-400" onClick={() => { act({ kind: 'finish' }); setConfirmFinish(false); }}>确认结束</button></div></div></Modal>
   </>;
 }
 
@@ -167,7 +168,7 @@ export function WorldComposer(params: {
   return (
     <div className="vg-composer">
       {params.aiDetail && <p className="vg-composer-warn">{params.aiDetail}</p>}
-      <div className="vg-composer-row">
+      <div className="vg-search-field vg-composer-row">
         <button type="button" className="vg-composer-control" onClick={params.onOpenControls} aria-label="世界控制">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
             <path d="M4 7h10M4 17h16M18 7h2M10 17h2" />
@@ -178,6 +179,7 @@ export function WorldComposer(params: {
         <textarea
           ref={ref}
           rows={1}
+          aria-label="世界消息内容"
           value={params.value}
           onFocus={params.onFocusInput}
           onClick={params.onFocusInput}

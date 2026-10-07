@@ -1,0 +1,55 @@
+/* Operation receipts use opaque theme surfaces, independent of message alerts. */
+.vg-feedback-viewport {
+  position:fixed; z-index:var(--vg-z-toast); inset-inline:12px;
+  bottom:var(--feedback-bottom,calc(84px + env(safe-area-inset-bottom,0px)));
+  display:flex; justify-content:center; pointer-events:none;
+}
+.vg-feedback-viewport > div { width:min(100%,440px); pointer-events:auto; }
+.vg-feedback-card {
+  --feedback-signal:var(--vg-cyan);
+  display:flex; align-items:center; gap:12px; min-height:64px;
+  padding:12px 12px 12px 16px; border:1px solid var(--border-strong); border-radius:var(--vg-radius-4);
+  color:var(--text); background:var(--vg-raised);
+  box-shadow:0 8px 28px var(--vg-shadow),inset 0 1px 0 var(--vg-panel-shine);
+  font-family:var(--vg-font-ui); letter-spacing:normal; text-align:left;
+}
+.vg-feedback-card[data-tone='info'] { --feedback-signal:var(--vg-accent); }
+.vg-feedback-card[data-tone='error'] { --feedback-signal:var(--vg-danger); }
+.vg-feedback-symbol { flex:none; display:grid; place-items:center; width:32px; height:32px; border-radius:11px; background:color-mix(in srgb,var(--feedback-signal) 10%,transparent); color:var(--feedback-signal); }
+.vg-feedback-copy { min-width:0; flex:1; font-size:14px; font-weight:400; line-height:1.65; overflow-wrap:anywhere; }
+.vg-feedback-actions { flex:none; display:flex; align-items:center; gap:4px; }
+.vg-feedback-actions > button { min-height:44px; padding:0 10px; border-radius:12px; font-size:13px; color:var(--feedback-signal); touch-action:manipulation; }
+.vg-feedback-actions > .vg-feedback-dismiss { width:44px; padding:0; display:grid; place-items:center; color:var(--text-secondary); }
+.vg-feedback-actions > button:hover { background:var(--bg-surface); }
+.vg-feedback-actions > button:active { background:var(--bg-surface-strong); }
+.vg-feedback-actions > button:focus-visible { outline:2px solid var(--feedback-signal); outline-offset:-3px; }
+.vg-feedback-actions > button:disabled { opacity:.45; }
+.vg-feedback-card.vg-cabin-notice { position:sticky; bottom:10px; z-index:var(--vg-z-sticky); margin-top:14px; }
+/* Existing destructive confirmations share readable copy and real tap targets. */
+.vg-delete-confirmation {
+  padding:16px; border:1px solid var(--border); border-radius:16px;
+  background:var(--bg-panel); color:var(--text);
+}
+.vg-delete-confirmation > p { font-size:13px; line-height:1.7; color:var(--text-secondary); }
+.vg-delete-confirmation > p:first-child { font-size:15px; font-weight:var(--vg-weight-label,500); color:var(--text); }
+.vg-delete-confirmation button { min-height:44px; min-width:64px; font-size:13px; border-radius:12px; }
+.vg-delete-confirmation button[class*='bg-red-'] { background:color-mix(in srgb,var(--vg-danger) 12%,var(--bg-panel)); color:var(--vg-danger); }
+.vg-delete-confirmation.vg-delete-inline { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:13px; line-height:1.65; }
+.vg-delete-inline > span { flex:1 1 100%; color:var(--text-secondary); }
+@media(max-width:359px) {
+  .vg-feedback-card { gap:8px; padding-left:10px; }
+  .vg-feedback-card:has(.vg-feedback-actions>button:not(.vg-feedback-dismiss)) { flex-wrap:wrap; }
+  .vg-feedback-card:has(.vg-feedback-actions>button:not(.vg-feedback-dismiss)) .vg-feedback-copy { flex-basis:calc(100% - 48px); }
+  .vg-feedback-actions { margin-left:auto; }
+}
+@media(forced-colors:active) { .vg-feedback-card { border-color:CanvasText; }.vg-feedback-symbol { color:CanvasText; } }
+
+/* A relationship receipt acknowledges the existing event without covering the conversation. */
+.vg-relation-receipt { position:fixed; top:calc(72px + env(safe-area-inset-top,0px)); inset-inline:var(--vg-space-4); z-index:var(--vg-z-toast); display:flex; justify-content:center; pointer-events:none; }
+.vg-relation-receipt-card { display:flex; align-items:center; gap:var(--vg-space-3); width:min(100%,420px); padding:var(--vg-space-4); border:1px solid var(--vg-elev-edge); border-radius:var(--vg-radius-4); background:var(--vg-elev-3); box-shadow:inset 0 1px 0 var(--vg-elev-highlight),var(--vg-elev-shadow-3); color:var(--text); }
+.vg-relation-receipt-face { flex:none; }
+.vg-relation-receipt-copy { min-width:0; flex:1; overflow-wrap:anywhere; }
+.vg-relation-receipt-copy>span { display:block; font-size:12px; line-height:1.5; color:var(--text-secondary); }
+.vg-relation-receipt-copy strong { display:block; margin-top:4px; font-size:18px; line-height:1.4; font-weight:var(--vg-weight-heading,700); }
+.vg-relation-receipt-copy p { margin:4px 0 0; font-size:12px; line-height:1.65; color:var(--text-secondary); }
+.vg-relation-receipt-spark { flex:none; color:var(--vg-cyan); }

@@ -22,14 +22,16 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     check(await page.getByRole('switch').count() === 0, 'detail controls stay out of the settings directory');
     await screenshot('home-dark');
     await page.getByRole('searchbox', { name: '搜索设置' }).fill('声音');
-    check(await page.locator('.vg-preference-row').count() === 1, 'search finds voice through common wording');
+    check(await page.getByRole('button', { name: /聊天与语音/ }).count() === 1, 'search finds voice through common wording alongside other sound-related settings');
     await page.getByRole('searchbox').fill('');
     await page.getByRole('button', { name: /外观与阅读/ }).click();
-    await page.getByRole('radio', { name: /浅色/ }).check();
+    await page.getByRole('radio', { name: /^浅色/ }).check();
     check(await page.evaluate(() => !document.documentElement.classList.contains('dark')), 'theme selection changes the actual theme');
     await screenshot('appearance-light');
-    await page.getByRole('radio', { name: /深色/ }).check();
-    await page.getByRole('slider', { name: '聊天字号' }).fill('20');
+    await page.getByRole('radio', { name: /^深色/ }).check();
+    await page.getByRole('slider', { name: '聊天字号' }).focus();
+    await page.keyboard.press('Home');
+    for (let i=0;i<8;i++) await page.keyboard.press('ArrowRight');
     check(await page.evaluate(() => window.settingsUITest.useSettingsStore.getState().chatFontSize === 20), 'font selection changes real settings');
     check(await page.locator('.vg-font-preview').evaluate(el => getComputedStyle(el).fontSize === '20px'), 'font preview reflects the selected size');
     await screenshot('appearance-dark'); await back();
@@ -49,13 +51,13 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     const profileStart = await profileSave.boundingBox();
     await profile.locator('[data-modal-scroll]').evaluate(el => { el.scrollTop = el.scrollHeight; });
     check(Math.abs((await profileSave.boundingBox()).y - profileStart.y) <= 1, 'profile save remains visible while emoji choices scroll');
-    await profile.getByRole('button', { name: '关闭', exact: true }).click();
+    await profile.getByRole('button', { name: '返回', exact: true }).click();
     await page.getByRole('button', { name: '修改密码', exact: true }).click();
     const password = page.getByRole('dialog', { name: '修改密码', exact: true });
     await page.setViewportSize({ width: 390, height: 520 }); await page.waitForTimeout(80);
     const passwordSave = await password.getByRole('button', { name: '确认修改', exact: true }).boundingBox();
     check(passwordSave.y + passwordSave.height <= 520, 'password action stays visible in a shortened viewport');
-    await password.getByRole('button', { name: '关闭', exact: true }).click();
+    await password.getByRole('button', { name: '返回', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 }); await back();
     await page.getByRole('button', { name: /AI 连接/ }).click();
     await screenshot('connection-dark');
@@ -77,7 +79,7 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     await screenshot('diary-dark');
     await page.getByRole('button', { name: /手账隐私锁/ }).click();
     check(await page.getByRole('dialog').count() === 2, 'sensitive child form stays in its own accessible modal');
-    await page.getByRole('dialog', { name: '给手账上锁' }).getByRole('button', { name: '关闭', exact: true }).click();
+    await page.getByRole('dialog', { name: '给手账上锁' }).getByRole('button', { name: '返回', exact: true }).click();
     await back();
     await page.getByRole('button', { name: /朋友圈设置/ }).click();
     await page.getByRole('dialog', { name: '朋友圈设置', exact: true }).waitFor();
@@ -93,7 +95,6 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     await page.getByRole('button', { name: /不让谁看我的朋友圈/ }).click();
     await screenshot('moment-privacy-dark'); await back();
     await mount('chat');
-    await page.getByRole('button', { name: '聊天更多操作' }).click();
     await page.getByRole('button', { name: '聊天设置', exact: true }).click();
     check(await page.getByText('所有聊天', { exact: true }).count() >= 2, 'chat settings clearly identify global scope');
     check(await page.getByText('本会话', { exact: true }).count() === 1, 'model information has conversation scope');
@@ -121,18 +122,24 @@ const { chromium } = createRequire(path.join(path.dirname(process.execPath), 'pa
     await page.setViewportSize({ width: 390, height: 520 }); await page.waitForTimeout(80);
     const backupSave = await backup.getByRole('button', { name: '开始备份', exact: true }).boundingBox();
     check(backupSave.y + backupSave.height <= 520, 'backup action stays visible in a shortened viewport');
-    await backup.getByRole('button', { name: '关闭', exact: true }).click();
+    await backup.getByRole('button', { name: '返回', exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await back();
     check(await page.getByRole('searchbox').inputValue() === '备份', 'back from search results restores the original query');
     await page.getByRole('searchbox').fill('');
     await page.getByRole('button', { name: /数据与设备/ }).click();
+    await page.getByRole('button', { name: /聊天质量/ }).click();
+    const quality = page.getByRole('dialog', { name: '聊天质量', exact: true });
+    await quality.getByText('按聊天入口查看', { exact: true }).waitFor();
+    check(await quality.getByText('真实模型对照验收', { exact: true }).count() === 1, 'data settings open the lazy quality page without model calls');
+    await quality.getByRole('button', { name: '返回', exact: true }).click();
+    await page.getByRole('dialog', { name: '数据与设备', exact: true }).waitFor();
     await page.getByRole('button', { name: /局域网同步/ }).click(); await screenshot('sync-dark');
     for (const width of [320, 390, 430]) {
       await page.setViewportSize({ width, height: 640 });
       for (const mode of ['settings', 'chat', 'world', 'moments']) {
         await mount(mode);
-        if (mode === 'chat') { await page.getByRole('button', { name: '聊天更多操作' }).click(); await page.getByRole('button', { name: '聊天设置', exact: true }).click(); }
+        if (mode === 'chat') { await page.getByRole('button', { name: '聊天设置', exact: true }).click(); }
         check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${mode} fits ${width}px`);
         const dialog = page.getByRole('dialog').first();
         await dialog.evaluate(el => Promise.all(el.getAnimations().map(animation => animation.finished.catch(() => {}))));

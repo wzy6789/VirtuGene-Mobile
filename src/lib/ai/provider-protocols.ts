@@ -1,5 +1,6 @@
 import type { LLMChatParams, LLMChatResult, SseReadOutcome } from './llm';
 import type { ProviderId, ProviderProtocol } from './provider-registry';
+import { DEEPSEEK_MODEL_ID, deepseekGenerationOptions } from '../../../server/deepseek-policy.mjs';
 
 type JsonObject = Record<string, any>;
 const textContent = (value: unknown): string => typeof value === 'string' ? value : Array.isArray(value)
@@ -108,8 +109,8 @@ export function buildProviderRequest(params: LLMChatParams, protocol: ProviderPr
     const isModernMiniMax = params.provider === 'minimax';
     body = { model: params.model, messages: params.messages, [isOpenAiReasoner || isModernMiniMax ? 'max_completion_tokens' : 'max_tokens']: limit };
     if (params.provider === 'deepseek') {
-      body.temperature = params.temperature ?? 0.8;
-      body.thinking = { type: params.visionRequest || params.disableThinking ? 'disabled' : 'enabled' };
+      body.model = DEEPSEEK_MODEL_ID;
+      Object.assign(body, deepseekGenerationOptions(params));
     } else if (params.provider === 'mimo') body.thinking = { type: 'disabled' };
     else if (isOpenAiReasoner) {
       body.reasoning_effort = /^gpt-6-luna/.test(params.model) && params.disableThinking ? 'none' : 'low';

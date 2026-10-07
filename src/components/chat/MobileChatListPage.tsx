@@ -1,14 +1,16 @@
 import { avatarImageSrc } from '../../lib/avatar';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useFeedback } from '../../lib/feedback';
+import { useAuthStore } from '../../store/auth-store';
+import { registerSoulElement } from '../../lib/soul-handoff';
 import { useChatStore } from '../../store/chat-store';
 import { useGroupStore } from '../../store/group-store';
 import { useUIStore } from '../../store/ui-store';
 import { SwipeActionItem } from '../ui/SwipeActionItem';
 import { Avatar } from '../ui/Avatar';
+import { LoadingSkeleton } from '../ui/LoadingSkeleton';
 import { BrandWordmark } from '../ui/BrandWordmark';
-import { Modal } from '../ui/Modal';
 import { ConnectionEmptyState } from '../ui/ConnectionEmptyState';
-import appIcon from '../../assets/app-icon.png';
 import type { Character } from '../../db/index';
 import { SecretaryWorkspaceCard } from '../secretary/SecretaryWorkspaceCard';
 import { isStoryCharacter } from '../../lib/character-domain';
@@ -33,10 +35,12 @@ function formatListTime(ts: number): string {
 /**
  * 「聊天」tab 的微信式会话列表：每个角色一行（头像 / 名字 / 最近消息预览 / 时间 / 未读红点）。
  * - 点击进入聊天（推入层），返回回到本列表
- * - 长按弹操作菜单：置顶/取消置顶、从列表隐藏/恢复（仅影响列表显示，不删角色与消息）
+ * - 左滑操作：置顶/取消置顶、从列表移除（仅影响列表显示，不删角色与消息）
  * - 排序：置顶在前，其余按最后消息时间倒序，没对话的按名字拼音排后
  * - 已隐藏的角色不再出现在列表（可从「我的 → 设置」恢复，或角色页仍可进入聊天）
  */
+let savedPosition: { owner: string | null; top: number; search: string } | undefined;
+
 export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => void }) {
   const characters = useChatStore((s) => s.characters);
   const charPreviews = useChatStore((s) => s.charPreviews);
@@ -45,13 +49,18 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
   const fetchUnreadCounts = useChatStore((s) => s.fetchUnreadCounts);
   const togglePin = useChatStore((s) => s.togglePin);
   const hideFromChatList = useChatStore((s) => s.hideFromChatList);
-  const unhideFromChatList = useChatStore((s) => s.unhideFromChatList);
-  const markCharacterRead = useChatStore((s) => s.markCharacterRead);
-
-  /** 长按菜单：目标角色 + 菜单位置 */
-  const [menu, setMenu] = useState<{ char: Character; x: number; y: number } | null>(null);
+  const feedback = useFeedback();
+  const hideConversation = (id: string) => hideFromChatList(id).then(() => feedback('已从列表移除，角色与聊天记录保留', { tone: 'success' })).catch(() => feedback('聊天未能移除，请重试', { tone: 'error' }));
   /** 会话列表搜索（搜角色名） */
-  const [search, setSearch] = useState('');
+  const owner = useAuthStore(s=>s.userId);
+  const [charactersLoading, setCharactersLoading] = useState(characters.length === 0);
+  const [search, setSearch] = useState(() => savedPosition?.owner === useAuthStore.getState().userId ? savedPosition.search : '');
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const lastSearch = useRef(search); lastSearch.current = search;
+  useLayoutEffect(() => {
+    if (scrollRef.current && savedPosition?.owner === owner) scrollRef.current.scrollTop = savedPosition.top;
+    return () => { if (scrollRef.current) savedPosition = {owner,top:scrollRef.current.scrollTop,search:lastSearch.current}; };
+  },[owner]);
   /** 群聊覆盖层 */
   const [showGroups, setShowGroups] = useState(false);
   const [entryGroupId, setEntryGroupId] = useState<string | undefined>(undefined);
@@ -60,15 +69,18 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
   const loadGroups = useGroupStore((s) => s.loadGroups);
 
   useEffect(() => {
-    void loadCharacters();
+    let alive = true;
+    setCharactersLoading(true);
+    void loadCharacters().catch(() => { if (alive) feedback('聊天列表读取失败，请重新打开', { tone: 'error' }); }).finally(() => { if (alive) setCharactersLoading(false); });
     void fetchUnreadCounts();
     void loadGroups();
+    return () => { alive = false; };
   }, [loadCharacters, fetchUnreadCounts, loadGroups]);
 
   /** 过滤隐藏项 + 搜索 + 置顶优先 + 按时间/名字排序 */
   const sorted = useMemo(() => {
     const kw = search.trim().toLowerCase();
-    const visible = characters.filter((c) => isStoryCharacter(c) && !c.chatListHidden && (!kw || c.name.toLowerCase().includes(kw)));
+    const visible = characters.filter((c) => c.createdBy === owner && isStoryCharacter(c) && !c.chatListHidden && (!kw || c.name.toLowerCase().includes(kw)));
     return [...visible].sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       const ta = charPreviews[a.id]?.createdAt ?? 0;
@@ -78,58 +90,15 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
       if (tb) return 1;
       return a.name.localeCompare(b.name, 'zh-Hans-CN');
     });
-  }, [characters, charPreviews, search]);
-
-  /** 长按弹菜单（桌面右键 / 手机长按） */
-  const openMenu = (c: Character, x: number, y: number) => {
-    setMenu({ char: c, x, y });
-  };
-
-  /** 长按计时引用：长按触发后阻止随后的 click（避免长按也进聊天） */
-  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** 本次按压是否已触发长按菜单（独立标记，touchend 清理计时器但不影响抑制点击） */
-  const longPressedRef = useRef(false);
-
-  const startLongPress = (c: Character, clientX: number, clientY: number) => {
-    if (longPressRef.current) clearTimeout(longPressRef.current);
-    longPressedRef.current = false;
-    longPressRef.current = setTimeout(() => {
-      longPressedRef.current = true;
-      openMenu(c, clientX, clientY);
-    }, 600);
-  };
-
-  const cancelLongPress = () => {
-    if (longPressRef.current) {
-      clearTimeout(longPressRef.current);
-      longPressRef.current = null;
-    }
-  };
-  useEffect(() => {
-    const hidden = () => { if (document.hidden) cancelLongPress(); };
-    window.addEventListener('blur', cancelLongPress);
-    document.addEventListener('visibilitychange', hidden);
-    return () => { cancelLongPress(); window.removeEventListener('blur', cancelLongPress); document.removeEventListener('visibilitychange', hidden); };
-  }, []);
-
-  const handleItemClick = (c: Character) => {
-    // 长按刚触发 → 抑制本次点击，避免同时进聊天
-    if (longPressedRef.current) {
-      longPressedRef.current = false;
-      cancelLongPress();
-      return;
-    }
-    cancelLongPress();
-    onSelect(c);
-  };
+  }, [characters, charPreviews, search, owner]);
 
   return (
     <div className="vg-conversations h-full flex flex-col">
-      <header className="vg-conversation-brand shrink-0"><BrandWordmark prominent /><img className="vg-conversation-app-icon" src={appIcon} alt="" width={36} height={36} draggable={false} /></header>
+      <header className="vg-conversation-brand shrink-0"><BrandWordmark prominent /></header>
 
       {/* 会话搜索（微信式） */}
       <div className="px-4 pt-2 pb-3 shrink-0">
-        <div className="vg-conversation-search flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-line focus-within:border-gene-purple/40 transition-all">
+        <div className="vg-search-field vg-conversation-search flex items-center gap-2 px-3 py-2">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-gray-400 shrink-0">
             <circle cx="11" cy="11" r="8" />
             <path d="m21 21-4.3-4.3" />
@@ -151,7 +120,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto vg-conversation-scroll">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto vg-conversation-scroll">
       <div className="px-3 pb-2"><SecretaryWorkspaceCard onOpen={onSelect} /></div>
       {/* 群聊和私聊共享滚动容器，群聊较多时不会挤走私聊。 */}
       {groups.length > 0 && (
@@ -209,7 +178,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
 
       {/* 会话列表 */}
       <div className="py-1">
-        {sorted.length === 0 ? (
+        {charactersLoading && !sorted.length ? <LoadingSkeleton label="正在读取聊天列表" rows={4} /> : sorted.length === 0 ? (
           <ConnectionEmptyState searching={!!search}
             title={search ? '没有找到匹配的角色' : '从一句话，开始一段连接'}
             detail={search ? '换个名字试试，或清空搜索看看所有对话。' : '去认识一个新的灵魂，让今天的故事有个听众。'}
@@ -233,7 +202,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
                   label: '删除',
                   color: 'bg-red-500',
                   // 左滑删除 = 从聊天列表移除（聊天记录保留，可在角色页再进）
-                  onClick: () => void hideFromChatList(c.id),
+                  onClick: () => void hideConversation(c.id),
                 },
               ];
               return (
@@ -241,27 +210,17 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
                   key={c.id}
                   itemId={c.id}
                   actions={actions}
-                  onClick={() => handleItemClick(c)}
+                  onClick={() => onSelect(c)}
                   contentClassName={c.pinned ? 'vg-conversation-shell is-pinned' : 'vg-conversation-shell'}
                 >
                   <button
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      openMenu(c, e.clientX, e.clientY);
-                    }}
-                    onTouchStart={(e) => {
-                      const t = e.touches[0];
-                      startLongPress(c, t?.clientX ?? 0, t?.clientY ?? 0);
-                    }}
-                    onTouchEnd={cancelLongPress}
-                    onTouchMove={cancelLongPress}
-                    onTouchCancel={cancelLongPress}
+                    onContextMenu={(e) => e.preventDefault()}
                     className="vg-conversation-row w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-transparent transition-colors active:bg-surface-strong"
                   >
                     {avatarImageSrc(c.avatar) ? (
-                      <img src={avatarImageSrc(c.avatar)} alt={c.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />
+                      <img ref={node=>{if(node)return registerSoulElement(node,`avatar:${c.id}`,'list');}} data-soul-key={`avatar:${c.id}`} data-soul-role="list" src={avatarImageSrc(c.avatar)} alt={c.name} className="w-12 h-12 rounded-xl object-cover shrink-0" />
                     ) : (
-                      <span className="w-12 h-12 rounded-xl bg-panel border border-line flex items-center justify-center text-2xl shrink-0">
+                      <span ref={node=>{if(node)return registerSoulElement(node,`avatar:${c.id}`,'list');}} data-soul-key={`avatar:${c.id}`} data-soul-role="list" className="w-12 h-12 rounded-xl bg-panel border border-line flex items-center justify-center text-2xl shrink-0">
                         {c.avatar}
                       </span>
                     )}
@@ -296,49 +255,11 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
       </div>
       </div>
 
-      {/* 长按操作菜单 */}
-      {menu && (
-        <Modal open onClose={() => setMenu(null)} title={menu.char.name}>
-          <div className="vg-conversation-actions">
-            <button
-              onClick={() => {
-                void togglePin(menu.char.id);
-                setMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-sub hover:bg-surface transition-colors"
-            >
-              {menu.char.pinned ? '取消置顶' : '置顶聊天'}
-            </button>
-            <button
-              onClick={() => {
-                void markCharacterRead(menu.char.id);
-                setMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-sub hover:bg-surface transition-colors"
-            >
-              标为已读
-            </button>
-            <button
-              onClick={() => {
-                void hideFromChatList(menu.char.id);
-                setMenu(null);
-              }}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
-            >
-              从聊天列表删除
-            </button>
-            <p className="px-4 pt-1.5 pb-1 text-[10px] text-gray-400">删除仅隐藏列表项，角色与聊天记录保留</p>
-          </div>
-        </Modal>
-      )}
-
-      {/* 长按「从聊天列表删除」提示：仅隐藏列表项，记录保留（无需确认弹窗） */}
-
-      {/* 群聊覆盖层（按需加载：与 GroupChatPage 自身的 fixed inset-0 z-[70] 布局对齐） */}
+      {/* 群聊覆盖层（按需加载：与 GroupChatPage 自身的 fixed inset-0 vg-layer-page 布局对齐） */}
       {showGroups && (
         <Suspense
           fallback={
-            <div className="fixed inset-0 z-[70] bg-app grid place-items-center text-sm text-gray-500" role="status">
+            <div className="fixed inset-0 vg-layer-page bg-app grid place-items-center text-sm text-gray-500" role="status">
               正在打开群聊…
             </div>
           }

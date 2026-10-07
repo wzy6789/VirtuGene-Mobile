@@ -30,6 +30,8 @@ export async function taskChat(params: Omit<LLMChatParams, 'provider' | 'model'>
       history: turns.slice(0, -1).map(message => ({ role: message.role === 'assistant' ? 'assistant' : 'user', ...textAndImage(message.content) })),
       sessionModel: { provider: selected.provider, model: selected.id },
       temperature: params.temperature, timeoutMs: params.timeoutMs,
+      structuredOutput: params.jsonMode, maxTokens: params.maxTokens,
+      disableThinking: params.disableThinking || params.jsonMode, signal: params.signal,
     });
     return { ...result, content: result.content };
   }

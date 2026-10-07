@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { confirm, resonate } from '../../lib/haptics';
 import { IS_CAPACITOR } from '../../lib/platform';
 import { AudioRecorder } from '../../lib/recorder';
 import { ensureRecordPermission, startSpeechRecognition, stopSpeechRecognition, cancelSpeechRecognition } from '../../lib/speech-recognition';
@@ -35,8 +36,9 @@ export function VoiceMorphControl({ disabled, onSend, onImage, onActiveChange, o
     setPhase(next); callbacks.current.onActiveChange(next === 'recording');
   };
   const clearTimers = () => { if (tick.current) clearInterval(tick.current); if (limit.current) clearTimeout(limit.current); if (hold.current) clearTimeout(hold.current); tick.current = limit.current = hold.current = null; };
-  const cancel = () => {
+  const cancel = (userInitiated = false) => {
     const was = state.current;
+    if (userInitiated && was === 'recording' && !pointer.current?.held) resonate('warning');
     generation.current++; clearTimers(); pointer.current = null;
     recorder.current?.cancel(); void cancelSpeechRecognition();
     // Do not start a new native recorder until the pending start/stop completes.
@@ -85,7 +87,7 @@ export function VoiceMorphControl({ disabled, onSend, onImage, onActiveChange, o
       await r.start(lv => { if (mounted.current && token === generation.current) setLevel(lv); });
       if (token !== generation.current || !mounted.current) { r.cancel(); return; }
       change('recording');
-      try { navigator.vibrate?.(12); } catch { /* Haptics are optional. */ }
+      confirm();
       void startSpeechRecognition();
       tick.current = setInterval(() => { if (mounted.current) setElapsed(r.elapsedMs); }, 100);
       limit.current = setTimeout(() => void finish(), 60_000);
@@ -112,7 +114,7 @@ export function VoiceMorphControl({ disabled, onSend, onImage, onActiveChange, o
   const recording = phase === 'recording';
   return <div className={`vg-voice-tools ${!onSend ? 'is-image-only' : ''} ${recording ? 'is-recording' : ''} ${cancelHint ? 'is-cancelling' : ''}`} data-no-page-swipe data-no-back-swipe>
     <button type="button" aria-label={recording || phase === 'starting' ? '取消录音' : '发送图片'} disabled={disabled || (!recording && phase !== 'starting' && (!onImage || phase !== 'idle'))}
-      onClick={() => recording || phase === 'starting' ? cancel() : onImage?.()}>
+      onClick={() => recording || phase === 'starting' ? cancel(true) : onImage?.()}>
       <svg className="vg-voice-plus" style={phase === 'starting' ? { transform: 'rotate(45deg)' } : undefined} aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
     </button>
     {recording && <div className="vg-voice-live" role="status" aria-live="off">
@@ -132,7 +134,7 @@ export function VoiceMorphControl({ disabled, onSend, onImage, onActiveChange, o
       onPointerMove={e => { const p = pointer.current; if (!p || e.pointerId !== p.id) return; p.cancel = p.y - e.clientY > 64; setCancelHint(p.cancel); if (!p.held && Math.abs(p.y - e.clientY) > 12) { if (hold.current) clearTimeout(hold.current); suppressClick.current = true; } }}
       onPointerUp={e => {
         if (hold.current) clearTimeout(hold.current);
-        const p = pointer.current; if (p && p.id === e.pointerId && p.held) { suppressClick.current = true; if (p.cancel) cancel(); else void finish(); }
+        const p = pointer.current; if (p && p.id === e.pointerId && p.held) { suppressClick.current = true; if (p.cancel) cancel(true); else void finish(); }
         pointer.current = null; setCancelHint(false);
       }}
       onPointerCancel={() => { suppressClick.current = true; cancel(); }}

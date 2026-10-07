@@ -140,15 +140,16 @@ export function RegisterCard({ onSwitch }: Props) {
         </div>
       )}
 
-      {/* Inputs — WeChat bottom-border style */}
-      <div className="space-y-1">
+      {/* Reuse the same input surface as login and conversation search. */}
+      <div className="space-y-3">
         <input
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           placeholder="用户名"
           autoComplete="username"
-          className="w-full px-1 py-3 bg-transparent border-b border-line-strong text-ink text-sm placeholder-gray-500 focus:outline-none focus:border-gene-purple transition-colors"
+          aria-label="用户名"
+          className="vg-text-field w-full px-3 py-3 text-base"
         />
         <input
           type="password"
@@ -156,7 +157,8 @@ export function RegisterCard({ onSwitch }: Props) {
           onChange={(e) => setPassword(e.target.value)}
           placeholder="密码（至少 6 位）"
           autoComplete="new-password"
-          className="w-full px-1 py-3 bg-transparent border-b border-line-strong text-ink text-sm placeholder-gray-500 focus:outline-none focus:border-gene-purple transition-colors"
+          aria-label="密码"
+          className="vg-text-field w-full px-3 py-3 text-base"
         />
         <input
           type="password"
@@ -164,7 +166,8 @@ export function RegisterCard({ onSwitch }: Props) {
           onChange={(e) => setConfirmPassword(e.target.value)}
           placeholder="确认密码"
           autoComplete="new-password"
-          className="w-full px-1 py-3 bg-transparent border-b border-line-strong text-ink text-sm placeholder-gray-500 focus:outline-none focus:border-gene-purple transition-colors"
+          aria-label="确认密码"
+          className="vg-text-field w-full px-3 py-3 text-base"
         />
         <div className="relative">
           <input

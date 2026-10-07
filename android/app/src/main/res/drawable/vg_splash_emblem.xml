@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Matches the web signature. Artwork stays inside the Android splash mask. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="288dp" android:height="288dp"
+    android:viewportWidth="320" android:viewportHeight="320">
+    <path android:pathData="M160,52 A108,108 0,1 1,160,268 A108,108 0,1 1,160,52"
+        android:fillColor="@android:color/transparent" android:strokeColor="#469990E9" android:strokeWidth="1" />
+    <path android:pathData="M160,52 A108,108 0,0 1,213,66 M52,160 A108,108 0,0 1,65,109"
+        android:fillColor="@android:color/transparent" android:strokeColor="#A39ECAD8" android:strokeWidth="1.3" android:strokeLineCap="round" />
+    <path android:pathData="M160,72 L236,116 L236,204 L160,248 L84,204 L84,116 Z"
+        android:fillColor="@android:color/transparent" android:strokeColor="#208B95C9" android:strokeWidth="0.7" />
+    <path android:pathData="M145,96 L175,96 M135,108 L185,108 M135,120 L185,120 M153,132 L167,132 M146,144 L174,144 M135,156 L185,156 M135,168 L185,168 M153,180 L167,180 M146,192 L174,192 M135,204 L185,204 M135,216 L185,216 M153,228 L167,228"
+        android:fillColor="@android:color/transparent" android:strokeColor="#6677D6D3" android:strokeWidth="1.1" android:strokeLineCap="round" />
+    <path android:pathData="M160,88 C194,100 194,124 160,136 C126,148 126,172 160,184 C194,196 194,220 160,232"
+        android:fillColor="@android:color/transparent" android:strokeColor="#B6A6FC" android:strokeWidth="3" android:strokeLineCap="round" />
+    <path android:pathData="M160,88 C126,100 126,124 160,136 C194,148 194,172 160,184 C126,196 126,220 160,232"
+        android:fillColor="@android:color/transparent" android:strokeColor="#75E4DF" android:strokeWidth="3" android:strokeLineCap="round" />
+    <path android:pathData="M160,79 L160,88 M160,232 L160,241"
+        android:fillColor="@android:color/transparent" android:strokeColor="#66B9D7E9" android:strokeWidth="1" android:strokeLineCap="round" />
+</vector>

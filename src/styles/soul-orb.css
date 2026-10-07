@@ -1,0 +1,13 @@
+.vg-soul-orb {
+  --orb-highlight:#d3c5ff; --orb-body:#8069dd; --orb-depth:#242945;
+  --orb-cyan:var(--vg-cyan,#7fe0db); --orb-face:#f5f4ff; --orb-mouth:#161932; --orb-blush:#f5a6c7; --orb-shadow:rgba(3,7,20,.25);
+  display:inline-flex;position:relative;align-items:center;justify-content:center;flex-shrink:0;vertical-align:middle;
+  -webkit-tap-highlight-color:transparent;user-select:none;contain:layout paint;
+}
+.vg-soul-orb svg {width:100%;height:100%;overflow:hidden;pointer-events:none;}
+.vg-soul-orb[data-orb-interactive='true'] {touch-action:pan-y;}
+.vg-soul-orb-fallback {position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden;}
+.vg-soul-orb-button {display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;border:0;border-radius:50%;background:transparent;touch-action:pan-y;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.vg-soul-orb-button:focus-visible {outline:2px solid var(--vg-accent,#ad9bff);outline-offset:4px;}
+.vg-soul-orb-button:disabled {cursor:default;}
+:root:not(.dark) .vg-soul-orb {--orb-cyan:#80d7db;--orb-depth:#343855;--orb-shadow:rgba(39,38,67,.12);}

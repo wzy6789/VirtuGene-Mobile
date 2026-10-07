@@ -1,0 +1,90 @@
+import { build } from 'esbuild';
+import { createRequire } from 'node:module';
+import { dirname, join, basename } from 'node:path';
+import { readFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { createServer } from 'node:http';
+const { chromium } = createRequire(join(dirname(process.execPath), 'package.json'))('playwright');
+const bundle = await build({ entryPoints: ['scripts/verify/character-messaging.tsx'], bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', loader: { '.png': 'dataurl', '.webp': 'dataurl', '.css': 'empty' }, define: { 'import.meta.env': '{"DEV":true,"VITE_AI_GATEWAY_URL":""}', __APP_VERSION__: '"test"' } });
+const assets = 'dist/renderer/assets';
+const css = readdirSync(assets).filter(file => file.endsWith('.css')).map(file => `<link rel="stylesheet" href="/assets/${file}">`).join('');
+const server = createServer((req, res) => {
+  if (req.url === '/test.js') { res.setHeader('Content-Type', 'text/javascript'); res.end(bundle.outputFiles[0].text); }
+  else if (req.url.startsWith('/assets/')) { try { res.setHeader('Content-Type', req.url.endsWith('.css') ? 'text/css' : 'font/woff2'); res.end(readFileSync(join(assets, basename(req.url)))); } catch { res.writeHead(404); res.end(); } }
+  else { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.end(`<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1">${css}<style>html,body,#app{height:100%;margin:0;background:var(--bg);color:var(--text)}</style></head><body><div id="app" class="mobile-layout"></div><script src="/test.js"></script></body></html>`); }
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+try {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  page.on('console', item => { if (item.type() === 'log') console.log(item.text()); });
+  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.waitForFunction(() => !!window.characterMessaging);
+  const outcome = await page.evaluate(() => window.characterMessaging.runChecks());
+  let ui = 0; const check = (ok, name) => { if (!ok) throw new Error(name); ui++; console.log(`ok ${name}`); };
+  await page.getByRole('textbox', { name: '代发消息正文' }).waitFor();
+  check(await page.getByRole('button', { name: '发送这一版', exact: true }).count() === 1, 'draft exposes one clear send action');
+  check((await page.evaluate(() => window.characterMessaging.records())).length === 0, 'preview UI makes zero target writes');
+  await page.getByRole('textbox', { name: '代发消息正文' }).fill('单独保存的草稿。');
+  await page.getByRole('button', { name: '保存草稿', exact: true }).click();
+  await page.waitForFunction(id => window.characterMessaging.task(id).then(task => task.results[0].action.content === '单独保存的草稿。'), outcome.taskId);
+  // IndexedDB commit precedes the liveQuery render; wait for the acknowledged
+  // revision before starting a new edit, just as a user seeing saved status does.
+  await page.getByText('草稿已保存，尚未发送。', { exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('textarea[aria-label="代发消息正文"]')?.value === '单独保存的草稿。' && [...document.querySelectorAll('button')].some(b => b.textContent === '保存草稿' && b.disabled));
+  check((await page.evaluate(() => window.characterMessaging.records())).length === 0, 'save-draft button persists edits with zero sends');
+  await page.getByRole('textbox', { name: '代发消息正文' }).fill('点暂停时还没保存的修改。');
+  await page.getByRole('button', { name: '先放着', exact: true }).click();
+  await page.locator('[data-dispatch-state="paused"]').waitFor();
+  check((await page.evaluate(id => window.characterMessaging.task(id), outcome.taskId)).results[0].action.content === '点暂停时还没保存的修改。', 'pause button saves unsaved textarea content');
+  await page.evaluate(id => window.characterMessaging.remountCard(id), outcome.taskId);
+  await page.locator('[data-dispatch-state="paused"]').waitFor();
+  check(await page.getByRole('textbox', { name: '代发消息正文' }).inputValue() === '点暂停时还没保存的修改。', 'remounting paused card restores persisted edited body');
+  await page.setViewportSize({ width: 320, height: 720 });
+  check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), '320px editable paused card has no horizontal overflow');
+  mkdirSync('.tmp-preview/character-messaging', { recursive: true });
+  await page.screenshot({ path: '.tmp-preview/character-messaging/paused-draft-320.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '继续编辑', exact: true }).click();
+  await page.locator('[data-dispatch-state="draft"]').waitFor();
+  check((await page.evaluate(() => window.characterMessaging.records())).length === 0, 'resume-editing button never sends saved body');
+  await page.getByRole('textbox', { name: '代发消息正文' }).fill('');
+  await page.getByRole('button', { name: '保存草稿', exact: true }).click();
+  await page.locator('[data-dispatch-state="needs-content"]').waitFor();
+  check(await page.getByRole('button', { name: '发送这一版', exact: true }).isDisabled(), 'empty saved UI draft waits for content and cannot send');
+  check(await page.getByRole('textbox', { name: '代发消息正文' }).inputValue() === '', 'cleared saved UI draft never restores obsolete wording');
+  await page.getByRole('textbox', { name: '代发消息正文' }).fill('这周末想一起看星星。');
+  await page.getByRole('button', { name: '发送这一版', exact: true }).click();
+  await page.locator('[data-dispatch-state="replied"]').waitFor();
+  const rows = await page.evaluate(() => window.characterMessaging.records());
+  check(rows.filter(m => m.role === 'user').length === 1 && rows.find(m => m.role === 'user').content === '这周末想一起看星星。', 'real card sends approved edited text once');
+  check((await page.locator('[aria-label="角色代发消息"]').innerText()).includes('实际角色回复'), 'card brings back real reply without leaving assistant');
+  check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), '390px draft and reply card have no horizontal overflow');
+  await page.setViewportSize({ width: 320, height: 720 });
+  check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), '320px relay card has no horizontal overflow');
+  const out = '.tmp-preview/character-messaging'; mkdirSync(out, { recursive: true });
+  await page.screenshot({ path: `${out}/reply-320.png`, fullPage: true });
+  await page.evaluate(() => window.characterMessaging.newerSession());
+  await page.getByRole('button', { name: '查看完整回复', exact: true }).click();
+  await page.waitForFunction(() => window.characterMessaging.selectedSession() === 'moon-session');
+  check(await page.evaluate(() => window.characterMessaging.selectedSession()) === 'moon-session', 'reply button opens the actual dispatch session even when a newer chat exists');
+  await page.evaluate(() => window.characterMessaging.mountCurrentChat());
+  await page.getByText('由晴代发', { exact: true }).waitFor();
+  check(await page.getByText('由晴代发', { exact: true }).count() === 1, 'ordinary chat visibly identifies assistant relay provenance');
+  await page.evaluate(() => window.characterMessaging.setup());
+  const next = await page.evaluate(() => window.characterMessaging.request('给小月发消息。'));
+  await page.evaluate(id => window.characterMessaging.mountCard(id), next.task.id);
+  await page.getByRole('button', { name: '取消发送', exact: true }).click();
+  await page.locator('[data-dispatch-state="cancelled"]').waitFor();
+  check((await page.evaluate(() => window.characterMessaging.records())).length === 0, 'cancel button after clarification makes zero recipient writes');
+  await page.evaluate(() => window.characterMessaging.setup());
+  await page.evaluate(() => window.characterMessaging.disableAssistantRoute());
+  await page.evaluate(() => window.characterMessaging.mountChat());
+  await page.getByRole('textbox', { name: '消息内容' }).fill('给小月发：聊天输入框完整流程。');
+  await page.getByRole('textbox', { name: '消息内容' }).press('Enter');
+  await page.locator('[data-dispatch-state="replied"]').waitFor();
+  check((await page.evaluate(() => window.characterMessaging.records())).filter(m => m.role === 'user').length === 1, 'assistant chat input completes actual target send and reply');
+  check((await page.evaluate(() => window.characterMessaging.calls())).every(call => call.characterId === 'moon'), 'literal relay works through target model even when assistant model route is unconfigured');
+  check(!errors.length, `no React or page exceptions: ${errors.join(', ')}`);
+  console.log(JSON.stringify({ checks: outcome.checks, ui, total: outcome.checks + ui }));
+} finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

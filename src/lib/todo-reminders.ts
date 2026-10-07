@@ -36,8 +36,8 @@ async function source(row: TodoReminder) {
   const [todo, occurrence] = await Promise.all([db.todos.get(row.todoId), db.todoOccurrences.get(row.occurrenceId)]);
   if (!owned(row.userId) || todo?.userId !== row.userId || occurrence?.userId !== row.userId
     || todo.updatedAt !== row.todoVersion || occurrence.updatedAt !== row.occurrenceVersion
-    || todo.status !== 'todo' || occurrence.status !== 'todo' || !todo.dueTime || !todo.reminderMinutes?.length) return;
-  const dueAt = new Date(`${occurrence.dueDate}T${todo.dueTime}:00`).getTime();
+    || todo.status !== 'todo' || occurrence.status !== 'todo' || !occurrence.dueTime || !todo.reminderMinutes?.length) return;
+  const dueAt = new Date(`${occurrence.dueDate}T${occurrence.dueTime}:00`).getTime();
   if (!todo.reminderMinutes.some(m => dueAt - m * 60000 === row.remindAt)) return;
   return { todo, occurrence };
 }
@@ -81,8 +81,8 @@ export async function reconcileTodoReminders(userId: string, rows: { todo: Todo;
     if (!owned(userId)) return;
     const desired = new Map<string, TodoReminder>();
     for (const { todo, occurrence } of rows) {
-      if (todo.userId !== userId || occurrence.userId !== userId || todo.status !== 'todo' || occurrence.status !== 'todo' || !todo.dueTime) continue;
-      const dueAt = new Date(`${occurrence.dueDate}T${todo.dueTime}:00`).getTime();
+      if (todo.userId !== userId || occurrence.userId !== userId || todo.status !== 'todo' || occurrence.status !== 'todo' || !occurrence.dueTime) continue;
+      const dueAt = new Date(`${occurrence.dueDate}T${occurrence.dueTime}:00`).getTime();
       for (const minutes of (todo.reminderMinutes ?? []).slice(0, 3)) {
         const at = dueAt - minutes * 60000; if (at <= Date.now() || !Number.isFinite(at)) continue;
         const id = `todo-reminder:${todo.id}:${occurrence.id}:${at}`;

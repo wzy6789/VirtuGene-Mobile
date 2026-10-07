@@ -3,13 +3,15 @@ import { useAuthStore } from '../../store/auth-store';
 import type { SecretaryTask } from './types';
 import { receiptViewModel } from './receipt';
 
-export type SecretaryInboxFilter = 'attention' | 'drafts' | 'failed' | 'done';
+export type SecretaryInboxFilter = 'attention' | 'drafts' | 'failed' | 'done' | 'input' | 'review';
 export const SECRETARY_INBOX_FILTERS: { id: SecretaryInboxFilter; label: string }[] = [
   { id: 'attention', label: '待处理' }, { id: 'drafts', label: '朋友圈草稿' }, { id: 'failed', label: '未办成' }, { id: 'done', label: '最近完成' },
 ];
 
 export function matchesSecretaryInbox(task: SecretaryTask, filter: SecretaryInboxFilter): boolean {
   const receipts = task.results.map(receiptViewModel);
+  if (filter === 'input') return ['waiting', 'paused'].includes(task.pendingContext?.state ?? '') || receipts.some(r => r.operationState === 'needs-input') || task.status === 'planning' || task.status === 'ready';
+  if (filter === 'review') return receipts.some(r => r.operationState === 'draft');
   if (filter === 'attention') return ['waiting', 'paused'].includes(task.pendingContext?.state ?? '') || task.status === 'planning' || task.status === 'ready' || receipts.some(r => ['pending', 'needs-input', 'failed', 'draft'].includes(r.operationState)) || task.status === 'failed' && !task.results.length;
   if (filter === 'drafts') return task.results.some((r, i) => r.action.kind.startsWith('moment.') && receipts[i].operationState === 'draft');
   if (filter === 'failed') return receipts.some(r => r.operationState === 'failed') || task.status === 'failed' && !task.results.length;

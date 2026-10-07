@@ -1,0 +1,66 @@
+.vg-character-orb {display:inline-flex;flex-shrink:0;}
+.vg-character-orb .vg-soul-orb,.vg-role-orb-summary .vg-soul-orb {--orb-body:var(--character-orb-body,#8069dd);--orb-highlight:var(--character-orb-highlight,#d3c5ff);}
+.vg-modal-panel.vg-role-orb-sheet {max-height:85dvh;display:flex;flex-direction:column;background:var(--bg-panel);border:1px solid var(--vg-elev-edge);box-shadow:var(--vg-elev-shadow-3);}
+.vg-role-orb-sheet:has(.vg-role-orb-content) {height:min(760px,85dvh);}
+.vg-role-orb-sheet>.vg-modal-header {padding:18px 20px 12px;border-bottom:0;background:transparent;gap:12px;}
+.vg-role-orb-sheet>.vg-modal-header h2 {min-width:0;font-size:18px;line-height:1.5;font-weight:var(--vg-weight-heading,700);letter-spacing:normal;}
+.vg-role-orb-sheet>.vg-modal-header button {flex:none;width:44px;height:44px;border-radius:50%;background:var(--bg-surface);color:var(--text-secondary);}
+.vg-role-orb-sheet>[data-modal-scroll] {display:flex;flex-direction:column;flex:1;min-height:0;max-height:none;overflow:hidden;}
+.vg-role-orb-summary {display:flex;align-items:center;flex-shrink:0;gap:12px;margin:0 16px 16px;padding:16px;border:1px solid var(--vg-elev-edge);border-radius:var(--vg-radius-3);background:var(--vg-elev-1);}
+.vg-role-orb-summary>div {min-width:0;flex:1;}
+.vg-role-orb-eyebrow {display:block;font-size:12px;color:var(--text-secondary);line-height:1.5;margin-bottom:4px;}
+.vg-role-orb-summary strong {display:block;font-size:18px;line-height:1.5;color:var(--text);font-weight:var(--vg-weight-heading,700);overflow-wrap:anywhere;}
+.vg-role-orb-summary p {font-size:13px;line-height:1.7;margin:4px 0 0;color:var(--text-secondary);overflow-wrap:anywhere;}
+.vg-role-orb-summary small {display:block;font-size:12px;line-height:1.6;margin-top:4px;color:var(--text-secondary);}
+.vg-role-orb-tabs {padding:0 16px 12px;flex-shrink:0;}
+.vg-role-orb-tabs>div {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));position:relative;isolation:isolate;padding:4px;border-radius:var(--vg-radius-3);background:var(--bg-surface);}
+.vg-role-orb-tabs>div::before {content:'';position:absolute;z-index:-1;left:4px;top:4px;bottom:4px;width:calc((100% - 8px)/3);border-radius:12px;background:var(--bg-panel);box-shadow:var(--vg-elev-shadow-1);transform:translateX(0);transition:transform var(--vg-motion-medium) var(--vg-motion-standard);}
+.vg-role-orb-tabs>div[data-section='relation']::before {transform:translateX(100%);}
+.vg-role-orb-tabs>div[data-section='memory']::before {transform:translateX(200%);}
+.vg-role-orb-tabs button {display:flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:44px;border-radius:12px;background:transparent;font-size:14px;font-weight:var(--vg-weight-label,500);color:var(--text-secondary);transition:color var(--vg-motion-fast);}
+.vg-role-orb-tabs button[aria-selected=true] {color:var(--text);}
+.vg-role-orb-tabs button[aria-selected=true] svg {color:var(--vg-accent);}
+.vg-role-orb-content {flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding-bottom:env(safe-area-inset-bottom,0px);}
+.vg-role-orb-content .vg-emotion-panel {height:auto;min-height:260px;overflow:visible;border:0;background:transparent;}
+.vg-role-orb-content .vg-emotion-panel>.flex {height:auto;}
+.vg-role-orb-content .vg-emotion-panel>.flex>.overflow-y-auto {overflow:visible;}
+.vg-role-orb-reading {margin:4px 16px 0;padding:14px 16px;border:1px solid var(--vg-elev-edge);border-radius:var(--vg-radius-3);background:var(--bg-surface);}
+.vg-role-orb-reading summary {display:grid;grid-template-columns:1fr auto;gap:8px;list-style:none;cursor:pointer;color:var(--text-secondary);font-size:12px;line-height:1.5;}
+.vg-role-orb-reading summary::-webkit-details-marker {display:none;}
+.vg-role-orb-reading summary>p,.vg-role-orb-reading>p {grid-column:1/-1;margin:0;font-size:14px;font-weight:400;line-height:1.85;color:var(--text);overflow-wrap:anywhere;}
+.vg-role-orb-reading summary>p {display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.vg-role-orb-reading[open] summary>p {display:none;}
+.vg-role-orb-reading[open] summary>svg {transform:rotate(90deg);}
+.vg-role-orb-reading>p {margin-top:10px;}
+.vg-role-orb-reading summary:focus-visible {outline:2px solid var(--vg-accent);outline-offset:4px;border-radius:4px;}
+.vg-role-orb-actions {padding:16px;display:flex;flex-wrap:wrap;gap:10px;overflow-y:auto;}
+.vg-role-orb-actions p {width:100%;font-size:13px;line-height:1.7;color:var(--text-secondary);}
+.vg-role-orb-actions button {min-height:44px;border-radius:12px;padding:8px 16px;background:var(--bg-surface);color:var(--text);border:1px solid var(--vg-elev-edge);}
+.vg-role-orb-content .vg-emotion-analyze {min-height:44px;background:var(--bg-surface);color:var(--text);border:1px solid var(--vg-elev-edge);box-shadow:none;font-weight:var(--vg-weight-label,500);}
+.vg-role-memory {padding:8px 16px 24px;}
+.vg-role-memory-heading {display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px;}
+.vg-role-memory-heading h3 {font-size:15px;font-weight:var(--vg-weight-label,500);color:var(--text);}
+.vg-role-memory-refresh {display:flex;align-items:center;gap:6px;min-height:44px;padding:0 10px;border-radius:12px;font-size:12px;color:var(--vg-accent);background:var(--bg-surface);}
+.vg-role-memory-refresh:disabled {opacity:.45;}
+.vg-role-memory-list {display:grid;gap:12px;list-style:none;padding:8px 12px 12px;margin:0;}
+.vg-role-memory-list li {--fragment-ink:var(--vg-accent);--fragment-light:color-mix(in srgb,var(--fragment-ink) 20%,var(--bg-panel));--fragment-depth:color-mix(in srgb,var(--fragment-ink) 9%,var(--bg-panel));--fragment-edge:color-mix(in srgb,var(--fragment-ink) 45%,var(--border));position:relative;isolation:isolate;margin-left:var(--fragment-offset);margin-right:calc(14px - var(--fragment-offset));min-height:160px;padding:34px 30px 42px;border:0;border-radius:0;transform:rotate(var(--fragment-tilt));background:transparent;}
+.vg-memory-glass {position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;}
+.vg-role-memory-list li[data-fragment='1'] {--fragment-ink:var(--vg-cyan);}
+.vg-role-memory-list li[data-fragment='2'] {--fragment-ink:var(--vg-warning);}
+.vg-role-memory-fragment-number {position:absolute;bottom:24px;right:42px;font-size:11px;letter-spacing:.12em;font-variant-numeric:tabular-nums;color:var(--text-secondary);opacity:.6;}
+.vg-role-memory-list li>div {display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--text-secondary);}
+.vg-role-memory-list p {margin-top:8px;font-size:14px;line-height:1.8;font-weight:400;color:var(--text);overflow-wrap:anywhere;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;}
+.vg-role-memory-empty {font-size:13px;line-height:1.8;padding:16px;color:var(--text-secondary);background:var(--bg-surface);border-radius:16px;}
+.vg-role-memory-links {display:grid;margin-top:16px;border:1px solid var(--vg-elev-edge);border-radius:16px;overflow:hidden;}
+.vg-role-memory-links>button {display:flex;align-items:center;gap:12px;text-align:left;min-height:64px;padding:12px 16px;background:transparent;color:var(--text-secondary);}
+.vg-role-memory-links>button+button {border-top:1px solid var(--vg-elev-edge);}
+.vg-role-memory-links>button:active {background:var(--bg-surface);}
+.vg-role-memory-links span {flex:1;min-width:0;}
+.vg-role-memory-links strong {display:block;font-size:14px;line-height:1.6;font-weight:var(--vg-weight-label,500);color:var(--text);}
+.vg-role-memory-links small {display:block;font-size:12px;line-height:1.6;margin-top:2px;}
+.vg-role-memory-links svg {flex:none;}
+@media(max-width:640px) {.vg-modal-panel.vg-role-orb-sheet {align-self:flex-end;width:100%;border-radius:24px 24px 0 0!important;}}
+@media(prefers-reduced-motion:reduce) {.vg-role-orb-tabs>div::before,.vg-role-orb-tabs button {transition:none;}}
+html[data-vg-reduced-motion='true'] .vg-role-orb-tabs>div::before,html[data-vg-reduced-motion='true'] .vg-role-orb-tabs button {transition:none;}
+@media(prefers-reduced-motion:reduce) {.vg-role-memory-list li {transform:none;}}
+html[data-vg-reduced-motion='true'] .vg-role-memory-list li {transform:none;}

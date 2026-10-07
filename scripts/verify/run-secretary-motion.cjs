@@ -21,7 +21,7 @@ fs.mkdirSync(output, { recursive: true });
   const thread = page.locator('.chat-thread');
   const position = () => thread.evaluate(el => ({ top: el.scrollTop, bottom: el.scrollHeight - el.scrollTop - el.clientHeight }));
   const close = async () => {
-    await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: '返回', exact: true }).click();
     await page.waitForTimeout(240);
   };
   try {
@@ -95,11 +95,12 @@ fs.mkdirSync(output, { recursive: true });
     await page.getByRole('button', { name: '助理更多操作', exact: true }).click(); await page.waitForTimeout(400);
     await page.getByRole('button', { name: '助理管理 · 解雇与聘用', exact: true }).evaluate(el => el.click());
     await page.waitForTimeout(30);
-    await page.getByRole('dialog').getByRole('button', { name: '关闭', exact: true }).evaluate(el => el.click());
+    await page.getByRole('dialog').getByRole('button', { name: '返回', exact: true }).evaluate(el => el.click());
     await page.getByRole('button', { name: '助理更多操作', exact: true }).evaluate(el => el.click());
     await page.waitForTimeout(30);
     assert.ok(await page.locator('.vg-modal-exit').count() <= 1, 'rapid reversals retain at most one outgoing panel');
     await page.setViewportSize({ width: 320, height: 700 });
+    await page.waitForFunction(() => !document.querySelector('.vg-modal-exit'));
     assert.equal(await page.locator('.vg-modal-exit').count(), 0, 'resize releases outgoing frames');
     await page.waitForTimeout(400); await close();
     await cdp.send('Page.stopScreencast');

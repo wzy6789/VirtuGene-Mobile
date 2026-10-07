@@ -9,6 +9,8 @@ import { stateRepo } from '../../db/state-repo';
 import type { Character } from '../../db/index';
 import { taskChat } from '../../lib/ai/task-client';
 import { ChatStyleImport } from './ChatStyleImport';
+import { VoiceSamplesEditor } from './VoiceSamplesEditor';
+import { validVoiceSamples, type VoiceSamples } from '../../lib/character-voice';
 import { stylePrompt, stripLearnedStyle, type ChatStyleProfile } from '../../lib/chat-style-import';
 import { memoryRepo } from '../../db/memory-repo';
 import { db } from '../../db/index';
@@ -76,6 +78,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   });
   const [tags, setTags] = useState<string[]>(editCharacter?.tags ?? []);
   const [learnedStyle, setLearnedStyle] = useState<ChatStyleProfile | undefined>(editCharacter?.learnedSpeechStyle);
+  const [voiceSamples, setVoiceSamples] = useState<VoiceSamples | undefined>(editCharacter?.voiceSamples);
   const [importedMemories, setImportedMemories] = useState<string[]>([]);
   const memoryImportIds = useRef(new Map<string, string>());
   const [styleBusy, setStyleBusy] = useState(false);
@@ -381,6 +384,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         boundaries: boundaries.trim() || undefined,
         published,
         learnedSpeechStyle: learnedStyle,
+        voiceSamples: validVoiceSamples({ ...editCharacter, name: name.trim(), systemPrompt: finalSystemPrompt, tags, signature: signature.trim(), greeting: greeting.trim(), catchphrase: catchphrase.trim() || undefined, boundaries: boundaries.trim() || undefined, voiceSamples }),
       });
       await stateRepo.replaceStoryRelations(editCharacter.id, userId, relationshipTargets.map((characterId) => ({
         characterId,
@@ -961,6 +965,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
           </div>
         </details>
       )}
+      {isEdit && !isSecretary && <VoiceSamplesEditor character={{ ...editCharacter, name: name.trim(), systemPrompt: composedPrompt(), tags, signature: signature.trim(), greeting: greeting.trim(), catchphrase: catchphrase.trim() || undefined, boundaries: boundaries.trim() || undefined }} value={voiceSamples} onChange={setVoiceSamples} disabled={isSaving || styleBusy} />}
 
       {/* Publish to gene pool */}
       {!isEdit && (
