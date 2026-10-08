@@ -61,6 +61,8 @@ export interface Character {
   learnedSpeechStyle?: import('../lib/chat-style-import').ChatStyleProfile;
   /** Independent expression cache; ignored when the source persona changes. */
   voiceSamples?: import('../lib/character-voice').VoiceSamples;
+  /** User-reviewed expression examples; references are checked before prompt use. */
+  reviewedSpeechSamples?: import('../lib/chat/reviewed-speech').ReviewedSpeechSample[];
 }
 
 /** 用户设定的角色间故事关系。保存于各自的生命状态中，因而只属于当前用户的世界。 */
@@ -737,7 +739,7 @@ export interface Session {
   /** 会话锁定的对话模型（首次进入聊天时选择，聊天中不可改；空则回退角色/全局默认） */
   model?: { provider: string; model: string };
   /** 该会话累计的 API 消耗（token 用量 + 预估费用，仅本会话统计） */
-  cost?: { calls: number; inputTokens: number; outputTokens: number; cost: number };
+  cost?: { calls: number; inputTokens: number; outputTokens: number; cost: number; unknownUsageCalls?:number; incomplete?:boolean; perAttemptAccounting?:true };
   /** 临时视觉窗口剩余轮数：发图且所选模型不支持视觉时用 DeepSeek 视觉模型兜底，几轮后自动换回原模型 */
   tempVisionRounds?: number;
   /** 是否已弹过模型选择（选了具体模型或"使用默认"都不再弹） */

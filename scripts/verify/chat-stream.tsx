@@ -25,6 +25,13 @@ useChatStore.subscribe(() => { storeChanges++; });
 const frame = (text: string) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\r\n\r\n`;
 window.fetch = (async (url, init) => {
   if (!String(url).includes('/chat/completions')) { extraNetwork++; throw new Error('unexpected network'); }
+  const payload = JSON.parse(String(init?.body));
+  // Deferred memory workers can outlive a fixture reset. They use the task
+  // client directly, so mocking webApi.memory alone does not isolate them.
+  if (payload.stream !== true) {
+    if (!String(payload.messages?.[0]?.content).includes('记忆提取系统')) throw new Error('unexpected non-stream task');
+    return new Response(JSON.stringify({ choices: [{ message: { content: '[]' }, finish_reason: 'stop' }] }), { headers: { 'Content-Type': 'application/json' } });
+  }
   const item = { init: init!, controller: undefined as unknown as ReadableStreamDefaultController<Uint8Array>, raw: '', aborted: false };
   const body = new ReadableStream<Uint8Array>({ start(controller) {
     item.controller = controller;

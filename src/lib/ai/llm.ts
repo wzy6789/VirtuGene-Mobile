@@ -30,6 +30,8 @@ export interface LLMChatParams {
   /** A draft endpoint for explicit connection tests; does not save configuration. */
   baseUrl?: string;
   signal?: AbortSignal;
+  /** Once per attempted provider request, including empty or interrupted output. */
+  onUsage?: (usage:LLMChatResult['usage'])=>void;
 }
 export interface LLMChatResult {
   content: string;
@@ -83,26 +85,35 @@ function normalizeError(error: unknown, signal?: AbortSignal): never {
 export async function llmChat(params: LLMChatParams): Promise<LLMChatResult> {
   const prepared = prepare(params);
   let cleanup: (() => void) | undefined;
+  let requested=false,reported=false;
+  const report=(usage:LLMChatResult['usage'])=>{reported=true;try{params.onUsage?.(usage);}catch{/* Diagnostics never trigger another paid call. */}};
   try {
+    requested=!params.signal?.aborted;
     const fetched = await request(prepared.url, prepared.init, params.timeoutMs, params.signal);
     cleanup = fetched.cleanup;
-    if (!fetched.response.ok) throwForProviderStatus(fetched.response.status);
-    return parseProviderResponse(await fetched.response.json(), prepared.protocol, params.provider);
-  } catch (error) { return normalizeError(error, params.signal); }
+    if (!fetched.response.ok) {requested=fetched.response.status>=500;throwForProviderStatus(fetched.response.status);}
+    const result=parseProviderResponse(await fetched.response.json(), prepared.protocol, params.provider);
+    report(result.usage);
+    return result;
+  } catch (error) { if(requested&&!reported)report(undefined);return normalizeError(error, params.signal); }
   finally { cleanup?.(); }
 }
 export async function llmChatStream(params: LLMStreamParams): Promise<LLMStreamResult> {
   const prepared = prepare(params, true);
   let cleanup: (() => void) | undefined;
+  let requested=false,reported=false;
+  const report=(usage:LLMChatResult['usage'])=>{reported=true;try{params.onUsage?.(usage);}catch{/* Diagnostics never trigger another paid call. */}};
   try {
+    requested=!params.signal?.aborted;
     const fetched = await request(prepared.url, prepared.init, params.timeoutMs, params.signal);
     cleanup = fetched.cleanup;
-    if (!fetched.response.ok) throwForProviderStatus(fetched.response.status);
+    if (!fetched.response.ok) {requested=fetched.response.status>=500;throwForProviderStatus(fetched.response.status);}
     const outcome = await readProviderSseResponse(fetched.response, params.onDelta, prepared.protocol, params.provider);
+    report(outcome.usage);
     if (!outcome.content.trim()) throw new Error('stream:empty');
     const truncated = outcome.truncated || outcome.interrupted;
     return { content: outcome.content, usage: outcome.usage, ...(truncated ? { truncated: true, interrupted: outcome.interrupted, rawNote: `stream=true, truncated=${outcome.truncated}, interrupted=${outcome.interrupted}` } : {}) };
-  } catch (error) { return normalizeError(error, params.signal); }
+  } catch (error) {if(requested&&!reported)report(undefined);return normalizeError(error, params.signal); }
   finally { cleanup?.(); }
 }
 

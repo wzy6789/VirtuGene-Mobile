@@ -152,7 +152,7 @@ async function buildBriefs(group: Group, userId: string, query = ''): Promise<Gr
         // Keep enough of the authored persona for stable voice and boundaries.
         // The old 60-character fallback silently discarded almost all of it.
         persona: (c.systemPrompt || c.signature || '').slice(0, 6000),
-        voiceCard:buildCharacterVoiceCard(voiced),
+        voiceCard:buildCharacterVoiceCard(voiced,query),
         catchphrase:c.catchphrase,
         tags:c.tags,
         publicPersona: [c.signature, ...(c.tags ?? []).slice(0, 5)].filter(Boolean).join('；').slice(0, 220),

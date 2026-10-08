@@ -10,6 +10,8 @@ import type { Character } from '../../db/index';
 import { taskChat } from '../../lib/ai/task-client';
 import { ChatStyleImport } from './ChatStyleImport';
 import { VoiceSamplesEditor } from './VoiceSamplesEditor';
+import { GreetingReview } from './GreetingReview';
+import { ReviewedSpeechModal } from '../chat/ReviewedSpeechModal';
 import { validVoiceSamples, type VoiceSamples } from '../../lib/character-voice';
 import { stylePrompt, stripLearnedStyle, type ChatStyleProfile } from '../../lib/chat-style-import';
 import { memoryRepo } from '../../db/memory-repo';
@@ -79,6 +81,7 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
   const [tags, setTags] = useState<string[]>(editCharacter?.tags ?? []);
   const [learnedStyle, setLearnedStyle] = useState<ChatStyleProfile | undefined>(editCharacter?.learnedSpeechStyle);
   const [voiceSamples, setVoiceSamples] = useState<VoiceSamples | undefined>(editCharacter?.voiceSamples);
+  const [showSpeechSamples, setShowSpeechSamples] = useState(false);
   const [importedMemories, setImportedMemories] = useState<string[]>([]);
   const memoryImportIds = useRef(new Map<string, string>());
   const [styleBusy, setStyleBusy] = useState(false);
@@ -966,6 +969,9 @@ export function CreateGeneTab({ editCharacter, onClose }: CreateGeneTabProps) {
         </details>
       )}
       {isEdit && !isSecretary && <VoiceSamplesEditor character={{ ...editCharacter, name: name.trim(), systemPrompt: composedPrompt(), tags, signature: signature.trim(), greeting: greeting.trim(), catchphrase: catchphrase.trim() || undefined, boundaries: boundaries.trim() || undefined }} value={voiceSamples} onChange={setVoiceSamples} disabled={isSaving || styleBusy} />}
+      {isEdit && !isSecretary && <GreetingReview character={{ ...editCharacter, name: name.trim(), systemPrompt: composedPrompt(), tags, signature: signature.trim(), greeting: greeting.trim(), catchphrase: catchphrase.trim() || undefined, boundaries: boundaries.trim() || undefined }} onAdopt={setGreeting} disabled={isSaving || styleBusy} />}
+      {isEdit && !isSecretary && !editCharacter.isPreset && !editCharacter.published && editCharacter.createdBy === userId && <button type="button" className="min-h-11 text-sm text-gene-purple" onClick={() => setShowSpeechSamples(true)}>管理采用的表达样本</button>}
+      {showSpeechSamples && editCharacter && <ReviewedSpeechModal key={`${userId}:${editCharacter.id}`} character={editCharacter} onClose={() => setShowSpeechSamples(false)} />}
 
       {/* Publish to gene pool */}
       {!isEdit && (

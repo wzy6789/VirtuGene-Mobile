@@ -54,6 +54,7 @@ const SecretaryDailyReviewModal = lazyFeature(() => import('../secretary/Secreta
 
 // 记忆依据弹窗只在长按菜单里用到：与手账/群聊同一套按需加载策略，不进首屏主包
 const MemoryBasisModal = lazy(() => import('./MemoryBasisModal').then((m) => ({ default: m.MemoryBasisModal })));
+const ReviewedSpeechModal = lazy(() => import('./ReviewedSpeechModal').then(m => ({ default: m.ReviewedSpeechModal })));
 
 const FIVE_MINUTES = 5 * 60 * 1000;
 
@@ -139,6 +140,7 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   /** 记忆依据（长按消息 → 查看这条回复参考了哪些本地记忆/未完成事件/共同事件） */
   const [basisMessage, setBasisMessage] = useState<Message | null>(null);
+  const [speechMessage, setSpeechMessage] = useState<Message | null>(null);
   /** 已收藏为共同记忆的消息 id（长按菜单据此显示"已是共同记忆"） */
   const [collectedIds, setCollectedIds] = useState<Set<string>>(() => new Set());
   /** 收藏后的明确反馈（世界层是另一个页面，没有反馈用户会以为没生效） */
@@ -150,7 +152,7 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
   const [showSecretaryDailyReview, setShowSecretaryDailyReview] = useState(false);
   useEffect(() => { setShowSecretaryPersonality(false); setShowSecretaryInbox(false); setShowSecretaryDailyReview(false); }, [selectedCharacterId, userId]);
   /** 会话元信息：当前模型 + 累计消耗（右上角设置展示） */
-  const [sessionMeta, setSessionMeta] = useState<{ modelLabel: string; cost?: { calls: number; inputTokens: number; outputTokens: number; cost: number } }>({ modelLabel: '' });
+  const [sessionMeta, setSessionMeta] = useState<{ modelLabel: string; cost?: import('../../db').Session['cost'] }>({ modelLabel: '' });
   const [sessionSelection, setSessionSelection] = useState<{ id: string; model: { provider: string; model: string } | null } | null>(null);
   /** TTS 朗读（用户主动点击才发声；Edge-TTS 直连，失败自动回退系统语音） */
   const { speakingKey, busyKey, speak, stop } = useTTS();
@@ -769,6 +771,7 @@ return (
                     animate={!streamedReplyIdsRef.current.has(row.message.id) && Date.now() - row.message.createdAt < 800}
                     isLatest={!streamedReplyIdsRef.current.has(row.message.id) && vi.index === rows.length - 1}
                     onQuote={setReplyingTo}
+                    onReviewSpeech={character && !character.isPreset && !character.published && character.createdBy === userId && character.agentProfile !== 'secretary' ? setSpeechMessage : undefined}
                     onDelete={deleteBubbleMessage}
                     onRetry={messageActions.retry}
                     onSpeak={row.message.role === 'assistant' && ttsEnabled ? messageActions.speak : undefined}
@@ -836,6 +839,7 @@ return (
       )}
 
       {/* 记忆依据：只展示本机真实注入过的数据（已删除的条目会显示为"已不存在"） */}
+      {speechMessage && character && speechMessage.sessionId === currentSessionId && character.createdBy === userId && <Suspense fallback={null}><ReviewedSpeechModal key={`${userId}:${character.id}:${speechMessage.id}`} character={character} message={speechMessage} onClose={() => setSpeechMessage(null)} /></Suspense>}
       {basisMessage && (
         <Suspense fallback={null}>
           <MemoryBasisModal

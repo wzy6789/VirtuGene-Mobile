@@ -1,8 +1,10 @@
 import { taskChat } from './task-client';
 import { inspectChatOutput } from '../chat-output-quality';
 import { withChatMessagingPolicy } from '../../../server/chat-messaging-policy.mjs';
+import { voiceIdentityWithoutExamples } from '../character-voice';
 import { recordQualityEvent } from '../chat-quality-metrics';
 import { useAuthStore } from '../../store/auth-store';
+import { buildRelationshipToneContext } from '../chat-context';
 
 const PROACTIVE_INSTRUCTION =
   '你是下面描述的角色。用户已经有一段时间没有给你发消息了。请基于你的性格，主动发起一次自然的对话。\n\n' +
@@ -63,7 +65,7 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
   });
 
   // Single system message to avoid API compatibility issues
-  let systemContent = systemPrompt + '\n\n' + PROACTIVE_INSTRUCTION;
+  let systemContent = (params.voiceCard ? voiceIdentityWithoutExamples(systemPrompt) : systemPrompt) + '\n\n' + PROACTIVE_INSTRUCTION;
   // 每日问候：早安/晚安额外加场景引导（每日灵魂互动）
   if (params.kind === 'morning') {
     systemContent +=
@@ -73,9 +75,7 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
       '\n\n[现在是夜晚] 按角色性格自然告别这一天，可以说晚安，不必固定叮嘱或追问，不提问候机制。';
   }
   if (affinity != null && mood != null) {
-    systemContent +=
-      `\n\n[当前关系状态]\n用户与你的好感度：${Math.round(affinity)}，你此刻的心情：${Math.round(mood)}/100。` +
-      '让这两个数值自然影响你这条消息的语气：好感度越低越疏离、甚至懒得主动找，心情越差越低落或烦躁；反之越亲近越轻快。不要直接说出这些数字。';
+    systemContent += '\n\n'+buildRelationshipToneContext(affinity,mood);
   }
   if (contextLines.length > 0) {
     systemContent += '\n\n最近的对话记录：\n' + contextLines.join('\n');

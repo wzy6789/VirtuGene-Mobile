@@ -13,7 +13,7 @@ export interface OutputQualityContext {
 }
 /** Shared textual checks; proactive history is not a new user request. */
 export function inspectChatOutput(raw: string, context: OutputQualityContext): { content: string; check: ReplyCheck; severity: number } {
-  const content = polishChatResponse(stripRoleplayActions(normalizeChatResponse(raw)), {longForm:isLongFormRequest(context.userMessage ?? '')});
+  const content = polishChatResponse(stripRoleplayActions(normalizeChatResponse(raw)), {longForm:isLongFormRequest(context.userMessage ?? ''),paragraphFallback:context.mode==='private'});
   const history = context.recentReplies ?? [];
   let check = checkReplyQuality(content, context.mode === 'proactive' ? '' : context.userMessage ?? '', history[history.length - 1], history.slice(-4), { catchphrase: context.catchphrase });
   if(check.ok && !allowsDramaticReply(context.userMessage ?? '',context.recentUserMessages)) {

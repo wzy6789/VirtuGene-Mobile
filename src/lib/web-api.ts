@@ -42,8 +42,10 @@ export const webApi: VirtuGeneAPI = {
 
   chat: {
     send: async (params) => {
+      const usageEvents:import('./chat/usage').ChatUsageEvent[]=[];
+      const onUsage=params.onUsage;
       try {
-        const r = await (await import('./ai/deepseek')).sendMessage(params);
+        const r = await (await import('./ai/deepseek')).sendMessage({...params,onUsage:event=>{usageEvents.push(event);onUsage?.(event);}});
         return {
           content: r.content,
           truncated: r.truncated,
@@ -51,9 +53,10 @@ export const webApi: VirtuGeneAPI = {
           usage: r.usage,
           modelId: r.modelId,
           interrupted: r.interrupted,
+          usageEvents:r.usageEvents,
         };
       } catch (err) {
-        return { error: toError(err) };
+        return { error: toError(err),usageEvents };
       }
     },
   },

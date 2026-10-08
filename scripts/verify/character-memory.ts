@@ -319,7 +319,7 @@ async function run() {
   check(renderCharacterContext(context,'a').includes('GROUP_MEMORY_SENTINEL_42'), 'actual world actor context receives group memory');
   const singleActor = renderCharacterContext(context,'a');
   check(singleActor.includes('私聊摘要：一起在海边约好看流星雨'), 'single-actor world receives current private-chat summary');
-  check(singleActor.includes('挚友') && singleActor.includes('心情很好') && singleActor.includes('准备流星雨观测') && singleActor.includes('旧友'), 'single-actor world uses the same relationship, mood, life and authored links as private chat');
+  check(singleActor.includes('挚友') && singleActor.includes('状态较好') && singleActor.includes('准备流星雨观测') && singleActor.includes('旧友'), 'single-actor world uses the same relationship, mood, life and authored links as private chat');
   await db.memories.put({ id:'detached-world-profile-summary', userId:'u', characterId:'a', content:'过时的星域密语', type:'summary', memoryKind:'summary', pinned:true, sourceSessionId:'detached-pinned-summary-session', createdAt:now } as any);
   const cleanedWorldContext = await buildWorldContext({userId:'u',worldId:'w',scene,characters,userText:'过时的星域密语'});
   check(!renderCharacterContext(cleanedWorldContext,'a').includes('过时的星域密语')
@@ -346,7 +346,7 @@ async function run() {
   const bWorldContext = renderCharacterContext(sharedContext,'b');
   check(aWorldContext.includes('天文观测营') && aWorldContext.includes('蓝色') && aWorldContext.includes('私聊摘要：一起在海边约好看流星雨'), 'multi-character scene still gives A their own private memory, profile and chat summary');
   check(!bWorldContext.includes('天文观测营') && !bWorldContext.includes('蓝色') && !bWorldContext.includes('私聊摘要：一起在海边约好看流星雨'), 'B does not inherit A-only private memory');
-  check(aWorldContext.includes('挚友') && aWorldContext.includes('心情很好') && aWorldContext.includes('准备流星雨观测') && aWorldContext.includes('旧友'), 'A carries their own current relationship, mood, life and authored links');
+  check(aWorldContext.includes('挚友') && aWorldContext.includes('状态较好') && aWorldContext.includes('准备流星雨观测') && aWorldContext.includes('旧友'), 'A carries their own current relationship, mood, life and authored links');
   check(aWorldContext.includes('不要主动向其他在场者透露'), 'A sees an explicit boundary against disclosing personal memory to other actors');
   check(!renderWorldLayer(sharedContext).includes('天文观测营') && !renderWorldLayer(sharedContext).includes('蓝色'), 'private character memories stay out of the shared world layer');
   // 出场状态只决定**这场戏的正文**从哪开始，不再决定"这个人记得什么"：
@@ -547,6 +547,36 @@ async function run() {
   check((await db.todoOccurrences.get(completedOccurrence.id))?.status === 'completed', 'older todo backup cannot roll a completed occurrence back to pending');
 
   const scopedExport = await collectSyncData('u', 'test');
+  const correctionSession='correction-source-window';
+  await db.sessions.put({id:correctionSession,characterId:'a',userId:'u',title:'接续测试',createdAt:now,updatedAt:now});
+  const sourceRows=[
+    {id:'context-first',role:'user',content:'我晚上不喝咖啡，喝了睡不着。'},
+    {id:'context-plan',role:'user',content:'下周五下午三点面试。'},
+    {id:'context-echo',role:'assistant',content:'面试是下周五下午三点。'},
+    {id:'context-correction',role:'user',content:'不是周五，改成周四下午三点。'},
+    {id:'context-other',role:'user',content:'换个话题，我想买个杯子。'},
+    {id:'context-unrelated-correction',role:'user',content:'不对，要买两个杯子。'},
+    {id:'context-query',role:'user',content:'我前面更正过面试时间，最后是哪天几点？'},
+  ];
+  await db.messages.bulkPut(sourceRows.map((row,index)=>({...row,sessionId:correctionSession,createdAt:now+1000+index,isProactive:false})) as any);
+  const historicalQuery={userId:'u',characterId:'a',query:sourceRows.at(-1)!.content,currentSessionId:correctionSession,excludeMessageIds:['context-query']};
+  const correctedHits=await recallHistoricalPrivateChat(historicalQuery);
+  check(correctedHits.some(hit=>hit.messageId==='context-correction'&&hit.followsMessageId==='context-plan'&&hit.content.includes('周四')),'noun-free adjacent user correction is recalled as its own sourced message');
+  check(!correctedHits.some(hit=>hit.messageId==='context-query'),'pending recall question cannot become its own evidence');
+  check(!correctedHits.some(hit=>hit.followsMessageId==='context-plan'&&hit.messageId==='context-unrelated-correction'),'correction chain stops at an intervening unrelated user topic');
+  const beginning=await recallHistoricalPrivateChat({...historicalQuery,query:'我开头说的习惯是什么？'});
+  check(beginning.some(hit=>hit.messageId==='context-first'&&hit.content.includes('不喝咖啡')),'positional reference reads the owned active session beginning');
+  check(!(await recallHistoricalPrivateChat({...historicalQuery,userId:'other'})).some(hit=>hit.sessionId===correctionSession),'active session hint cannot cross account ownership');
+  check(!(await recallHistoricalPrivateChat({...historicalQuery,characterId:'b'})).some(hit=>hit.sessionId===correctionSession),'active session hint cannot cross character ownership');
+  await db.messages.delete('context-correction');
+  check(!(await recallHistoricalPrivateChat(historicalQuery)).some(hit=>hit.messageId==='context-correction'),'deleted correction disappears from future raw recall');
+  await db.messages.update('context-plan',{content:'下周六下午四点面试。',revision:2});
+  check((await recallHistoricalPrivateChat(historicalQuery)).some(hit=>hit.messageId==='context-plan'&&hit.content.includes('周六')),'source edit is read from current DB rather than a stale linked snippet');
+  await db.messages.put({id:'context-composed',sessionId:correctionSession,role:'user',content:'助理代写：我想买三个杯子。',createdAt:now+999,isProactive:false,secretaryDispatch:{bodyOrigin:'composed'}} as any);
+  const composedHits=await recallHistoricalPrivateChat({...historicalQuery,query:'我想买三个杯子'});
+  check(composedHits.some(hit=>hit.messageId==='context-composed'&&hit.userAuthored===false),'assistant-composed relay is explicitly distinguished from user-authored evidence');
+  const firstWithRelay=await recallHistoricalPrivateChat({...historicalQuery,query:'我开头说的习惯是什么？'});
+  check(firstWithRelay.some(hit=>hit.messageId==='context-first')&&!firstWithRelay.some(hit=>hit.messageId==='context-composed'),'positional user reference skips an earlier assistant-composed relay');
   check(scopedExport.memories.every((item) => item.userId === 'u') && scopedExport.sessions.every((item) => item.userId === 'u'), 'backup export contains only the requested account');
   check(scopedExport.groups?.some((group) => group.id === 'g') && scopedExport.sourceTombstones?.every((row) => row.userId === 'u'), 'backup preserves group continuity and only same-account tombstones');
   document.body.textContent = `ok   ${count} assertions (real IndexedDB, zero network)\n\nALL PASS`;

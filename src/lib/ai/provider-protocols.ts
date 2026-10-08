@@ -6,6 +6,7 @@ type JsonObject = Record<string, any>;
 const textContent = (value: unknown): string => typeof value === 'string' ? value : Array.isArray(value)
   ? value.map(part => typeof part === 'string' ? part : typeof part?.text === 'string' && part?.type !== 'thinking' && !part?.thought ? part.text : '').join('') : '';
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+const knownCount=(value:unknown):value is number=>typeof value==='number'&&Number.isFinite(value)&&value>=0;
 export function throwForProviderStatus(status: number): never {
   if (status === 401) throw new Error('auth:invalid_key');
   if (status === 403) throw new Error('auth:forbidden');
@@ -45,20 +46,20 @@ export function parseProviderResponse(data: JsonObject, protocol: ProviderProtoc
     content = textContent(data.content);
     finish = data.stop_reason;
     truncated = finish === 'max_tokens';
-    if (data.usage) usage = { inputTokens: count(data.usage.input_tokens) + count(data.usage.cache_creation_input_tokens) + count(data.usage.cache_read_input_tokens), outputTokens: count(data.usage.output_tokens) };
+    if (knownCount(data.usage?.input_tokens)&&knownCount(data.usage?.output_tokens)) usage = { inputTokens: count(data.usage.input_tokens) + count(data.usage.cache_creation_input_tokens) + count(data.usage.cache_read_input_tokens), outputTokens: count(data.usage.output_tokens) };
   } else if (protocol === 'gemini') {
     const candidate = data.candidates?.[0];
     finish = candidate?.finishReason;
     if (data.promptFeedback?.blockReason || ['SAFETY', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'RECITATION'].includes(String(finish))) throw new Error('model:blocked');
     content = (candidate?.content?.parts ?? []).filter((part: JsonObject) => !part.thought && typeof part.text === 'string').map((part: JsonObject) => part.text).join('');
     truncated = finish === 'MAX_TOKENS';
-    if (data.usageMetadata) usage = { inputTokens: count(data.usageMetadata.promptTokenCount), outputTokens: count(data.usageMetadata.candidatesTokenCount) + count(data.usageMetadata.thoughtsTokenCount) };
+    if (knownCount(data.usageMetadata?.promptTokenCount)&&knownCount(data.usageMetadata?.candidatesTokenCount)) usage = { inputTokens: count(data.usageMetadata.promptTokenCount), outputTokens: count(data.usageMetadata.candidatesTokenCount) + count(data.usageMetadata.thoughtsTokenCount) };
   } else {
     const choice = data.choices?.[0];
     content = visibleText(textContent(choice?.message?.content), provider);
     finish = choice?.finish_reason;
     truncated = finish === 'length';
-    if (data.usage) usage = { inputTokens: count(data.usage.prompt_tokens), outputTokens: count(data.usage.completion_tokens) };
+    if (knownCount(data.usage?.prompt_tokens)&&knownCount(data.usage?.completion_tokens)) usage = { inputTokens: count(data.usage.prompt_tokens), outputTokens: count(data.usage.completion_tokens) };
   }
   // Only metadata is retained for diagnostics; never log prompts, reasoning or credentials.
   return { content, truncated, usage, ...(!content.trim() || truncated ? { rawNote: `protocol=${protocol}, finish=${String(finish ?? '?')}, empty=${!content.trim()}` } : {}) };
@@ -164,6 +165,7 @@ export async function readProviderSseResponse(response: Response, onDelta: (accu
   let buffer = '';
   let content = '';
   let rawContent = '';
+  let nativeInputTokens:number|undefined;
   let completed = false;
   let failed = false;
   let truncated = false;
@@ -188,10 +190,11 @@ export async function readProviderSseResponse(response: Response, onDelta: (accu
       if (data.type === 'content_block_delta' && data.delta?.type === 'text_delta') emit(data.delta.text ?? '');
       if (data.type === 'message_start' && data.message?.usage) {
         const counts = data.message.usage;
-        usage = { inputTokens: count(counts.input_tokens) + count(counts.cache_creation_input_tokens) + count(counts.cache_read_input_tokens), outputTokens: count(counts.output_tokens) };
+        if(knownCount(counts.input_tokens))nativeInputTokens=count(counts.input_tokens)+count(counts.cache_creation_input_tokens)+count(counts.cache_read_input_tokens);
+        if(nativeInputTokens!==undefined&&knownCount(counts.output_tokens))usage={inputTokens:nativeInputTokens,outputTokens:count(counts.output_tokens)};
       }
       if (data.type === 'message_delta') {
-        if (data.usage) usage = { inputTokens: usage?.inputTokens ?? 0, outputTokens: count(data.usage.output_tokens) };
+        if(nativeInputTokens!==undefined&&knownCount(data.usage?.output_tokens))usage={inputTokens:nativeInputTokens,outputTokens:count(data.usage.output_tokens)};
         if (data.delta?.stop_reason) completed = true;
         if (data.delta?.stop_reason === 'max_tokens') truncated = true;
       }
@@ -207,7 +210,7 @@ export async function readProviderSseResponse(response: Response, onDelta: (accu
       const finish = data.choices?.[0]?.finish_reason;
       if (finish) completed = true;
       if (finish === 'length') truncated = true;
-      if (data.usage) usage = { inputTokens: count(data.usage.prompt_tokens), outputTokens: count(data.usage.completion_tokens) };
+      if (knownCount(data.usage?.prompt_tokens)&&knownCount(data.usage?.completion_tokens)) usage = { inputTokens: count(data.usage.prompt_tokens), outputTokens: count(data.usage.completion_tokens) };
     }
   };
   const flush = () => {

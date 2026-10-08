@@ -40,6 +40,7 @@ interface VirtuGeneAPI {
       onDelta?: (accumulated: string, delta: string) => void;
       /** In-memory diagnostics only; never persisted as a second chat transcript. */
       onRawResponse?: (raw: string) => void;
+      onUsage?: (event:import('./lib/chat/usage').ChatUsageEvent)=>void;
       signal?: AbortSignal;
     }) => Promise<{
       content?: string;
@@ -49,6 +50,7 @@ interface VirtuGeneAPI {
       interrupted?: boolean;
       usage?: { inputTokens: number; outputTokens: number };
       modelId?: string;
+      usageEvents?:import('./lib/chat/usage').ChatUsageEvent[];
     }>;
   };
   shell: {

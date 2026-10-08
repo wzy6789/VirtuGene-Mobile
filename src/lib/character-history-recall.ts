@@ -1,6 +1,7 @@
 import { db } from '../db/index';
 import { messageRepo } from '../db/message-repo';
 import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
+import Dexie from 'dexie';
 
 export interface HistoricalChatHit {
   messageId: string;
@@ -8,6 +9,9 @@ export interface HistoricalChatHit {
   role: 'user' | 'assistant';
   content: string;
   createdAt: number;
+  followsMessageId?:string;
+  precedingUserText?:string;
+  userAuthored?:boolean;
 }
 
 function normalize(value: string): string {
@@ -36,6 +40,7 @@ export async function recallHistoricalPrivateChat(params: {
   characterId: string;
   query: string;
   excludeMessageIds?: string[];
+  currentSessionId?:string;
   limit?: number;
 }): Promise<HistoricalChatHit[]> {
   const terms = queryTerms(params.query);
@@ -70,17 +75,45 @@ export async function recallHistoricalPrivateChat(params: {
         role: message.role,
         content: message.content.trim().slice(0, 320),
         createdAt: message.createdAt,
-        score: (exactPhrase ? 20 : 0) + matches * 2 + Math.max(0, 1 - ageDays / 365),
+        userAuthored:message.role==='user'&&message.secretaryDispatch?.bodyOrigin!=='composed',
+        score: (exactPhrase ? 20 : 0) + matches * 2 + Math.max(0, 1 - ageDays / 365)
+          + Number(/你.{0,6}(?:说过|讲过|答应)/u.test(params.query)?message.role==='assistant':message.role==='user'&&message.secretaryDispatch?.bodyOrigin!=='composed')*4,
       });
       }
       if (messages.length < 400) break;
       before = messages[0].createdAt;
     }
   }
-  return scored
+  const selected=scored
     .sort((a, b) => b.score - a.score || b.createdAt - a.createdAt)
     .slice(0, Math.max(1, params.limit ?? 3))
     .map(({ score: _score, ...hit }) => hit);
+  // Explicit positional references have no useful topical keyword. Resolve
+  // the beginning of the owned active session instead of inventing an answer.
+  if(params.currentSessionId&&sessions.some(s=>s.id===params.currentSessionId)
+    &&/(?:我.{0,4})?(?:开头|一开始|最开始|第一句话).{0,8}(?:说|提)/u.test(params.query)) {
+    const first=await db.messages.where('[sessionId+createdAt]')
+      .between([params.currentSessionId,Dexie.minKey],[params.currentSessionId,Dexie.maxKey])
+      .filter(m=>m.role==='user'&&m.secretaryDispatch?.bodyOrigin!=='composed'&&!m.failed&&!excluded.has(m.id)).limit(3).toArray();
+    selected.unshift(...first.map(m=>({messageId:m.id,sessionId:m.sessionId,role:'user' as const,content:m.content.trim().slice(0,320),createdAt:m.createdAt,userAuthored:true})));
+  }
+  const result:HistoricalChatHit[]=[];
+  for(const hit of selected) {
+    if(result.some(row=>row.messageId===hit.messageId))continue;
+    result.push(hit);
+    if(hit.role!=='user'||hit.userAuthored===false)continue;
+    // A correction may omit the original noun (“不是周五，是周四”). Keep
+    // adjacent user corrections as separately sourced originals, not a merged
+    // or interpreted fact, and stop at the next unrelated user turn.
+    const next=await db.messages.where('[sessionId+createdAt]')
+      .between([hit.sessionId,hit.createdAt],[hit.sessionId,Dexie.maxKey],false,true)
+      .filter(m=>m.role==='user'&&!m.failed&&!excluded.has(m.id)).limit(3).toArray();
+    for(const row of next) {
+      if(row.secretaryDispatch?.bodyOrigin==='composed'||!/^(?:不是|不对|等等|刚才说错|我(?:刚才)?(?:说错|看错)|更正|改成|改到)/u.test(row.content.trim()))break;
+      if(!result.some(item=>item.messageId===row.id))result.push({messageId:row.id,sessionId:row.sessionId,role:'user',content:row.content.trim().slice(0,320),createdAt:row.createdAt,followsMessageId:hit.messageId,precedingUserText:hit.content,userAuthored:true});
+    }
+  }
+  return result;
 }
 
 export function formatHistoricalPrivateChat(hits: HistoricalChatHit[]): string {

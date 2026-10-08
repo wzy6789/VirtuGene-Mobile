@@ -94,6 +94,8 @@ export interface CharacterMemoryRequest {
   };
   sources?: MemorySource[];
   excludeSessionId?: string;
+  /** Current raw history is already supplied; never retrieve the pending query as an answer. */
+  excludeMessageIds?:string[];
   worldId?: string;
   excludeSceneId?: string;
   budget?: number;
@@ -237,10 +239,12 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
         characterId: p.characterId,
         query: topic,
         limit: 4,
-        excludeMessageIds: recentMessageIds,
+        excludeMessageIds: [...recentMessageIds,...(p.excludeMessageIds??[])],
+        currentSessionId:p.excludeSessionId,
       });
       for (const hit of hits) {
-        items.push({ source: 'chat', id: hit.messageId, at: hit.createdAt, text: `你翻到的旧私聊原话（${new Date(hit.createdAt).toISOString().slice(0, 10)}）：${hit.content}` });
+        const speaker=hit.role==='assistant'?'你当时说；不作为用户事实的独立证据':hit.userAuthored===false?'助理代拟发给你的话；不作为用户事实的独立证据':'用户说';
+        items.push({ source: 'chat', id: hit.messageId, at: hit.createdAt, text: `你翻到的旧私聊原话（${new Date(hit.createdAt).toISOString().slice(0, 10)}，${speaker}）：${hit.precedingUserText?`关联用户原话：${hit.precedingUserText.slice(0,160)}；随后用户更正：`:''}${hit.content}${hit.precedingUserText?'。核对先后，以后续用户更正为准。':''}` });
       }
     }
   }

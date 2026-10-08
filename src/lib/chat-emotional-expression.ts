@@ -1,17 +1,22 @@
 import {assessExpressionSignals} from './chat-expression-guidance';
 import {isDirectAffection,allowsDramaticReply} from './chat-expression-boundary';
+import {authoredVoiceFields,JUDGMENT_FIELDS,REACTION_FIELDS} from './character-voice-fields';
+import {topicTerms} from './chat-conversation-state';
+import {recentQuestionDirection} from './chat-expression-guidance';
 
 export type InteractionMoment='praise'|'affection'|'disagreement'|'repair'|'tired'|'celebration'|'ordinary';
 type VoiceStyle='professional'|'partner'|'gentle'|'energetic'|'playful'|'guarded';
-type ExpressionCharacter={tags:string[];systemPrompt:string;catchphrase?:string};
+type ExpressionCharacter={tags:string[];systemPrompt:string;catchphrase?:string;hasVoiceJudgment?:boolean};
 
 /** A conversational clue about what was said, never a diagnosis or relationship change. */
 export function interactionMoment(message:string):InteractionMoment {
   const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
   if(!text||/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事|主角)/u.test(text))return 'ordinary';
+  // Asking about the wording of disagreement does not express that disagreement.
+  if(/^(?:我(?:也|其实|还是|有点)?|也|其实)?不(?:太|完全|怎么)?(?:同意|赞成|认同)\s*(?:这个词|这句话|这几个字)(?:是)?什么意思[？?]?$/u.test(text))return 'ordinary';
   if(isDirectAffection(text))return 'affection';
   if(/^(?:对不起|抱歉|不好意思)(?:[，,。！!\s]|$)|(?:我刚才|刚才是我).{0,12}(?:说重了|太冲了|误会你|弄错了)|我误会你了/u.test(text))return 'repair';
-  if(/(?:^|[。！？!?，,；;\n])\s*(?:我觉得)?(?:你(?:刚才|根本|又|完全)?(?:没听|没理解|误会|理解错)|不是这个意思|我不是这个意思|我不同意|我不赞成|别给我灌鸡汤|你这样说让我不舒服)/u.test(text))return 'disagreement';
+  if(/(?:^|[。！？!?，,；;\n])\s*(?:我觉得)?(?:你(?:刚才|根本|又|完全)?(?:没听|没理解|误会|理解错)|不是这个意思|我不是这个意思|(?:我(?:也|其实|还是|有点)?|也|其实)?不(?:太|完全|怎么)?(?:同意|赞成|认同)|别给我灌鸡汤|你这样说让我不舒服)/u.test(text))return 'disagreement';
   if(/^谢谢你(?:[，,。！!～~\s]|听我说|陪我|记得|帮我|理解|解释|$)|^多亏你/u.test(text)||/^你(?:真的|好|很|太|也|真)?(?:棒|厉害|靠谱|贴心|可爱|懂我|聪明)(?:[，,。！!～~\s]|呀|啊|了|$)/u.test(text))return 'praise';
   const signals=assessExpressionSignals(text);
   if(signals.emotionConfidence>=.8&&signals.situation==='tired')return 'tired';
@@ -19,7 +24,7 @@ export function interactionMoment(message:string):InteractionMoment {
   return 'ordinary';
 }
 
-const MOMENT_NAMES:Record<Exclude<InteractionMoment,'ordinary'>,string>={praise:'被夸或被感谢',affection:'直接的心意',disagreement:'分歧或表达落差',repair:'道歉与澄清',tired:'疲惫',celebration:'进展与开心'};
+const MOMENT_NAMES:Record<Exclude<InteractionMoment,'ordinary'>,string>={praise:'被夸或被感谢',affection:'直接的心意',disagreement:'意见不同或理解纠正',repair:'道歉与澄清',tired:'疲惫',celebration:'进展与开心'};
 const STYLES:Array<[VoiceStyle,RegExp]>=[
   ['professional',/专业|理性|高冷|冷淡|寡言|冷静|外冷/u],
   ['partner',/搭档|随和|爽朗|直率|坦率/u],
@@ -79,22 +84,51 @@ const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,s
   },
 };
 
-const AUTHORED_REACTION=/^(?:[-*]\s*)?(?:情境反应|被夸反应|分歧反应|道歉修复|亲密反应|疲惫回应|庆祝反应)[：:]/u;
 const FIELD_NAMES:Partial<Record<InteractionMoment,string>>={praise:'被夸反应',disagreement:'分歧反应',repair:'道歉修复',affection:'亲密反应',tired:'疲惫回应',celebration:'庆祝反应'};
 export function authoredReactionLines(prompt:string,message?:string):string[]{
   const field=message===undefined?undefined:FIELD_NAMES[interactionMoment(message)];
-  return prompt.split(/\r?\n/u).map(s=>s.trim()).filter(s=>AUTHORED_REACTION.test(s))
-    .filter(s=>message===undefined||s.replace(/^[-*]\s*/u,'').startsWith('情境反应：')||s.replace(/^[-*]\s*/u,'').startsWith('情境反应:')||!!field&&s.replace(/^[-*]\s*/u,'').startsWith(field))
-    .slice(0,3).map(s=>s.slice(0,180));
+  return authoredVoiceFields(prompt,REACTION_FIELDS)
+    .filter(row=>message===undefined||row.field==='情境反应'||row.field===field)
+    .slice(0,3).map(row=>row.line.slice(0,180));
 }
 
 /** Choose relevant examples, never fabricate one or rewrite the original. */
-export function selectVoiceExamples(lines:string[],message?:string):string[]{
+export function voiceExampleUserText(line:string):string {
+  const arrow=line.match(/用户(?:说|[：:]\s*)?\s*(.{1,120}?)\s*(?:→|->)\s*(?:你|角色|TA)(?:说|[：:])/iu);
+  const labelled=line.match(/用户[：:]\s*(.{1,120}?)\s*(?:你|角色|TA)[：:]/iu);
+  const text=(arrow?.[1]??labelled?.[1]??'').trim();
+  // Quotation marks here delimit the authored example, rather than reporting
+  // someone else's statement. Keep nested quotations inside the example.
+  const quoted=text.match(/^[“「『"]([\s\S]*)[”」』"]\s*[。.]?$/u);
+  return (quoted?.[1]??text).trim();
+}
+
+export function selectVoiceExamples(lines:string[],message?:string,options:{allowUnrelatedNeutral?:boolean}={}):string[]{
   if(message===undefined)return lines.slice(0,5);
   const moment=interactionMoment(message);
-  const ranked=lines.map((line,index)=>({line,index,moment:interactionMoment(line.match(/用户说(.{1,80}?)\s*(?:→|->)/u)?.[1]??'')}));
-  ranked.sort((a,b)=>Number(b.moment===moment&&moment!=='ordinary')-Number(a.moment===moment&&moment!=='ordinary')||a.index-b.index);
-  return ranked.slice(0,3).map(row=>row.line);
+  const current=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  const terms=topicTerms(current);
+  const ranked=lines.map((line,index)=>{
+    const example=voiceExampleUserText(line);
+    const exampleTerms=topicTerms(example.replace(/[“「『"][^”」』"]*[”」』"]/gu,''));
+    const overlap=[...exampleTerms].filter(term=>terms.has(term)).length;
+    const exact=example.trim().replace(/[。！？!?～~]+$/u,'')===current.replace(/[。！？!?～~]+$/u,'')&&current.length>=2;
+    return {line,index,moment:interactionMoment(example),general:!example,relevance:exact?2:overlap/Math.max(1,exampleTerms.size)};
+  })
+    // A fatigue example is a poor voice reference for an explicit new subject.
+    // Keep neutral examples as voice references, not unrelated emotional scripts.
+    .filter(row=>row.moment==='ordinary'||row.moment===moment);
+  ranked.sort((a,b)=>Number(b.moment===moment&&moment!=='ordinary')-Number(a.moment===moment&&moment!=='ordinary')||b.relevance-a.relevance||a.index-b.index);
+  if (!current) return ranked.slice(0,3).map(row=>row.line);
+  // Examples teach local response habits as well as a voice. A bookshop or
+  // adventure example must not become a script for listening to a complaint.
+  const applicable = ranked.filter(row => row.relevance > 0 || moment !== 'ordinary' && row.moment === moment);
+  const general = ranked.filter(row => row.general).slice(0,1);
+  if (applicable.length) return [...applicable.slice(0,2),...general].map(row=>row.line);
+  // Keep one neutral reference for an unseen everyday topic. On an emotional
+  // turn the authored reaction/judgment already supplies the voice; unrelated
+  // neutral scenes add distraction rather than another personality signal.
+  return (general.length ? general : moment === 'ordinary' && options.allowUnrelatedNeutral !== false ? ranked.slice(0,1) : []).map(row=>row.line);
 }
 
 export function emotionalExpressionGuidance(message:string,history:Array<{role:string;content:string}>,character?:ExpressionCharacter|null,recentReplyTurns?:string[][]):string{
@@ -104,17 +138,23 @@ export function emotionalExpressionGuidance(message:string,history:Array<{role:s
   if(moment!=='ordinary'){
     const authored=authoredReactionLines(character?.systemPrompt??'',message);
     if(authored.length)lines.push(`本轮涉及${MOMENT_NAMES[moment]}，优先按人物写明的情境反应表达，不套通用性格标签。`);
-    else{
+    else if(character?.hasVoiceJudgment||authoredVoiceFields(character?.systemPrompt??'',JUDGMENT_FIELDS).length) {
+      lines.push(`本轮涉及${MOMENT_NAMES[moment]}，按声音卡中这个人的具体判断习惯回应，不另套通用性格标签。`);
+    } else{
       const styles=STYLES.filter(([,pattern])=>pattern.test((character?.tags??[]).join('、'))).slice(0,2);
       const choices=styles.map(([style])=>REACTIONS[style][moment]);
       lines.push(choices.length?`本轮${MOMENT_NAMES[moment]}：${choices.join(' ')}`:`本轮涉及${MOMENT_NAMES[moment]}，按人物自己的关注点回应具体内容，不替人物添加新的性格或亲密关系。`);
     }
   }
+  if(moment==='disagreement'&&/(?:不是这个意思|我不是这个意思|你(?:刚才)?(?:没理解|误会|理解错))/u.test(message))lines.push('用户正在纠正理解，接这次具体澄清，不再给其用词另下一层心理定义；按其自己讲明的原因理解，不把否认的原因改写成新的疲惫或情绪解释。前文没说错的内容不用替自己认领，不补写未提供的场面、第三方态度或动机。');
+  else if(moment==='disagreement')lines.push('这轮在交流不同看法，围绕用户明确说出的观点接话；情绪或遭遇由用户自己说明。自己刚才举的情况仍是自己的例子，不归到用户名下。给出你真正认同或不认同的具体一点，可以保持分歧或自然改口；不需要让用户认输或换成他的立场。');
   const prior=users.map(interactionMoment);
-  if(moment==='repair'&&prior.slice(-2).includes('disagreement'))lines.push('前面有明确分歧，这轮是道歉或澄清。先回应哪里得到解释，语气可以缓和；不假定角色已经生气，也不突然撒娇或宣告关系完全修复。');
+  if(moment==='repair'&&prior.slice(-2).includes('disagreement'))lines.push('前面有明确分歧，这轮是道歉或澄清。接住用户此刻说的歉意或解释，表达自己真正的态度；不替用户断言“你不是冲我”“你只是心情不好”，也不假定角色已经生气、突然撒娇或宣告关系完全修复。');
   else if(moment==='praise'&&prior[prior.length-1]==='repair'&&prior.includes('disagreement'))lines.push('刚从分歧转到澄清和感谢，可以自然放松一点，不再复盘，也不为了保持情绪继续追究。');
   const turns=recentReplyTurns??history.filter(m=>m.role==='assistant').slice(-4).map(m=>[m.content]);
-  const openings=['辛苦了','慢慢来','我懂你','我理解你','别太勉强'];
+  const questionDirection=recentQuestionDirection(turns);
+  if(questionDirection)lines.push(questionDirection);
+  const openings=['辛苦了','慢慢来','我懂你','我理解你','别太勉强','听见了','我在听','我听着','你慢慢说'];
   const repeated=openings.find(opening=>!character?.catchphrase?.trim().startsWith(opening)&&turns.slice(-4).filter(parts=>parts.join('').trim().startsWith(opening)).length>=3);
   if(repeated&&!message.includes(repeated))lines.push('最近多轮都以同类安慰开场。这轮直接接当前内容，不必换一个安慰词继续套同一结构；人物自己的口癖仍可自然保留。');
   return lines.slice(0,3).join('\n');

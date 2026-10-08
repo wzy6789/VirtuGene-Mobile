@@ -107,9 +107,10 @@ interface Props {
   collected?: boolean;
   /** 长按菜单"查看记忆依据"：仅当这条消息记录了本机注入数据时出现 */
   onShowBasis?: (message: Message) => void;
+  onReviewSpeech?: (message: Message) => void;
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, avatar, streaming, streamingActive = streaming, streamed, waiting, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, showIdentity = true, onRemember, onCollectMemory, collected, onShowBasis }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, avatar, streaming, streamingActive = streaming, streamed, waiting, animate, isLatest, onQuote, onDelete, onRetry, onSpeak, speakKey, speakingKey, busyKey, showIdentity = true, onRemember, onCollectMemory, collected, onShowBasis, onReviewSpeech }: Props) {
   const fontSize = useSettingsStore(s => s.chatFontSize);
   const isUser = message.role === 'user';
   // 历史消息也走同一层清洗，避免旧数据里的换行继续破坏手机端气泡。
@@ -446,6 +447,7 @@ export const MessageBubble = memo(function MessageBubble({ message, avatar, stre
                     记住
                   </button>
                 )}
+                {!isUser && !message.interrupted && !message.isProactive && onReviewSpeech && <button type="button" className="w-full min-h-11 flex items-center px-4 text-sm text-sub hover:bg-surface" onClick={() => { onReviewSpeech(message); setMenu(null); }}>表达样本</button>}
                 {/* 收藏为共同记忆：4.x 的「记住」存的是"关于用户的事实"，
                     这里存的是"你们一起经历过的事"——两者互不替代 */}
                 {onCollectMemory && (

@@ -7,6 +7,7 @@
 import { DEEPSEEK_MODEL_ID, resolveModel, findModel, getAvailableModels, type LLMModel, type LLMChatResult } from './llm';
 import { taskChat } from './task-client';
 import { stripRoleplayActions } from './text';
+import { voiceIdentityWithoutExamples } from '../character-voice';
 import { buildTimeContext } from '../chat-context';
 import { containsPrivateMemoryEcho } from '../memory-disclosure';
 import { inspectChatOutput } from '../chat-output-quality';
@@ -14,6 +15,7 @@ import { normalizeBubbleText } from '../chat-pacing';
 import { recordQualityEvent } from '../chat-quality-metrics';
 import { useAuthStore } from '../../store/auth-store';
 import { emotionalExpressionGuidance } from '../chat-emotional-expression';
+import { directChatGuidance } from '../chat-expression-boundary';
 
 export interface GroupMemberBrief {
   id: string;
@@ -229,7 +231,9 @@ async function generateActorReply(
     ? `\n\n${member.relationshipContext}`
     : '';
   const feeling=params.mode==='user'||!params.mode?emotionalExpressionGuidance(params.userMessage??'',history.filter(h=>h.role==='user'||h.senderName===member.name),{tags:member.tags??[],systemPrompt:member.persona,catchphrase:member.catchphrase}):'';
-  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【完整角色设定（只有你自己的）】\n${member.persona}${shared}${personal}${relationship}\n\n${member.voiceCard ?? ''}\n${feeling}\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
+  const direct=params.mode==='user'||!params.mode?directChatGuidance(params.userMessage??'',history.filter(h=>h.role==='user').map(h=>h.content),history.filter(h=>h.role==='assistant'&&h.senderName===member.name).map(h=>h.content)):'';
+  const identity = member.voiceCard ? voiceIdentityWithoutExamples(member.persona) : member.persona;
+  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【角色设定（只有你自己的，例句在声音卡中）】\n${identity}${shared}${personal}${relationship}\n\n${feeling}\n${direct}\n${member.voiceCard ?? ''}\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
   const recentReplies = history.filter(h => h.role === 'assistant' && h.senderName === member.name).map(h => h.content);
   let hint = '';
   for (let attempt = 0; attempt < 2; attempt++) {

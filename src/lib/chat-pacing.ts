@@ -21,6 +21,15 @@ const LONG_MESSAGE_CHARS = 60;
 const NATURAL_SPLIT_CHARS = 60;
 export const MAX_REPLY_PARTS = 4;
 
+/** Fallback for a model using blank paragraphs instead of explicit transport separators. */
+export function normalizeChatParagraphBoundaries(content:string,options:{longForm?:boolean}={}):string {
+  // Code and explicitly requested long prose retain their content structure.
+  // A single newline is never interpreted as another message.
+  if(options.longForm)return content;
+  return content.replace(/\r\n?/gu,'\n').split(/(```[\s\S]*?(?:```|$))/gu)
+    .map(part=>part.startsWith('```')?part:part.replace(/\n[ \t]*\n(?:[ \t]*\n)*/gu,'\n---\n')).join('');
+}
+
 export function joinReplyText(left: string, right: string): string {
   return /[A-Za-z0-9]$/u.test(left) && /^[A-Za-z0-9]/u.test(right) ? `${left} ${right}` : left + right;
 }
@@ -101,7 +110,7 @@ export function followUpDelay(part: string): number {
  * 内容里有 `---` 时尊重模型分段；普通闲聊偶尔过长，则只在自然标点处补分段，避免一整面文字挤在一个气泡里。
  */
 export function splitReplyParts(content: string, maxParts = MAX_REPLY_PARTS, options: { longForm?: boolean } = {}): string[] {
-  const normalized = normalizeChatResponse(content);
+  const normalized = normalizeChatParagraphBoundaries(normalizeChatResponse(content),options);
   const parts = normalized
     .split(/\n?-{3,}\n?/)
     .map(normalizeBubbleText)

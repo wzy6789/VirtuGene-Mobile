@@ -2,6 +2,8 @@ import { stripRoleplayActions } from './text';
 import { withChatMessagingPolicy } from '../../../server/chat-messaging-policy.mjs';
 import { resolveModel, getProviderKey, llmChat, llmChatStream, getProviderConfig, providerRequiresKey, validateProviderConnection, type LLMModel, type LLMStreamResult } from './llm';
 import { gatewayChat, gatewayChatStream, hasAiGatewayAccess } from './gateway';
+import {boundChatHistory as trimChatHistory} from '../chat-history-window';
+import type {ChatUsageEvent} from '../chat/usage';
 
 export async function validateApiKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
   try {
@@ -54,6 +56,7 @@ export interface ChatParams {
   onDelta?: (accumulated: string, delta: string) => void;
   /** Ephemeral diagnostics before display cleanup; never stored as message text. */
   onRawResponse?: (raw: string) => void;
+  onUsage?: (event:ChatUsageEvent)=>void;
 }
 
 export interface ChatResult {
@@ -67,6 +70,7 @@ export interface ChatResult {
   usage?: { inputTokens: number; outputTokens: number };
   /** 实际使用的模型 id（兜底后可能与所选模型不同） */
   modelId?: string;
+  usageEvents?:ChatUsageEvent[];
 }
 
 /** 最近 N 条消息内出现过图片 → 保持视觉模型（约 4 轮对话），之后自动切回文本模型 */
@@ -75,7 +79,6 @@ const VISION_CONTEXT_MESSAGES = 8;
 const MAX_HISTORY_IMAGES = 1;
 /** 图片 dataURL 长度上限（base64，约 1.8MB 原始图；异常超长视为坏图，跳过避免拖垮请求） */
 const MAX_IMAGE_DATAURL_LEN = 650_000;
-const MAX_CHAT_HISTORY_CHARS = 14_000;
 
 /** 图片是否可用（格式正确且体积正常） */
 function isValidImage(image?: string): boolean {
@@ -96,21 +99,6 @@ function trimHistoryImages(history: ChatHistoryItem[]): ChatHistoryItem[] {
   }
   const keep = new Set(imgIdx.slice(-MAX_HISTORY_IMAGES));
   return history.map((h, i) => (h.image && !keep.has(i) ? { ...h, image: undefined } : h));
-}
-
-/** Bound the text payload too; the gateway rejects oversized JSON bodies. */
-function trimChatHistory(history: ChatHistoryItem[]): ChatHistoryItem[] {
-  const tail = history.slice(-12);
-  const kept: ChatHistoryItem[] = [];
-  let remaining = MAX_CHAT_HISTORY_CHARS;
-  for (let index = tail.length - 1; index >= 0 && remaining > 0; index -= 1) {
-    const item = tail[index];
-    const content = typeof item.content === 'string' ? item.content : '';
-    const take = Math.min(1_200, remaining);
-    kept.push({ ...item, content: content.slice(0, take) });
-    remaining -= Math.min(content.length, take);
-  }
-  return kept.reverse();
 }
 
 /** 单条消息内容：有图 → OpenAI 兼容块数组（text + image_url dataURL），无图 → 纯文本 */
@@ -168,6 +156,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
         disableThinking: recovery || params.disableThinking,
         signal: params.signal,
         timeoutMs: params.timeoutMs,
+        onUsage:params.onUsage,
       };
       const result: ChatResult = params.onDelta && !params.structuredOutput
         ? await gatewayChatStream({ ...gatewayParams, onDelta: params.onDelta })
@@ -196,6 +185,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
     timeoutMs: params.timeoutMs ?? (useVision ? 120_000 : 60_000),
     signal: params.signal,
     jsonMode: params.structuredOutput,
+    onUsage:(usage:LLMStreamResult['usage'])=>params.onUsage?.({modelId:model.id,usage}),
   };
   const res: LLMStreamResult = params.onDelta && !params.structuredOutput
     ? await llmChatStream({ ...request, onDelta: params.onDelta })
@@ -217,6 +207,9 @@ function isDegradable(err: unknown): boolean {
 }
 
 export async function sendMessage(params: ChatParams): Promise<ChatResult> {
+  const usageEvents:ChatUsageEvent[]=[];
+  const usageObserver=params.onUsage;
+  params={...params,onUsage:event=>{usageEvents.push(event);try{usageObserver?.(event);}catch{/* Usage observers cannot alter delivery. */}}};
   // 解析实际模型：会话锁定 > 角色指定 > 全局默认 > DeepSeek Flash
   const model = resolveModel(params.character, params.sessionModel);
 
@@ -246,10 +239,10 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
   };
 
   const r = await attempt(usedModel, useVision);
-  if (r) return r;
+  if (r) return {...r,usageEvents};
 
   // One bounded recovery on the same model, without discarding image context.
   const recovered = await attempt(usedModel, useVision, true);
-  if (recovered) return recovered;
+  if (recovered) return {...recovered,usageEvents};
   throw new Error('server:error');
 }

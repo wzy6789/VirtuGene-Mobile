@@ -4,6 +4,9 @@
  */
 
 import { collapseChatNewlines } from './ai/text';
+import { normalizeChatParagraphBoundaries } from './chat-pacing';
+import {requestsRepetition} from './chat-turn-cues';
+export {requestsRepetition} from './chat-turn-cues';
 
 export type ReplyIssue =
   | 'empty'
@@ -29,9 +32,9 @@ export interface ReplyCheck {
  */
 export function polishChatResponse(
   content: string,
-  options: { longForm?: boolean } = {},
+  options: { longForm?: boolean; paragraphFallback?:boolean } = {},
 ): string {
-  let text = content
+  let text = (options.paragraphFallback?normalizeChatParagraphBoundaries(content,options):content)
     .replace(/\r\n?/g, '\n')
     .replace(/```(?:text|markdown|json)?\s*/gi, '')
     .replace(/```/g, '')
@@ -53,7 +56,7 @@ export function polishChatResponse(
   // never silently rewritten into statements.
   // Keep explicit separators distinct so Chinese newline joining cannot glue
   // the next message onto a preceding Latin word.
-  return text.split(/\n?-{3,}\n?/u).map(part => collapseChatNewlines(part).replace(/[ \t]{2,}/g, ' ').trim()).join('\n---\n').trim();
+  return text.split(/\n?-{3,}\n?/u).map(part => collapseChatNewlines(part).replace(/[ \t]{2,}/g, ' ').trim()).filter(Boolean).join('\n---\n').trim();
 }
 
 /**
@@ -107,7 +110,8 @@ const LONG_FORM_REQUEST = /详细|解释|分析|教程|步骤|整理|总结|长�
 const MAX_CONVERSATIONAL_REPLY_CHARS = 180;
 
 export function isLongFormRequest(message: string): boolean {
-  return LONG_FORM_REQUEST.test(message);
+  return message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').split(/[。！？!?，,；;\n]/u)
+    .some(clause=>LONG_FORM_REQUEST.test(clause)&&!/(?:别|不要|不用|无需|不需要|不是要).{0,8}(?:详细|解释|分析|教程|步骤|整理|总结|长一点|展开|写一篇|创作)/u.test(clause));
 }
 
 const RETRY_HINTS: Record<ReplyIssue, string> = {
@@ -141,7 +145,7 @@ export function checkReplyQuality(
   }
 
   // 复述用户消息：整段相似度过高（仅长文本判定，短句字符集必然重叠会误伤）
-  if (text.length >= MIN_REPEAT_LENGTH && userMessage.trim().length >= MIN_REPEAT_LENGTH && similarity(text, userMessage) >= 0.85) {
+  if (!requestsRepetition(userMessage) && text.length >= MIN_REPEAT_LENGTH && userMessage.trim().length >= MIN_REPEAT_LENGTH && similarity(text, userMessage) >= 0.85) {
     return { ok: false, issue: 'repeat-user', retryHint: RETRY_HINTS['repeat-user'] };
   }
 
@@ -173,11 +177,11 @@ export function checkReplyQuality(
   // 重复自己刚说的话（仅长文本判定）
   const withoutCatchphrase = (s: string) => voice.catchphrase?.trim() ? s.split(voice.catchphrase.trim()).join('').trim() : s.trim();
   const own = withoutCatchphrase(text), previous = withoutCatchphrase(lastAssistantContent ?? '');
-  if (own.length >= 20 && previous.length >= 20 && own === previous) {
+  if (!requestsRepetition(userMessage) && own.length >= 20 && previous.length >= 20 && own === previous) {
     return { ok: false, issue: 'repeat-own', retryHint: RETRY_HINTS['repeat-own'] };
   }
 
-  const motif = repeatedMotif(text, recentAssistantContents, voice.catchphrase);
+  const motif = requestsRepetition(userMessage) ? undefined : repeatedMotif(text, recentAssistantContents, voice.catchphrase);
   if (motif) {
     return {
       ok: false,

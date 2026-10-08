@@ -2,6 +2,7 @@ import { db, type Character } from '../../db';
 import { useAuthStore } from '../../store/auth-store';
 import { generateVoiceSamples } from '../ai/character-voice-generator';
 import { hasVoiceExamples, validVoiceSamples, voiceSource } from '../character-voice';
+import { reviewedVoiceLines, type ReviewedVoiceCharacter } from './reviewed-speech';
 
 const running = new Map<string, Promise<void>>();
 const failedAt = new Map<string, number>();
@@ -36,11 +37,11 @@ export function refreshVoiceSamples(userId: string, characterId: string, apiKey:
   return work;
 }
 
-export async function readVoiceSampleCharacter(character: Character, userId: string): Promise<Character> {
-  if (useAuthStore.getState().userId !== userId) return { ...character, voiceSamples: undefined };
+export async function readVoiceSampleCharacter(character: Character, userId: string): Promise<ReviewedVoiceCharacter> {
+  if (useAuthStore.getState().userId !== userId) return { ...character, voiceSamples: undefined, reviewedVoiceLines: undefined };
   const current = await db.characters.get(character.id);
   return current?.createdBy === userId && voiceSource(current) === voiceSource(character)
-    ? { ...character, voiceSamples: validVoiceSamples(current) } : { ...character, voiceSamples: undefined };
+    ? { ...character, voiceSamples: validVoiceSamples(current), reviewedVoiceLines: await reviewedVoiceLines(userId, character.id) } : { ...character, voiceSamples: undefined, reviewedVoiceLines: undefined };
 }
 
 export function voiceCacheStatus(character:Character): 'authored' | 'cached' | 'pending' | 'failed' | 'missing' {

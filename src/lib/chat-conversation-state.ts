@@ -6,6 +6,10 @@
  * 状态写在当前 Session 上，因此天然按用户和角色隔离。
  */
 
+import { assessExpressionSignals } from './chat-expression-guidance';
+import { isDirectAffection, isViewExchange } from './chat-expression-boundary';
+import { hasExplicitTopicShift, isStandaloneClosing, isTopicClarification,requestsRepetition,isDirectTimeAnswer } from './chat-turn-cues';
+
 export type ChatIntent = 'casual' | 'emotional' | 'question' | 'request' | 'topic-shift' | 'closing';
 export type ChatTopicStatus = 'active' | 'paused' | 'closed';
 export type ChatReplyAction = 'react' | 'answer' | 'comfort' | 'share' | 'ask' | 'joke' | 'advise' | 'close';
@@ -30,6 +34,8 @@ export interface ChatConversationState {
   lastUserTurnAt?: number;
   userWantsToShift: boolean;
   preferences: ChatPreferences;
+  /** A listening request for the current subject, not an enduring preference. */
+  topicAdvice?: 'listen';
 }
 
 export const DEFAULT_CHAT_PREFERENCES: ChatPreferences = {
@@ -73,11 +79,10 @@ const ACTION_LABELS: Record<ChatReplyAction, string> = {
 };
 
 function isTopicShift(text: string): boolean {
-  const value = compact(text);
-  return /(?:换个话题|换个问题|说点别的|先不说这个|不聊这个了|对了|另外|话说回来)/u.test(value) || /^算了[，,、:：\s]+.{3,}/u.test(value);
+  return hasExplicitTopicShift(text);
 }
 
-const CONTINUATION = /^(?:那|然后|接着|所以|因为|可是|但是|不过|这里|那里|这个|那个|这件事|他|她|它|刚才|还有|为什么|怎么了|真的吗)/u;
+const CONTINUATION = /^(?:那|然后|接着|所以|因为|可是|但是|但(?:也|我|这|那|又|有|好像|觉得|感觉)|不过|哈哈+[，,。！!呀啊\s]*(?:$|我(?:也|都|真|好|想|觉得)|这(?:也|可|个)|那(?:也|可|就))|这里|那里|这个|那个|这件事|他|她|它|刚才|还有|为什么|怎么了|真的吗)/u;
 const GENERIC_GRAMS = new Set(['我想', '我们', '你们', '现在', '今天', '这个', '那个', '什么', '怎么', '觉得', '一下', '还是', '可以', '然后', '因为', '所以', '就是', '有点', '知道', '说过', '事情', '问题']);
 
 /** A small, conservative signal for a natural topic change; it never erases history. */
@@ -105,7 +110,7 @@ export function isTopicRelated(current: string, context: string): boolean {
 export function detectTopicMove(current: string, previous = ''): boolean {
   if (isTopicShift(current)) return true;
   const value = compact(current);
-  if (value.length < 4 || compact(previous).length < 4 || CONTINUATION.test(value)) return false;
+  if (value.length < 4 || compact(previous).length < 4 || CONTINUATION.test(value) || isTopicClarification(value)||isDirectTimeAnswer(value,previous)) return false;
   const currentTerms = topicTerms(value);
   const oldTerms = topicTerms(previous);
   if (!currentTerms.size || !oldTerms.size) return false;
@@ -114,19 +119,19 @@ export function detectTopicMove(current: string, previous = ''): boolean {
 }
 
 function isClosing(text: string): boolean {
-  const value = compact(text);
-  if (isTopicShift(value)) return false;
-  return /^(?:嗯|好|行|算了|先这样|晚安|拜拜)(?:[呀啦哦嗯喽。！!，,\s]|$)/u.test(value) && value.length <= 12;
+  return isStandaloneClosing(text);
 }
 
 export function detectChatIntent(text: string): ChatIntent {
   const value = compact(text);
   if (!value) return 'casual';
-  if (isTopicShift(value)) return 'topic-shift';
   if (isClosing(value)) return 'closing';
-  if (/难过|难受|委屈|生气|烦|累|焦虑|害怕|紧张|孤单|失望|崩溃|想哭|不想说/u.test(value)) return 'emotional';
+  const expression=assessExpressionSignals(value);
+  if(isViewExchange(value)) return 'question';
+  if(expression.request||requestsRepetition(value)) return 'request';
+  if (isTopicShift(value)) return 'topic-shift';
+  if (isDirectAffection(value)||expression.emotionConfidence>=.8||/不想说|没事吧|怎么办/u.test(value)) return 'emotional';
   if (/[?？]|^(为什么|怎么|怎样|什么|哪儿|哪里|谁|几时|多久|能不能|可以吗|是不是|有没有|要不要)/u.test(value)) return 'question';
-  if (/^(帮我|请你|请帮|能帮|给我|替我|写一个|写段|整理|解释|分析|教我|告诉我|推荐|设计|制定)/u.test(value)) return 'request';
   return 'casual';
 }
 
@@ -143,27 +148,59 @@ export function inferReplyAction(userText: string, assistantText: string): ChatR
   return 'react';
 }
 
+/** Keep instructions about authored text out of the user's chat preferences. */
+function preferenceClauses(text: string): string[] {
+  const unquoted = text.replace(/[“「『"][^”」』"]*[”」』"]/gu, '');
+  if (/^(?:如果|假如|假设|比如|例如)/u.test(unquoted.trim())) return [];
+  return unquoted.split(/[。！？!?\n]/u)
+    // A comma does not end a writing request: its following recipient and
+    // content clauses still belong to the material the user wants composed.
+    .filter(sentence => !/(?:帮我|请你|替我|给我)(?:写|改写|翻译)|(?:^|[，,；;])\s*(?:现在|这次|先)?(?:写一句|写一段|翻译|改写)/u.test(sentence))
+    .flatMap(sentence => sentence.split(/[，,；;]/u))
+    .map(clause => clause.trim())
+    .filter(clause => !/^(?:他|她|朋友|同事|主角|如果|假如|假设|比如|例如|帮我写|请你写|写一句|翻译|改写)/u.test(clause));
+}
+
 function updatePreferences(previous: ChatPreferences, text: string): ChatPreferences {
-  const value = compact(text);
   const next = { ...previous };
   let signal = false;
-  if (/短一点|简单点|别说太多|少说点|一句就好|简短/u.test(value)) {
-    next.brevity = 'short'; signal = true;
-  } else if (/详细一点|展开说|多说一点|讲清楚|写长一点/u.test(value)) {
-    next.brevity = 'detailed'; signal = true;
-  }
-  if (/别问我|不要再问|少问点|别一直问|不想回答/u.test(value)) {
-    next.questionTolerance = 'low'; signal = true;
-  } else if (/你可以问|多问一点|问我吧/u.test(value)) {
-    next.questionTolerance = 'normal'; signal = true;
-  }
-  if (/先听我说|只听我说|别急着给建议|不用分析/u.test(value)) {
-    next.adviceStyle = 'listen'; signal = true;
-  } else if (/给我建议|告诉我怎么办|直接说怎么做/u.test(value)) {
-    next.adviceStyle = 'direct'; signal = true;
+  for(const clause of preferenceClauses(text)) {
+    const found:Array<{index:number;field:'brevity'|'questionTolerance'|'adviceStyle';value:string}>=[];
+    const scan=(pattern:RegExp,field:'brevity'|'questionTolerance'|'adviceStyle',value:string)=>{
+      for(const match of clause.matchAll(new RegExp(pattern.source,'gu'))) {
+        // A negated positive directive is not consent to that style. Negative
+        // directives such as “别说太多” are matched including their negation.
+        if(/(?:别|不要|不用|不必|不需要|不想|不是|无需).{0,5}$/u.test(clause.slice(0,match.index)))continue;
+        found.push({index:match.index,field,value});
+      }
+    };
+    scan(/短一点|简单点|别说太多|少说点|一句就好|简短/u,'brevity','short');
+    scan(/详细一点|展开说|多说一点|讲清楚|写长一点/u,'brevity','detailed');
+    scan(/别问我|不要再问|少问点|少问一点|别一直问|不想回答/u,'questionTolerance','low');
+    scan(/你可以问|多问一点|问我吧/u,'questionTolerance','normal');
+    scan(/先听我说|只听我说|(?:我)?不想听(?:你)?(?:的)?建议|(?:先)?(?:别|不要|不用|不必)(?:急着)?(?:再)?给(?:我)?建议|(?:不用|不要|别)分析|(?:别|不要|不用)(?:给我|跟我)?(?:讲|说|解释)(?:怎么(?:处理|做|办)|该怎么做)/u,'adviceStyle','listen');
+    scan(/给我建议|告诉我怎么办|直接说怎么做/u,'adviceStyle','direct');
+    for(const preference of found.sort((a,b)=>a.index-b.index)) {
+      if(preference.field==='brevity')next.brevity=preference.value as ChatPreferences['brevity'];
+      else if(preference.field==='questionTolerance')next.questionTolerance=preference.value as ChatPreferences['questionTolerance'];
+      else next.adviceStyle=preference.value as ChatPreferences['adviceStyle'];
+      signal=true;
+    }
   }
   if (signal) next.confidence = Math.min(1, next.confidence + 0.35);
   return next;
+}
+
+function adviceForCurrentTopic(text: string): 'listen' | 'direct' | undefined {
+  let advice: 'listen' | 'direct' | undefined;
+  for (const clause of preferenceClauses(text)) {
+    const directives = [...clause.matchAll(/不是(?:想|要|来)(?:听|让你给|让你提)?建议|不想(?:要|听)(?:你的|你给的)?建议|(?:我)?(?:只是|就是|只想)吐槽(?:一下)?|给我建议|告诉我怎么办|直接说怎么做/gu)];
+    for (const match of directives) {
+      if (/(?:别|不要|不用|不是|不想).{0,5}$/u.test(clause.slice(0, match.index))) continue;
+      advice = /^(?:给我建议|告诉我怎么办|直接说怎么做)$/u.test(match[0]) ? 'direct' : 'listen';
+    }
+  }
+  return advice;
 }
 
 export function updateChatConversationState(
@@ -177,6 +214,8 @@ export function updateChatConversationState(
   const base = { ...emptyChatConversationState(), ...(previous ?? {}) };
   const previousPreferences = { ...DEFAULT_CHAT_PREFERENCES, ...(previous?.preferences ?? {}) };
   const intent = detectChatIntent(userText);
+  const preferences = updatePreferences(previousPreferences, userText);
+  const topicAdvice = adviceForCurrentTopic(userText);
   const rawLabel = topicLabel(userText);
   const label = rawLabel.length >= 3 ? rawLabel : '';
   const shifting = detectTopicMove(userText, previousUserText);
@@ -213,7 +252,12 @@ export function updateChatConversationState(
     turnCount: Math.min(100_000, (base.turnCount ?? 0) + 1),
     lastUserTurnAt: now,
     userWantsToShift: shifting,
-    preferences: updatePreferences(previousPreferences, userText),
+    preferences,
+    topicAdvice: topicAdvice === 'listen' && intent !== 'request'
+      ? 'listen'
+      : topicAdvice !== 'direct' && !shifting && intent !== 'closing' && intent !== 'request'
+        ? base.topicAdvice
+        : undefined,
   };
 }
 
@@ -228,12 +272,13 @@ export function buildChatConversationStateContext(state: Partial<ChatConversatio
   if (current.pausedTopics.length > 0) {
     lines.push(`暂时搁置的话题：${current.pausedTopics.slice(0, 3).map((item) => `「${item}」`).join('、')}。除非用户主动提起，不要自行拉回。`);
   }
-  if (current.userWantsToShift) lines.push('用户刚刚明确想转向。旧话题暂停，本轮不要追问旧事。');
+  if (current.userWantsToShift) lines.push('当前话题有转向线索，以用户原话为准；不自动追问旧事。');
   if (prefs.brevity === 'short') lines.push('用户偏好短回复，先说最重要的一句。');
   if (prefs.brevity === 'detailed') lines.push('用户最近明确希望展开，可以比普通聊天多说一些，但仍保持口语。');
   if (prefs.questionTolerance === 'low') lines.push('用户不喜欢连续被提问，优先回应，确实需要时再补问。');
   if (prefs.adviceStyle === 'listen') lines.push('用户更希望先被听见，未经请求不要立刻给解决方案。');
-  if (prefs.adviceStyle === 'direct') lines.push('用户在需要建议时偏好直接、具体的判断。');
+  if (prefs.adviceStyle === 'direct' && current.topicAdvice !== 'listen') lines.push('用户在需要建议时偏好直接、具体的判断。');
+  if (current.topicAdvice === 'listen') lines.push('这件事用户只想吐槽，不是在求建议；就已说出的事情表达你的反应，不替用户分析心理，也不追加休息、放松或处理步骤。用户换题时跟随，后来明确求助时再提供办法。');
   if (current.recentActions.length > 0) {
     lines.push(`最近的交流：${current.recentActions.map((action) => ACTION_LABELS[action] ?? action).join('、')}。只作为上下文，不强制轮换反应或语气。`);
   }

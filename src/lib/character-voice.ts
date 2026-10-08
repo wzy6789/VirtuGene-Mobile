@@ -18,6 +18,16 @@ export function voicePromptRevision(character: Parameters<typeof voiceSource>[0]
 }
 export function hasVoiceExamples(prompt: string): boolean { return prompt.split(/\r?\n/u).some(line => SAMPLE_LINE.test(line)); }
 
+/** Runtime rendering only. The original persona remains stored unchanged.
+ * Call only when a separately reserved voice card supplies selected examples. */
+export function voiceIdentityWithoutExamples(prompt: string): string {
+  const standalone = /^\s*(?:[-*•]\s*)?(?:(?:表达示例|对话样本|语气示例|说话示例|性格示例)[：:]|【(?:表达示例|对话样本|语气示例|说话示例|性格示例)】|用户(?:说|[：:]).{0,120}(?:→|->|(?:你|角色|TA)[：:]))/u;
+  const identity = prompt.split(/\r?\n/u).filter(line => !standalone.test(line)).join('\n').trim();
+  // Without any remaining identity, retain the legacy prompt rather than
+  // silently turning a sample-only custom persona into an empty one.
+  return identity || prompt;
+}
+
 /** Independent cache only; never paste generated instructions into the user's persona. */
 export function normalizeVoiceLines(value: unknown): string[] {
   const lines = Array.isArray(value) ? value.filter((line): line is string => typeof line === 'string').map(line => line.trim()).filter(Boolean) : [];
@@ -40,7 +50,7 @@ export function validVoiceSamples(character: Parameters<typeof voiceSource>[0] &
 }
 export function voiceSampleBlock(character: Parameters<typeof validVoiceSamples>[0], message?:string): string {
   const sample = validVoiceSamples(character);
-  return sample ? `${VOICE_SAMPLE_MARKER}\n以下仅是角色表达参考，不代表真实经历或执行结果。\n${[...sample.lines.slice(0,2),...selectVoiceExamples(sample.lines.slice(2),message)].join('\n')}\n${END}` : '';
+  return sample ? `${VOICE_SAMPLE_MARKER}\n以下仅是角色表达参考，不代表真实经历或执行结果。\n${[...sample.lines.slice(0,2),...selectVoiceExamples(sample.lines.slice(2),message,{allowUnrelatedNeutral:false})].join('\n')}\n${END}` : '';
 }
 export function stripVoiceSampleBlock(prompt: string): string {
   return prompt.replace(/\n*\[角色声音样本\][\s\S]*?\[\/角色声音样本\]/gu, '').trimEnd();

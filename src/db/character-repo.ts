@@ -4,7 +4,7 @@ import { isSecretaryAppearance, secretaryAvatar } from '../lib/secretary/appeara
 
 export const characterRepo = {
   async getAll(): Promise<Character[]> {
-    return db.characters.toArray();
+    return (await db.characters.toArray()).map(c => c.published ? { ...c, reviewedSpeechSamples: undefined } : c);
   },
 
   async getPresets(): Promise<Character[]> {
@@ -20,7 +20,7 @@ export const characterRepo = {
     return db.transaction('rw', db.characters, db.secretaryBindings, async () => {
       const row = character.agentProfile === 'secretary' && !character.isPreset
         ? applySecretaryBinding(character, await bindSecretary(character)) : character;
-      return db.characters.add(row);
+      return db.characters.add(row.published ? { ...row, reviewedSpeechSamples: undefined } : row);
     });
   },
 
@@ -30,7 +30,7 @@ export const characterRepo = {
       if (!current) return 0;
       if (updates.createdBy !== undefined && updates.createdBy !== current.createdBy) throw new Error('不能修改角色的账号归属。');
       if (updates.agentProfile !== undefined && updates.agentProfile !== current.agentProfile) throw new Error('不能修改角色的助理身份。');
-      if (current.agentProfile !== 'secretary') return db.characters.update(id, updates);
+      if (current.agentProfile !== 'secretary') return db.characters.update(id, (updates.published ?? current.published) ? { ...updates, reviewedSpeechSamples: undefined } : updates);
       if (updates.published === true || updates.sourcePresetId !== undefined || updates.proactivity !== undefined && updates.proactivity !== 0) throw new Error('助理不能发布到角色库或启用角色主动聊天，请使用助理管理。');
       if (updates.isPreset === true) throw new Error('私人助理不能改为预设角色。');
       if (updates.secretaryAppearance !== undefined && !isSecretaryAppearance(updates.secretaryAppearance)) throw new Error('请选择男性或女性形象。');
@@ -54,7 +54,7 @@ export const characterRepo = {
 
   async getPublished(): Promise<Character[]> {
     const all = await db.characters.toArray();
-    return all.filter((c) => c.published === true && c.agentProfile !== 'secretary');
+    return all.filter((c) => c.published === true && c.agentProfile !== 'secretary').map(c => ({ ...c, reviewedSpeechSamples: undefined }));
   },
 
   async getByCreator(userId: string): Promise<Character[]> {

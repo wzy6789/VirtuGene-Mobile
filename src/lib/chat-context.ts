@@ -56,24 +56,21 @@ export function buildRelationshipContext(
   mood: number,
   tierNames?: Record<string, string>,
 ): string {
-  const { level, index } = getRelationLevel(affinity);
+  const { level } = getRelationLevel(affinity);
   // 用户自定义等阶名优先（100+ 等阶可随便改）
   const levelName = (tierNames && tierNames[level.name]) || level.name;
   const moodText =
     mood >= 75
-      ? '心情很好，语气轻快、有活力'
+      ? '状态较好，按这个人自己的方式表达'
       : mood >= 50
         ? '心情平稳'
         : mood >= 30
           ? '心情有些低落、易倦'
-          : '心情很差，烦躁、提不起劲';
-  // 基因觉醒层：关系越深，角色不自觉流露的"本色"越多（随等阶解锁的说话层）
-  const awakening = AWAKENING_LAYERS[Math.min(index, AWAKENING_LAYERS.length - 1)];
+          : '状态不太好，可以少说一点，但仍尊重用户';
   return (
-    `\n\n[当前灵魂状态]\n你和用户的关系等阶：${levelName}（${level.desc}，语气${level.tone}）。\n` +
-    `好感度：${Math.round(affinity)}（数值越高越亲密，无上限）；心情：${Math.round(mood)}/100（${moodText}）。\n` +
-    (awakening ? `${awakening}\n` : '') +
-    '让这些自然地影响你的语气与言行（等阶越高越亲密无间、心情差时别勉强），但不要直接说出任何数字。'
+    `\n\n[当前灵魂状态]\n你和用户的关系等阶：${levelName}（相处熟悉度参考）。\n` +
+    `好感度：${Math.round(affinity)}；心情：${Math.round(mood)}/100（${moodText}）。\n` +
+    '熟悉度可以影响这个人愿意透露多少、措辞多随意，仍保留原有性格。关系类型、称呼和亲密边界依据人设与真实对话；数值不代表恋爱、未来承诺或共同现场。状态较好不要求活泼，状态差也不用挖苦用户。不要说出数值或等阶。'
   );
 }
 
@@ -85,11 +82,11 @@ export function buildRelationshipToneContext(
 ): string {
   const { level } = getRelationLevel(affinity);
   const levelName = tierNames?.[level.name] || level.name;
-  const moodText = mood >= 75 ? '心情明快，表达可以更轻快一些'
+  const moodText = mood >= 75 ? '状态较好，按原有性格表达'
     : mood >= 50 ? '心情平稳，按平常节奏回应'
       : mood >= 30 ? '有些低落或疲倦，不必强打精神'
-        : '状态不太好，语气可以短一点、收敛一点';
-  return `[关系与情绪语气参考]\n你和用户目前相处在「${levelName}」阶段；${moodText}。只用来调整亲疏与表达节奏，不要说出等阶、数值或“系统状态”，也不要因此偏离角色原本性格。`;
+    : '状态不太好，语气可以短一点、收敛一点';
+  return `[关系与情绪语气参考]\n你和用户目前相处在「${levelName}」阶段；${moodText}。只用来调整熟悉感与表达节奏，关系类型、称呼和亲密边界仍依据人设与真实对话，不由数值自动改变。不要说出等阶、数值或“系统状态”，也不要因此偏离角色原本性格。`;
 }
 
 /**
@@ -124,23 +121,6 @@ export function buildStoryRelationContext(state: CharacterState, characters: Cha
   return `\n\n[你的故事关系]\n${lines}\n这些是当前角色世界观中的关系，可能来自预设背景或用户设定。你清楚这些关系，并会在话题自然相关时体现熟悉、在意、竞争、守护等符合设定的态度；不要凭空补写未设定的共同经历，不要主动把关系当作说明书逐条报出，也不要擅自改变关系。`;
 }
 
-/** 基因觉醒层：按关系等阶解锁的"本色流露"，越深越不需要伪装 */
-const AWAKENING_LAYERS: string[] = [
-  '',
-  '',
-  '',
-  // 挚友（60）起开始不自觉在意
-  '你们已足够熟悉：你发现自己会不自觉地留意 TA 的一举一动，关心脱口而出时又立刻想藏住——这是你"基因觉醒"的第一层，别演得太刻意。',
-  // 知己（80）
-  '面对 TA，你平日竖起的刺会一点点放下，偶尔露出连自己都觉得陌生的柔软；你开始愿意让 TA 看见真实的自己。',
-  // 灵魂共鸣（100）
-  '你与 TA 之间已不需太多言语：一个眼神就懂。你会在最自然的时候，把只有最信任之人才知道的自己交出来。',
-  // 生命同频（150）
-  'TA 已是你生命的一部分：你会下意识地把 TA 放进所有关于未来的打算里，习惯成自然，不必刻意表现。',
-  // 永恒羁绊（220）
-  '你与 TA 之间已跨越时间——哪怕沧海桑田，你的直觉、你的每一次选择，都会先为 TA 着想。这不是承诺，是本能。',
-];
-
 /** 今天是什么日子：认识天数特殊节点——让角色像真人一样记得日子 */
 export function buildDayContext(daysKnown?: number): string {
   if (!daysKnown || daysKnown <= 0) return '';
@@ -164,7 +144,7 @@ export function buildCatchphrase(catchphrase?: string): string {
 /** 用户情绪注入：最近一次结算感知到的用户情绪，让角色在语气上呼应 */
 export function buildUserEmotionContext(userEmotion?: string): string {
   if (!userEmotion || userEmotion === '平静' || userEmotion === '未知') return '';
-  return `\n\n[用户此刻的情绪]\n用户此刻似乎${userEmotion}。自然地体现在你的回应里（如 TA 低落时先安抚、开心时一起开心），但不要直接点破或说"你看起来"。`;
+  return `\n\n[之前的情绪线索]\n早前对话曾记录过「${userEmotion}」，只作为背景，不代表用户现在仍这样。当前原话与请求优先；用户已经更正、拒绝分析或转向时跟随当前内容。不要为了展示这条线索继续安慰、解释心情或追问旧事。`;
 }
 
 /** 未完成事件的类别名（与 continuity-repo 的 KIND_LABEL 保持一致，这里不反向依赖 db 层） */

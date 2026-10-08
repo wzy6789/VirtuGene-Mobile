@@ -15,8 +15,10 @@ const server = createServer((req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 let checks = 0;
+let debugPage;
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+  debugPage=page;
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.waitForFunction(() => !!window.chatStreamTest);
@@ -40,6 +42,24 @@ try {
   check(split.map(m => m.content).join('|') === '你好|我在这里。' && split[0].replyBatchSize === 2, 'split replies saved once with batch metadata');
   check(await page.locator('[data-streaming-reply]').count() === 0, 'final rows replace preview');
   check(split[0].createdAt > (await test('records'))[0].createdAt && split[1].createdAt > split[0].createdAt, 'saved reply ordering survives reopening');
+
+  await ready(0); await test('submit', '今天碰到件好笑的事'); await waitRequests(1);
+  await test('push',0,'哈哈哈哈');await page.locator('[data-streaming-reply]').waitFor();
+  await test('push',0,'\n\n');await page.waitForTimeout(70);
+  check(await page.locator('.vg-streaming-part').count()===1,'pending blank paragraph creates no empty bubble');
+  await test('push',0,'这个我真没想到。');await page.waitForFunction(()=>document.querySelectorAll('.vg-streaming-part').length===2);
+  check((await page.locator('.vg-streaming-part').first().innerText()).includes('哈哈哈哈')&&!(await page.locator('.vg-streaming-part').first().innerText()).includes('这个我真没想到'),'paragraph fallback preserves already-visible first reaction');
+  await test('finish',0);await done();
+  const paragraphRows=(await test('records')).filter(m=>m.role==='assistant');
+  check(paragraphRows.map(m=>m.content).join('|')==='哈哈哈哈|这个我真没想到。'&&paragraphRows.every(m=>m.replyBatchSize===2),'actual private send commits two paragraph bubbles once with batch metadata');
+  check(paragraphRows.every(m=>!m.content.includes('\n')&&!m.content.includes('---')),'stored paragraph bubbles have no line breaks or literal separator');
+
+  await ready(0);await test('submit','详细写一段说明');await waitRequests(1);
+  await test('push',0,'第一段。\n\n第二段。');await page.locator('[data-streaming-reply]').waitFor();
+  check(await page.locator('.vg-streaming-part').count()===1,'explicit long request configures one streaming bubble');
+  await test('finish',0);await done();
+  const proseRows=(await test('records')).filter(m=>m.role==='assistant');
+  check(proseRows.length===1&&proseRows[0].content==='第一段。第二段。','long request preview and stored content use the same boundary policy');
 
   await ready(0); await test('submit', '说说今天'); await waitRequests(1);
   await test('push', 0, '长长的第一条---嗯---啊---长长的第四条');
@@ -117,4 +137,7 @@ try {
   check(await page.locator('[data-streaming-reply]').count() === 0, 'account switch clears the old live preview');
   check(await test('extraNetwork') === 0 && errors.length === 0, 'no real network or uncaught page errors');
   console.log(`PASS chat-stream: ${checks} checks`);
+} catch(error) {
+  if(debugPage)console.log('stream failure state',await debugPage.evaluate(async()=>({requests:window.chatStreamTest.requests().map(r=>({aborted:r.aborted,lastInput:r.body.messages?.at(-1)?.content,raw:r.raw})),a:(await window.chatStreamTest.records('a')).map(m=>({role:m.role,content:m.content,failed:m.failed})),b:(await window.chatStreamTest.records('b')).map(m=>({role:m.role,content:m.content,failed:m.failed})),input:document.querySelector('[aria-label="消息内容"]')?.value,preview:document.querySelector('[data-streaming-reply]')?.textContent})).catch(()=>null));
+  throw error;
 } finally { await browser.close(); server.close(); }

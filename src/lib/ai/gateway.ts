@@ -1,5 +1,6 @@
 import type { ChatParams, ChatResult } from './deepseek';
 import { readSseResponse, type LLMStreamResult } from './llm';
+import {DEEPSEEK_MODEL_ID} from '../../../server/deepseek-policy.mjs';
 
 const GATEWAY_URL = (import.meta.env.VITE_AI_GATEWAY_URL ?? '').trim().replace(/\/$/, '');
 const GATEWAY_TOKEN = (import.meta.env.VITE_AI_GATEWAY_TOKEN ?? '').trim();
@@ -122,7 +123,10 @@ export async function gatewayChat(params: ChatParams, options: { baseUrl?: strin
   if (params.signal?.aborted) cancel();
   else params.signal?.addEventListener('abort', cancel, { once: true });
   const timeout = window.setTimeout(() => controller.abort(), params.timeoutMs ?? 65_000);
+  let requested=false,reported=false;
+  const report=(usage:ChatResult['usage'],modelId:string=DEEPSEEK_MODEL_ID)=>{reported=true;try{params.onUsage?.({modelId,usage});}catch{/* Observer failure cannot retry a paid request. */}};
   try {
+    requested=!params.signal?.aborted;
     const response = await fetch(`${baseUrl}/v1/chat`, {
       method: 'POST',
       headers: {
@@ -145,11 +149,13 @@ export async function gatewayChat(params: ChatParams, options: { baseUrl?: strin
       }),
       signal: controller.signal,
     });
-    if (!response.ok) throw gatewayError(response.status);
+    if (!response.ok) {requested=response.status>=500;throw gatewayError(response.status);}
     const data = (await response.json()) as ChatResult;
+    report(data?.usage,data?.modelId);
     if (!data || typeof data.content !== 'string') throw new Error('server:error');
     return data;
   } catch (error) {
+    if(requested&&!reported)report(undefined);
     if (params.signal?.aborted) throw params.signal.reason ?? new DOMException('Cancelled', 'AbortError');
     if (error instanceof Error && error.name === 'AbortError') throw new Error('timeout');
     throw error instanceof Error ? error : new Error('server:error');
@@ -183,7 +189,10 @@ export async function gatewayChatStream(
   if (params.signal?.aborted) cancel();
   else params.signal?.addEventListener('abort', cancel, { once: true });
   const timeout = window.setTimeout(() => controller.abort(), params.timeoutMs ?? 65_000);
+  let requested=false,reported=false;
+  const report=(usage:ChatResult['usage'])=>{reported=true;try{params.onUsage?.({modelId:DEEPSEEK_MODEL_ID,usage});}catch{/* Observer failure cannot retry a paid request. */}};
   try {
+    requested=!params.signal?.aborted;
     const response = await fetch(`${baseUrl}/v1/chat/stream`, {
       method: 'POST',
       headers: {
@@ -209,12 +218,15 @@ export async function gatewayChatStream(
     // A deployed older gateway may expose only the original JSON endpoint.
     // This fallback happens before any text has been received, never after a cut.
     if (response.status === 404 || response.status === 405) {
+      // Endpoint discovery is not a model call; JSON fallback reports itself.
+      requested=false;
       const result = await gatewayChat(params, { baseUrl });
       if (result.content) params.onDelta(result.content, result.content);
       return result;
     }
-    if (!response.ok) throw gatewayError(response.status);
+    if (!response.ok) {requested=response.status>=500;throw gatewayError(response.status);}
     const outcome = await readSseResponse(response, params.onDelta);
+    report(outcome.usage);
     const truncated = outcome.truncated || outcome.interrupted;
     if (!outcome.content.trim()) throw new Error('stream:empty');
     return {
@@ -223,6 +235,7 @@ export async function gatewayChatStream(
       ...(outcome.usage ? { usage: outcome.usage } : {}),
     };
   } catch (error) {
+    if(requested&&!reported)report(undefined);
     if (params.signal?.aborted) throw params.signal.reason ?? new DOMException('Cancelled', 'AbortError');
     if (error instanceof Error && error.name === 'AbortError') throw new Error('timeout');
     throw error instanceof Error ? error : new Error('server:error');

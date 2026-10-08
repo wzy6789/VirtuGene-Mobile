@@ -3,8 +3,10 @@ import type { Character } from '../db/index';
 import { GU_YUE_NA_MARRIAGE, GU_YUE_NA_NOW, GU_YUE_NA_RECOGNITION, reviseGuYueNaPresetPrompt } from './gu-yue-na-personality';
 import { PRACTICAL_PRESETS } from './practical-presets';
 import { isDouluoPreset, reviseDouluoPresetPrompt, syncDouluoRelations, withDouluoRelations } from './douluo-relations';
+import {knownOriginalPresetVoicePrompts,reviseOriginalPresetVoice,reviseOriginalPresetCard} from './original-preset-voice';
+import {db} from '../db';
 
-const PRESET_CHARACTERS: Omit<Character, 'createdAt'>[] = [
+export const PRESET_CHARACTERS: ReadonlyArray<Omit<Character, 'createdAt'>> = [
   ...PRACTICAL_PRESETS,
   {
     id: 'preset-linshuang',
@@ -511,7 +513,8 @@ async function syncPresets(): Promise<void> {
 
   // Upsert presets: update content in place, insert if missing
   for (const char of PRESET_CHARACTERS) {
-    const basePrompt = char.id === 'preset-guyuena' ? reviseGuYueNaPresetPrompt(char.systemPrompt) : char.systemPrompt;
+    const card=reviseOriginalPresetCard(char,char.id);
+    const basePrompt = char.id === 'preset-guyuena' ? reviseGuYueNaPresetPrompt(char.systemPrompt) : reviseOriginalPresetVoice(char.systemPrompt,char.id);
     const systemPrompt = withDouluoRelations(reviseDouluoPresetPrompt(basePrompt, char.id), char.id);
     const exists = await characterRepo.getById(char.id);
     if (exists) {
@@ -519,14 +522,30 @@ async function syncPresets(): Promise<void> {
         name: char.name,
         avatar: char.avatar,
         tags: char.tags,
-        signature: char.signature,
-        greeting: char.greeting,
+        signature: card.signature,
+        greeting: card.greeting,
         systemPrompt,
         proactivity: char.proactivity,
       });
     } else {
-      await characterRepo.create({ ...char, systemPrompt, createdAt: Date.now() });
+      await characterRepo.create({ ...char, ...card, systemPrompt, createdAt: Date.now() });
     }
+  }
+
+  // Upgrade only untouched owned copies of known complete built-in versions.
+  // A user edit, publication, concurrent change or deletion must win.
+  for(const old of existing) {
+    if(!old.sourcePresetId||old.isPreset||old.published||old.agentProfile==='secretary')continue;
+    const source=PRESET_CHARACTERS.find(item=>item.id===old.sourcePresetId);
+    if(!source||!knownOriginalPresetVoicePrompts(source.systemPrompt,source.id).includes(old.systemPrompt))continue;
+    const revised=reviseOriginalPresetVoice(source.systemPrompt,source.id);
+    const card=reviseOriginalPresetCard(old,source.id);
+    if(revised===old.systemPrompt&&card.greeting===old.greeting&&card.signature===old.signature)continue;
+    await db.transaction('rw',db.characters,async()=>{
+      const current=await db.characters.get(old.id);
+      if(current&&!current.isPreset&&!current.published&&current.agentProfile!=='secretary'&&current.createdBy===old.createdBy&&current.sourcePresetId===source.id&&current.systemPrompt===old.systemPrompt&&current.greeting===old.greeting&&current.signature===old.signature)
+        await db.characters.update(old.id,{systemPrompt:revised,...card});
+    });
   }
 
   // Revise known preset paragraphs in owned copies, preserving user additions,

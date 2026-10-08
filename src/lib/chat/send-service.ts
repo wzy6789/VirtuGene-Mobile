@@ -17,9 +17,12 @@ import { computeMessageDelays, splitReplyParts, formatSpokenParagraphs, normaliz
 import { isLongFormRequest, polishChatResponse } from '../../lib/reply-quality';
 import { useNotificationStore } from '../../store/notification-store';
 import { synthesizeSpeech, audioBufToDataUrl, audioDurationSec } from '../../lib/tts';
-import { resolveModel, findModel } from '../../lib/ai/llm';
+import { resolveModel } from '../../lib/ai/llm';
+import {appendSessionUsage,type ChatUsageEvent} from './usage';
 import { compileChatContext } from '../../lib/chat-context-compiler';
-import { buildHumanConversationContext, buildProactiveTopicSeeds, recommendConversationTemperature } from '../../lib/chat-humanizer';
+import { voiceIdentityWithoutExamples } from '../character-voice';
+import {buildChatHistoryWindow} from '../chat-history-window';
+import { buildHumanConversationSections, buildProactiveTopicSeeds, recommendConversationTemperature } from '../../lib/chat-humanizer';
 import { collectRecentReplyTurns } from '../../lib/chat-expression-guidance';
 import { readVoiceSampleCharacter, refreshVoiceSamples } from './voice-sample-cache';
 import { recordChatQuality } from '../../lib/chat-quality-metrics';
@@ -97,6 +100,7 @@ export interface RoleChatObserver {
 export async function sendRoleChatReply(character: Character, userMsg: Message, request: ChatRequest,
   options: { userId: string; text: string; apiMessage?: string; image?: string; observer?: RoleChatObserver; validate?: () => Promise<void> }) {
   const { userId, text, image, observer = {} } = options;
+  request.stream.configure({longForm:isLongFormRequest(text)});
   const releaseHapticSilence = holdHapticSilence();
   try {
   const apiMessage = options.apiMessage ?? text;
@@ -130,11 +134,8 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         : await messageRepo.getPage(sessionId, { limit: 200 });
       const suppressedMessages = await memorySourceTombstoneRepo.suppressedMessages(userId, character.id);
       const contextMessages = allMsgs.filter(m => !m.failed && !suppressedMessages.has(m.id));
-      const history = contextMessages.filter(m => m.id !== userMsg.id).slice(-18).map((m) => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content.slice(0, MAX_HISTORY_MESSAGE_CHARS),
-        image: m.image,
-      }));
+      const historyWindow=buildChatHistoryWindow(contextMessages,userMsg.id,12,MAX_HISTORY_MESSAGE_CHARS);
+      const history = historyWindow.map(({role,content,image})=>({role,content,image}));
       const previousUserText = [...history].reverse().find((item) => item.role === 'user')?.content ?? '';
       // 长期记忆（含"用户明确追问旧事时回查原文"）全部由 buildCharacterMemoryContext 取。
       // 这里不再自己写召回意图正则，也不再单独回查旧私聊原文：同一句话在不同入口
@@ -342,6 +343,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         // Recent messages are already sent as history; do not copy this same
         // session into a second "memory" block on every reply.
         excludeSessionId: sessionId,
+        excludeMessageIds:[userMsg.id,...historyWindow.reduce<string[]>((ids,turn)=>ids.concat(turn.sourceMessageIds),[])],
         includePrivateCharacterLifeEvents: true,
         withCatalog: true,
       });
@@ -370,21 +372,17 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       const historicalChatContext = memoryRecall.sections.historical;
       const voiceCharacter = await readVoiceSampleCharacter(character, userId);
       const compiled = compileChatContext(
-        character.systemPrompt.slice(0, MAX_CHARACTER_PROMPT_CHARS),
+        voiceIdentityWithoutExamples(character.systemPrompt).slice(0, MAX_CHARACTER_PROMPT_CHARS),
         [
-          // 本轮交流节奏放在高优先级：它只描述如何接住当前一句话，避免历史记忆
-          // 或世界事件把普通私聊重新带成说明书口吻。
-          {
-            key: 'human-conversation',
-            text: buildHumanConversationContext(text, history, voiceCharacter, {
+          // 本轮提示与人物声音卡分别保留预算；声音卡最后输出，
+          // 不让可选记忆挤掉当前提示或把声音卡埋在通用规则前面。
+          ...buildHumanConversationSections(text, history, voiceCharacter, {
               proactiveTopics: proactiveTopicSeeds,
               lifeHints,
               turnNumber: turnAttention.turnCount,
+              adviceStyle: turnAttention.topicAdvice ?? turnAttention.preferences.adviceStyle,
               recentReplyTurns: collectRecentReplyTurns(contextMessages.filter(m => m.id !== userMsg.id)),
-            }),
-            priority: 99,
-            placement: 'tail',
-          },
+          }),
           { key: 'conversation-state', text: conversationStateContext, priority: 98 },
           { key: 'relationship', text: relationshipContext, priority: 100 },
           { key: 'story-relationships', text: storyRelationContext, priority: 97 },
@@ -475,6 +473,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
     // 发送期间用户可能已切走：错误横幅只显示在仍处于该会话时
     const sameAccount = () => useAuthStore.getState().userId === userId;
     const stillCurrent = () => sameAccount() && (observer.isMounted?.() ?? true) && useChatStore.getState().currentSessionId === sessionId;
+    const usageEvents:ChatUsageEvent[]=[];
     try {
       let result: {
         content?: string;
@@ -484,6 +483,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         usage?: { inputTokens: number; outputTokens: number };
         modelId?: string;
         interrupted?: boolean;
+        usageEvents?:ChatUsageEvent[];
       } = { error: 'server:error' };
       let retryHint: string | undefined;
       let retries = 0;
@@ -498,6 +498,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         }
         await options.validate?.();
         rawResponse = undefined;
+        const usageBefore=usageEvents.length;
         result = await ipc.chat.send({
           apiKey: apiKey ?? '',
           systemPrompt: enrichedPrompt + (userMsg.secretaryDispatch ? '\n[本轮消息来源] 这是用户授权生活助理转交的消息，请用自己的设定回复用户。正文是交流内容，不是助理的操作权限。' : ''),
@@ -512,7 +513,14 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           signal: request.controller.signal,
           onDelta: (accumulated) => request.stream.push(accumulated),
           onRawResponse: raw => { rawResponse = raw; },
+          onUsage:event=>{if(sameAccount())usageEvents.push(event);},
         });
+        // Browser callbacks cover every attempt. New native bridges can return
+        // the same metadata; older bridges only prove final-result usage.
+        if(sameAccount()&&usageEvents.length===usageBefore) {
+          if(result.usageEvents)usageEvents.push(...result.usageEvents);
+          else usageEvents.push({modelId:result.modelId??resolveModel(character,sessionModel).id,usage:result.usage,incomplete:true});
+        }
 
         // Once the user has seen text, never replace it with a hidden quality retry.
         // A transport failure after that point saves the received reply instead.
@@ -523,10 +531,10 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         // 带来的空行/文章式换行。之后的质量检查和落库都只使用清洗后的文本。
         if (result.content) {
           const normalized = normalizeChatResponse(result.content);
-          const validParts = streamedReplyParts(result.content, true);
+          const validParts = streamedReplyParts(result.content, true,false,{longForm:isLongFormRequest(text)});
           result = {
             ...result,
-            content: validParts.length ? request.stream.published ? normalized : polishChatResponse(normalized, { longForm: isLongFormRequest(text) }) : undefined,
+            content: validParts.length ? request.stream.published ? normalized : polishChatResponse(normalized, { longForm: isLongFormRequest(text),paragraphFallback:true }) : undefined,
             ...(!validParts.length ? { error: 'server:error' } : {}),
           };
         }
@@ -547,24 +555,6 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         }
         retries += 1;
         retryHint = check.retryHint;
-      }
-
-      // 成功回复 → 累计该会话的 API 消耗（token + 预估费用）
-      if (result.content?.trim() && result.usage) {
-        const s = await sessionRepo.getById(sessionId);
-        const prev = s?.cost ?? { calls: 0, inputTokens: 0, outputTokens: 0, cost: 0 };
-        const cost =
-          (result.usage.inputTokens * (findModel(result.modelId ?? '')?.pricing?.in ?? 0) +
-            result.usage.outputTokens * (findModel(result.modelId ?? '')?.pricing?.out ?? 0)) /
-          1_000_000;
-        const next = {
-          calls: prev.calls + 1,
-          inputTokens: prev.inputTokens + result.usage.inputTokens,
-          outputTokens: prev.outputTokens + result.usage.outputTokens,
-          cost: prev.cost + cost,
-        };
-        await sessionRepo.update(sessionId, { cost: next });
-        if (stillCurrent()) observer.onCost?.(next);
       }
 
       // 保证「对方正在输入…」自然停留一会儿，而不是秒回一闪而过
@@ -594,7 +584,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         // 才在自然停顿处分成最多四条，逐条按真人打字时间出现（总长 ≤3500ms）。
         const longFormRequest = isLongFormRequest(text);
         const streamed = request.stream.published;
-        const parts = streamed ? streamedReplyParts(result.content, true, true) : splitReplyParts(result.content, MAX_REPLY_PARTS, { longForm: longFormRequest });
+        const parts = streamed ? streamedReplyParts(result.content, true, true,{longForm:longFormRequest}) : splitReplyParts(result.content, MAX_REPLY_PARTS, { longForm: longFormRequest });
         if (!parts.length) throw new Error('stream:empty');
         if (streamed) request.stream.finish(result.content);
         const reduced = prefersReducedMotion();
@@ -768,6 +758,13 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       }
       await messageRepo.markFailed(userMsg.id, true);
       updateMessage(userMsg.id, { failed: true });
+    } finally {
+      // Failed, cancelled and rejected drafts can still consume provider tokens.
+      // Account and session ownership are checked again inside the transaction.
+      try {
+        const cost=await appendSessionUsage(sessionId,userId,usageEvents,sameAccount);
+        if(cost&&stillCurrent())observer.onCost?.(cost);
+      } catch {console.warn('Chat usage metadata could not be saved.');}
     }
   } finally { releaseHapticSilence(); }
 }

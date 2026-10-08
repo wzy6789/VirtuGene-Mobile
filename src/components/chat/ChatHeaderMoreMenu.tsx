@@ -4,7 +4,7 @@ import { useChatStore } from '../../store/chat-store';
 import { edgeTTSSynthesize } from '../../lib/edge-tts';
 import { mimoTTSSynthesize, mapEdgeVoiceToMimo } from '../../lib/mimo-tts';
 import { DEFAULT_VOICE, DEFAULT_MALE_VOICE, DIALECT_VOICES } from '../../lib/voice-map';
-import type { Character } from '../../db/index';
+import type { Character,Session } from '../../db/index';
 import { Modal } from '../ui/Modal';
 import { Avatar } from '../ui/Avatar';
 import { VoicePreferences } from '../settings/VoicePreferences';
@@ -21,7 +21,7 @@ function TtsSettings({
 }: {
   character?: Character;
   modelLabel?: string;
-  cost?: { calls: number; inputTokens: number; outputTokens: number; cost: number };
+  cost?: Session['cost'];
 }) {
   const ttsEngine = useSettingsStore((s) => s.ttsEngine);
   const [demoBusy, setDemoBusy] = useState(false);
@@ -102,7 +102,7 @@ function TtsSettings({
       <VoicePreferences />
       <SettingsGroup title="当前会话模型" scope="本会话">
         <div className="vg-preference-row"><span className="vg-preference-copy"><strong>{modelLabel || '默认模型'}</strong><small>本会话沿用首次选定的模型。全局默认值不会修改它。</small></span></div>
-        {cost && cost.calls > 0 ? <p className="vg-settings-intro px-4">{cost.calls} 次对话 · {(cost.inputTokens / 1000).toFixed(1)}K 输入 / {(cost.outputTokens / 1000).toFixed(1)}K 输出 · 约 ¥{cost.cost.toFixed(3)}</p> : <p className="vg-settings-intro px-4">暂无消耗记录</p>}
+        {cost && cost.calls > 0 ? <p className="vg-settings-intro px-4">{cost.calls} 次请求 · {(cost.inputTokens / 1000).toFixed(1)}K 输入 / {(cost.outputTokens / 1000).toFixed(1)}K 输出 · {cost.incomplete||!cost.perAttemptAccounting?'已知部分约':'约'} ¥{cost.cost.toFixed(3)}{cost.unknownUsageCalls?` · ${cost.unknownUsageCalls} 次未返回用量`:cost.incomplete||!cost.perAttemptAccounting?' · 统计可能不完整':''}</p> : <p className="vg-settings-intro px-4">暂无消耗记录</p>}
       </SettingsGroup>
       <details className="vg-settings-form"><summary className="py-3 text-sm">外观与阅读</summary><AppearanceSettings includeOrbColor={false} /></details>
     </div>
@@ -113,7 +113,7 @@ function TtsSettings({
 export function ChatHeaderMoreMenu({character,modelLabel,cost}:{
   character?:Character;
   modelLabel?:string;
-  cost?:{calls:number;inputTokens:number;outputTokens:number;cost:number};
+  cost?:Session['cost'];
 }){
   const [open,setOpen]=useState(false);
   return <div className="relative">

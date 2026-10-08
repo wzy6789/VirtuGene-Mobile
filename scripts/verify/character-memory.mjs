@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 
-const bundle = await build({entryPoints:['scripts/verify/character-memory.ts'],bundle:true,write:false,platform:'browser',format:'iife',define:{'import.meta.env':'{}',__APP_VERSION__:'"test"'}});
+const bundle = await build({entryPoints:['scripts/verify/character-memory.ts'],bundle:true,write:false,platform:'browser',format:'iife',loader:{'.webp':'dataurl','.png':'dataurl'},define:{'import.meta.env':'{}',__APP_VERSION__:'"test"'}});
 let complete;
 const done = new Promise(resolve => { complete=resolve; });
 const server = createServer((req,res) => {
