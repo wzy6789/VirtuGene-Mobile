@@ -47,7 +47,7 @@ export function isViewExchange(message:string):boolean {
 export function isDirectAffection(message: string): boolean {
   const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
   if(/^(?:如果|假如|假设|比如|例如|帮我写|写一段|写一个|他|她|朋友|同事|主角)/u.test(text))return false;
-  return text.split(/[。！？!?，,；;\n]/u).some(part=>/^(?:(?:只是|就是|就)?我(?:真的|好|很|也|还是)?(?:爱你|喜欢你|想你)(?:了)?|(?:只是|就是|就)?想你了|好想你|你对我很重要)[～~\s]*(?:呀|啊|呢|啦|嘛)?[～~\s]*$/u.test(part.trim()));
+  return text.split(/[。！？!?，,；;\n]/u).some(part=>/^(?:(?:只是|就是|就)?我(?:真的|好|很|也|还是|有点|有一点|有些|有一些)?(?:爱你|喜欢你|想你)(?:了)?|(?:只是|就是|就)?想你了|好想你|你对我很重要)[～~\s]*(?:呀|啊|呢|啦|嘛)?[～~\s]*$/u.test(part.trim()));
 }
 
 export function allowsDramaticReply(message: string, recentUserMessages: string[] = []): boolean {

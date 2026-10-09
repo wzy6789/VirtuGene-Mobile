@@ -22,12 +22,15 @@ import {appendSessionUsage,type ChatUsageEvent} from './usage';
 import { compileChatContext } from '../../lib/chat-context-compiler';
 import { voiceIdentityWithoutExamples } from '../character-voice';
 import { guYueNaPromptForTurn } from '../gu-yue-na-runtime';
+import { luXueQiRelationshipForTurn } from '../lu-xue-qi-runtime';
 import {buildChatHistoryWindow} from '../chat-history-window';
 import { buildHumanConversationSections, buildProactiveTopicSeeds, recommendConversationTemperature } from '../../lib/chat-humanizer';
 import { collectRecentReplyTurns } from '../../lib/chat-expression-guidance';
 import { readVoiceSampleCharacter, refreshVoiceSamples } from './voice-sample-cache';
-import { recordChatQuality } from '../../lib/chat-quality-metrics';
+import { recordChatQuality,recordQualityEvent } from '../../lib/chat-quality-metrics';
 import { inspectChatOutput } from '../../lib/chat-output-quality';
+import {allowsDramaticReply} from '../chat-expression-boundary';
+import {findCurrentActivityRisk,omitUnsupportedCurrentActivities} from '../chat-current-activity-risk';
 import { findSpokenMemoryIds, prepareMemoryMetadata } from '../../lib/memory-engine';
 import { buildSummaryBatch, findUncoveredSummaryMessages } from '../../lib/ai/summary-batches';
 import { memorySpeaker } from '../../../server/memory-source-policy.mjs';
@@ -373,12 +376,15 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       // 用户明确追问旧事时回查到的原文（私聊 / 群聊 / 星域旧片段），由服务统一检索。
       const historicalChatContext = memoryRecall.sections.historical;
       const voiceCharacter = await readVoiceSampleCharacter(character, userId);
+      const luXueQiTurn = luXueQiRelationshipForTurn(voiceCharacter, text, contextMessages
+        .filter(message => message.id !== userMsg.id && message.role === 'user' && message.secretaryDispatch?.bodyOrigin !== 'composed')
+        .map(message => message.content));
       const compiled = compileChatContext(
         voiceIdentityWithoutExamples(guYueNaPromptForTurn(character, text, history.filter(turn=>turn.role==='user').slice(-2).map(turn=>turn.content))).slice(0, MAX_CHARACTER_PROMPT_CHARS),
         [
           // 本轮提示与人物声音卡分别保留预算；声音卡最后输出，
           // 不让可选记忆挤掉当前提示或把声音卡埋在通用规则前面。
-          ...buildHumanConversationSections(text, history, voiceCharacter, {
+          ...buildHumanConversationSections(text, history, luXueQiTurn.character, {
               proactiveTopics: proactiveTopicSeeds,
               lifeHints,
               turnNumber: turnAttention.turnCount,
@@ -387,6 +393,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           }),
           { key: 'conversation-state', text: conversationStateContext, priority: 98 },
           { key: 'relationship', text: relationshipContext, priority: 100 },
+          { key: 'luxueqi-relationship', text: luXueQiTurn.context, priority: 100 },
           { key: 'story-relationships', text: storyRelationContext, priority: 97 },
           { key: 'cross-channel-memory', text: crossChannelMemory.text, priority: recallIntent.explicit ? 97 : 92 },
           { key: 'life', text: freshTopic && !isTopicRelated(text, lifeContext) ? '' : lifeContext, priority: 92 },
@@ -497,6 +504,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       let retries = 0;
       let rawResponse: string | undefined;
       let bestDraft: { result: typeof result; raw: string | undefined; severity:number } | undefined;
+      let activityFallbackApplied=false;
       const MAX_RETRIES = 1;
 
       for (;;) {
@@ -563,6 +571,17 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         }
         retries += 1;
         retryHint = check.retryHint;
+      }
+
+      // Never restore a known unsupported activity from bestDraft after both
+      // attempts fail. Published streams keep their established identity.
+      if(!request.stream.published&&!request.controller.signal.aborted&&result.content
+        &&!allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))
+        &&findCurrentActivityRisk(result.content,text,character.systemPrompt)) {
+        const safe=omitUnsupportedCurrentActivities(result.content,text,character.systemPrompt);
+        activityFallbackApplied=true;
+        result={...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
+        if(!safe)recordQualityEvent(userId,{mode:'private',issue:'self-report-risk',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
       }
 
       // 保证「对方正在输入…」自然停留一会儿，而不是秒回一闪而过
@@ -677,7 +696,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         request.completed = true;
         if (streamed) savedReplies.forEach(addMessage);
         const finalQuality = inspectChatOutput(savedReplies.map(m => m.content).join('\n---\n'), {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords,hasCurrentImage:!!(image||momentImage)});
-        recordChatQuality(userId, rawResponse ?? result.content, savedReplies.map(m => m.content).join(''), retries, rawResponse !== undefined, {issue:finalQuality.check.issue, streamed:request.stream.published,durationMs:Date.now()-startedAt,firstVisibleMs:request.stream.firstTextAt!==undefined?request.stream.firstTextAt-startedAt:undefined});
+        recordChatQuality(userId, rawResponse ?? result.content, savedReplies.map(m => m.content).join(''), retries, rawResponse !== undefined, {issue:finalQuality.check.issue??(activityFallbackApplied?'self-report-risk':undefined), streamed:request.stream.published,durationMs:Date.now()-startedAt,firstVisibleMs:request.stream.firstTextAt!==undefined?request.stream.firstTextAt-startedAt:undefined});
         if (stillCurrent()) { observer.onComplete?.(); }
         if (result.interrupted || request.controller.signal.aborted) return;
         // 记录本轮对话的轻量节奏状态：不存原文，只保存话题标签、用户偏好和

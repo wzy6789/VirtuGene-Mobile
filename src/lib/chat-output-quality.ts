@@ -6,6 +6,7 @@ import { findSelfReportRisk } from './chat-self-report-risk';
 import {findCurrentSceneRisk} from './chat-current-scene-risk';
 import {findAffectionHistoryRisk} from './chat-affection-history-risk';
 import {findRememberedTeasingRisk} from './chat-remembered-teasing-risk';
+import {findCurrentActivityRisk} from './chat-current-activity-risk';
 
 export interface OutputQualityContext {
   mode: 'private' | 'proactive' | 'group';
@@ -31,6 +32,7 @@ export function inspectChatOutput(raw: string, context: OutputQualityContext): {
     else if(hasOverwrittenAffection(content,context.userMessage ?? '')) check={ok:false,issue:'emotional-script',retryHint:'直接用角色自己的口语表达对这份心意的态度；不要层层解释如何接收这句话，不堆意象、仪式或要求当面再说，不强迫回应相同爱意。'};
     else if(findAffectionHistoryRisk(content,context.userMessage,context.recentUserMessages,context.persona)) check={ok:false,issue:'emotional-script',retryHint:'保留你对这句话的喜欢、开心或轻轻打趣；当前没有依据判断对方平时很少直白表达，不要把这一刻写成难得、终于或与过去比较。直接说自己的当下反应，不向对方解释检查过程，也不追加考查心意来历的问题。'};
     else if(findRememberedTeasingRisk(content,context.userMessage,context.recentUserMessages)) check={ok:false,issue:'user-source-risk',retryHint:'刚才把用户的笑声或不同偏好写成了他以前取笑你的具体往事。现有原话没有明确的对应说法，保留自己的偏好与眼前玩笑，别说他笑过你、记着账；也不否认全部过去、不向他解释检查过程。'};
+    else if(findCurrentActivityRisk(content,context.mode==='private'?context.userMessage:'',context.persona)) check={ok:false,issue:'self-report-risk',retryHint:'刚才新增了自己正在做或尚未做完的活动，但当前没有对应的角色场景来源。选择吃什么、喜欢什么或用户正在做的事不证明你也正在做；保留自己的偏好、眼前反应或告别，不换成另一段正在忙的近况。未来想做什么仍可以作为此刻选择说清；不用向对方解释资料核对过程，不否认全部过去。'};
     else {
       const risk=findSelfReportRisk(content,context.persona,context.independentCharacterRecords);
       if(risk)check={ok:false,issue:'self-report-risk',retryHint:`刚才新增了缺少独立来源的具体生活习惯自述：${JSON.stringify(risk.quote)}。保留对眼前事情的反应、当下喜好或玩笑，不需要补一个共同经历。不要用以前或正在做的另一种动作替换它，不否认未记载的过去，不向用户解释核对过程。`};

@@ -20,6 +20,7 @@ declare const LIVE_VOICE_EARLIER:boolean;
 declare const LIVE_GENERATION_MODE:string;
 declare const LIVE_EMOTION_COMPACT:boolean;
 declare const LIVE_DEFER_DELIVERY:boolean;
+declare const LIVE_MINIMAL_TURN_GUIDANCE:boolean;
 const owner='isolated-live-expression-owner',sessionId='isolated-live-session';
 const nativeFetch=window.fetch.bind(window);
 // Explicit diagnostic only: exercise an unpublished draft's existing quality
@@ -33,6 +34,17 @@ let replayCharacterName='';
 window.fetch=async(url,init)=>{
   if(!String(url).includes('/chat/completions'))throw Error('Unexpected network in isolated expression evaluation');
   const payload=JSON.parse(String(init?.body));
+  // Evaluation-only ablation. Keep the authored persona, final voice card,
+  // shared messaging policy and source-bearing frames; remove conversational
+  // coaching to measure whether it introduces analysis rather than reaction.
+  if(typeof LIVE_MINIMAL_TURN_GUIDANCE!=='undefined'&&LIVE_MINIMAL_TURN_GUIDANCE) {
+    const system=payload.messages?.[0]?.content;
+    if(typeof system!=='string'||(system.match(/\[本轮交流的隐藏节奏\]/gu)??[]).length!==1)throw Error('Minimal turn ablation requires one owned guidance block');
+    payload.messages[0].content=system.replace(/\[本轮交流的隐藏节奏\][\s\S]*?(?=\[人物声音卡\])/u,block=>{
+      const sources=block.match(/\[(本轮事实回查|本轮经历核对|正在讨论的假设)\][\s\S]*?\[\/\1\]/gu)??[];
+      return sources.length?sources.join('\n')+'\n':'';
+    });
+  }
   // Evaluation-only ablation: preserve user requests, persisted preferences,
   // authored voice and transport contract; remove the duplicated mood hint.
   if(typeof LIVE_EMOTION_COMPACT!=='undefined'&&LIVE_EMOTION_COMPACT) {
@@ -69,12 +81,12 @@ webApi.context.summarize=async()=>({error:'server:error'});
 webApi.context.settle=async()=>({error:'server:error'});
 webApi.memory.extract=async()=>({memories:[]});
 
-async function setup(persona:{name:string;tags:string[];systemPrompt:string;greeting:string;signature:string}) {
+async function setup(persona:{name:string;tags:string[];systemPrompt:string;greeting:string;signature:string},proactivity=.5) {
   await db.delete();await db.open();observations.length=0;
   replayCharacterName=persona.name;
   useAuthStore.getState().login(owner,'隔离测试',LIVE_TOKEN,'');
   useSettingsStore.setState({aiVoiceMode:false,ttsEnabled:false,defaultModel:{provider:'deepseek',model:'deepseek-flash'}});
-  const character=fakeCharacter('isolated-live-role',persona.name,owner,{...persona,proactivity:.5});
+  const character=fakeCharacter('isolated-live-role',persona.name,owner,{...persona,proactivity});
   await db.characters.add(character);
   await db.sessions.add({id:sessionId,userId:owner,characterId:character.id,title:character.name,createdAt:Date.now(),updatedAt:Date.now(),modelAsked:true,model:{provider:'deepseek',model:'deepseek-flash'}});
   useChatStore.setState({characters:[character],currentSessionId:sessionId,selectedCharacterId:character.id,messages:[],hasMoreMessages:false});
@@ -95,6 +107,6 @@ async function turn(text:string) {
   return {input:text,replies:replies.map(m=>m.content),durationMs:Math.round(performance.now()-started),calls:observations.slice(before),failed:!!(await db.messages.get(source.id))?.failed,conversation:session?.conversation,cost:session?.cost};
 }
 function presets(revised=true) {
-  return PRESET_CHARACTERS.filter(c=>['preset-linshuang','preset-aili','preset-socrates','preset-guqinghan','preset-xiawanxing','preset-guyuena'].includes(c.id)).map(c=>({name:c.name,tags:c.tags,sourcePresetId:c.id,...(revised?reviseOriginalPresetCard(c,c.id):{signature:c.signature,greeting:c.greeting}),isPreset:true,isCustom:false,systemPrompt:revised?(c.id==='preset-guyuena'?withDouluoRelations(reviseGuYueNaPresetPrompt(c.systemPrompt),c.id):reviseOriginalPresetVoice(c.systemPrompt,c.id)):c.systemPrompt}));
+  return PRESET_CHARACTERS.filter(c=>['preset-linshuang','preset-aili','preset-socrates','preset-guqinghan','preset-xiawanxing','preset-guyuena','preset-luxueqi'].includes(c.id)).map(c=>({name:c.name,tags:c.tags,sourcePresetId:c.id,...(c.id==='preset-luxueqi'?{proactivity:c.proactivity}:{}),...(revised?reviseOriginalPresetCard(c,c.id):{signature:c.signature,greeting:c.greeting}),isPreset:true,isCustom:false,systemPrompt:revised?(c.id==='preset-guyuena'?withDouluoRelations(reviseGuYueNaPresetPrompt(c.systemPrompt),c.id):reviseOriginalPresetVoice(c.systemPrompt,c.id)):c.systemPrompt}));
 }
 (window as any).liveExpression={setup,turn,presets,trajectoryInputs:(id:string)=>getDialogueTrajectory(id).turns.map(turn=>turn.input)};

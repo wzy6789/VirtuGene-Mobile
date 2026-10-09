@@ -49,6 +49,54 @@ try {
   check((await test('completeRequests')).length===2,'complete JSON quality correction uses only the existing one-retry allowance');
   await page.evaluate(()=>window.completePreviewObserver.disconnect());
   await ready(0);
+  await test('useCompleteResponses',['我这边面还没吃完。','嗯，回头聊。']);
+  await page.evaluate(()=>{
+    window.activityPreviewTexts=[];
+    window.activityPreviewObserver=new MutationObserver(()=>document.querySelectorAll('[data-streaming-reply]').forEach(node=>window.activityPreviewTexts.push(node.textContent)));
+    window.activityPreviewObserver.observe(document.body,{childList:true,subtree:true,characterData:true});
+  });
+  await test('submit','好，我先去洗碗，回头聊');
+  let activitySaved=[];
+  const activityDeadline=Date.now()+15000;
+  while(Date.now()<activityDeadline){
+    activitySaved=(await test('records')).filter(m=>m.role==='assistant');
+    if(activitySaved.length)break;
+    await page.waitForTimeout(50);
+  }
+  check(activitySaved.map(m=>m.content).join('')==='嗯，回头聊。','an unsupported ongoing meal is corrected before the actual private-chat DB write');
+  check((await test('completeRequests')).length===2,'current-activity correction uses the existing one-retry budget');
+  check(!(await page.evaluate(()=>window.activityPreviewTexts.join(''))).includes('面还没吃完'),'a rejected complete JSON activity claim never flashes in the preview');
+  await page.evaluate(()=>window.activityPreviewObserver.disconnect());
+  await ready(0);
+  await test('useCompleteResponses',['回头聊。---我这边面还没吃完。','去吧。---我正在看书。']);
+  await test('submit','我先去洗碗，回头聊');
+  let fallbackSaved=[];
+  const fallbackDeadline=Date.now()+15000;
+  while(Date.now()<fallbackDeadline){
+    fallbackSaved=(await test('records')).filter(m=>m.role==='assistant');
+    if(fallbackSaved.length)break;
+    await page.waitForTimeout(50);
+  }
+  check(fallbackSaved.map(m=>m.content).join('')==='回头聊。','two rejected drafts retain only the best draft independent goodbye in the actual DB');
+  check((await test('completeRequests')).length===2,'sanitizing after exhausted correction makes no third model call');
+  const fallbackEvents=await page.evaluate(()=>JSON.parse(localStorage.getItem('virtugene-chat-quality-events:stream-test-user')??'[]'));
+  check(fallbackEvents.at(-1)?.issue==='self-report-risk','successful fallback keeps its source-risk diagnostics');
+  await ready(0);
+  await test('useCompleteResponses',['我这边面还没吃完。','我正在看书。']);
+  await test('submit','我先走了，回头聊');
+  await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);
+  const blockedDeadline=Date.now()+15000;
+  let blockedRecords=[];
+  while(Date.now()<blockedDeadline){
+    blockedRecords=await test('records');
+    if(blockedRecords.some(m=>m.failed))break;
+    await page.waitForTimeout(50);
+  }
+  check(blockedRecords.filter(m=>m.role==='assistant').length===0&&blockedRecords.some(m=>m.role==='user'&&m.failed),'two wholly unsupported drafts fail honestly without saving fabricated activity');
+  check((await test('completeRequests')).length===2,'wholly rejected response respects the existing single retry budget');
+  const blockedEvents=await page.evaluate(()=>JSON.parse(localStorage.getItem('virtugene-chat-quality-events:stream-test-user')??'[]'));
+  check(blockedEvents.at(-1)?.blocked===true&&blockedEvents.at(-1)?.issue==='self-report-risk','complete rejection is visible in quality diagnostics');
+  await ready(0);
   await test('useCompleteResponses',['你难得这么直白一次。','我也喜欢你，听着有点开心。']);
   await test('submit','我爱你');
   let affectionSaved=[];

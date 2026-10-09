@@ -17,16 +17,45 @@ import { allowsDramaticReply, isDirectAffection, isViewExchange, isTopicInvitati
 import {hasSelfChosenPlan,conversationDeparture} from '../../src/lib/chat-turn-cues';
 import { buildSceneTimeContext, buildRelationshipContext, buildRelationshipToneContext, buildUserEmotionContext,buildLifeContext,buildDayContext } from '../../src/lib/chat-context';
 import {findCurrentSceneRisk} from '../../src/lib/chat-current-scene-risk';
+import {findCurrentActivityRisk,omitUnsupportedCurrentActivities} from '../../src/lib/chat-current-activity-risk';
 import { normalizeVoiceLines, voicePromptRevision, voiceIdentityWithoutExamples } from '../../src/lib/character-voice';
 import { interactionMoment, emotionalExpressionGuidance, selectVoiceExamples, authoredReactionLines, voiceExampleUserText } from '../../src/lib/chat-emotional-expression';
 import {buildChatHistoryWindow,boundChatHistory} from '../../src/lib/chat-history-window';
 import {conversationalHypothesis,buildHypothesisContext} from '../../src/lib/chat-hypothesis';
 
 async function run() {
-  // These are risk checks, not blanket factual acceptance: a matching authored
-  // habit only suppresses this one warning and cannot validate added details.
+  // Local risk and routing checks do not grade the model's personality.
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
+  ok(omitUnsupportedCurrentActivities('去吧。---我这边面还没吃完。')==='去吧。','last-resort removal keeps the independent goodbye unchanged');
+  ok(omitUnsupportedCurrentActivities('我正在看书，所以没法回答你。回头聊。')==='回头聊。','unsupported activity loses its dependent excuse as a whole sentence');
+  ok(omitUnsupportedCurrentActivities('我正在看书。')==='','a wholly unsupported reply has no invented fallback');
+  ok(omitUnsupportedCurrentActivities('我喜欢面条。---我打算读会儿书。')==='我喜欢面条。\n---\n我打算读会儿书。','preferences and future choices retain wording and separate bubbles');
+  ok(omitUnsupportedCurrentActivities('我正在看书。','你正在看书')==='我正在看书。','a supported exact scene is retained');
+  ok(omitUnsupportedCurrentActivities('她说“我正在看书”。')==='她说“我正在看书”。','quoted speech retains its original expression');
+  for(const text of ['我这边面还没吃完','我正在看书','我也正好有点事要弄','我现在喝咖啡','我这边报告还没写完']) {
+    ok(!!findCurrentActivityRisk(text),'explicit ongoing activities require their own current source: '+text);
+    for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput(text,{mode,userMessage:'我先去洗碗，回头聊',persona:'喜欢面条。',recentReplies:[text],independentCharacterRecords:['昨天'+text]}).check.issue==='self-report-risk','old records, likes and prior replies cannot establish current activity in '+mode);
+  }
+  for(const text of ['我选面条','我喜欢吃面','我也想去看书','我打算看会儿书','我现在很喜欢咖啡','昨天我正在看书','如果你来，我正在看书的话就先等一下','我正在看书吗？','她说“我正在看书”','我没在看书','我还没想好'])ok(!findCurrentActivityRisk(text),'choices, emotions, past, conditions and questions remain expressive: '+text);
+  ok(!findCurrentActivityRisk('我正在看书','你正在看书'),'a direct current character scene can support its exact activity');
+  ok(!!findCurrentActivityRisk('我正在看书','你正在看书吗？'),'a question does not establish an activity');
+  for(const text of ['翻译，你正在看书','朋友说，你正在看书','昨天，你正在看书','如果你正在看书'])ok(!!findCurrentActivityRisk('我正在看书',text),'a writing task, report, old assertion or hypothesis is not a direct current scene: '+text);
+  ok(inspectChatOutput('我正在看书',{mode:'group',userMessage:'你正在看书'}).check.issue==='self-report-risk','group you without an actor binding does not grant every member the same current activity');
+  ok(!findCurrentActivityRisk('我正在看书','','当前场景：我正在看书'),'an explicitly authored current scene supports its exact activity');
+  ok(!!findCurrentActivityRisk('我正在看书','','对话样本：用户说晚安 → 你说我正在看书'),'a voice sample is not an active scene');
+  ok(!!findCurrentActivityRisk('我正在看书','','[角色声音样本]\n当前场景：我正在看书\n[/角色声音样本]'),'a cached style block cannot provide a current physical scene');
+  ok(!!findCurrentActivityRisk('我正在看书','','当前场景：昨天我正在看书'),'a historical scene does not establish a current activity');
+  ok(inspectChatOutput('我这边面还没吃完',{mode:'private',userMessage:'继续我们在面馆的角色扮演'}).check.ok,'explicit continuing roleplay retains invented ongoing activity');
+  for(const text of ['我现在吃醋了','我正等你回复','我现在看你就觉得可爱','我正在看你发的这段','我正在想你','我的醋还没吃完','我现在觉得这个挺好','我刚才想到一个点'])ok(!findCurrentActivityRisk(text),'feelings, conversational attention and ideas are not physical scene claims: '+text);
+  for(const text of ['聊得挺开心，我先去处理点事，回头聊','今晚聊得很舒服，我要出门了，回来聊','谢谢你，我先忙，忙完说','好，我先去开会，回头再聊']) {
+    ok(conversationDeparture(text)&&chooseConversationAction(text,[{role:'user',content:'你更在意旋律还是歌词'}])==='short-close','whole departure beats prior topic: '+text);
+  }
+  for(const text of ['聊得挺开心，我先去处理点事，回头聊什么好？','我先去处理点事，回头聊之前帮我改一下这段','朋友说，聊得挺开心，我先去处理点事，回头聊','如果我先去处理点事，回头聊','聊得挺开心，我先去处理点事，回头聊这个问题怎么解决','我不是要去处理点事，回头聊']) {
+    ok(!conversationDeparture(text),'a question, task, report or denial stays open: '+text);
+  }
+  // These are risk checks, not blanket factual acceptance: a matching authored
+  // habit only suppresses this one warning and cannot validate added details.
   for(const text of ['我不是让你换名字，只是在说我自己的偏好','我刚才不是要你同意，只是说说我的想法','我不是要求你重写，这句读一下就好'])ok(directChatGuidance(text,[],[]).includes('用户在澄清刚才说话的用途或要求'),'clarifying the request does not become a challenge to the character: '+text);
   for(const text of ['朋友说“我不是让你换名字”','如果我不是让你换名字呢','解释我不是让你换名字','我不是不喜欢你的名字','我喜欢这个名字'])ok(!directChatGuidance(text,[],[]).includes('用户在澄清刚才说话的用途或要求'),'reports, hypotheses and ordinary preferences do not trigger request-scope clarification: '+text);
   const imagined='如果只留一种花在窗边，你会选哪种？';
@@ -700,6 +729,12 @@ async function run() {
   ok(directChatGuidance('我爱你',[],stagedScreenshots).includes('不是现在同处一室的证据'),'historical stage prose is a repair clue instead of co-presence evidence');
   ok(buildSceneTimeContext('night','房间','close').includes('不证明你与用户同处一室'),'ambient place and intimacy cannot instruct physical staging');
   ok(isDirectAffection('我爱你')&&!isDirectAffection('我喜欢你推荐的书')&&!isDirectAffection('我不爱你'),'affection recognition respects negation and the actual object');
+  for(const input of ['我有点喜欢你，想多和你聊聊。','我有一点喜欢你','我有些想你了','我有一些喜欢你']) {
+    ok(isDirectAffection(input)&&interactionMoment(input)==='affection','mild directly expressed feeling reaches authored reaction: '+input);
+  }
+  for(const input of ['我有点喜欢你推荐的书','我有些喜欢你的观点','我不是有点喜欢你','如果我有点喜欢你，该怎么办','朋友说我有点喜欢你','“我有点喜欢你”是什么意思']) {
+    ok(!isDirectAffection(input),'mild feeling cue preserves object, negation, hypothetical and quotation boundaries: '+input);
+  }
   for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput(stagedScreenshots[1],{mode,userMessage:'我爱你'}).check.issue==='uninvited-staging',`staging check reaches ${mode} entrance`);
   const voiceLines=['称呼：你','判断习惯：坦率表达','对话样本：用户说你好 → 你说在呢。','对话样本：用户说我爱你 → 你说进来吧，把门带上。'];
   let rejectedVoice=false;try{normalizeVoiceLines(voiceLines);}catch{rejectedVoice=true;}ok(rejectedVoice,'generated staging cannot become authoritative cached voice');
