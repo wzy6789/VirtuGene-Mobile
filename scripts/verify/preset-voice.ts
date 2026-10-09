@@ -15,7 +15,8 @@ async function run() {
   const priorCopies:Array<{id:string;sourceId:string;prompt:string}>=[];
   for(const original of originals) {
     const revised=reviseOriginalPresetVoice(original.systemPrompt,original.id);
-    ok(revised!==original.systemPrompt&&revised.includes('判断习惯：')&&revised.split('对话样本：').length===4,`${original.name} gains concrete judgment and three distinct scenes`);
+    const sampleCount=original.id==='preset-linshuang'?5:3;
+    ok(revised!==original.systemPrompt&&revised.includes('判断习惯：')&&revised.split('对话样本：').length===sampleCount+1,`${original.name} gains concrete judgment and ${sampleCount} distinct scenes`);
     ok(reviseOriginalPresetVoice(revised,original.id)===revised,`${original.name} revision is idempotent`);
     const introPreserved=original.id==='preset-xiawanxing'?revised.split('\n')[0].startsWith('你是夏晚星，'):revised.split('\n')[0]===original.systemPrompt.split('\n')[0];
     ok(introPreserved&&revised.includes('- 称呼：'),`${original.name} retains its identity and address; only the gentle source introduction is revised`);
@@ -54,7 +55,7 @@ async function run() {
     ok(card.includes('人物判断依据')&&!card.includes('语言指纹与判断：'),`${original.name} concrete authored judgment precedes generic personality fallback`);
   }
   const ownedAfter=await db.characters.get('owned-'+source.id);
-  ok(priorCopies.length===11,'all prior cat, architect, gentle, swordsman and traveler source versions remain covered');
+  ok(priorCopies.length===14,'all prior cat, architect, gentle, swordsman and traveler source versions remain covered');
   for(const copy of priorCopies) {
     const original=originals.find(item=>item.id===copy.sourceId)!;
     ok((await db.characters.get(copy.id))?.systemPrompt===reviseOriginalPresetVoice(original.systemPrompt,original.id),'an exact previously upgraded copy receives the current voice');
@@ -63,7 +64,13 @@ async function run() {
     ok((await db.characters.get(copy.id+'-secretary'))?.systemPrompt===copy.prompt,'an assistant is never silently converted by voice migration');
   }
   const lin=reviseOriginalPresetVoice(source.systemPrompt,source.id);
-  ok(!lin.includes('嘴上嫌弃却')&&lin.includes('分歧反应：')&&lin.includes('不点评他终于想通')&&lin.includes('不必每件事都有改进方案'),'architect identity targets concrete views without importing disdain, grading or automatic life coaching');
+  ok(!lin.includes('嘴上嫌弃却')&&lin.includes('分歧反应：')&&lin.includes('不点评他终于想通')&&lin.includes('一个干脆的玩笑也能停住'),'architect identity targets concrete views without importing disdain, grading or automatic life coaching');
+  ok(lin.includes('代码梗只是偶尔的调味')&&lin.includes('杯子：我就在你手上。')&&lin.includes('不靠解释他为什么这样'),'architect everyday voice demonstrates dry object-focused humor rather than a diagnosis or a mandatory code metaphor');
+  const intimateVoice=buildCharacterVoiceCard({...source,systemPrompt:lin},'我爱你');
+  ok(intimateVoice.includes('亲密反应：')&&intimateVoice.includes('不把心意谈成收件、合同和保证')&&intimateVoice.includes('没有同样感觉'),'architect affection card permits honest boundaries without grading embarrassment or treating affection as a contract');
+  ok(intimateVoice.includes('我还说不出一样的话')&&!intimateVoice.includes('杯子：我就在你手上'),'architect affection card selects a brief reaction example without importing the unrelated everyday joke');
+  const shyVoice=buildCharacterVoiceCard({...source,systemPrompt:lin},'这么认真啊，有点不好意思了');
+  ok(shyVoice.includes('那我少说两句')&&!shyVoice.includes('我还说不出一样的话'),'embarrassment selects the immediate easing response rather than repeating the preceding confession');
   const cat=reviseOriginalPresetVoice(originals[2].systemPrompt,originals[2].id);
   const revisedCard=reviseOriginalPresetCard(catSource,catSource.id);
   for(const id of [catSource.id,'cat-card-old']){

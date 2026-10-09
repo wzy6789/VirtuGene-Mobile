@@ -20,8 +20,19 @@ import { interactionMoment, emotionalExpressionGuidance, selectVoiceExamples, au
 import {buildChatHistoryWindow,boundChatHistory} from '../../src/lib/chat-history-window';
 
 async function run() {
+  // These are risk checks, not blanket factual acceptance: a matching authored
+  // habit only suppresses this one warning and cannot validate added details.
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
+  for(const mode of ['private','proactive','group'] as const) {
+    const context={mode,userMessage:'我把手机拿起来又忘了要干嘛，离谱',persona:'你是小林，偏爱推理故事。'};
+    ok(inspectChatOutput('我一般会盯着锁屏等它主动交代。',context).check.issue==='self-report-risk',`${mode} flags a recurring physical self-report absent from independent sources`);
+    ok(inspectChatOutput('脑子弹了个窗又被自己点掉了。',context).check.ok,`${mode} preserves a playful analogy without invented shared experience`);
+    ok(inspectChatOutput('我喜欢推理故事。',context).check.ok,`${mode} permits a present preference without a biography warning`);
+    ok(inspectChatOutput('我一般会盯着锁屏等它主动交代。',{...context,independentCharacterRecords:['平时经常盯着锁屏发呆。']}).check.ok,`${mode} accepts an independently supplied recurring character habit for this risk check`);
+    ok(inspectChatOutput('我一般会盯着锁屏等它主动交代。',{...context,persona:'对话样本：用户说忘事 → 你说我一般会盯着锁屏等它主动交代。'}).check.issue==='self-report-risk',`${mode} does not turn a voice example into independent habit evidence`);
+  }
+  ok(inspectChatOutput('我一般会盯着锁屏等它主动交代。',{mode:'private',userMessage:'演一个总盯着手机发呆的人，随便写句台词。'}).check.ok,'explicit fictional creation retains invented in-character habits');
   const oversizedHistory=Array.from({length:20},(_,i)=>({role:i%2?'assistant':'user',content:String(i).padStart(2,'0')+'文'.repeat(1500),id:`oversized-${i}`}));
   const boundedHistory=boundChatHistory(oversizedHistory);
   ok(boundedHistory.length===12&&boundedHistory[0].id==='oversized-8'&&boundedHistory[0].content.length===800&&boundedHistory.slice(1).every(item=>item.content.length===1200),'shared transport text bound preserves newest items and allocates remaining total budget to oldest item');
@@ -36,9 +47,9 @@ async function run() {
   ok(ordinarySections[0].text.includes('普通分享不是让你检查生活是否正确'),'ordinary anecdote pacing favors a personal reaction over automatic troubleshooting');
   ok(!buildHumanConversationSections('帮我想想快递箱怎么处理',[])[0].text.includes('普通分享不是让你检查生活是否正确'),'an explicit practical request is not suppressed by casual anecdote guidance');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('普通分享先接话')&&CHAT_MESSAGING_INSTRUCTION.includes('明确求助时仍认真回答'),'shared three-entrance contract distinguishes an anecdote from a request for help');
-  ok(CHAT_MESSAGING_INSTRUCTION.includes('不能拿旧回复证实用户的原因、时间或习惯'),'shared expression contract does not promote previous generated guesses into user facts');
-  ok(CHAT_MESSAGING_INSTRUCTION.includes('用户眼前的颜色、身体反应、环境')&&CHAT_MESSAGING_INSTRUCTION.includes('联想不说成看见了'),'shared fact boundary includes present details without forbidding imagination');
-  ok(CHAT_MESSAGING_INSTRUCTION.includes('保留用户说出的时间、范围和条件')&&CHAT_MESSAGING_INSTRUCTION.includes('局部偏好不概括成永久习惯'),'all chat entrances keep preference qualifications when paraphrasing user facts');
+  ok(CHAT_MESSAGING_INSTRUCTION.includes('你之前的猜想与自述不能证明事情发生过'),'shared expression contract does not promote previous generated guesses into user facts');
+  ok(CHAT_MESSAGING_INSTRUCTION.includes('眼前细节来自原话或图片')&&CHAT_MESSAGING_INSTRUCTION.includes('联想不冒充看见'),'shared fact boundary includes present details without forbidding imagination');
+  ok(CHAT_MESSAGING_INSTRUCTION.includes('保留原话的事件、时间、条件和范围')&&CHAT_MESSAGING_INSTRUCTION.includes('局部偏好不概括成习惯'),'all chat entrances keep preference qualifications when paraphrasing user facts');
   for(const correction of ['不是明天，刚看邮件，是后天下午三点','不是周五，是周六','我刚才说错了，是下午两点'])ok(directChatGuidance(correction,[],[]).includes('不替事件补一段变动经过'),'a literal correction does not establish an unreported reschedule');
   for(const correction of ['朋友说“不是明天，是后天”','如果不是明天，是后天呢','不是每封邮件都会改时间'])ok(!directChatGuidance(correction,[],[]).includes('不替事件补一段变动经过'),'quoted, hypothetical and non-correction language does not create a source-correction instruction');
   for(const question of ['刚才说的面试什么时候来着','前面我提过的店叫什么','之前我们说的地址在哪'])ok(directChatGuidance(question,[],[]).includes('不把告知说成以前问过'),'literal recall question asks for the latest fact without inventing a repeat-question history');
@@ -50,7 +61,7 @@ async function run() {
   ok(shiftSections[0].text.includes('同感可以是一句当下的态度或玩笑')&&ordinarySections[0].text.includes('同感可以是一句当下的态度或玩笑'),'both ordinary reaction and topic-shift guidance offer an alternative to fabricated personal anecdotes');
   const shiftHelp=buildHumanConversationSections('换个话题，帮我想想快递箱怎么处理',[{role:'user',content:'袜子不是一对'}]);
   ok(shiftHelp[0].text.includes('回应这个请求')&&shiftHelp[0].text.includes('本轮也有明确请求'),'a topic-shift help request uses concrete request handling and retains its current request clue');
-  ok(CHAT_MESSAGING_INSTRUCTION.includes('可以表达当下偏好和判断')&&CHAT_MESSAGING_INSTRUCTION.includes('不把偏好编成亲历次数、身体反应或固定生活习惯'),'preferences remain allowed without becoming invented repeated experiences');
+  ok(CHAT_MESSAGING_INSTRUCTION.includes('生动可以来自你此刻的好恶、反应和玩笑')&&CHAT_MESSAGING_INSTRUCTION.includes('自己的往事、生活习惯和身体感受须有人设或独立生活记录支持'),'preferences remain allowed without becoming invented repeated experiences');
   ok(buildHumanConversationSections('那个报告帮我看看',[])[0].text.includes('本轮也有明确请求'),'concrete assistance retains its current-turn request clue after ordinary guidance is reduced');
   const opinionRequest='那我觉得答应了就不能改主意。你有不同意见也可以直说。';
   ok(detectChatIntent(opinionRequest)==='question'&&chooseConversationAction(opinionRequest,[])==='answer-directly','a substantive opinion invitation without question mark receives a direct-answer action instead of casual joking');
@@ -238,7 +249,7 @@ async function run() {
   ok(buildRelationshipContext(200,10).includes('仍尊重用户')&&buildRelationshipToneContext(200,95).includes('按原有性格表达'),'high or low mood does not erase character voice or require hostility');
   const staleFeeling=buildUserEmotionContext('委屈');
   ok(staleFeeling.includes('之前的情绪线索')&&staleFeeling.includes('不代表用户现在仍这样')&&!staleFeeling.includes('用户此刻似乎'),'old emotion snapshot stays background rather than current diagnosis');
-  ok(CHAT_MESSAGING_INSTRUCTION.includes('自己的往事也依据人设和已有生活记录')&&CHAT_MESSAGING_INSTRUCTION.includes('可以表达当下偏好和判断'),'shared policy permits natural opinions while separating them from invented biography');
+  ok(CHAT_MESSAGING_INSTRUCTION.includes('自己的往事、生活习惯和身体感受须有人设或独立生活记录支持')&&CHAT_MESSAGING_INSTRUCTION.includes('「这我喜欢」是在说喜好'),'shared policy permits natural opinions while separating them from invented biography');
   ok(!isLongFormRequest('不用分析，陪我聊两句')&&!isLongFormRequest('他说“详细解释一下”'),'negated or quoted analysis is not a long-form request');
   ok(isLongFormRequest('这部分详细解释一下，不用分析我的心理'),'real detailed request survives a separate negated clause');
   const paragraphReply='哈哈哈哈\n\n这个我真没想到。';
@@ -671,6 +682,13 @@ async function run() {
     ok(proactivePayloads.every(p=>p.messages[0].content.split('对话样本：用户说你好').length===2)&&params.systemPrompt.includes('今天先歇歇'),'proactive source examples occur only once in the card without mutating the original persona');
     attempts=0;proactiveReplies[1]='很高兴为您服务';
     ok(await generateProactiveMessage(params) === '' && attempts === 2, 'two failed proactive drafts produce no message');
+    attempts=0;proactivePayloads.length=0;proactiveReplies[0]='我一般会盯着锁屏等它主动交代。';proactiveReplies[1]='这我挺喜欢的。';
+    ok(await generateProactiveMessage(params)==='这我挺喜欢的。'&&attempts===2,'proactive habitual self-report consumes only the existing one-retry budget');
+    ok(proactivePayloads[1].messages.at(-1).content.includes('缺少独立来源'),'proactive retry targets the source risk rather than asking for a generic tone change');
+    attempts=0;proactiveReplies[1]=proactiveReplies[0];
+    ok(await generateProactiveMessage(params)===''&&attempts===2,'two unresolved proactive self-report risks produce no canned replacement');
+    attempts=0;
+    ok(await generateProactiveMessage({...params,systemPrompt:'生活习惯：平时盯着锁屏发呆。'})===proactiveReplies[0]&&attempts===1,'authored recurring character habit never spends a quality retry');
   } finally {window.fetch=originalFetch;}
   let groupCalls = 0;const actorPayloads:any[]=[];
   let groupDrafts = [JSON.stringify({turns:[{speaker:'小林',content:'今天聊聊吧'}]}),'很高兴为您服务','（顿了顿，把手机放下）今天\n想起你'];
@@ -683,6 +701,9 @@ async function run() {
     groupCalls=0;groupDrafts=[JSON.stringify({turns:[{speaker:'小林',content:'很高兴为您服务'}]}),'很高兴为您服务'];
     const failed = await generateGroupTurn(params);
     ok(failed.turns.length === 0 && groupCalls === 3, 'group fallback never restores an unchecked director draft');
+    groupCalls=0;groupDrafts=[JSON.stringify({turns:[{speaker:'小林',content:'我一般会盯着锁屏等它主动交代。'}]}),'我一般会盯着锁屏等它主动交代。','脑子弹了个窗又被自己点掉了。'];
+    const habitGroup=await generateGroupTurn(params);
+    ok(groupCalls===3&&habitGroup.turns.length===1&&habitGroup.turns[0].content===groupDrafts[2],'group actor repairs a habitual self-report within its existing per-actor retry budget');
     groupCalls=0;actorPayloads.length=0;groupDrafts=[JSON.stringify({turns:[{speaker:'小林',content:'顺。'}]}),'顺。'];
     const narrow=await generateGroupTurn({...params,userMessage:'不用整段重写，就说这句顺不顺',members:[{...params.members[0],persona:sceneRole.systemPrompt,voiceCard:buildCharacterVoiceCard(sceneRole,'不用整段重写，就说这句顺不顺')}]});
     ok(narrow.turns.length===1&&actorPayloads[1].messages[0].content.includes('这轮只要一个限定判断'),'actual group actor receives limited judgment scope without an extra model pass');

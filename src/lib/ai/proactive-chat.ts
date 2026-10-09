@@ -115,7 +115,7 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
     const result = await taskChat({ apiKey, messages, maxTokens: 300, temperature: 1,
       disableThinking: true, timeoutMs: 30_000, signal: params.signal });
     if (params.signal?.aborted || (useAuthStore.getState().userId ?? '') !== owner) return '';
-    const inspected = inspectChatOutput(result.content, { mode:'proactive', recentReplies, catchphrase:params.catchphrase,persona:params.systemPrompt });
+    const inspected = inspectChatOutput(result.content, { mode:'proactive', recentReplies, catchphrase:params.catchphrase,persona:params.systemPrompt,independentCharacterRecords:lifeHints });
     if (inspected.check.ok) {recordQualityEvent(owner,{mode:'proactive',retries:attempt,blocked:false,streamed:false,durationMs:performance.now()-started});return inspected.content;}
     if(attempt === 1) recordQualityEvent(owner,{mode:'proactive',issue:inspected.check.issue,retries:1,blocked:true,streamed:false,durationMs:performance.now()-started});
     messages[1].content = userPrompt + '\n' + inspected.check.retryHint;

@@ -4,7 +4,7 @@ import { stripRoleplayActions } from './ai/text';
 export interface ChatQualitySample { at: number; rawChars: number; savedChars: number; differenceRatio: number; approximate: boolean; retries: number; captured: boolean; alert: boolean; issue?: string; streamed?: boolean; actionRemovedChars?:number; collapsedLineBreaks?:number;introducedChineseSpaces?:number }
 export type QualityMode = 'private' | 'proactive' | 'group';
 export interface QualityEvent { at:number;mode:QualityMode;issue?:string;retries:number;blocked:boolean;streamed:boolean;durationMs?:number;firstVisibleMs?:number }
-const issues = new Set(['empty','repeat-user','generic','repeat-own','too-long','over-structured','question-barrage','voice-conflict','uninvited-staging','emotional-script']);
+const issues = new Set(['empty','repeat-user','generic','repeat-own','too-long','over-structured','question-barrage','voice-conflict','uninvited-staging','emotional-script','self-report-risk']);
 const eventKey = (owner:string) => `virtugene-chat-quality-events:${owner}`;
 function events(owner:string): QualityEvent[] {
   try { const rows=JSON.parse(localStorage.getItem(eventKey(owner)) ?? '[]'); return Array.isArray(rows) ? rows.filter(e => ['private','proactive','group'].includes(e?.mode) && Number.isFinite(e.at) && Number.isFinite(e.retries)).slice(-200) : []; } catch {return [];}

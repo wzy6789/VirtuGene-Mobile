@@ -4,10 +4,10 @@ import {dirname,join} from 'node:path';
 import {writeFileSync,existsSync,readFileSync} from 'node:fs';
 import {createServer} from 'node:http';
 
-const [proxy,token,roleName,trajectory,revision,generation='thinking',prefixMode,prefixRevision='r1']=process.argv.slice(2);
+const [proxy,token,roleName,trajectory,revision,generation='production',prefixMode,prefixRevision='r1']=process.argv.slice(2);
 const names=['艾莉','顾清寒','林霜','夏晚星','苏格拉底'];
 const scenes=['repair','affection','tired','joy','opinion','continuity','everyday'];
-if(!/^http:\/\/127\.0\.0\.1:\d+\/chat\/completions$/u.test(proxy??'')||!token||!names.includes(roleName)||!scenes.includes(trajectory)||!/^r\d{1,2}$/u.test(revision??'')||!['thinking','direct'].includes(generation)||prefixMode&&!['replay-first-four','replay-first-three','replay-first-two','replay-first-one'].includes(prefixMode))throw Error('Explicit local bounded proxy, known persona, scene, evidence revision and generation mode required');
+if(!/^http:\/\/127\.0\.0\.1:\d+\/chat\/completions$/u.test(proxy??'')||!token||!names.includes(roleName)||!scenes.includes(trajectory)||!/^r\d{1,2}$/u.test(revision??'')||!['production','thinking','direct'].includes(generation)||prefixMode&&!['replay-first-four','replay-first-three','replay-first-two','replay-first-one'].includes(prefixMode))throw Error('Explicit local bounded proxy, known persona, scene, evidence revision and generation mode required');
 const reportDay=new Date(Date.now()+8*60*60*1000).toISOString().slice(0,10);
 const output=`docs/CHAT-FLASH-SCENE-${names.indexOf(roleName)}-${trajectory.toUpperCase()}-${revision.toUpperCase()}${generation==='direct'?'-DIRECT':''}-${reportDay}.json`;
 if(existsSync(output))throw Error('Existing evidence must not be overwritten');
@@ -24,7 +24,7 @@ const replay=prefix?prefix.rows.slice(0,prefixCount).map(row=>{
 const {chromium}=createRequire(join(dirname(process.execPath),'package.json'))('playwright');
 const bundle=await build({entryPoints:['scripts/verify/chat-human-live.ts'],bundle:true,write:false,platform:'browser',format:'iife',loader:{'.webp':'dataurl','.png':'dataurl'},define:{LIVE_PROXY:JSON.stringify(proxy),LIVE_TOKEN:JSON.stringify(token),LIVE_RESPONSES:JSON.stringify(replay),LIVE_VOICE_EARLIER:'false',LIVE_EMOTION_COMPACT:'false',LIVE_GENERATION_MODE:JSON.stringify(generation),'import.meta.env':'{"VITE_AI_GATEWAY_URL":""}',__APP_VERSION__:'"scene-live"'}});
 const server=createServer((request,response)=>{response.setHeader('Content-Type',request.url==='/test.js'?'text/javascript':'text/html; charset=utf-8');response.end(request.url==='/test.js'?bundle.outputFiles[0].text:'<!doctype html><html><body><script src="/test.js"></script></body></html>');});
-const report={date:new Date().toISOString(),model:'deepseek-flash',roleName,trajectory,revision,generation,scope:'six fresh consecutive turns, shipped persona, actual private send and IndexedDB; fixed proactivity 0.5; summary/settlement/extraction mocked, nonstream upstream; completion is transport only, no scoring hints sent to model; direct is evaluation-only disabled thinking and temperature 0.8',complete:false,rows:[],errors:[]};
+const report={date:new Date().toISOString(),model:'deepseek-flash',roleName,trajectory,revision,generation,scope:'six fresh consecutive turns, shipped persona, actual private send and IndexedDB; fixed proactivity 0.5; summary/settlement/extraction mocked, nonstream upstream; completion is transport only, no scoring hints sent to model; production and the legacy thinking label preserve application selection and native recovery; direct is an evaluation-only override; each actual request mode is captured',complete:false,rows:[],errors:[]};
 if(prefix){report.prefixSource=prefixFile;report.prefixCount=prefixCount;report.scope=report.scope.replace('six fresh consecutive turns',`${prefixCount} replayed real prefix turns, then ${6-prefixCount} fresh provider turns; replay is not a new paid reply`);}
 let browser;
 try{

@@ -404,6 +404,12 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         ],
       );
       const enrichedPrompt = compiled.prompt;
+      // Keep only the character-owned life section actually made available to
+      // this request; user memories and previous generated replies are not
+      // evidence for this speaker's personal habits.
+      const independentCharacterRecords=compiled.included.includes('life')
+        ? (state.lifeEvents??[]).slice(0,3).map(event=>`${event.title}${event.detail?`：${event.detail}`:''}`)
+        : [];
       // Only count a memory as presented after the compiler actually kept the
       // whole block. Otherwise budget truncation silently cools unseen facts.
       if (compiled.included.includes('memory')) {
@@ -546,7 +552,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           break;
         }
 
-        const inspected = inspectChatOutput(result.content, {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt});
+        const inspected = inspectChatOutput(result.content, {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords});
         const check = inspected.check;
         if (!bestDraft || inspected.severity < bestDraft.severity) bestDraft = {result,raw:rawResponse,severity:inspected.severity};
         if (check.ok || retries >= MAX_RETRIES) {
@@ -668,7 +674,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         // No token-level database writes and no duplicate preview/final bubbles.
         request.completed = true;
         if (streamed) savedReplies.forEach(addMessage);
-        const finalQuality = inspectChatOutput(savedReplies.map(m => m.content).join('\n---\n'), {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt});
+        const finalQuality = inspectChatOutput(savedReplies.map(m => m.content).join('\n---\n'), {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords});
         recordChatQuality(userId, rawResponse ?? result.content, savedReplies.map(m => m.content).join(''), retries, rawResponse !== undefined, {issue:finalQuality.check.issue, streamed:request.stream.published,durationMs:Date.now()-startedAt,firstVisibleMs:request.stream.firstTextAt!==undefined?request.stream.firstTextAt-startedAt:undefined});
         if (stillCurrent()) { observer.onComplete?.(); }
         if (result.interrupted || request.controller.signal.aborted) return;

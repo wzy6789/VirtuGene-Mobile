@@ -18,7 +18,8 @@ export type ReplyIssue =
   | 'question-barrage'
   | 'uninvited-staging'
   | 'emotional-script'
-  | 'voice-conflict';
+  | 'voice-conflict'
+  | 'self-report-risk';
 
 export interface ReplyCheck {
   ok: boolean;
@@ -118,6 +119,7 @@ const RETRY_HINTS: Record<ReplyIssue, string> = {
   'uninvited-staging':'刚才把发消息写成了同处一室的表演。保留角色态度和亲密感，直接接这句话；不要安排进门、坐下、看着你或当面再说，不把这些动作换一组继续演。',
   'emotional-script':'刚才把一句心意写成了层层解释的文学台词。用角色自己的口语表达当下态度；不解释如何接收这句话，不堆意象和仪式，也不强迫回应相同爱意。',
   'voice-conflict':'遵守人设中的明确表达要求，保留当前内容和角色自己的语气。',
+  'self-report-risk':'刚才新增了缺少独立来源的具体生活习惯自述。接眼前这件事，说此刻的态度或一个玩笑即可；不要用以前、通常、正在做的另一种动作替换它，也不要否认未记载的经历或向用户解释资料核对过程。',
   empty: '你刚才的回复是空的。请用你的性格正常回应用户，直接说事，不要长篇大论。',
   'repeat-user': '你刚才完全复述了用户的话。不要复述用户，用你自己的性格、说法和语气回应。',
   generic: '刚才出现了通用客服或模型说明。回到角色自己的说话方式；普通招呼、口头禅和纯反应可以保留，不要自称通用助手或推销服务。',

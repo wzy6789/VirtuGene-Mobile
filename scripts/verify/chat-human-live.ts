@@ -17,8 +17,15 @@ declare const LIVE_RESPONSES:Array<{input:string;raw:string;characterName?:strin
 declare const LIVE_VOICE_EARLIER:boolean;
 declare const LIVE_GENERATION_MODE:string;
 declare const LIVE_EMOTION_COMPACT:boolean;
+declare const LIVE_DEFER_DELIVERY:boolean;
 const owner='isolated-live-expression-owner',sessionId='isolated-live-session';
 const nativeFetch=window.fetch.bind(window);
+// Explicit diagnostic only: exercise an unpublished draft's existing quality
+// retry. Ordinary live tests retain the real streaming publication behavior.
+if(typeof LIVE_DEFER_DELIVERY!=='undefined'&&LIVE_DEFER_DELIVERY) {
+  const nativeSend=webApi.chat.send;
+  webApi.chat.send=params=>nativeSend({...params,onDelta:undefined});
+}
 const observations:Array<unknown>=[];
 let replayCharacterName='';
 window.fetch=async(url,init)=>{

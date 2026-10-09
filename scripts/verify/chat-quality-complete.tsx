@@ -103,6 +103,12 @@ async function run(){
     ok(switched.rows.length===0&&published===0,'account switch rejects late evaluation replies and progress');
     useAuthStore.getState().login(owner,'测试','isolated-test-key','');
   } finally{window.fetch=original;}
+  clearChatQuality();
+  recordQualityEvent(owner,{mode:'private',issue:'self-report-risk',retries:0,blocked:false,streamed:true});
+  const sourceRiskMetrics=chatQualityReport();
+  ok(sourceRiskMetrics.byMode.private.issues['self-report-risk']===1&&sourceRiskMetrics.byMode.private.streamedUnresolved===1,'visible self-report risk is counted without being relabelled as an improved reply');
+  ok(sourceRiskMetrics.byMode.private.improvedAfterRetry===0&&sourceRiskMetrics.events[0].issue==='self-report-risk','new source-risk enum survives diagnostic storage and aggregation');
+  ok(!JSON.stringify(sourceRiskMetrics).includes('盯着锁屏'),'source-risk diagnostics retain no draft text or persona evidence');
   return {checks};
 }
 function mount(){root?.unmount();root=createRoot(document.getElementById('app')!);root.render(<ChatQualityPanel open onClose={()=>root?.render(<div>已返回</div>)}/>);}
