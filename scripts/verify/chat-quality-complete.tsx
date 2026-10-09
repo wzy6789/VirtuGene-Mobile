@@ -116,6 +116,10 @@ async function run(){
   ok(sourceRiskMetrics.byMode.private.issues['self-report-risk']===1&&sourceRiskMetrics.byMode.private.streamedUnresolved===1,'visible self-report risk is counted without being relabelled as an improved reply');
   ok(sourceRiskMetrics.byMode.private.improvedAfterRetry===0&&sourceRiskMetrics.events[0].issue==='self-report-risk','new source-risk enum survives diagnostic storage and aggregation');
   ok(!JSON.stringify(sourceRiskMetrics).includes('盯着锁屏'),'source-risk diagnostics retain no draft text or persona evidence');
+    clearChatQuality();
+    recordQualityEvent(owner,{mode:'private',issue:'user-source-risk',retries:1,blocked:false,streamed:false,improvedAfterRetry:true});
+    const teasingMetrics=chatQualityReport();
+    ok(teasingMetrics.byMode.private.issues['user-source-risk']===1&&teasingMetrics.events[0].issue==='user-source-risk','remembered user attribution risk survives diagnostic storage and aggregation');
   return {checks};
 }
 function mount(){root?.unmount();root=createRoot(document.getElementById('app')!);root.render(<ChatQualityPanel open onClose={()=>root?.render(<div>已返回</div>)}/>);}

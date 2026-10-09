@@ -13,7 +13,7 @@ import { worldRepo } from '../../db/world-repo';
 import { buildContextTrace, hasTraceContent } from '../../lib/chat-trace';
 import { ipc } from '../../lib/ipc-client';
 import { buildTimeContext, buildSceneTimeContext, buildRelationshipContext, buildUserEmotionContext, buildDayContext, buildLifeContext, buildStoryRelationContext } from '../../lib/chat-context';
-import { computeMessageDelays, splitReplyParts, formatSpokenParagraphs, normalizeChatResponse, prefersReducedMotion, MAX_REPLY_PARTS } from '../../lib/chat-pacing';
+import { computeMessageDelays, splitReplyParts, formatSpokenParagraphs, normalizeChatResponse, shouldPreserveChatEscapes, prefersReducedMotion, MAX_REPLY_PARTS } from '../../lib/chat-pacing';
 import { isLongFormRequest, polishChatResponse } from '../../lib/reply-quality';
 import { useNotificationStore } from '../../store/notification-store';
 import { synthesizeSpeech, audioBufToDataUrl, audioDurationSec } from '../../lib/tts';
@@ -100,7 +100,7 @@ export interface RoleChatObserver {
 export async function sendRoleChatReply(character: Character, userMsg: Message, request: ChatRequest,
   options: { userId: string; text: string; apiMessage?: string; image?: string; observer?: RoleChatObserver; validate?: () => Promise<void> }) {
   const { userId, text, image, observer = {} } = options;
-  request.stream.configure({longForm:isLongFormRequest(text)});
+  request.stream.configure({longForm:isLongFormRequest(text),preserveEscapes:shouldPreserveChatEscapes(text)});
   const releaseHapticSilence = holdHapticSilence();
   try {
   const apiMessage = options.apiMessage ?? text;
@@ -536,8 +536,8 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         // 回复先经过统一的手机气泡协议：兼容多条消息 JSON，并清掉模型偶尔
         // 带来的空行/文章式换行。之后的质量检查和落库都只使用清洗后的文本。
         if (result.content) {
-          const normalized = normalizeChatResponse(result.content);
-          const validParts = streamedReplyParts(result.content, true,false,{longForm:isLongFormRequest(text)});
+          const normalized = normalizeChatResponse(result.content,request.stream.textOptions);
+          const validParts = streamedReplyParts(result.content, true,false,request.stream.textOptions);
           result = {
             ...result,
             content: validParts.length ? request.stream.published ? normalized : polishChatResponse(normalized, { longForm: isLongFormRequest(text),paragraphFallback:true }) : undefined,
@@ -590,7 +590,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         // 才在自然停顿处分成最多四条，逐条按真人打字时间出现（总长 ≤3500ms）。
         const longFormRequest = isLongFormRequest(text);
         const streamed = request.stream.published;
-        const parts = streamed ? streamedReplyParts(result.content, true, true,{longForm:longFormRequest}) : splitReplyParts(result.content, MAX_REPLY_PARTS, { longForm: longFormRequest });
+        const parts = streamed ? streamedReplyParts(result.content, true, true,request.stream.textOptions) : splitReplyParts(result.content, MAX_REPLY_PARTS, request.stream.textOptions);
         if (!parts.length) throw new Error('stream:empty');
         if (streamed) request.stream.finish(result.content);
         const reduced = prefersReducedMotion();
@@ -747,7 +747,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       // Abort before the first visible token is a cancellation, not a send error.
       if (request.controller.signal.aborted && !request.stream.published) return;
       if (request.stream.published) {
-        const parts = streamedReplyParts(request.stream.raw, true, true);
+        const parts = streamedReplyParts(request.stream.raw, true, true,request.stream.textOptions);
         for (let index = 0; index < parts.length; index += 1) {
           const id = request.stream.ids[index];
           if (await messageRepo.getById(id)) continue;

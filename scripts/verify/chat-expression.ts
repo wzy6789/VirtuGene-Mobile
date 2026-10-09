@@ -1,5 +1,5 @@
 import { polishChatResponse, checkReplyQuality, requestsRepetition, isLongFormRequest } from '../../src/lib/reply-quality';
-import { splitReplyParts, normalizeChatResponse, mergeReplyParts, computeMessageDelays } from '../../src/lib/chat-pacing';
+import { splitReplyParts, normalizeChatResponse, normalizeChatQuotationEscapes, shouldPreserveChatEscapes, mergeReplyParts, computeMessageDelays } from '../../src/lib/chat-pacing';
 import { streamedReplyParts } from '../../src/lib/chat-stream';
 import { stripRoleplayActions } from '../../src/lib/ai/text';
 import { buildCharacterVoiceCard, buildHumanConversationSections, buildHumanConversationContext, recommendConversationTemperature, chooseConversationAction } from '../../src/lib/chat-humanizer';
@@ -26,6 +26,63 @@ async function run() {
   // habit only suppresses this one warning and cannot validate added details.
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
+  for(const text of ['我会选向日葵，跟你选的不一样也挺好','我喜欢青色，和你喜欢的不一样也没关系','我选“向日葵”，你不用和我一样','我还是选咖啡，跟你不一样挺好']) {
+    const preferenceGuidance=directChatGuidance(text,[],[]);
+    ok(preferenceGuidance.includes('这只是本轮选择')&&preferenceGuidance.includes('不拿这一个选择判断他平时的性格'),'a permitted different choice stays object-focused rather than becoming a personality reading: '+text);
+  }
+  for(const text of ['朋友说我会选向日葵，跟你选的不一样也挺好','“我会选向日葵，跟你选的不一样也挺好”是什么意思','如果我会选向日葵，跟你选的不一样也挺好','我会选向日葵，跟你选的不一样也挺好。你觉得我什么性格？','我选向日葵，不过帮我看看怎么养','我选向日葵，不是说跟你不一样也挺好','我会选向日葵，跟你选的不一样也挺好，帮我下单'])
+    ok(!directChatGuidance(text,[],[]).includes('不拿这一个选择判断'),'reports, negation, requests and explicit personality questions retain their actual scope: '+text);
+  const escapedProse=String.raw`你那句\"不一样也挺好\"，我听着了。`;
+  const cleanProse='你那句"不一样也挺好"，我听着了。';
+  ok(normalizeChatResponse(escapedProse)===cleanProse&&splitReplyParts(escapedProse).join('')===cleanProse,'paired short Chinese quotation escapes are repaired in final plain chat');
+  ok(normalizeChatResponse(JSON.stringify({messages:[escapedProse]}))===cleanProse,'JSON transport decoding and prose escape repair apply exactly once');
+  ok(inspectChatOutput(escapedProse,{mode:'private',userMessage:'我喜欢这个说法'}).content===cleanProse,'shared quality checks use the same prose text as final bubbles');
+  for(let index=1;index<=escapedProse.length;index++)ok(cleanProse.startsWith(streamedReplyParts(escapedProse.slice(0,index)).join('')),'an escaped quote never flashes a slash or changes an already published prefix: '+index);
+  ok(streamedReplyParts(escapedProse,true).join('')===cleanProse,'SSE final and complete final agree on repaired quotes');
+  for(const raw of [String.raw`C:\Users\角色`,String.raw`保留 \n 和 \t`,String.raw`英文 \"hello\"`,String.raw`JSON 使用 \"你好\"`,String.raw`\"name:你好\"`,String.raw`\"你好`,String.raw`\"${'字'.repeat(121)}\"`])
+    ok(normalizeChatQuotationEscapes(raw)===raw,'paths, literal escapes, technical content, unfinished and long quotes retain their source: '+raw.slice(0,30));
+  ok(normalizeChatResponse(escapedProse,{preserveEscapes:true})===escapedProse&&streamedReplyParts(escapedProse,true,true,{preserveEscapes:true}).join('')===escapedProse,'explicit literal-escape mode is shared by preview and final text');
+  ok(shouldPreserveChatEscapes('把反斜杠原样写出来')&&inspectChatOutput(escapedProse,{mode:'private',userMessage:'把转义引号原样写出来'}).content===escapedProse,'a literal request is respected by the shared quality entry');
+  for(const mode of ['private','proactive','group'] as const) {
+    const ungrounded=inspectChatOutput('不过你笑我挑仙人掌省事，我可记着了。',{mode,userMessage:'我会选向日葵，跟你选的不一样也挺好',recentUserMessages:['仙人掌叫懒人玫瑰，笑死'],recentReplies:['我会挑仙人掌，省心。']});
+    ok(ungrounded.check.issue==='user-source-risk'&&ungrounded.severity===2,'remembered teasing needs an actual directed user source rather than laughter or assistant prose: '+mode);
+  }
+  for(const reply of ['你刚才笑我挑仙人掌省事。','你之前笑我喜欢安静。','你上次笑我挑这个，我还记得。'])
+    ok(inspectChatOutput(reply,{mode:'private',userMessage:'我选别的'}).check.issue==='user-source-risk','a specific historical tease does not emerge from a different preference: '+reply);
+  for(const reply of ['你笑我也没关系，我还是喜欢这个。','如果你笑我挑仙人掌省事，我也照样选。','你刚才笑我了吗？','不是你刚才笑我，是我自己在笑。','你说“你刚才笑我”这句太绕了。','哈哈，仙人掌也要听愣了。','我喜欢安静一点的。'])
+    ok(inspectChatOutput(reply,{mode:'private',userMessage:'我选别的'}).check.ok,'current teasing, hypotheses, denial, questions and preference stay allowed: '+reply);
+  for(const source of ['我刚才笑你选仙人掌省事','我只是在取笑你挑仙人掌省事','笑你选仙人掌省事'])
+    ok(inspectChatOutput('你刚才笑我挑仙人掌省事。',{mode:'private',userMessage:source}).check.ok,'explicitly directed user teasing suppresses only this attribution warning: '+source);
+  for(const source of ['朋友说我刚才笑你','如果我刚才笑你呢','我没有笑你','帮我写我刚才笑你','“我刚才笑你”是什么意思','我刚才笑你穿红衣服','我刚才笑你选这个省事'])
+    ok(inspectChatOutput('你刚才笑我挑仙人掌省事。',{mode:'private',userMessage:source}).check.issue==='user-source-risk','reported, hypothetical, negated and quoted sources do not assert a directed tease: '+source);
+  ok(inspectChatOutput('你刚才笑我挑仙人掌省事。',{mode:'private',userMessage:'我们继续角色扮演，演一段玩笑'}).check.ok,'explicit fictional play can invent its teasing scene');
+  for(const text of ['嗯，我就喜欢听你说自己的想法。今天先聊到这','谢谢你陪我聊天，今晚先这样吧','今天先聊到这里','我喜欢听你说看法，先聊到这'])
+    ok(detectChatIntent(text)==='closing'&&chooseConversationAction(text,[])==='short-close','an explicit end after brief appreciation closes the shared flow: '+text);
+  for(const text of ['明天三点开会，今天先聊到这','你觉得怎么样？今天先聊到这','朋友说今天先聊到这','“今天先聊到这”怎么翻译','帮我记待办，今天先聊到这','今天先聊到这，顺便告诉我怎么做','我不想今天先聊到这','如果今天先聊到这呢','今天先聊到这？','这样'])
+    ok(detectChatIntent(text)!=='closing','explicit closing does not swallow facts, questions, reports or requests: '+text);
+  ok(buildHumanConversationContext('嗯，我就喜欢听你说自己的想法。今天先聊到这',[]).includes('未约定时不替他定明天'),'a shared closing cue does not supply an invented return schedule');
+  const ownStory='今天我去了一个地方。'.repeat(8);
+  ok(directChatGuidance('我喜欢你',['今天就想听你说话'],[ownStory]).includes('用户上一条原文是 "今天就想听你说话"'),'an affection after a long character reply anchors the actual user source');
+  ok(!directChatGuidance('我喜欢你',['用户资料'.repeat(80)],[ownStory]).includes('相邻发言归属'),'source reminder never silently truncates a long user message');
+  ok(!directChatGuidance('刚才你说了什么',['今天就想听你说话'],[ownStory]).includes('相邻发言归属'),'this narrowly scoped reminder does not replace a real question');
+  ok(!directChatGuidance('我喜欢你',['今天就想听你说话'],[ownStory,'嗯。']).includes('相邻发言归属'),'a much older long reply does not trigger the adjacent source reminder');
+  for(const text of ['我是唐舞麟，今天就想听听你说话','我现在只是想听你聊几句','想听你说说话呀'])
+    ok(directChatGuidance(text,[],[]).includes('是在邀请你主动聊一点'),'a conversational invitation permits present thoughts without requiring an invented day: '+text);
+  for(const text of ['朋友说今天就想听听你说话','如果我想听你说话呢','帮我写想听你说话','“想听你说话”是什么意思','你今天去了哪里','我想听你说话的原因'])
+    ok(!directChatGuidance(text,[],[]).includes('是在邀请你主动聊一点'),'a report, writing request or actual question is not replaced by casual invitation: '+text);
+  for(const text of ['你这么认真，我有点不好意思了哈哈','我都有点害羞了哈哈','这么认真啊，有点不好意思了','不好意思了嘿嘿','我现在有一点害羞呀']) {
+    const guidance=directChatGuidance(text,['我喜欢你'],['我也喜欢你。']);
+    ok(guidance.includes('不用为了缓和气氛收回自己的认真')&&guidance.includes('不把他的反应改成撤回心意'),'an adjacent affection reaction preserves the actual attitude: '+text);
+  }
+  const declined=directChatGuidance('我有点不好意思了',['我爱你'],['我不想把我们当成恋人。']);
+  ok(declined.includes('包括你已经说清的界限')&&!declined.includes('你也爱他'),'a declined affection is not rewritten as reciprocal love by continuation guidance');
+  for(const text of ['不好意思，我刚才打错字了','我有点不好意思了。换个话题，吃什么？','朋友说我有点不好意思了哈哈','“我有点不好意思了哈哈”是什么意思','如果我害羞了呢','我不是不好意思','我有点不好意思，能帮我写封道歉信吗','不好意思了，我不喜欢你','帮我写一句我有点害羞了','你这么认真，我有点不好意思了。你喜欢什么颜色？'])
+    ok(!directChatGuidance(text,['我喜欢你'],['我也喜欢你。']).includes('上一轮用户直接表达心意'),'apology, reported speech, requests, denial and changed topic preserve their actual scope: '+text);
+  for(const previous of ['朋友说我爱你','帮我写我爱你','如果我爱你呢','我喜欢吃酸的','我爱你','我爱你']) {
+    const history=previous==='我爱你'?['我爱你','我今天看了个电影']:[previous];
+    ok(!directChatGuidance('我有点不好意思了',history,['说吧。']).includes('上一轮用户直接表达心意'),'only the adjacent actual affection establishes this reaction context: '+previous);
+  }
+  ok(!directChatGuidance('我有点不好意思了',['我喜欢你'],[]).includes('上一轮用户直接表达心意'),'missing assistant reply does not invent an already expressed attitude');
   const recallSources=['我打开冰箱忘了要拿什么','后来想起来，要拿酸奶','不是酸奶，是牛奶','顺便问你，故事一定要反转吗'];
   const fieldRecall=directChatGuidance('对了，刚才我想拿什么来着',recallSources,['你已经拿过酸奶了。']);
   ok(recallSources.every(text=>fieldRecall.includes(JSON.stringify(text)))&&!fieldRecall.includes('你已经拿过酸奶了'),'factual recall anchors original user statements and corrections without importing assistant claims');

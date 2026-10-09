@@ -20,6 +20,27 @@ const LONG_MESSAGE_CHARS = 60;
 /** 普通私聊超过这个长度时，优先在自然标点处分成多个气泡，避免一整块文字压满手机屏幕。 */
 const NATURAL_SPLIT_CHARS = 60;
 export const MAX_REPLY_PARTS = 4;
+export interface ChatTextOptions { longForm?:boolean; preserveEscapes?:boolean }
+
+export function shouldPreserveChatEscapes(message:string):boolean {
+  return /[\\`]|转义|反斜杠|正则|代码|字符|\b(?:JSON|JavaScript|TypeScript|Python|SQL)\b/iu.test(message);
+}
+
+/** Repair only short quoted Chinese prose, never arbitrary backslashes or JSON
+ * escapes. Technical content and explicit literal requests stay untouched. */
+export function normalizeChatQuotationEscapes(content:string,options:ChatTextOptions={},final=true):string {
+  const probe=content.replace(/\\["']/gu,'');
+  if(options.preserveEscapes||shouldPreserveChatEscapes(final?probe:probe.replace(/\\$/u,'')))return content;
+  let text=content.replace(/(?<!\\)\\(["'])([^\\\n]{1,120})\\\1/gu,(whole,quote:string,body:string)=>
+    /\p{Script=Han}/u.test(body)&&!/[{}\[\]<>:=/]/u.test(body)?quote+body+quote:whole);
+  if(!final){
+    // Do not flash a slash while the next frame can complete a prose quote.
+    const pending=text.match(/(?<!\\)\\(["'])[^\\\n]{0,120}(?:\\)?$/u);
+    if(pending)text=text.slice(0,pending.index);
+    else text=text.replace(/(?<!\\)\\$/u,'');
+  }
+  return text;
+}
 
 /** Fallback for a model using blank paragraphs instead of explicit transport separators. */
 export function normalizeChatParagraphBoundaries(content:string,options:{longForm?:boolean}={}):string {
@@ -64,7 +85,7 @@ export function normalizeBubbleText(content: string): string {
 }
 
 /** 模型若按 JSON 协议返回多条消息，兼容解析；解析失败仍按普通文本处理。 */
-export function normalizeChatResponse(content: string): string {
+export function normalizeChatResponse(content: string,options:ChatTextOptions={}): string {
   const raw = content.trim();
   if (!raw) return '';
   try {
@@ -72,14 +93,14 @@ export function normalizeChatResponse(content: string): string {
     if (candidate && typeof candidate === 'object' && Array.isArray((candidate as { messages?: unknown }).messages)) {
       const messages = (candidate as { messages: unknown[] }).messages
         .filter((item): item is string => typeof item === 'string')
-        .map(normalizeBubbleText)
+        .map(item=>normalizeBubbleText(normalizeChatQuotationEscapes(item,options)))
         .filter(Boolean);
       if (messages.length > 0) return messages.join('\n---\n');
     }
   } catch {
     // 绝大多数回复仍是纯文本；不把普通文本当成错误。
   }
-  return raw;
+  return normalizeChatQuotationEscapes(raw,options);
 }
 
 export function prefersReducedMotion(): boolean {
@@ -109,8 +130,8 @@ export function followUpDelay(part: string): number {
  * 把一段模型回复切成要发出的分条（最多 4 条）。
  * 内容里有 `---` 时尊重模型分段；普通闲聊偶尔过长，则只在自然标点处补分段，避免一整面文字挤在一个气泡里。
  */
-export function splitReplyParts(content: string, maxParts = MAX_REPLY_PARTS, options: { longForm?: boolean } = {}): string[] {
-  const normalized = normalizeChatParagraphBoundaries(normalizeChatResponse(content),options);
+export function splitReplyParts(content: string, maxParts = MAX_REPLY_PARTS, options: ChatTextOptions = {}): string[] {
+  const normalized = normalizeChatParagraphBoundaries(normalizeChatResponse(content,options),options);
   const parts = normalized
     .split(/\n?-{3,}\n?/)
     .map(normalizeBubbleText)

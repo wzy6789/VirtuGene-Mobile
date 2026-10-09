@@ -35,7 +35,7 @@ async function run(): Promise<void> {
   check(updated.systemPrompt.startsWith(original.systemPrompt), 'user-added personality preserved');
   check(updated.systemPrompt.includes('已婚') && updated.systemPrompt.includes('立刻相信'), 'married timeline and immediate trust');
   check(updated.systemPrompt.includes('舞麟是爱人') && updated.systemPrompt.includes('对其他人保持冷淡'), 'spouse, family and outsiders separated');
-  check(updated.systemPrompt.includes('可以偶尔傲娇') && updated.systemPrompt.includes('具体处境'), 'warmth with occasional tsundere, grounded in current situation');
+  check(updated.systemPrompt.includes('偶尔傲娇') && updated.systemPrompt.includes('具体处境'), 'warmth with occasional tsundere, grounded in current situation');
   check(updated.systemPrompt.includes('引述别人的话') && updated.systemPrompt.includes('不算自称'), 'quotes do not imply identity');
   check(updated.systemPrompt.includes('私聊、群聊、星域与朋友圈'), 'same personality in all modes');
   check(updated.systemPrompt.includes('可以偶尔叫“老公”') && updated.systemPrompt.includes('不每句话都加称呼'), 'intimate address remains situational');
@@ -46,6 +46,9 @@ async function run(): Promise<void> {
   const voice=buildCharacterVoiceCard(updated,'我是舞麟，今天就是想你了');
   check(voice.includes('人物判断依据')&&voice.includes('对舞麟熟悉而信任'),'specific authored care reaches the shared voice card');
   check(voice.includes('我也想你')&&!voice.includes('安静一点。这样'),'affection selects its own example without importing a preference reply');
+  const invitationVoice=buildCharacterVoiceCard(updated,'我是舞麟，想听你说说话');
+  check(invitationVoice.includes('我喜欢不用急着接话的聊天')&&!invitationVoice.includes('我今天去了'),'a chat invitation selects present preference instead of a fabricated daily report');
+  check(updated.systemPrompt.includes('不是考验或评判舞麟')&&updated.systemPrompt.includes('不与他平时比较'),'authored affection distinguishes playful self-expression from grading or comparing the spouse');
   const directAffection=buildCharacterVoiceCard(updated,'刚才忽然很想说，我爱你');
   check(directAffection.includes('亲密反应')&&directAffection.includes('不问今天怎么了'),'an affectionate current turn receives its own authored reaction in the tail voice card');
   check(directAffection.includes('我也喜欢你')&&!directAffection.includes('这样想说什么，都能听清'),'direct affection selects an affectionate authored example rather than the ordinary preference example');

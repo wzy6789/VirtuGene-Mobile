@@ -61,6 +61,46 @@ try {
   check(affectionSaved.map(m=>m.content).join('')==='我也喜欢你，听着有点开心。','unsupported rarity of affection is corrected before the actual private-chat DB write');
   check((await test('completeRequests')).length===2,'affection history risk shares the existing single correction budget');
   await ready(0);
+  await test('useCompleteResponses',['不过你笑我挑仙人掌省事，我可记着了。','我还是更喜欢仙人掌那股安静的劲。']);
+  await test('submit','我会选向日葵，跟你选的不一样也挺好');
+  let teasingSaved=[];
+  const teasingDeadline=Date.now()+15000;
+  while(Date.now()<teasingDeadline){
+    teasingSaved=(await test('records')).filter(m=>m.role==='assistant');
+    if(teasingSaved.length)break;
+    await page.waitForTimeout(50);
+  }
+  check(teasingSaved.map(m=>m.content).join('')==='我还是更喜欢仙人掌那股安静的劲。','a fabricated remembered tease is corrected before the actual private-chat DB write');
+  check((await test('completeRequests')).length===2,'user attribution warning shares one correction budget without a separate critic call');
+  await ready(0);
+  await test('submit','我喜欢这个说法'); await waitRequests(1);
+  const proseSlash=String.fromCharCode(92);
+  const escapedProse='你那句'+proseSlash+'"不一样也挺好'+proseSlash+'"，我听着了。';
+  for(const chunk of ['你那句',proseSlash,'"不一样也挺好',proseSlash,'"，我听着了。']){
+    await test('push',0,chunk); await page.waitForTimeout(50);
+    check(!(await page.locator('[data-streaming-reply]').innerText()).includes(proseSlash),'SSE quotation fragments never show an escaping slash');
+  }
+  await test('finish',0); await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='你那句"不一样也挺好"，我听着了。','ordinary escaped quotation saves exactly the visible prose');
+  await ready(0);
+  await test('useCompleteResponses',[escapedProse]);
+  await test('submit','把转义引号原样写出来');
+  const literalDeadline=Date.now()+15000;
+  let literalSaved=[];
+  while(Date.now()<literalDeadline){
+    literalSaved=(await test('records')).filter(m=>m.role==='assistant');
+    if(literalSaved.length)break;
+    await page.waitForTimeout(50);
+  }
+  check(literalSaved.map(m=>m.content).join('')===escapedProse,'a literal-escape request retains slashes through quality and the actual DB write');
+  await ready(0);
+  await test('submit','保留反斜杠再说一次'); await waitRequests(1);
+  await test('push',0,escapedProse); await page.locator('[data-streaming-reply]').waitFor();
+  check((await page.locator('[data-streaming-reply]').innerText()).endsWith(escapedProse),'literal-mode SSE preview keeps the requested source characters');
+  await page.getByRole('button',{name:'停止生成',exact:true}).click(); await done();
+  const literalStopped=(await test('records')).filter(m=>m.role==='assistant');
+  check(literalStopped.length===1&&literalStopped[0].stopped&&literalStopped[0].content===escapedProse,'stopping a literal-mode stream saves the same text without losing configured policy');
+  await ready(0);
   await test('submit', '你好', true); await waitRequests(1);
   await test('push', 0, '你好'); await page.locator('[data-streaming-reply]').waitFor();
   check((await test('requests'))[0].body.stream === true, 'real chat requests SSE');

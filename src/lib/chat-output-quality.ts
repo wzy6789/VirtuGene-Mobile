@@ -1,10 +1,11 @@
-import { normalizeChatResponse } from './chat-pacing';
+import { normalizeChatResponse,shouldPreserveChatEscapes } from './chat-pacing';
 import { stripRoleplayActions } from './ai/text';
 import { checkReplyQuality, isLongFormRequest, polishChatResponse, type ReplyCheck } from './reply-quality';
 import { allowsDramaticReply, hasOverwrittenAffection, hasUninvitedStaging } from './chat-expression-boundary';
 import { findSelfReportRisk } from './chat-self-report-risk';
 import {findCurrentSceneRisk} from './chat-current-scene-risk';
 import {findAffectionHistoryRisk} from './chat-affection-history-risk';
+import {findRememberedTeasingRisk} from './chat-remembered-teasing-risk';
 
 export interface OutputQualityContext {
   mode: 'private' | 'proactive' | 'group';
@@ -22,13 +23,14 @@ export interface OutputQualityContext {
 }
 /** Shared textual checks; proactive history is not a new user request. */
 export function inspectChatOutput(raw: string, context: OutputQualityContext): { content: string; check: ReplyCheck; severity: number } {
-  const content = polishChatResponse(stripRoleplayActions(normalizeChatResponse(raw)), {longForm:isLongFormRequest(context.userMessage ?? ''),paragraphFallback:context.mode==='private'});
+  const content = polishChatResponse(stripRoleplayActions(normalizeChatResponse(raw,{preserveEscapes:shouldPreserveChatEscapes(context.userMessage??'')})), {longForm:isLongFormRequest(context.userMessage ?? ''),paragraphFallback:context.mode==='private'});
   const history = context.recentReplies ?? [];
   let check = checkReplyQuality(content, context.mode === 'proactive' ? '' : context.userMessage ?? '', history[history.length - 1], history.slice(-4), { catchphrase: context.catchphrase });
   if(check.ok && !allowsDramaticReply(context.userMessage ?? '',context.recentUserMessages)) {
     if(hasUninvitedStaging(content)) check={ok:false,issue:'uninvited-staging',retryHint:'这轮是在发消息，不是同处一室。保留角色态度与亲密感，直接接用户的话；不要继续进门、坐下、看着对方或当面再说的表演，也不要换一组动作替代。'};
     else if(hasOverwrittenAffection(content,context.userMessage ?? '')) check={ok:false,issue:'emotional-script',retryHint:'直接用角色自己的口语表达对这份心意的态度；不要层层解释如何接收这句话，不堆意象、仪式或要求当面再说，不强迫回应相同爱意。'};
     else if(findAffectionHistoryRisk(content,context.userMessage,context.recentUserMessages,context.persona)) check={ok:false,issue:'emotional-script',retryHint:'保留你对这句话的喜欢、开心或轻轻打趣；当前没有依据判断对方平时很少直白表达，不要把这一刻写成难得、终于或与过去比较。直接说自己的当下反应，不向对方解释检查过程，也不追加考查心意来历的问题。'};
+    else if(findRememberedTeasingRisk(content,context.userMessage,context.recentUserMessages)) check={ok:false,issue:'user-source-risk',retryHint:'刚才把用户的笑声或不同偏好写成了他以前取笑你的具体往事。现有原话没有明确的对应说法，保留自己的偏好与眼前玩笑，别说他笑过你、记着账；也不否认全部过去、不向他解释检查过程。'};
     else {
       const risk=findSelfReportRisk(content,context.persona,context.independentCharacterRecords);
       if(risk)check={ok:false,issue:'self-report-risk',retryHint:`刚才新增了缺少独立来源的具体生活习惯自述：${JSON.stringify(risk.quote)}。保留对眼前事情的反应、当下喜好或玩笑，不需要补一个共同经历。不要用以前或正在做的另一种动作替换它，不否认未记载的过去，不向用户解释核对过程。`};
@@ -45,6 +47,6 @@ export function inspectChatOutput(raw: string, context: OutputQualityContext): {
   const forbidden=(context.persona ?? '').split(/\r?\n/u).filter(line=>/^禁用称呼[：:]/u.test(line)).flatMap(line=>line.replace(/^禁用称呼[：:]\s*/u,'').split(/[、，,]/u)).map(s=>s.trim()).filter(Boolean);
   const wrongAddress=forbidden.some(name=>content.split(/[。！？!?\n]|-{3,}/u).some(s=>s.trim().startsWith(name+'，')||s.trim().startsWith(name+',')));
   if(check.ok && (wrongAddress || noEmoji && !requestedEmoji && /\p{Extended_Pictographic}/u.test(content))) check={ok:false,issue:'voice-conflict',retryHint:'遵守人设中明确的表情与禁用称呼要求；其他内容和角色自己的语气保留，不强塞口头禅。'};
-  const severity = check.ok ? 0 : check.issue === 'empty' ? 4 : check.issue === 'generic' || check.issue === 'uninvited-staging' || check.issue === 'self-report-risk' ? 3 : check.issue === 'repeat-own' || check.issue === 'emotional-script' ? 2 : 1;
+  const severity = check.ok ? 0 : check.issue === 'empty' ? 4 : check.issue === 'generic' || check.issue === 'uninvited-staging' || check.issue === 'self-report-risk' ? 3 : check.issue === 'repeat-own' || check.issue === 'emotional-script' || check.issue === 'user-source-risk' ? 2 : 1;
   return { content, check, severity };
 }

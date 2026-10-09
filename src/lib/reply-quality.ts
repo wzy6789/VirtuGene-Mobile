@@ -19,6 +19,7 @@ export type ReplyIssue =
   | 'uninvited-staging'
   | 'emotional-script'
   | 'voice-conflict'
+  | 'user-source-risk'
   | 'self-report-risk';
 
 export interface ReplyCheck {
@@ -116,6 +117,7 @@ export function isLongFormRequest(message: string): boolean {
 }
 
 const RETRY_HINTS: Record<ReplyIssue, string> = {
+  'user-source-risk':'保留眼前态度与玩笑，不将人物自己的话、用户笑声或不同偏好编成用户曾经说过的具体话。',
   'uninvited-staging':'刚才把发消息写成了同处一室的表演。保留角色态度和亲密感，直接接这句话；不要安排进门、坐下、看着你或当面再说，不把这些动作换一组继续演。',
   'emotional-script':'刚才把一句心意写成了层层解释的文学台词。用角色自己的口语表达当下态度；不解释如何接收这句话，不堆意象和仪式，也不强迫回应相同爱意。',
   'voice-conflict':'遵守人设中的明确表达要求，保留当前内容和角色自己的语气。',

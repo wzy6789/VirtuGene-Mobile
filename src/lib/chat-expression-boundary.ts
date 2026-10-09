@@ -76,8 +76,16 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
   const lines:string[]=[];
   const unquoted=userMessage.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   const previousUser=recentUserMessages[recentUserMessages.length-1]??'';
-  const preference=unquoted.match(/^(我(?:更|比较|也|倒|偏|还挺)?(?:喜欢|不喜欢|想吃|想看)[^，,。！？!?；;\n]{1,30})[，,]\s*(?:但|不过)?\s*你(?:不用|不必|不需要).{0,6}(?:跟我一样|和我一样|一样)[。！!\s]*$/u);
-  if(preference)lines.push(`用户这轮明确说「${preference[1]}」，随后允许你有不同偏好，不是在改口。按这句当前喜好接话，你可以说自己的好恶，不必替他换一种口味或替他安排；这只是本轮选择，不概括成永久习惯。`);
+  const talkInvitation=unquoted.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
+    /^(?:我(?:今天|现在)?|今天|现在)?(?:就|只是|只)?想(?:听听|听)你(?:说说话|说话|聊几句)[呀啊啦呢嘛\s]*$/u.test(part));
+  if(talkInvitation&&!/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事|帮我|替我|写)/u.test(unquoted.trim()))lines.push('用户想听你说话，是在邀请你主动聊一点，不是在索要今天的行程或近况报告。可以说一个你现在感兴趣的想法、自己的好恶，或有来源的生活线索；无需先让他选听什么，也不用编一件今天或前几天发生的事来填满空白。');
+  const affectionReaction=isDirectAffection(previousUser)&&recentReplies.length>0
+    && unquoted.trim()===userMessage.trim()
+    && !hasExplicitTopicShift(unquoted)
+    && /^(?:(?:你(?:这么|好|太)?认真(?:啊|了)?|这么认真啊?|哈哈(?:哈)*|嘿嘿)[，,。！!\s]*)?(?:我(?:都|也|现在)?(?:有点|有一点|有些|有一些)?|有点|有一点|有些)?(?:不好意思|害羞)(?:了)?(?:哈哈(?:哈)*|嘿嘿|呀|啊|啦|呢|嘛|～|~|[，,。！!\s])*$/u.test(unquoted.trim());
+  if(affectionReaction)lines.push('上一轮用户直接表达心意，这轮是在回应你刚才的态度，说自己有点不好意思或害羞。沿着刚才真实的态度轻轻接话即可，包括你已经说清的界限；不用为了缓和气氛收回自己的认真，也不把他的反应改成撤回心意。语气可以轻一点，有分寸地逗一句或坦然说自己的感受，不替他解释心理、不另找心情变好的原因。');
+  const preference=userMessage.trim().match(/^(我(?:(?:更|比较|也|倒|偏|还挺)?(?:喜欢|不喜欢|想吃|想看)|(?:会|更想|还是|想)?选)[^，,。！？!?；;\n]{1,30})[，,]\s*(?:但|不过)?\s*(?:你(?:不用|不必|不需要).{0,6}(?:跟我一样|和我一样|一样)|(?:跟|和)你(?:选的|喜欢的)?不一样(?:也|就)?(?:挺好|很好|没关系|可以|正常))[。！!\s]*$/u);
+  if(preference)lines.push(`用户这轮明确说「${preference[1]}」，随后允许你有不同偏好，不是在改口。按这句当前喜好接话，你可以说自己的好恶，不必替他换一种口味或替他安排；这只是本轮选择，不概括成永久习惯。关注所选东西的具体特点与自己的态度，不拿这一个选择判断他平时的性格或眼光；不同喜好可以平常地并存，不需要记账或证明谁更懂。`);
   if(isChoiceInvitation(previousUser)&&/^(?:我(?:还是|更|偏)?(?:想|选|决定)|那就|就选).{1,50}(?:就这么定了|就它了|就这样吧|吧|了)[。！!\s]*$/u.test(unquoted.trim()))lines.push('用户已选定一项。话题从选哪个好转到选中的内容本身：你可以保留自己的偏好，也自然接受不同选择。说一点对这个内容的兴趣或具体反应就好，不需要认可、解释或评价用户的决定；真正想知道内容里的某一点才问，不为接话额外补日期和安排。');
   if(isSelfViewRevision(unquoted)&&!hasExplicitTopicShift(unquoted))lines.push('用户在调整刚才的观点，还在聊同一件事。顺着这个新看法，说你自己的具体态度即可；对方的感受和原因以其已经讲明的内容为准。把注意力放在新的观点或事情上，让这次改口自然过去，双方可以继续各有看法。');
   else if(isTopicClarification(unquoted))lines.push('用户在更正刚才的说法，接最新内容即可。更正的是自己的认识还是外部事实，以其原话为准；未说改期、取消或发生新变化，就不替事件补一段变动经过。');
@@ -115,7 +123,10 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
     :unquoted.split(/[。！？!?，,；;\n]/u).some(part=>/^我(?:倒|更|还是|比较|其实|就|偏)?(?:喜欢|偏爱|倾向)/u.test(part.trim()))
     ?'用户在说自己的偏好，也允许你不同。可以继续喜欢自己那种，讲一处你喜欢的细节；对方喜欢另一种，不需要论证谁更懂，也不替他补原因或断言他欣赏不了什么。这里是在交换偏好，不是在给对方挑作品、评分或安排怎么体验。具体事实有分歧仍可说明。'
     :'用户邀请你说真实看法：以这个人物自己的立场回应一处具体观点，同意或不同意都可以。这里是在交流看法，不是让你安排下一步；说清态度和依据即可收住，不固定追加“你觉得呢”。用户说出的原因是事实，历史里你猜过的原因仍是猜测；拿不准时留白或具体问，不替用户补理由。');
-  if (isDirectAffection(userMessage)) lines.push('用户直接表达了喜欢，不是在请你分析爱的定义。这轮说你自己的感受、是否愿意靠近或你需要的界限；亲密程度以人物与实际关系为准。态度说清即可，不追加考查心意来历或要求解释的问题；保持发消息的方式，不安排当面重说。明确的心意不需要改成待澄清的问题。');
+  if (isDirectAffection(userMessage)) {
+    lines.push('用户直接表达了喜欢，不是在请你分析爱的定义。这轮说你自己的感受、是否愿意靠近或你需要的界限；亲密程度以人物与实际关系为准。态度说清即可，不追加考查心意来历或要求解释的问题；保持发消息的方式，不安排当面重说。明确的心意不需要改成待澄清的问题。');
+    if(previousUser.length>0&&previousUser.length<=120&&(recentReplies[recentReplies.length-1]?.length??0)>60)lines.push(`相邻发言归属：用户上一条原文是 ${JSON.stringify(previousUser)}。历史中的人物发言属于你自己的话，不能说成用户此前的铺垫、解释或亲历；这轮直接回应眼前的心意。`);
+  }
   if (recentReplies.slice(-3).some(text=>hasUninvitedStaging(text)||hasOverwrittenAffection(text,userMessage))) lines.push('最近回复带出了现场表演或情绪独白。历史里的门、动作和氛围不是现在同处一室的证据；这轮回到发消息，接用户眼前的话，不再续演那个布景。');
   return lines.join('\n');
 }

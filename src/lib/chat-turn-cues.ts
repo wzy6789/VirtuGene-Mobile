@@ -74,6 +74,12 @@ export function hasExplicitTopicShift(message:string):boolean {
 }
 
 export function isStandaloneClosing(message:string):boolean {
+  // A brief acknowledgement before an explicit end remains a goodbye.
+  // Other facts, questions, quoted ends and requests keep their own intent.
+  const clauses=message.trim().split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).filter(Boolean);
+  const end=clauses[clauses.length-1]??'';
+  if(!/[?？]/u.test(message)&&/^(?:今天|今晚)?(?:(?:就|先)?聊到这(?:里)?|(?:就|先)这样)(?:吧|了|啦)?$/u.test(end)
+    &&clauses.slice(0,-1).every(part=>/^(?:嗯+|好(?:的|吧|呀|啦)?|行|谢谢(?:你)?(?:听我说|陪我聊(?:天)?)?|今天聊得(?:挺|很)?(?:开心|舒服)|我(?:就|也|挺|很)?喜欢听你说(?:自己的)?(?:想法|看法))$/u.test(part)))return true;
   const text=message.trim().replace(/^(?:行|好(?:的)?|嗯)[，,\s]+/u,'')
     .replace(/^(?:今(?:天|晚))?(?:就这样|先这样|先聊到这(?:里)?|聊到这(?:里)?)[，,。！!\s]+/u,'')
     .replace(/^(?:明天|改天|下次)(?:再|接着)(?:聊|说|弄|做|处理)(?:吧|了)?[，,。！!\s]+/u,'');
