@@ -158,7 +158,9 @@ export async function readProviderSseResponse(response: Response, onDelta: (accu
   // Parse it once rather than retrying a request the provider already completed.
   if (response.headers?.get('content-type')?.includes('application/json')) {
     const result = parseProviderResponse(await response.json(), protocol, provider);
-    if (result.content) onDelta(result.content, result.content);
+    // A complete JSON response is returned to the caller's result/quality
+    // path. Publishing it as a delta falsely marks it already visible and
+    // bypasses the private-chat check before persistence.
     return { content: result.content, truncated: result.truncated === true, interrupted: false, usage: result.usage };
   }
   const decoder = new TextDecoder();
@@ -223,7 +225,7 @@ export async function readProviderSseResponse(response: Response, onDelta: (accu
       const raw = await response.text();
       if (raw.trimStart().startsWith('{')) {
         const result = parseProviderResponse(JSON.parse(raw), protocol, provider);
-        emit(result.content);
+        content = result.content;
         truncated = result.truncated === true;
         usage = result.usage;
         completed = true;

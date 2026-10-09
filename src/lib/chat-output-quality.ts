@@ -4,6 +4,7 @@ import { checkReplyQuality, isLongFormRequest, polishChatResponse, type ReplyChe
 import { allowsDramaticReply, hasOverwrittenAffection, hasUninvitedStaging } from './chat-expression-boundary';
 import { findSelfReportRisk } from './chat-self-report-risk';
 import {findCurrentSceneRisk} from './chat-current-scene-risk';
+import {findAffectionHistoryRisk} from './chat-affection-history-risk';
 
 export interface OutputQualityContext {
   mode: 'private' | 'proactive' | 'group';
@@ -27,6 +28,7 @@ export function inspectChatOutput(raw: string, context: OutputQualityContext): {
   if(check.ok && !allowsDramaticReply(context.userMessage ?? '',context.recentUserMessages)) {
     if(hasUninvitedStaging(content)) check={ok:false,issue:'uninvited-staging',retryHint:'这轮是在发消息，不是同处一室。保留角色态度与亲密感，直接接用户的话；不要继续进门、坐下、看着对方或当面再说的表演，也不要换一组动作替代。'};
     else if(hasOverwrittenAffection(content,context.userMessage ?? '')) check={ok:false,issue:'emotional-script',retryHint:'直接用角色自己的口语表达对这份心意的态度；不要层层解释如何接收这句话，不堆意象、仪式或要求当面再说，不强迫回应相同爱意。'};
+    else if(findAffectionHistoryRisk(content,context.userMessage,context.recentUserMessages,context.persona)) check={ok:false,issue:'emotional-script',retryHint:'保留你对这句话的喜欢、开心或轻轻打趣；当前没有依据判断对方平时很少直白表达，不要把这一刻写成难得、终于或与过去比较。直接说自己的当下反应，不向对方解释检查过程，也不追加考查心意来历的问题。'};
     else {
       const risk=findSelfReportRisk(content,context.persona,context.independentCharacterRecords);
       if(risk)check={ok:false,issue:'self-report-risk',retryHint:`刚才新增了缺少独立来源的具体生活习惯自述：${JSON.stringify(risk.quote)}。保留对眼前事情的反应、当下喜好或玩笑，不需要补一个共同经历。不要用以前或正在做的另一种动作替换它，不否认未记载的过去，不向用户解释核对过程。`};

@@ -29,6 +29,38 @@ try {
   const ready = async history => { await test('setup', history); await page.getByRole('textbox', { name: '消息内容' }).waitFor({ state: 'visible' }); await page.waitForTimeout(100); };
   await ready(0);
   checks += await test('unitChecks'); console.log('ok transport and buffering checks');
+  await test('useCompleteResponses',['过来陪我坐会儿。','想聊就聊，我听着。']);
+  await page.evaluate(()=>{
+    window.completePreviewTexts=[];
+    window.completePreviewObserver=new MutationObserver(()=>document.querySelectorAll('[data-streaming-reply]').forEach(node=>window.completePreviewTexts.push(node.textContent)));
+    window.completePreviewObserver.observe(document.body,{childList:true,subtree:true,characterData:true});
+  });
+  await test('submit','陪我聊会儿');
+  await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);
+  let completeSaved=[];
+  const completeDeadline=Date.now()+15000;
+  while(Date.now()<completeDeadline){
+    completeSaved=(await test('records')).filter(m=>m.role==='assistant');
+    if(completeSaved.length)break;
+    await page.waitForTimeout(50);
+  }
+  check(completeSaved.map(m=>m.content).join('')==='想聊就聊，我听着。','complete JSON bad staging is retried before the good reply reaches the real DB');
+  check(!(await page.evaluate(()=>window.completePreviewTexts.join(''))).includes('过来陪我坐'),'rejected JSON staging never flashes as a streamed preview');
+  check((await test('completeRequests')).length===2,'complete JSON quality correction uses only the existing one-retry allowance');
+  await page.evaluate(()=>window.completePreviewObserver.disconnect());
+  await ready(0);
+  await test('useCompleteResponses',['你难得这么直白一次。','我也喜欢你，听着有点开心。']);
+  await test('submit','我爱你');
+  let affectionSaved=[];
+  const affectionDeadline=Date.now()+15000;
+  while(Date.now()<affectionDeadline){
+    affectionSaved=(await test('records')).filter(m=>m.role==='assistant');
+    if(affectionSaved.length)break;
+    await page.waitForTimeout(50);
+  }
+  check(affectionSaved.map(m=>m.content).join('')==='我也喜欢你，听着有点开心。','unsupported rarity of affection is corrected before the actual private-chat DB write');
+  check((await test('completeRequests')).length===2,'affection history risk shares the existing single correction budget');
+  await ready(0);
   await test('submit', '你好', true); await waitRequests(1);
   await test('push', 0, '你好'); await page.locator('[data-streaming-reply]').waitFor();
   check((await test('requests'))[0].body.stream === true, 'real chat requests SSE');

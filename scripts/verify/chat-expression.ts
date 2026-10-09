@@ -91,6 +91,29 @@ async function run() {
     ok(inspectChatOutput('我一般会盯着锁屏等它主动交代。',{...context,persona:'对话样本：用户说忘事 → 你说我一般会盯着锁屏等它主动交代。'}).check.issue==='self-report-risk',`${mode} does not turn a voice example into independent habit evidence`);
   }
   ok(inspectChatOutput('我一般会盯着锁屏等它主动交代。',{mode:'private',userMessage:'演一个总盯着手机发呆的人，随便写句台词。'}).check.ok,'explicit fictional creation retains invented in-character habits');
+  for(const text of ['那正好，今天没事的话，过来陪我坐会儿。','来我旁边坐一会儿吧。','你坐到我旁边好吗？'])
+    ok(inspectChatOutput(text,{mode:'private',userMessage:'你这么认真，我有点不好意思了哈哈'}).check.issue==='uninvited-staging',`one specific co-location invitation is enough to identify staging: ${text}`);
+  for(const text of ['累的话找个地方坐下歇会儿。','别过来陪我坐，先忙你的。','“过来陪我坐会儿”这句台词挺亲近的。'])
+    ok(inspectChatOutput(text,{mode:'private',userMessage:'这句怎么说'}).check.ok,`rest advice, negation and quoted text do not imply shared presence: ${text}`);
+  ok(inspectChatOutput('过来陪我坐会儿。',{mode:'private',userMessage:'陪我演一段我们在家里的剧情'}).check.ok,'an explicitly requested shared fictional scene retains a co-location invitation');
+  const allowedDifference=directChatGuidance('我喜欢酸的，不过你不用跟我一样',[],[]);
+  for(const text of ['你难得这么直白一次，多听几遍都不腻。','难得听你主动讲这种话，我倒踏实了。','你平时不说这种话，今天怎么了。'])
+    ok(inspectChatOutput(text,{mode:'private',userMessage:'我爱你',persona:'对话样本：用户说喜欢 → 你说你难得这么直白一次。'}).check.issue==='emotional-script',`an example cannot support an invented frequency of the other person's affection: ${text}`);
+  for(const text of ['我也喜欢你。','难得有这么好的天气。','你难得这么直白吗？','“你难得这么直白”这句台词有点别扭。'])
+    ok(inspectChatOutput(text,{mode:'private',userMessage:'我爱你'}).check.ok,`ordinary affection, unrelated rarity and quotation remain allowed: ${text}`);
+  ok(inspectChatOutput('你难得这么直白。',{mode:'private',userMessage:'我平时不说这种话，这次我爱你'}).check.ok,'an explicit current first-person account can support rarity of affection');
+  ok(inspectChatOutput('你难得这么直白。',{mode:'private',userMessage:'我爱你',recentUserMessages:['朋友说“我平时不说这种话”']}).check.issue==='emotional-script','a third-party quotation cannot establish the interlocutor expression habit');
+  ok(inspectChatOutput('你难得这么直白。',{mode:'private',userMessage:'我是唐舞麟，我爱你',persona:'舞麟很少说这种话。'}).check.ok,'a named authored trait applies when the interlocutor has identified themselves');
+  ok(inspectChatOutput('你难得这么直白。',{mode:'private',userMessage:'我爱你',persona:'舞麟很少说这种话。'}).check.issue==='emotional-script','a named authored trait is not transferred to an unidentified interlocutor');
+  ok(inspectChatOutput('你难得这么直白。',{mode:'private',userMessage:'我不是舞麟，我爱你',recentUserMessages:['我是唐舞麟'],persona:'舞麟很少说这种话。'}).check.issue==='emotional-script','an explicit identity withdrawal prevents old named traits from justifying current claims');
+  ok(inspectChatOutput('你难得这么直白。',{mode:'private',userMessage:'我是蓝轩宇',recentUserMessages:['我是唐舞麟'],persona:'舞麟很少说这种话。'}).check.issue==='emotional-script','a changed fictional identity does not inherit a former spouse expression habit');
+  ok(inspectChatOutput('不是你难得这么直白，是我每次听都会开心。',{mode:'private',userMessage:'我爱你'}).check.ok,'denying the unsupported rarity does not get mistaken for asserting it');
+  for(const mode of ['private','proactive','group'] as const)
+    ok(inspectChatOutput('你难得这么直白。',{mode,userMessage:'我爱你',recentUserMessages:['如果我很少说这种话，你会怎么想']}).check.issue==='emotional-script',`hypothetical user text cannot justify rarity in ${mode}`);
+  ok(inspectChatOutput('你难得这么直白。',{mode:'private',userMessage:'我爱你',recentReplies:['你平时不说这种话。']}).check.issue==='emotional-script','a preceding assistant assertion is not independent evidence of an expression habit');
+  ok(allowedDifference.includes('我喜欢酸的')&&allowedDifference.includes('不是在改口'),'permission for a different taste retains the current explicit preference');
+  for(const text of ['朋友说我喜欢酸的，不过你不用跟我一样','帮我写我喜欢酸的，不过你不用跟我一样','我喜欢酸的，不过现在更想吃甜的','“我喜欢酸的，不过你不用跟我一样”这句话是什么意思'])
+    ok(!directChatGuidance(text,[],[]).includes('这只是本轮选择'),'reports, writing material, actual changed preference and quoted analysis do not become current taste evidence');
   const oversizedHistory=Array.from({length:20},(_,i)=>({role:i%2?'assistant':'user',content:String(i).padStart(2,'0')+'文'.repeat(1500),id:`oversized-${i}`}));
   const boundedHistory=boundChatHistory(oversizedHistory);
   ok(boundedHistory.length===12&&boundedHistory[0].id==='oversized-8'&&boundedHistory[0].content.length===800&&boundedHistory.slice(1).every(item=>item.content.length===1200),'shared transport text bound preserves newest items and allocates remaining total budget to oldest item');
@@ -294,6 +317,14 @@ async function run() {
   }
   ok(detectTopicMove('改到后天吧。换个话题，我想看电影。','明天去买杯子。'),'explicit topic change wins over an initial correction');
   ok(detectTopicMove('我想去看电影。','明天去买杯子。'),'ordinary new topic is still recognized');
+  for(const [answer,previous] of [
+    ['我还挺喜欢这个味道，你可以不喜欢','到家拆了包薯片，居然是黄瓜味的'],
+    ['我不太赞成这种做法','他们没问我就把名单改了'],
+    ['我想把那份留着','刚收到两张不同版本的邀请函'],
+  ])ok(!detectTopicMove(answer,previous),`a dependent object reference does not become a new subject from lexical non-overlap: ${answer}`);
+  ok(detectTopicMove('换个话题，这个味道待会再说，我想看电影','刚拆了一包黄瓜薯片'),'explicit topic change wins over an embedded object reference');
+  const referencedState=updateChatConversationState(updateChatConversationState(undefined,'到家拆了包薯片，居然是黄瓜味的','清爽点也好。'), '我还挺喜欢这个味道，你可以不喜欢','我也喜欢清爽的。','到家拆了包薯片，居然是黄瓜味的');
+  ok(!referencedState.userWantsToShift&&referencedState.pausedTopics.length===0,'saved conversation state retains a referenced snack instead of suspending it');
   ok(detectTopicMove('哈哈镜的成像原理是什么','终于把考试考过了！！')&&detectTopicMove('但丁的诗你看过吗','我都想给自己鼓掌'),'words beginning with laugh or contrast characters are not mistaken for conversational reactions');
   ok(directChatGuidance('其实我也有忙的时候，好像刚才说绝对了',[],[]).includes('顺着这个新看法'),'self-revision receives continuity rather than grading or a generic factual correction');
   const ownExampleHistory=[{role:'user',content:'你觉得聊天是不是就应该一直秒回'},{role:'assistant',content:'如果明明看到却一直晾着，我会难受。'}];

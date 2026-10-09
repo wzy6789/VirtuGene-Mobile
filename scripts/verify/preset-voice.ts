@@ -15,7 +15,7 @@ async function run() {
   const priorCopies:Array<{id:string;sourceId:string;prompt:string}>=[];
   for(const original of originals) {
     const revised=reviseOriginalPresetVoice(original.systemPrompt,original.id);
-    const sampleCount=['preset-linshuang','preset-guqinghan'].includes(original.id)?5:3;
+    const sampleCount=['preset-linshuang','preset-guqinghan','preset-socrates'].includes(original.id)?5:3;
     ok(revised!==original.systemPrompt&&revised.includes('判断习惯：')&&revised.split('对话样本：').length===sampleCount+1,`${original.name} gains concrete judgment and ${sampleCount} distinct scenes`);
     ok(reviseOriginalPresetVoice(revised,original.id)===revised,`${original.name} revision is idempotent`);
     const introPreserved=original.id==='preset-xiawanxing'?revised.split('\n')[0].startsWith('你是夏晚星，'):revised.split('\n')[0]===original.systemPrompt.split('\n')[0];
@@ -55,7 +55,7 @@ async function run() {
     ok(card.includes('人物判断依据')&&!card.includes('语言指纹与判断：'),`${original.name} concrete authored judgment precedes generic personality fallback`);
   }
   const ownedAfter=await db.characters.get('owned-'+source.id);
-  ok(priorCopies.length===16,'all prior cat, architect, gentle, swordsman and traveler source versions remain covered');
+  ok(priorCopies.length===17,'all prior cat, architect, gentle, swordsman and traveler source versions remain covered');
   const guarded=originals.find(c=>c.id==='preset-guqinghan')!;
   const guardedPrompt=reviseOriginalPresetVoice(guarded.systemPrompt,guarded.id);
   const guardedCard=buildCharacterVoiceCard({...guarded,systemPrompt:guardedPrompt},'我打开冰箱忘了要拿什么哈哈');
@@ -94,7 +94,10 @@ async function run() {
   }
   ok(lin.includes('你说选书。')&&cat.includes('你说我偏装修。'),'the same everyday question has distinct authored preferences rather than universal advice');
   ok(!cat.includes('用反问句引导思考')&&!cat.includes('对浅薄的问题不耐烦'),'the cat no longer receives conflicting teacher and classroom rules');
-  ok(!cat.includes('今天不考你了')&&cat.includes('还没听完就下结论')&&cat.includes('不靠连续比喻'),'cat samples express a specific reaction without importing a teacher or ornate speech into tired conversation');
+  ok(!cat.includes('今天不考你了')&&cat.includes('少说一点，接具体负担')&&!cat.includes('太阳还挺精神'),'cat fatigue guidance preserves a short reaction without classroom language or an invented current scene');
+  const catTasteCard=buildCharacterVoiceCard({...catSource,systemPrompt:cat},'你喜欢甜一点还是酸一点');
+  ok(catTasteCard.includes('酸一点')&&!catTasteCard.includes('本店煎饼'),'the cat voice card selects its own taste example without copying an unrelated joke');
+  ok(cat.includes('认真谈观念时再琢磨前提')&&cat.includes('随手创作愿意先给一个自己的想法'),'the cat keeps philosophical interest while ordinary chat and optional invention have their own attention');
   const swordsman=reviseOriginalPresetVoice(originals[3].systemPrompt,originals[3].id);
   ok(!swordsman.includes('听见了。不必勉强说下去')&&swordsman.includes('用户说今天很累 → 你说嗯。')&&swordsman.includes('是否继续由用户决定'),'quiet swordsman retains a pure reaction without importing a decision to stop speaking');
   const traveler=reviseOriginalPresetVoice(originals[1].systemPrompt,originals[1].id);

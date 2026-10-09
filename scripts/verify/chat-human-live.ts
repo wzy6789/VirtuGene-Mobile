@@ -10,6 +10,8 @@ import { withChatSessionLock } from '../../src/lib/chat/request-coordinator';
 import {PRESET_CHARACTERS} from '../../src/lib/seed-init';
 import {reviseOriginalPresetVoice,reviseOriginalPresetCard} from '../../src/lib/original-preset-voice';
 import {getDialogueTrajectory} from '../../src/lib/chat-evaluation-trajectories';
+import {reviseGuYueNaPresetPrompt} from '../../src/lib/gu-yue-na-personality';
+import {withDouluoRelations} from '../../src/lib/douluo-relations';
 
 declare const LIVE_PROXY:string;
 declare const LIVE_TOKEN:string;
@@ -93,6 +95,6 @@ async function turn(text:string) {
   return {input:text,replies:replies.map(m=>m.content),durationMs:Math.round(performance.now()-started),calls:observations.slice(before),failed:!!(await db.messages.get(source.id))?.failed,conversation:session?.conversation,cost:session?.cost};
 }
 function presets(revised=true) {
-  return PRESET_CHARACTERS.filter(c=>['preset-linshuang','preset-aili','preset-socrates','preset-guqinghan','preset-xiawanxing'].includes(c.id)).map(c=>({name:c.name,tags:c.tags,...(revised?reviseOriginalPresetCard(c,c.id):{signature:c.signature,greeting:c.greeting}),isPreset:true,isCustom:false,systemPrompt:revised?reviseOriginalPresetVoice(c.systemPrompt,c.id):c.systemPrompt}));
+  return PRESET_CHARACTERS.filter(c=>['preset-linshuang','preset-aili','preset-socrates','preset-guqinghan','preset-xiawanxing','preset-guyuena'].includes(c.id)).map(c=>({name:c.name,tags:c.tags,...(revised?reviseOriginalPresetCard(c,c.id):{signature:c.signature,greeting:c.greeting}),isPreset:true,isCustom:false,systemPrompt:revised?(c.id==='preset-guyuena'?withDouluoRelations(reviseGuYueNaPresetPrompt(c.systemPrompt),c.id):reviseOriginalPresetVoice(c.systemPrompt,c.id)):c.systemPrompt}));
 }
 (window as any).liveExpression={setup,turn,presets,trajectoryInputs:(id:string)=>getDialogueTrajectory(id).turns.map(turn=>turn.input)};

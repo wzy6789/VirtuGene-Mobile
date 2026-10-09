@@ -54,9 +54,10 @@ export function allowsDramaticReply(message: string, recentUserMessages: string[
   return false;
 }
 
-/** Narrow signal: two physical staging directives, not any mention of a door. */
+/** Specific co-location invitations suffice; generic rest advice does not. */
 export function hasUninvitedStaging(content: string): boolean {
   const text=content.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  if (/(?:^|[。！？!?，,；;\n]|-{3,}|——)\s*(?:你(?:先|快|就)?\s*)?(?:过来(?:陪我)?坐(?:会儿|一会儿|一会|一下|坐)?|来我(?:身边|旁边)(?:坐(?:会儿|一会儿|一会|一下|坐)?)?|坐到我旁边)(?:吧|呀|啊|好不好|好吗|？|\?)?(?=[。！？!?，,；;—\n\s]|$)/u.test(text)) return true;
   const directives=text.match(/(?:^|[。！？!?，,；;\n]|-{3,}|——)\s*(?:你(?:先|快|就)?\s*)?(?:进来(?:吧|呀|啊)?|坐(?:下|过来)(?:吧|呀|啊)?|人坐下|把门(?:带上|关上)|把(?:手机|杯子)(?:放下|递给我)|靠(?:过来|近一点)|抬(?:起)?头(?:看我)?|看着我(?:说)?|当(?:着我的)?面再说一遍|再当面说一遍)(?=[。！？!?，,；;—\n\s]|$)/gu) ?? [];
   return directives.length>=2;
 }
@@ -75,6 +76,8 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
   const lines:string[]=[];
   const unquoted=userMessage.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   const previousUser=recentUserMessages[recentUserMessages.length-1]??'';
+  const preference=unquoted.match(/^(我(?:更|比较|也|倒|偏|还挺)?(?:喜欢|不喜欢|想吃|想看)[^，,。！？!?；;\n]{1,30})[，,]\s*(?:但|不过)?\s*你(?:不用|不必|不需要).{0,6}(?:跟我一样|和我一样|一样)[。！!\s]*$/u);
+  if(preference)lines.push(`用户这轮明确说「${preference[1]}」，随后允许你有不同偏好，不是在改口。按这句当前喜好接话，你可以说自己的好恶，不必替他换一种口味或替他安排；这只是本轮选择，不概括成永久习惯。`);
   if(isChoiceInvitation(previousUser)&&/^(?:我(?:还是|更|偏)?(?:想|选|决定)|那就|就选).{1,50}(?:就这么定了|就它了|就这样吧|吧|了)[。！!\s]*$/u.test(unquoted.trim()))lines.push('用户已选定一项。话题从选哪个好转到选中的内容本身：你可以保留自己的偏好，也自然接受不同选择。说一点对这个内容的兴趣或具体反应就好，不需要认可、解释或评价用户的决定；真正想知道内容里的某一点才问，不为接话额外补日期和安排。');
   if(isSelfViewRevision(unquoted)&&!hasExplicitTopicShift(unquoted))lines.push('用户在调整刚才的观点，还在聊同一件事。顺着这个新看法，说你自己的具体态度即可；对方的感受和原因以其已经讲明的内容为准。把注意力放在新的观点或事情上，让这次改口自然过去，双方可以继续各有看法。');
   else if(isTopicClarification(unquoted))lines.push('用户在更正刚才的说法，接最新内容即可。更正的是自己的认识还是外部事实，以其原话为准；未说改期、取消或发生新变化，就不替事件补一段变动经过。');

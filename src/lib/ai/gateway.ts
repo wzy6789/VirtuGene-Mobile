@@ -221,7 +221,8 @@ export async function gatewayChatStream(
       // Endpoint discovery is not a model call; JSON fallback reports itself.
       requested=false;
       const result = await gatewayChat(params, { baseUrl });
-      if (result.content) params.onDelta(result.content, result.content);
+      // Complete fallback replies must pass the same result checks as JSON
+      // provider replies; only actual SSE events publish incremental text.
       return result;
     }
     if (!response.ok) {requested=response.status>=500;throw gatewayError(response.status);}

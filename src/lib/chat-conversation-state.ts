@@ -111,6 +111,11 @@ export function detectTopicMove(current: string, previous = ''): boolean {
   if (isTopicShift(current)) return true;
   const value = compact(current);
   if (value.length < 4 || compact(previous).length < 4 || CONTINUATION.test(value) || isTopicClarification(value)||isDirectTimeAnswer(value,previous)) return false;
+  // An anaphoric object may lack the previous noun (“这个味道” after
+  // “黄瓜薯片”). Lexical non-overlap is too weak to assert a new subject.
+  // Explicit shifts were checked first; ambiguous references preserve focus.
+  const unquoted=value.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  if (/(?:这|那)(?:个|种|件|份|些|样|次)/u.test(unquoted)) return false;
   const currentTerms = topicTerms(value);
   const oldTerms = topicTerms(previous);
   if (!currentTerms.size || !oldTerms.size) return false;

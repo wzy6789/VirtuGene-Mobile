@@ -21,11 +21,19 @@ let id = 0;
 let extraNetwork = 0;
 let nextStatus = 200;
 let storeChanges = 0;
+let completeResponses: string[] | undefined;
+let completeRequests: unknown[] = [];
 useChatStore.subscribe(() => { storeChanges++; });
 const frame = (text: string) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\r\n\r\n`;
 window.fetch = (async (url, init) => {
   if (!String(url).includes('/chat/completions')) { extraNetwork++; throw new Error('unexpected network'); }
   const payload = JSON.parse(String(init?.body));
+  if (payload.stream===true && completeResponses) {
+    completeRequests.push(payload);
+    const content=completeResponses.shift();
+    if(content===undefined)throw Error('Complete-response fixture exhausted its retry budget');
+    return new Response(JSON.stringify({choices:[{message:{content},finish_reason:'stop'}],usage:{prompt_tokens:12,completion_tokens:8}}),{headers:{'Content-Type':'application/json'}});
+  }
   // Deferred memory workers can outlive a fixture reset. They use the task
   // client directly, so mocking webApi.memory alone does not isolate them.
   if (payload.stream !== true) {
@@ -50,6 +58,7 @@ async function setup(history = 0) {
   root?.unmount(); root = undefined;
   await db.delete(); await db.open();
   requests.length = 0; extraNetwork = 0; nextStatus = 200;
+  completeResponses=undefined; completeRequests=[];
   useAuthStore.getState().login(uid, 'stream tester', 'sk-fake', '');
   useSettingsStore.setState({ aiVoiceMode: false, ttsEnabled: true, defaultModel: { provider: 'deepseek', model: 'deepseek-v4-flash' } });
   useUIStore.setState({ mobileTab: 'chat', activeView: 'chat' });
@@ -108,8 +117,10 @@ async function unitChecks() {
   const savedFetch = window.fetch;
   let calls = 0;
   window.fetch = (async () => { calls++; return new Response(JSON.stringify({ choices: [{ message: { content: '兼容回复' }, finish_reason: 'stop' }] }), { headers: { 'Content-Type': 'application/json' } }); }) as typeof fetch;
-  const json = await sendMessage({ apiKey: 'sk-fake', systemPrompt: '', message: '你好', history: [], onDelta: () => undefined });
+  let completeDeltas = 0;
+  const json = await sendMessage({ apiKey: 'sk-fake', systemPrompt: '', message: '你好', history: [], onDelta: () => completeDeltas++ });
   check(json.content === '兼容回复' && calls === 1, 'JSON-only endpoint is not sent twice');
+  check(completeDeltas===0,'a complete JSON reply reaches result checks without marking a streaming preview as published');
   calls = 0;
   window.fetch = (async () => { calls++; return new Response('denied', { status: 401 }); }) as typeof fetch;
   let denied = false;
@@ -122,8 +133,9 @@ async function unitChecks() {
   check(forwardedSignal?.aborted && gate.interrupted && gate.content === '网关正文', 'gateway stop retains partial text');
   const routes: string[] = [];
   window.fetch = (async (url) => { routes.push(String(url)); return String(url).endsWith('/stream') ? new Response('', { status: 404 }) : new Response(JSON.stringify({ content: '旧网关回复' }), { headers: { 'Content-Type': 'application/json' } }); }) as typeof fetch;
-  const oldGateway = await gatewayChatStream({ apiKey: '', systemPrompt: '', message: '', history: [], onDelta: () => undefined }, { baseUrl: 'http://fake' });
+  const oldGateway = await gatewayChatStream({ apiKey: '', systemPrompt: '', message: '', history: [], onDelta: () => completeDeltas++ }, { baseUrl: 'http://fake' });
   check(oldGateway.content === '旧网关回复' && routes.length === 2 && routes[1].endsWith('/v1/chat'), 'older gateway falls back before any text');
+  check(completeDeltas===0,'old gateway JSON fallback also preserves the unpublished quality path');
   const intervention = await readSseResponse(new Response('data: {"content":"现实安全引导","safetyIntervention":true}\n\ndata: [DONE]\n\n'), () => undefined);
   check(intervention.content === '现实安全引导' && !intervention.interrupted, 'gateway intervention stays visible through SSE');
   window.fetch = savedFetch;
@@ -131,6 +143,8 @@ async function unitChecks() {
 }
 
 (window as any).chatStreamTest = { setup, switchTo, submit, push, finish, unitChecks,
+  useCompleteResponses: (values:string[]) => {completeResponses=[...values];},
+  completeRequests: () => completeRequests,
   fail: (index: number) => requests[index].controller.error(new TypeError('connection lost')),
   records: (session = 'a') => db.messages.where('sessionId').equals(session).sortBy('createdAt'),
   requests: () => requests.map(req => ({ body: JSON.parse(String(req.init.body)), aborted: req.aborted, raw: req.raw })),
