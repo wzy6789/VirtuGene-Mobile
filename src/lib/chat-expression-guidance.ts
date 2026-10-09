@@ -106,10 +106,8 @@ export function recentRhythmDirection(turns: string[][]): string {
   return '';
 }
 
-/** Soft guidance for interview-like endings, never a question ban or retry. */
-export function recentQuestionDirection(turns:string[][]):string {
-  const recent=turns.slice(-2);
-  const containsQuestion=(parts:string[])=>{
+/** Recognize a question across one reply's bubbles without counting punctuation reactions. */
+export function replyContainsSubstantiveQuestion(parts:string[]):boolean {
     const text=parts.join('').replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
     const marked=(text.match(/[^。！？!?；;]+[?？]+/gu)??[]).some(sentence=>{
       const question=sentence.replace(/[?？\s]/gu,'');
@@ -121,13 +119,17 @@ export function recentQuestionDirection(turns:string[][]):string {
     return text.split(/[。！？!?，,；;\n]/u).some(clause=>{
       const value=clause.trim();
       if(/^(?:我(?:不(?:知|确|清)|知道|想知道|问|说)|他|她|朋友|同事|如果|假如|比如|例如)|(?:别|不必|不要|不用).{0,6}(?:问|回答)/u.test(value))return false;
-      return /(?:有没有|是不是|会不会|要不要|能不能)/u.test(value)
+      return /(?:有没有|是不是|会不会|要不要|能不能|想不想|愿不愿意)/u.test(value)
         || value.length>=4&&/(?:吗|么)(?:[呀啊呢\s]*)$/u.test(value)
         || /(?:是什么|叫什么|(?:在|去|到|从)哪[儿里]|选哪(?:个|部|种)|几点|多少|怎么样)(?:[呀啊呢啦哦\s]*)$/u.test(value)
         || /(?:想|打算|准备)(?:去|在)?(?:哪[儿里]|什么|怎么).{0,40}还是/u.test(value);
     });
-  };
-  return recent.length===2&&recent.every(containsQuestion)
+}
+
+/** Soft guidance for interview-like endings, never a question ban or retry. */
+export function recentQuestionDirection(turns:string[][]):string {
+  const recent=turns.slice(-2);
+  return recent.length===2&&recent.every(replyContainsSubstantiveQuestion)
     ?'普通分享时，接趣味或说一个自己的想法就足够了，让一段话自然结束。用户问你的看法，就说清自己的态度；明确的问题要回答，真正缺少信息或有具体好奇时仍可问。'
     :'';
 }

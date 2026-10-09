@@ -1,6 +1,6 @@
 import type { Character } from '../db/index';
 import { detectTopicMove, isTopicRelated } from './chat-conversation-state';
-import { assessExpressionSignals, expressionDirection, recentRhythmDirection, type ExpressionSignals } from './chat-expression-guidance';
+import { assessExpressionSignals, expressionDirection, recentRhythmDirection, recentQuestionDirection, replyContainsSubstantiveQuestion, type ExpressionSignals } from './chat-expression-guidance';
 import { SAMPLE_LINE, validVoiceSamples, VOICE_SAMPLE_MARKER } from './character-voice';
 import { directChatGuidance, isDirectAffection, isViewExchange } from './chat-expression-boundary';
 import { authoredReactionLines, emotionalExpressionGuidance, selectVoiceExamples, interactionMoment } from './chat-emotional-expression';
@@ -335,7 +335,7 @@ export function buildHumanConversationSections(
     'share-life': '气氛合适时可以说一点自己的近况，仍先回应眼前的话。',
     'fresh-angle': '旧谈话有整段重复倾向，可以换一个具体角度；口癖不需要换掉。',
     'short-close': '用户正在收尾，按这个人的方式回应告别，不硬开新话题；问候可以依照用户的作息，不用根据当前时钟纠正一句晚安。前面的普通闲聊不自动变成用户仍然挂心的事，不为显得记得细节追加「别惦记、别担心」等未经表达的安抚；有真正共同的笑点仍可以简短呼应。',
-    react: '轻松交流，接这件小事的趣味或说自己的感受，表达偏好、只回反应也可以；普通分享不是让你检查生活是否正确，不自动补处理办法。同感可以是一句当下的态度或玩笑，不必用“我以前也这样”“我有次”开一段无来源的亲身故事。',
+    react: '轻松交流，接这件小事的趣味或说自己的感受，表达偏好、只回反应也可以；普通分享不是让你检查生活是否正确，不自动补处理办法。用户只说当下感受时，回应这一刻就够了，不需要给出它从哪里来的解释；用户自己讲明的原因照常使用。同感可以是一句当下的态度或玩笑，不必用“我以前也这样”“我有次”开一段无来源的亲身故事。',
   };
   const lines = ['[本轮交流的隐藏节奏]', directions[action]];
   if (options.adviceStyle === 'listen' && !['short-close', 'finish-request'].includes(action)) {
@@ -359,6 +359,12 @@ export function buildHumanConversationSections(
   }
   const feeling=emotionalExpressionGuidance(userText,history,character?{...character,hasVoiceJudgment:!!validVoiceSamples(character)}:character,options.recentReplyTurns);
   if(feeling)lines.push(feeling);
+  const replyTurns=options.recentReplyTurns??[];
+  if(['casual','emotional'].includes(signals.mode)&&!signals.topicShift
+    &&replyContainsSubstantiveQuestion(replyTurns[replyTurns.length-1]??[])
+    &&!recentQuestionDirection(replyTurns)) {
+    lines.push('先接用户本轮说出的内容，上一轮问过的细节不必重复催问。用户可以顺着说自己的反应，不必先答完你的问题；有新的具体好奇仍可自然问，不把接话变成补齐资料。');
+  }
   const rhythm = recentRhythmDirection(options.recentReplyTurns ?? []);
   if (rhythm) lines.push(rhythm);
   if (signals.userTextLength <= 8 && signals.mode==='casual' && !['praise','disagreement','repair'].includes(interactionMoment(userText))) lines.push('这句没有明确问题或请求，可以只回反应，不为了信息量扩写；仍按人物真正的态度回应。');

@@ -138,7 +138,17 @@ export function detectChatIntent(text: string): ChatIntent {
 export function inferReplyAction(userText: string, assistantText: string): ChatReplyAction {
   const intent = detectChatIntent(userText);
   if (intent === 'closing') return 'close';
-  if (intent === 'emotional') return 'comfort';
+  if (intent === 'emotional') {
+    // Joy and affection are not evidence that the reply was consolation.
+    // Preserve distress/mixed support, but describe positive responses by
+    // their actual lightweight form rather than importing a counselling frame.
+    if (isDirectAffection(userText)||assessExpressionSignals(userText).situation==='celebration') {
+      if (/[?？]/u.test(assistantText)) return 'ask';
+      if (/笑|哈哈|逗|好玩/u.test(assistantText)) return 'joke';
+      return 'react';
+    }
+    return 'comfort';
+  }
   if (intent === 'question') return 'answer';
   if (intent === 'request') return 'advise';
   const answer = compact(assistantText);
@@ -234,8 +244,8 @@ export function updateChatConversationState(
       : base.topicStatus === 'closed' ? 'active' : base.topicStatus;
   const boundedPaused = [...new Set(pausedTopics.filter(Boolean).map((item) => item.slice(0, 42)))].slice(0, 5);
   const nextAction = action ?? base.lastAction;
-  const recentActions = nextAction
-    ? [...(base.recentActions ?? []), nextAction].slice(-5)
+  const recentActions = action
+    ? [...(base.recentActions ?? []), action].slice(-5)
     : (base.recentActions ?? []).slice(-5);
   // assistantText 仅保留在接口中，方便未来按角色回复更新主题摘要；
   // 当前不保存整段回复，避免会话状态膨胀。

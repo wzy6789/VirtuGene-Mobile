@@ -74,7 +74,7 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
   const lines:string[]=[];
   const unquoted=userMessage.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   const previousUser=recentUserMessages[recentUserMessages.length-1]??'';
-  if(isChoiceInvitation(previousUser)&&/^(?:我(?:还是|更|偏)?(?:想|选|决定)|那就|就选).{1,50}(?:就这么定了|就它了|就这样吧|吧|了)[。！!\s]*$/u.test(unquoted.trim()))lines.push('用户已选定一项。顺着选中的内容，说一点你自己的反应就好，不额外评价这次选择。');
+  if(isChoiceInvitation(previousUser)&&/^(?:我(?:还是|更|偏)?(?:想|选|决定)|那就|就选).{1,50}(?:就这么定了|就它了|就这样吧|吧|了)[。！!\s]*$/u.test(unquoted.trim()))lines.push('用户已选定一项。话题从选哪个好转到选中的内容本身：你可以保留自己的偏好，也自然接受不同选择。说一点对这个内容的兴趣或具体反应就好，不需要认可、解释或评价用户的决定；真正想知道内容里的某一点才问，不为接话额外补日期和安排。');
   if(isSelfViewRevision(unquoted)&&!hasExplicitTopicShift(unquoted))lines.push('用户在调整刚才的观点，还在聊同一件事。顺着这个新看法，说你自己的具体态度即可；对方的感受和原因以其已经讲明的内容为准。把注意力放在新的观点或事情上，让这次改口自然过去，双方可以继续各有看法。');
   else if(isTopicClarification(unquoted))lines.push('用户在更正刚才的说法，接最新内容即可。更正的是自己的认识还是外部事实，以其原话为准；未说改期、取消或发生新变化，就不替事件补一段变动经过。');
   if(unquoted.split(/[。！？!?，,；;\n]/u).some(part=>

@@ -5,7 +5,7 @@ import { stripRoleplayActions } from '../../src/lib/ai/text';
 import { buildCharacterVoiceCard, buildHumanConversationSections, buildHumanConversationContext, recommendConversationTemperature, chooseConversationAction } from '../../src/lib/chat-humanizer';
 import { compileChatContext } from '../../src/lib/chat-context-compiler';
 import { planCharacterIntent } from '../../src/lib/character-intent';
-import { buildChatConversationStateContext, emptyChatConversationState, detectChatIntent, detectTopicMove, updateChatConversationState } from '../../src/lib/chat-conversation-state';
+import { buildChatConversationStateContext, emptyChatConversationState, detectChatIntent, detectTopicMove, updateChatConversationState, inferReplyAction } from '../../src/lib/chat-conversation-state';
 import { assessChatSituation, collectRecentReplyTurns, recentRhythmDirection, recentQuestionDirection } from '../../src/lib/chat-expression-guidance';
 import { sendMessage } from '../../src/lib/ai/deepseek';
 import { generateCharacterPrompt } from '../../src/lib/ai/character-generator';
@@ -36,6 +36,7 @@ async function run() {
   ok(ordinarySections[0].text.includes('普通分享不是让你检查生活是否正确'),'ordinary anecdote pacing favors a personal reaction over automatic troubleshooting');
   ok(!buildHumanConversationSections('帮我想想快递箱怎么处理',[])[0].text.includes('普通分享不是让你检查生活是否正确'),'an explicit practical request is not suppressed by casual anecdote guidance');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('普通分享先接话')&&CHAT_MESSAGING_INSTRUCTION.includes('明确求助时仍认真回答'),'shared three-entrance contract distinguishes an anecdote from a request for help');
+  ok(CHAT_MESSAGING_INSTRUCTION.includes('不能拿旧回复证实用户的原因、时间或习惯'),'shared expression contract does not promote previous generated guesses into user facts');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('用户眼前的颜色、身体反应、环境')&&CHAT_MESSAGING_INSTRUCTION.includes('联想不说成看见了'),'shared fact boundary includes present details without forbidding imagination');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('保留用户说出的时间、范围和条件')&&CHAT_MESSAGING_INSTRUCTION.includes('局部偏好不概括成永久习惯'),'all chat entrances keep preference qualifications when paraphrasing user facts');
   for(const correction of ['不是明天，刚看邮件，是后天下午三点','不是周五，是周六','我刚才说错了，是下午两点'])ok(directChatGuidance(correction,[],[]).includes('不替事件补一段变动经过'),'a literal correction does not establish an unreported reschedule');
@@ -86,6 +87,20 @@ async function run() {
   ok(!recentQuestionDirection([['我不知道有没有这种店。'],['朋友问是不是酸的。']]),'uncertainty and reported questions are not counted as interviewing the user');
   ok(recentQuestionDirection([['考的是什么呀'],['真鼓掌了吗，还是就心里鼓了鼓掌']]).includes('让一段话自然结束'),'actual unpunctuated exam and applause questions still receive optional rhythm feedback');
   ok(recentQuestionDirection([['想去哪儿晃还是就在家瘫着'],['你会选哪个？']]).includes('让一段话自然结束'),'an unpunctuated location choice counts before a marked question');
+  const examQuestionTurns=[['过了！','是什么考试呀？']];
+  const reactionContext=buildHumanConversationSections('哈哈哈哈我都想给自己鼓掌',[
+    {role:'user',content:'终于把考试考过了！！'},
+    {role:'assistant',content:'过了！是什么考试呀？'},
+  ],null,{recentReplyTurns:examQuestionTurns})[0].text;
+  ok(reactionContext.includes('上一轮问过的细节不必重复催问'),'a reaction after one real question does not wait for two interview turns');
+  ok(reactionContext.includes('有新的具体好奇仍可自然问'),'one-question continuation remains a soft hint rather than a ban');
+  ok(!buildHumanConversationSections('帮我列一下补考要带什么',[],null,{recentReplyTurns:examQuestionTurns})[0].text.includes('上一轮问过的细节'),'a new concrete request keeps task clarification available');
+  ok(!buildHumanConversationSections('你觉得这次算运气吗？',[],null,{recentReplyTurns:examQuestionTurns})[0].text.includes('上一轮问过的细节'),'an explicit view question retains direct answer guidance');
+  ok(!buildHumanConversationSections('换个话题，想吃火锅了',[],null,{recentReplyTurns:examQuestionTurns})[0].text.includes('上一轮问过的细节'),'new topics do not receive the old question continuation hint');
+  ok(!buildHumanConversationSections('哈哈哈',[],null,{recentReplyTurns:[['啊？？']]})[0].text.includes('上一轮问过的细节'),'a punctuation reaction is not mistaken for an unanswered information question');
+  ok(!buildHumanConversationSections('哈哈哈',[],null,{recentReplyTurns:[['是什么考试呀？'],['什么时候考的？']]})[0].text.includes('上一轮问过的细节'),'existing two-turn rhythm guidance is not duplicated by the one-question hint');
+  ok(buildHumanConversationSections('哈哈哈哈我都想给自己鼓掌',[],null,{recentReplyTurns:[['想不想说说是什么考试呀，还是先让你高兴一会儿。']]})[0].text.includes('上一轮问过的细节'),'actual unpunctuated optional Flash question triggers the same continuation path');
+  ok(!buildHumanConversationSections('哈哈哈',[],null,{recentReplyTurns:[['朋友问想不想说说是什么考试呀。']]})[0].text.includes('上一轮问过的细节'),'reported optional questions do not become assistant questions');
   ok(!recentQuestionDirection([['没什么好担心的'],['其实多少有点可惜']]),'ordinary statements containing what and how much words do not become questions');
   ok(!recentQuestionDirection([['朋友问考的是什么呀'],['如果想去哪儿晃还是待着呢']]),'reported and hypothetical unpunctuated questions do not count as direct interviewing');
   const clarified='你理解错了，我不是怕他，是觉得这事挺没劲';
@@ -250,6 +265,20 @@ async function run() {
   ok(directChatGuidance('我偏想看电影，就这么定了',[recentChoice],['我选书店。']).includes('用户已选定一项'),'a concrete decision after asking a preference does not become a rejection of the character');
   ok(!directChatGuidance('我偏想看电影，就这么定了',['朋友问你说去书店还是在家看电影'],[]).includes('用户已选定一项'),'a reported choice does not establish the current user asking for the character preference');
   ok(!directChatGuidance('我还没决定',[recentChoice],[]).includes('用户已选定一项'),'an undecided answer is not treated as a settled choice');
+  ok(directChatGuidance('我偏想看电影，就这么定了',[recentChoice],['我选书店。']).includes('选中的内容本身'),'a settled personal choice shifts attention to its content rather than praising the decision');
+  ok(directChatGuidance('我偏想看电影，就这么定了',[recentChoice],['我选书店。']).includes('保留自己的偏好'),'accepting a different choice does not rewrite the character preference');
+  const emptyFeelingGuide=buildHumanConversationSections('但也有点空，好像一下不知道干嘛了',[],null)[0].text;
+  ok(emptyFeelingGuide.includes('回应这一刻就够了')&&emptyFeelingGuide.includes('用户自己讲明的原因照常使用'),'an ordinary stated feeling can be acknowledged without an invented cause or discarding an actual cause');
+  ok(!buildHumanConversationSections('你帮我分析一下为什么考完会空落落的',[],null)[0].text.includes('回应这一刻就够了'),'explicit analysis is not overridden by ordinary feeling guidance');
+  ok(inferReplyAction('终于把考试考过了！！','过了！是什么考试呀？')==='ask','a question after celebration is recorded as a question rather than consolation');
+  ok(inferReplyAction('终于搞定了','哈哈，这下成了！')==='joke','a light joyful response does not import a counselling action');
+  ok(inferReplyAction('我爱你','嗯，我也喜欢你。')==='react','direct affection is not labelled as emotional consolation');
+  ok(inferReplyAction('今天好累','确实很耗人。')==='comfort','actual fatigue support retains its existing state action');
+  const actualActionState=updateChatConversationState(undefined,'终于搞定了','过了！','react');
+  const actionPreviewState=updateChatConversationState(actualActionState,'哈哈哈','',undefined);
+  ok(actionPreviewState.recentActions.length===1&&actionPreviewState.lastAction==='react','planning a new turn preserves the last actual action without inventing another reply');
+  const completedActionState=updateChatConversationState(actualActionState,'哈哈哈','哈哈！','joke');
+  ok(completedActionState.recentActions.join(',')==='react,joke','a completed turn appends exactly its actual action');
   for(const invitation of ['我觉得朋友不秒回就是不在乎我，你不同意也可以直说。','别只顺着我，说说你自己的看法。','你有不同意见就说出来。']) {
     const guidance=directChatGuidance(invitation,[],[]);
     ok(guidance.includes('一处具体观点')&&guidance.includes('不替用户补理由'),'opinion invitation discusses the proposition rather than inventing an emotional backstory');

@@ -54,7 +54,7 @@ async function run() {
     ok(card.includes('人物判断依据')&&!card.includes('语言指纹与判断：'),`${original.name} concrete authored judgment precedes generic personality fallback`);
   }
   const ownedAfter=await db.characters.get('owned-'+source.id);
-  ok(priorCopies.length===9,'three previous cat revisions, two architect and gentle revisions and the prior swordsman and traveler revisions are covered');
+  ok(priorCopies.length===11,'all prior cat, architect, gentle, swordsman and traveler source versions remain covered');
   for(const copy of priorCopies) {
     const original=originals.find(item=>item.id===copy.sourceId)!;
     ok((await db.characters.get(copy.id))?.systemPrompt===reviseOriginalPresetVoice(original.systemPrompt,original.id),'an exact previously upgraded copy receives the current voice');
@@ -90,6 +90,9 @@ async function run() {
   ok(!gentle.includes('把每一份心事都妥帖收好')&&!gentle.includes('记得对方的痛点')&&gentle.includes('日常小事')&&gentle.includes('会轻轻开玩笑'),'gentle source identity can enjoy ordinary conversation rather than treating every topic as a disclosure');
   ok(gentle.includes('不喜欢一件事也会说出来')&&gentle.includes('蓝色我也挺喜欢')&&gentle.includes('对小事也有自己的偏好'),'gentle voice keeps a concrete preference and disagreement without requiring constant soothing');
   ok(gentle.includes('分歧反应：')&&gentle.includes('道歉修复：')&&!gentle.includes('先说你愿意说的那一点'),'gentle voice uses concrete clarification and apology habits instead of a standing invitation to disclose feelings');
+  ok(!gentle.includes('温柔倾听者')&&gentle.includes('没什么大事的闲聊')&&gentle.includes('慢节奏的故事'),'gentle identity has independent everyday preferences rather than a counselling job');
+  ok(gentle.includes('庆祝反应：')&&gentle.includes('关注用户说出的好消息'),'gentle celebration has an authored response without an invented prior burden');
+  ok(!lin.includes('讨厌无意义的寒暄')&&lin.includes('推理说得通')&&lin.includes('闲聊也是聊天'),'direct identity can enjoy everyday talk and specific story preferences without dismissing the user');
   ok(ownedAfter?.name===ownedBefore?.name&&ownedAfter?.createdBy===ownedBefore?.createdBy&&ownedAfter?.avatar===ownedBefore?.avatar,'owned revision keeps name, owner and avatar');
   ok((await db.characters.get('edited'))?.systemPrompt===source.systemPrompt+'\n用户补充：不要谈代码。','edited owned persona remains byte-for-byte unchanged');
   ok((await db.characters.get('published'))?.systemPrompt===source.systemPrompt,'published copy is not silently revised');

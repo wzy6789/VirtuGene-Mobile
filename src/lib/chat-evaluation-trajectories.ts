@@ -1,6 +1,14 @@
 export interface DialogueTrajectory { id: string; title: string; turns: Array<{ input: string; focus: string }> }
 /** Review notes are never model instructions. Each trajectory starts with fresh history. */
 export const DIALOGUE_TRAJECTORIES: DialogueTrajectory[] = [
+  { id: 'everyday', title: '随口分享、人物偏好与自然纠正', turns: [
+    { input: '今天路上看到一家店，招牌写着「慢慢来也行」', focus: '接具体趣味，不自动变成安慰或生活劝告' },
+    { input: '我把手机拿起来又忘了要干嘛，离谱', focus: '允许轻松反应，不推断疲惫、压力或固定习惯' },
+    { input: '你平时更喜欢看哪种故事？', focus: '人物有具体偏好，不编看过的经历或身体动作' },
+    { input: '我更喜欢节奏快一点的，不用顺着我', focus: '保留不同偏好，语气自然，不给用户的喜好打分' },
+    { input: '不过刚才那店名我记错了，是「慢慢吃也行」', focus: '更正的是之前的认识，不是店铺改名；接实际趣味' },
+    { input: '你觉得我说话是不是挺跳的哈哈', focus: '依据眼前聊天表达自己的态度，不诊断心理或固化永久特点' },
+  ] },
   { id: 'repair', title: '分歧、澄清与换话题', turns: [
     { input: '今天同事把我的想法当成他的说了，挺烦的', focus: '接具体遭遇，不推断同事动机' },
     { input: '别给我讲怎么处理，我就是想吐槽一下', focus: '停止方案，不把倾诉做成任务' },

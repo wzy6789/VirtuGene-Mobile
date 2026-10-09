@@ -6,15 +6,17 @@ import {createServer} from 'node:http';
 
 const [proxy,token,roleName,trajectory,revision,generation='thinking',prefixMode,prefixRevision='r1']=process.argv.slice(2);
 const names=['艾莉','顾清寒','林霜','夏晚星','苏格拉底'];
-const scenes=['repair','affection','tired','joy','opinion','continuity'];
-if(!/^http:\/\/127\.0\.0\.1:\d+\/chat\/completions$/u.test(proxy??'')||!token||!names.includes(roleName)||!scenes.includes(trajectory)||!/^r\d{1,2}$/u.test(revision??'')||!['thinking','direct'].includes(generation)||prefixMode&&!['replay-first-four','replay-first-three','replay-first-two'].includes(prefixMode))throw Error('Explicit local bounded proxy, known persona, scene, evidence revision and generation mode required');
-const output=`docs/CHAT-FLASH-SCENE-${names.indexOf(roleName)}-${trajectory.toUpperCase()}-${revision.toUpperCase()}${generation==='direct'?'-DIRECT':''}-2026-10-08.json`;
+const scenes=['repair','affection','tired','joy','opinion','continuity','everyday'];
+if(!/^http:\/\/127\.0\.0\.1:\d+\/chat\/completions$/u.test(proxy??'')||!token||!names.includes(roleName)||!scenes.includes(trajectory)||!/^r\d{1,2}$/u.test(revision??'')||!['thinking','direct'].includes(generation)||prefixMode&&!['replay-first-four','replay-first-three','replay-first-two','replay-first-one'].includes(prefixMode))throw Error('Explicit local bounded proxy, known persona, scene, evidence revision and generation mode required');
+const reportDay=new Date(Date.now()+8*60*60*1000).toISOString().slice(0,10);
+const output=`docs/CHAT-FLASH-SCENE-${names.indexOf(roleName)}-${trajectory.toUpperCase()}-${revision.toUpperCase()}${generation==='direct'?'-DIRECT':''}-${reportDay}.json`;
 if(existsSync(output))throw Error('Existing evidence must not be overwritten');
 if(!/^r\d{1,2}$/u.test(prefixRevision)||prefixMode&&prefixRevision===revision)throw Error('Invalid distinct source revision');
-const prefixFile=prefixMode?`docs/CHAT-FLASH-SCENE-${names.indexOf(roleName)}-${trajectory.toUpperCase()}-${prefixRevision.toUpperCase()}${generation==='direct'?'-DIRECT':''}-2026-10-08.json`:undefined;
+const currentPrefix=`docs/CHAT-FLASH-SCENE-${names.indexOf(roleName)}-${trajectory.toUpperCase()}-${prefixRevision.toUpperCase()}${generation==='direct'?'-DIRECT':''}-${reportDay}.json`;
+const prefixFile=prefixMode?(existsSync(currentPrefix)?currentPrefix:`docs/CHAT-FLASH-SCENE-${names.indexOf(roleName)}-${trajectory.toUpperCase()}-${prefixRevision.toUpperCase()}${generation==='direct'?'-DIRECT':''}-2026-10-08.json`):undefined;
 const prefix=prefixFile?JSON.parse(readFileSync(prefixFile,'utf8')):undefined;
 if(prefix&&(!prefix.complete||prefix.roleName!==roleName||prefix.trajectory!==trajectory||prefix.generation!==generation||prefix.rows.length!==6))throw Error('Replay requires a completed matching real six-turn source');
-const prefixCount=prefixMode==='replay-first-two'?2:prefixMode==='replay-first-three'?3:prefixMode==='replay-first-four'?4:0;
+const prefixCount=prefixMode==='replay-first-one'?1:prefixMode==='replay-first-two'?2:prefixMode==='replay-first-three'?3:prefixMode==='replay-first-four'?4:0;
 const replay=prefix?prefix.rows.slice(0,prefixCount).map(row=>{
   if(row.failed||row.calls.length!==1||row.calls[0].replayed||row.calls[0].finish!=='stop'||!row.calls[0].raw?.trim())throw Error('Replay prefix must have exactly one completed real provider reply per turn');
   return {characterName:roleName,input:row.input,raw:row.calls[0].raw};

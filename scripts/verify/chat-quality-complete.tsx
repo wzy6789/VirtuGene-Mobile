@@ -56,14 +56,15 @@ async function run(){
     ok(payloads.slice(longStart).every(p=>p.messages.length<=14&&p.messages.slice(1,-1).every((m:any)=>m.content.length<=1200)),'continuous evaluator shares production twelve-item history and per-message text limit');
     ok(payloads[longStart+29].messages[1].content===EXPRESSION_SCENARIOS[23%EXPRESSION_SCENARIOS.length],'thirtieth evaluation turn retains six complete recent turns rather than eighteen raw history items');
     const start=calls;
-    const small=await runExpressionEvaluation([role],60,new AbortController().signal,()=>{},{trajectoryId:DIALOGUE_TRAJECTORIES[0].id});
+    const repairTrajectory=DIALOGUE_TRAJECTORIES.find(trajectory=>trajectory.id==='repair')!;
+    const small=await runExpressionEvaluation([role],60,new AbortController().signal,()=>{},{trajectoryId:repairTrajectory.id});
     const smallPayloads=payloads.slice(start);
     ok(calls-start===6&&small.complete&&small.budget?.calls===6,'small coherent trajectory has exactly six calls despite requested sixty rounds');
     ok(smallPayloads.every(p=>p.model==='deepseek-flash'&&p.max_tokens===320),'small test locks Flash and output cap');
     ok(smallPayloads.every(p=>/\[\/人物声音卡\]\s*\[手机私聊表达契约\]/u.test(p.messages[0].content)),'actual evaluator model requests put the protected character voice immediately before one shared contract');
     ok(smallPayloads[1].messages.some((m:any)=>m.role==='assistant'&&m.content===small.rows[0].reply),'next turn feeds actual prior reply rather than a fixture answer');
-    ok(small.rows.every((r,i)=>r.input===DIALOGUE_TRAJECTORIES[0].turns[i].input),'trajectory follows coherent user turns');
-    ok(!JSON.stringify(smallPayloads).includes(DIALOGUE_TRAJECTORIES[0].turns[0].focus),'human assessment focus is never fed to actor model');
+    ok(small.rows.every((r,i)=>r.input===repairTrajectory.turns[i].input),'trajectory follows coherent user turns');
+    ok(!JSON.stringify(smallPayloads).includes(repairTrajectory.turns[0].focus),'human assessment focus is never fed to actor model');
     ok(small.rows[1].attention?.preferences.adviceStyle==='listen'&&smallPayloads[2].messages[0].content.includes('未经请求不要立刻给解决方案'),'repair trajectory carries natural no-solution expression into the following clarification');
     const attentionStart=payloads.length;
     const listeningTest=await runExpressionEvaluation([role],60,new AbortController().signal,()=>{},{trajectoryId:'tired'});
