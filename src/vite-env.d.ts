@@ -149,7 +149,7 @@ interface VirtuGeneAPI {
     }>;
     summarize: (params: {
       apiKey: string;
-      history: { role: string; content: string }[];
+      history: { role: string; content: string; userAuthored?: boolean }[];
       previousSummary?: string;
       protectedMemories?: string[];
     }) => Promise<{ summary?: string; error?: string; complete?: boolean }>;

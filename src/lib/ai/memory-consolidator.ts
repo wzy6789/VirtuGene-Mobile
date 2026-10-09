@@ -1,5 +1,6 @@
 import { taskChat, taskUsesGateway } from './task-client';
 import { gatewayChat } from './gateway';
+import { acceptExtractedMemories, userMemorySources, type MemorySourceTurn } from './memory-evidence';
 
 const MEMORY_EXTRACTION_PROMPT =
   '你是一个记忆提取系统。从以下对话中提取关于用户的**关键事实**和**重要信息**。\n\n' +
@@ -8,6 +9,7 @@ const MEMORY_EXTRACTION_PROMPT =
   '- 只记录用户明确说过、或从同一段话可以直接确定的内容；不要把角色的猜测当成事实\n' +
   '- 对“现在不是了”“我改成了”“其实……”这类纠正，保留新说法，不要继续输出已经被否定的旧说法\n' +
   '- 时间敏感的内容保留时间范围（例如“这周”“下个月”），不要写成永久事实\n' +
+  '- 引用、转述、假设及代写请求不等于用户本人的事实，保留语境，不把虚构事件提取成已发生经历\n' +
   '- 每条记忆一句话概括，简洁明确\n' +
   '- 不要提取 AI 角色自身的信息\n' +
   '- 不要提取闲聊、寒暄等无意义内容\n' +
@@ -17,7 +19,7 @@ const MEMORY_EXTRACTION_PROMPT =
 
 export interface ConsolidateParams {
   apiKey: string;
-  history: { role: string; content: string; sourceId?: string }[];
+  history: MemorySourceTurn[];
 }
 
 export interface ConsolidateResult {
@@ -27,7 +29,9 @@ export interface ConsolidateResult {
 }
 
 export async function extractMemories(params: ConsolidateParams): Promise<ConsolidateResult> {
-  const { apiKey, history } = params;
+  const { apiKey } = params;
+  const history = userMemorySources(params.history);
+  if (!history.length) return { memories: [], evidence: [] };
   const userMessage = '请从以下对话中提取用户的关键信息：';
   const systemPrompt = MEMORY_EXTRACTION_PROMPT + (history.some(m => m.sourceId)
     ? '\n本次原话附有 sourceId。改用 JSON 数组对象：{"content":"事实","sourceIds":["实际支持该事实的来源id"]}。只引用明确支持这条事实的消息，不要给每条事实附上整批来源。'
@@ -43,20 +47,7 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
   };
   const parse = (text: string): ConsolidateResult => {
     const parseItems = (arr: unknown): ConsolidateResult => {
-      if (!Array.isArray(arr)) return { error: 'parse:error' };
-      const allowed = new Set(history.map(m => m.sourceId).filter(Boolean));
-      const memories: string[] = [];
-      const evidence: { content: string; sourceIds: string[] }[] = [];
-      for (const item of arr.slice(0, 20)) {
-        if (typeof item === 'string' && item.trim()) memories.push(item.trim());
-        else if (item && typeof item.content === 'string' && item.content.trim()) {
-          const ids: string[] = Array.isArray(item.sourceIds) ? [...new Set<string>(item.sourceIds.filter((id: unknown): id is string => typeof id === 'string'))] : [];
-          if (!ids.length || ids.some(id => !allowed.has(id))) continue;
-          const content = item.content.trim();
-          memories.push(content); evidence.push({ content, sourceIds: ids });
-        }
-      }
-      return { memories, evidence };
+      return acceptExtractedMemories(arr, history);
     };
     try {
       const parsed = JSON.parse(text);

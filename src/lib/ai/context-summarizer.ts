@@ -1,6 +1,7 @@
 import { taskChat, taskUsesGateway } from './task-client';
 import { boundAuxiliaryHistory } from './history-window';
 import { gatewayAux } from './gateway';
+import { MEMORY_SOURCE_POLICY, memorySpeaker } from '../../../server/memory-source-policy.mjs';
 
 /**
  * 长会话滚动摘要：把「超出保留窗口」的早期对话压缩成一段摘要，
@@ -15,11 +16,11 @@ const SUMMARY_PROMPT =
   '- 尚未完成的约定、计划、悬而未决的话题及由谁提出\n' +
   '- 角色明确说过的自身近况或承诺（只记录原对话有依据的内容）\n' +
   '- 关系变化与最近的话题落点，避免把已解决的旧话题写成仍未解决\n' +
-  '按类别用短行记录；没有内容的类别省略。保留姓名、时间、对象、结果等细节。不要猜测，不要重复已被更正的旧事实。';
+  '按类别用短行记录；没有内容的类别省略。保留姓名、时间、对象、结果等细节。不要猜测，不要重复已被更正的旧事实。\n' + MEMORY_SOURCE_POLICY;
 
 export interface SummarizeParams {
   apiKey: string;
-  history: { role: string; content: string }[];
+  history: { role: string; content: string; userAuthored?: boolean }[];
   previousSummary?: string;
   /** 用户明确要求长期保留的事实；压缩时必须带上，不能被旧对话截断丢掉。 */
   protectedMemories?: string[];
@@ -36,11 +37,11 @@ export interface SummarizeResult {
  * 临时离线兜底：模型或网关不可用时也保留一份可读的短记录。
  * 原始消息不会删除，下一次成功压缩时会再把它们合并进模型摘要。
  */
-function buildLocalFallbackSummary(history: { role: string; content: string }[], previousSummary: string, protectedMemories: string[] = []): string {
+export function buildLocalFallbackSummary(history: SummarizeParams['history'], previousSummary: string, protectedMemories: string[] = []): string {
   const recent = history
     .filter((item) => item.content.trim())
     .slice(-6)
-    .map((item) => `${item.role === 'user' ? '用户' : '角色'}：${item.content.replace(/\s+/g, ' ').trim().slice(0, 120)}`)
+    .map((item) => `${memorySpeaker(item.role, item.userAuthored)}：${item.content.replace(/\s+/g, ' ').trim().slice(0, 120)}`)
     .join('；');
   const protectedBlock = protectedMemories.length > 0
     ? `长期记住：${protectedMemories.slice(0, 8).map((item) => item.trim().slice(0, 160)).filter(Boolean).join('；')}`
@@ -64,14 +65,14 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
     ? `\n\n必须保留的用户明确记忆（不要改写成猜测，也不要遗漏）：\n${protectedMemories.map((item) => `- ${item}`).join('\n')}`
     : '';
   const previousBlock = previousSummary
-    ? `\n\nPrevious compressed summary (keep valid facts):\n${previousSummary}`
+    ? `\n\n之前的压缩摘要（不是新增证据，保留来源和待核实标记）：\n${previousSummary}`
     : '';
 
   const messages = [
     { role: 'system', content: SUMMARY_PROMPT },
     {
       role: 'user',
-      content: '请压缩以下早期对话，并与之前的压缩摘要合并：\n\n' + history.map((m) => `${m.role}: ${m.content}`).join('\n') + protectedBlock + previousBlock,
+      content: '请压缩以下早期对话，并与之前的压缩摘要合并：\n\n' + history.map((m) => `${memorySpeaker(m.role, m.userAuthored)}: ${m.content}`).join('\n') + protectedBlock + previousBlock,
     },
   ];
 
@@ -91,7 +92,7 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
   }
 }
 
-async function summarizeViaGateway(history: { role: string; content: string }[], previousSummary = '', protectedMemories: string[] = []): Promise<SummarizeResult> {
+async function summarizeViaGateway(history: SummarizeParams['history'], previousSummary = '', protectedMemories: string[] = []): Promise<SummarizeResult> {
   try {
     const result = await gatewayAux<{ summary?: unknown }>('context-summary', { history, previousSummary, protectedMemories });
     const summary = typeof result?.summary === 'string' ? result.summary.trim() : '';

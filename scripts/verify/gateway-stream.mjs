@@ -107,6 +107,11 @@ check('网关进程启动', ready, gatewayLog.slice(-400));
 try {
 if (ready) {
   /* 1) 私聊接口不变：整段 JSON */
+  const sourceSummary=await gw('/v1/aux',{operation:'context-summary',payload:{previousSummary:'以前角色说过亲眼看锻造。',history:[{role:'assistant',content:'我亲眼看过你锻造。'},{role:'user',content:'其实那天我没锻造。'},{role:'user',content:'这是助理代拟的近况。',userAuthored:false}]}});
+  await sourceSummary.text();
+  const summaryRequest=upstreamBodies.at(-1);
+  check('摘要网关保留角色原话的未核实来源，不把承诺写成完成',summaryRequest.messages[0].content.includes('承诺记为承诺')&&summaryRequest.messages[1].content.includes('角色曾说（未经独立核实'));
+  check('摘要网关区分真实用户更正、助理代拟及旧摘要',summaryRequest.messages[1].content.includes('用户原话: 其实那天我没锻造')&&summaryRequest.messages[1].content.includes('不是用户原话')&&summaryRequest.messages[1].content.includes('不是新增证据'));
   const plain = await gw('/v1/chat', { systemPrompt: 's', message: 'm' });
   const plainJson = await plain.json();
   check('① /v1/chat 仍返回整段 JSON（私聊路径不受影响）', plain.ok === true && plainJson.content === '整段', plainJson);

@@ -21,6 +21,7 @@ import { resolveModel } from '../../lib/ai/llm';
 import {appendSessionUsage,type ChatUsageEvent} from './usage';
 import { compileChatContext } from '../../lib/chat-context-compiler';
 import { voiceIdentityWithoutExamples } from '../character-voice';
+import { guYueNaPromptForTurn } from '../gu-yue-na-runtime';
 import {buildChatHistoryWindow} from '../chat-history-window';
 import { buildHumanConversationSections, buildProactiveTopicSeeds, recommendConversationTemperature } from '../../lib/chat-humanizer';
 import { collectRecentReplyTurns } from '../../lib/chat-expression-guidance';
@@ -29,6 +30,7 @@ import { recordChatQuality } from '../../lib/chat-quality-metrics';
 import { inspectChatOutput } from '../../lib/chat-output-quality';
 import { findSpokenMemoryIds, prepareMemoryMetadata } from '../../lib/memory-engine';
 import { buildSummaryBatch, findUncoveredSummaryMessages } from '../../lib/ai/summary-batches';
+import { memorySpeaker } from '../../../server/memory-source-policy.mjs';
 import { memorySourceTombstoneRepo } from '../../db/memory-source-tombstone-repo';
 import { isDirectMomentQuestion, isMomentLikeRequest, isForceMomentLikeRequest } from '../../lib/moments/recall';
 import { momentsRepo } from '../../db/moments-repo';
@@ -80,7 +82,7 @@ function buildUncoveredChatContext(messages: Message[], currentMessageId: string
     if (remaining <= 0) break;
     const content = message.content.trim().slice(-Math.min(1_200, remaining));
     if (!content) continue;
-    lines.unshift(`${message.role === 'user' ? '用户' : '角色'}：${content}`);
+    lines.unshift(`${memorySpeaker(message.role, message.secretaryDispatch?.bodyOrigin !== 'composed')}：${content}`);
     remaining -= content.length;
   }
   return lines.length
@@ -296,7 +298,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       );
       const freshTopic = turnAttention.userWantsToShift && !recallIntent.explicit;
       const summaryContext = sessionData?.summary && (!freshTopic || isTopicRelated(text, sessionData.summary))
-        ? `\n\n[早前对话摘要（更早的内容已压缩，不必逐条回忆，若与当前话题相关可自然提及）]\n${sessionData.summary.slice(0, MAX_SUMMARY_CHARS)}`
+        ? `\n\n[早前对话摘要（压缩记录不是独立证据；保留说话人，角色自述往事不等于经历已核实，未标来源时回查原话；若与当前话题相关可自然提及）]\n${sessionData.summary.slice(0, MAX_SUMMARY_CHARS)}`
         : '';
       const uncoveredChatContext = buildUncoveredChatContext(contextMessages, userMsg.id, sessionData);
       const conversationStateContext = buildChatConversationStateContext(turnAttention);
@@ -372,7 +374,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       const historicalChatContext = memoryRecall.sections.historical;
       const voiceCharacter = await readVoiceSampleCharacter(character, userId);
       const compiled = compileChatContext(
-        voiceIdentityWithoutExamples(character.systemPrompt).slice(0, MAX_CHARACTER_PROMPT_CHARS),
+        voiceIdentityWithoutExamples(guYueNaPromptForTurn(character, text, history.filter(turn=>turn.role==='user').slice(-2).map(turn=>turn.content))).slice(0, MAX_CHARACTER_PROMPT_CHARS),
         [
           // 本轮提示与人物声音卡分别保留预算；声音卡最后输出，
           // 不让可选记忆挤掉当前提示或把声音卡埋在通用规则前面。
@@ -834,7 +836,7 @@ async function summarizeRoleChat(sessionId: string, userId: string, character: C
       // 网关 20k 请求上限留出空间。长消息用 offset 分多次，不会漏掉后半段。
       const segments = buildSummaryBatch(uncovered, cursor);
       if (segments.length === 0) return;
-      const history = segments.map(({ message, content }) => ({ role: message.role, content }));
+      const history = segments.map(({ message, content }) => ({ role: message.role, content, userAuthored: message.secretaryDispatch?.bodyOrigin !== 'composed' }));
       // 摘要不能成为“记住”内容的第二个清理入口：明确置顶的记忆即使早于
       // 本次压缩窗口，也要继续出现在摘要里。它们仍然按当前用户和角色隔离。
       const protectedMemoryRows = (await memoryRepo.getByCharacter(character?.id ?? '', userId))

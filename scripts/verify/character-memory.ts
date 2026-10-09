@@ -1,4 +1,8 @@
 import { db } from '../../src/db/index';
+import { contradictsSimpleMemory } from '../../src/lib/memory-correction';
+import { acceptExtractedMemories, userMemorySources } from '../../src/lib/ai/memory-evidence';
+import { MEMORY_SOURCE_POLICY, memorySpeaker } from '../../server/memory-source-policy.mjs';
+import { buildLocalFallbackSummary } from '../../src/lib/ai/context-summarizer';
 import { messageRepo } from '../../src/db/message-repo';
 import { memoryRepo } from '../../src/db/memory-repo';
 import { sessionRepo } from '../../src/db/session-repo';
@@ -17,7 +21,7 @@ import { useAuthStore } from '../../src/store/auth-store';
 import { undoLastTurn } from '../../src/lib/world/world-undo';
 import { worldSceneRepo } from '../../src/db/world-scene-repo';
 import { findRelevantHistory } from '../../src/lib/world/world-recall';
-import { recallHistoricalPrivateChat } from '../../src/lib/character-history-recall';
+import { recallHistoricalPrivateChat, formatHistoricalPrivateChat } from '../../src/lib/character-history-recall';
 import { buildSummaryBatch, findUncoveredSummaryMessages } from '../../src/lib/ai/summary-batches';
 import { memoryLedgerRepo } from '../../src/db/memory-ledger-repo';
 import { generateGroupTurn } from '../../src/lib/ai/group-chat';
@@ -150,8 +154,47 @@ async function run() {
   await memoryRepo.supersedeLikelyCorrections('a','u',{ id:'ambiguous-correction-new', userId:'u', characterId:'a', content:'其实我喜欢喝绿茶', memoryKind:'preference', type:'auto', createdAt:now + 1 } as any);
   check((await db.memories.get('ambiguous-correction-tea'))?.status === 'active' && (await db.memories.get('ambiguous-correction-coffee'))?.status === 'active', 'ambiguous correction wording does not silently supersede unrelated preferences');
   await db.memories.put({ id:'unique-correction-old', userId:'u', characterId:'a', content:'用户不吃香菜', memoryKind:'preference', status:'active', type:'auto', createdAt:now } as any);
+  await db.memories.put({id:'unique-correction-new',userId:'u',characterId:'a',content:'其实我很喜欢香菜',memoryKind:'preference',type:'auto',createdAt:now+2} as any);
   await memoryRepo.supersedeLikelyCorrections('a','u',{ id:'unique-correction-new', userId:'u', characterId:'a', content:'其实我很喜欢香菜', memoryKind:'preference', type:'auto', createdAt:now + 2 } as any);
-  check((await db.memories.get('unique-correction-old'))?.status === 'superseded', 'a clear same-topic preference correction supersedes its prior active memory');
+  check((await db.memories.get('unique-correction-old'))?.status === 'active', 'not eating something and liking it can coexist; shared topic does not prove a correction');
+  await db.memories.put({id:'polarity-old',userId:'u',characterId:'a',content:'用户不喜欢香菜',memoryKind:'preference',status:'active',type:'auto',createdAt:now} as any);
+  await memoryRepo.supersedeLikelyCorrections('a','u',(await db.memories.get('unique-correction-new'))!);
+  check((await db.memories.get('polarity-old'))?.status==='superseded','an actual opposite preference with the same object replaces the old active claim');
+  for(const [old,next] of [
+    ['用户喜欢牛肉','其实我也喜欢牛肉和面包'],
+    ['用户喜欢咖啡','我不喜欢咖啡的包装'],
+    ['用户喜欢咖啡','我今天不喜欢咖啡'],
+    ['用户喜欢咖啡','我不喜欢咖啡，只是今天不想喝'],
+    ['用户喜欢咖啡','他说“我不喜欢咖啡”'],
+    ['用户喜欢咖啡','如果我不喜欢咖啡呢'],
+    ['用户喜欢咖啡','我喜欢红茶'],
+  ]) check(!contradictsSimpleMemory(old,next),`addition, qualification or reported speech cannot auto-retire a fact: ${next}`);
+  check(contradictsSimpleMemory('用户喜欢喝咖啡','我不再喜欢喝咖啡了'),'directly ending the same preference is recognized without a correction keyword');
+  await db.memories.bulkPut([
+    {id:'addition-old',userId:'u',characterId:'a',content:'用户喜欢牛肉',memoryKind:'preference',status:'active',type:'auto',createdAt:now},
+    {id:'addition-new',userId:'u',characterId:'a',content:'其实我也喜欢牛肉和面包',memoryKind:'preference',status:'active',type:'auto',createdAt:now+1},
+  ] as any);
+  await memoryRepo.supersedeLikelyCorrections('a','u',(await db.memories.get('addition-new'))!);
+  check((await db.memories.get('addition-old'))?.status==='active','actual addition of a second food preference does not retire the first preference');
+  await sessionRepo.create({id:'changed-taste-session',userId:'u',characterId:'a',type:'single',title:'过去与现在',createdAt:now,updatedAt:now,unreadCount:0} as any);
+  await db.messages.put({id:'past-coffee-source',sessionId:'changed-taste-session',role:'user',content:'我喜欢喝咖啡',createdAt:now-50000,isProactive:false});
+  await db.memories.bulkPut([
+    {id:'past-coffee-memory',userId:'u',characterId:'a',content:'用户喜欢喝咖啡',memoryKind:'preference',status:'active',type:'auto',sourceSessionId:'changed-taste-session',sourceMessageIds:['past-coffee-source'],createdAt:now-50000},
+    {id:'present-coffee-memory',userId:'u',characterId:'a',content:'我不再喜欢喝咖啡了',memoryKind:'preference',status:'active',type:'auto',createdAt:now},
+    {id:'other-owner-replacement',userId:'other',characterId:'a',content:'我不喜欢喝咖啡',memoryKind:'preference',status:'active',type:'auto',createdAt:now},
+  ] as any);
+  await memoryRepo.supersede('past-coffee-memory','missing-replacement');
+  await memoryRepo.supersede('past-coffee-memory','other-owner-replacement');
+  check((await db.memories.get('past-coffee-memory'))?.status==='active','missing or other-account replacement cannot retire an owned memory');
+  await memoryRepo.supersedeLikelyCorrections('a','u',(await db.memories.get('present-coffee-memory'))!);
+  check((await db.memories.get('past-coffee-memory'))?.status==='superseded','current opposite preference retires its earlier claim in the actual DB');
+  check((await db.memories.get('ambiguous-correction-coffee'))?.status==='superseded','duplicate copies of the same directly contradicted preference all retire');
+  const pastTaste=await recallHistoricalPrivateChat({userId:'u',characterId:'a',query:'我以前喜欢喝咖啡吗',limit:8});
+  check(pastTaste.some(row=>row.messageId==='past-coffee-source'),'changing a preference preserves original dated speech for historical questions');
+  await memoryRepo.deleteById('past-coffee-memory');
+  check(!(await recallHistoricalPrivateChat({userId:'u',characterId:'a',query:'我以前喜欢喝咖啡吗',limit:8})).some(row=>row.messageId==='past-coffee-source'),'explicitly forgetting the old memory still suppresses its original message');
+  const attributedHistory=formatHistoricalPrivateChat([{messageId:'format-invented',sessionId:'s',role:'assistant',content:'我亲眼看过锻造',createdAt:now},{messageId:'format-relay',sessionId:'s',role:'user',content:'这是代写',createdAt:now,userAuthored:false}]);
+  check(attributedHistory.includes('未经独立核实')&&attributedHistory.includes('不是用户原话'),'standalone history formatter obeys the same source boundary as unified recall');
   const crowdedPins = Array.from({length: 9}, (_, index) => ({id:`crowded-pin-${index}`,userId:'u',characterId:'a',content:`固定偏好编号${index}`,pinned:true,type:'auto',createdAt:now}));
   const relevantUnpinned = {id:'relevant-unpinned',userId:'u',characterId:'a',content:'我在青海看见极光并拍了照片',type:'auto',createdAt:now};
   check(rankConversationMemories([...crowdedPins,relevantUnpinned] as any,'青海极光',new Set(),8).some((item) => item.id === 'relevant-unpinned'), 'relevant memory survives a crowded pinned-memory set');
@@ -577,6 +620,28 @@ async function run() {
   check(composedHits.some(hit=>hit.messageId==='context-composed'&&hit.userAuthored===false),'assistant-composed relay is explicitly distinguished from user-authored evidence');
   const firstWithRelay=await recallHistoricalPrivateChat({...historicalQuery,query:'我开头说的习惯是什么？'});
   check(firstWithRelay.some(hit=>hit.messageId==='context-first')&&!firstWithRelay.some(hit=>hit.messageId==='context-composed'),'positional user reference skips an earlier assistant-composed relay');
+  const extractionSources = [
+    {role:'user',content:'我现在更喜欢清淡的饭菜。',sourceId:'food-source'},
+    {role:'assistant',content:'我以前亲眼看过你锻造。',sourceId:'invented-witness'},
+    {role:'user',content:'我每天都吃牛肉。',sourceId:'composed-source',userAuthored:false},
+  ];
+  check(userMemorySources(extractionSources).map(turn=>turn.sourceId).join(',')==='food-source','fact extractor receives only user-authored sources, not invented witnesses or relay drafts');
+  check(acceptExtractedMemories([{content:'用户喜欢锻造',sourceIds:['invented-witness']}],extractionSources).error==='parse:error','assistant-only evidence cannot create a durable user fact or advance cursor');
+  check(acceptExtractedMemories([{content:'用户每天吃牛肉',sourceIds:['composed-source']}],extractionSources).error==='parse:error','assistant-composed user-role evidence cannot create a fact');
+  check(acceptExtractedMemories(['用户喜欢清淡饭菜'],extractionSources).error==='parse:error','indexed extraction cannot silently assign a string claim to the whole source batch');
+  const accepted=acceptExtractedMemories([{content:'用户现在更喜欢清淡饭菜',sourceIds:['food-source']},{content:'虚构',sourceIds:['invented-witness']}],extractionSources);
+  check(accepted.memories?.join(',')==='用户现在更喜欢清淡饭菜'&&accepted.evidence?.[0].sourceIds.join(',')==='food-source','valid correction survives alongside rejected generated evidence with precise provenance');
+  check(acceptExtractedMemories([],extractionSources).memories?.length===0,'genuine empty extraction remains a successful no-fact result');
+  check(acceptExtractedMemories(['用户喜欢清淡饭菜'],[{role:'user',content:'我喜欢清淡饭菜'}]).memories?.length===1,'legacy unindexed user extraction remains compatible');
+  check(memorySpeaker('assistant').includes('未经独立核实')&&memorySpeaker('user',false).includes('不是用户原话')&&MEMORY_SOURCE_POLICY.includes('承诺记为承诺'),'summary source labels distinguish generated speech, relay drafts and unfulfilled promises');
+  const fallback=buildLocalFallbackSummary(extractionSources,'以前的话题记录');
+  check(fallback.includes('角色曾说（未经独立核实')&&fallback.includes('我以前亲眼看过你锻造')&&fallback.includes('不是用户原话'),'offline summary preserves generated speech with provenance rather than upgrading it into shared experience');
+  await sessionRepo.create({id:'source-attribution-session',userId:'u',characterId:'a',type:'single',title:'来源边界',createdAt:now+90000,updatedAt:now+90000,unreadCount:0} as any);
+  await db.messages.bulkPut(extractionSources.map((turn,index)=>({id:turn.sourceId,sessionId:'source-attribution-session',role:turn.role,content:turn.content,createdAt:now+90000+index,isProactive:false,...(turn.userAuthored===false?{secretaryDispatch:{bodyOrigin:'composed'}}:{})})) as any);
+  const attributedRecall=await recall('a',{sources:['chat'],query:'锻造'});
+  check(attributedRecall.references.some(row=>row.id==='invented-witness'&&row.text.includes('未经独立核实')),'actual recent-session recall keeps invented witness as attributed speech instead of confirmed experience');
+  check(attributedRecall.references.some(row=>row.id==='composed-source'&&row.text.includes('不是用户原话')),'actual recent-session recall distinguishes assistant-composed relay from user facts');
+  check(attributedRecall.references.some(row=>row.id==='food-source'&&row.text.includes('用户原话')),'actual user preference remains recallable with its authorship');
   check(scopedExport.memories.every((item) => item.userId === 'u') && scopedExport.sessions.every((item) => item.userId === 'u'), 'backup export contains only the requested account');
   check(scopedExport.groups?.some((group) => group.id === 'g') && scopedExport.sourceTombstones?.every((row) => row.userId === 'u'), 'backup preserves group continuity and only same-account tombstones');
   document.body.textContent = `ok   ${count} assertions (real IndexedDB, zero network)\n\nALL PASS`;

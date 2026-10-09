@@ -1,4 +1,5 @@
 import { db } from '../db/index';
+import { memorySpeaker } from '../../server/memory-source-policy.mjs';
 import { messageRepo } from '../db/message-repo';
 import { selectRecallableSharedMemories } from './world/recall';
 import { findRelevantHistory, queryTerms, hitCount } from './world/world-recall';
@@ -204,7 +205,7 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
       items.push({
         source: 'chat',
         id: m.id,
-        text: m.importedFromMemoryId ? `用户创建你时主动分享的背景（不是你亲历）：${m.content}` : m.content,
+        text: m.importedFromMemoryId ? `用户创建你时主动分享的背景（不是你亲历）：${m.content}` : m.type === 'summary' ? `对话摘要（不是独立事实证据，未标来源的经历需回查原话）：${m.content}` : m.content,
         at: m.createdAt,
         pinned: m.pinned,
         memoryKind: m.memoryKind,
@@ -220,14 +221,14 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
       const suppressed = await memorySourceTombstoneRepo.suppressedMessages(p.userId, p.characterId);
       if (sourceIds.some(id => suppressed.has(id))) continue;
       items.push({ source: 'chat', id: session.id, at: session.summaryUpdatedAt ?? session.updatedAt,
-        memoryKind: 'summary', text: `你们早前私聊的摘要（不是新的现场）：${session.summary!.trim().slice(0, 900)}` });
+        memoryKind: 'summary', text: `你们早前私聊的摘要（不是新的现场，也不是独立事实证据；未标来源的经历需回查原话）：${session.summary!.trim().slice(0, 900)}` });
     }
     const latest = sessions.sort((a,b) => b.updatedAt-a.updatedAt)[0];
     const recentMessageIds: string[] = [];
     if (latest) for (const m of await messageRepo.getPage(latest.id, { limit: 6 })) {
       if (m.failed || m.role === 'system' || !m.content.trim()) continue;
       recentMessageIds.push(m.id);
-      items.push({ source: 'chat', id: m.id, at: m.createdAt, text: `最近私聊中${m.role === 'user' ? '用户' : '你'}说：${m.content}` });
+      items.push({ source: 'chat', id: m.id, at: m.createdAt, text: `最近私聊中${memorySpeaker(m.role, m.secretaryDispatch?.bodyOrigin !== 'composed')}：${m.content}` });
     }
     /**
      * 明确追问旧事时回查**原文**：摘要只用来快速定位，不能替代原话，
@@ -243,7 +244,7 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
         currentSessionId:p.excludeSessionId,
       });
       for (const hit of hits) {
-        const speaker=hit.role==='assistant'?'你当时说；不作为用户事实的独立证据':hit.userAuthored===false?'助理代拟发给你的话；不作为用户事实的独立证据':'用户说';
+        const speaker=memorySpeaker(hit.role,hit.userAuthored);
         items.push({ source: 'chat', id: hit.messageId, at: hit.createdAt, text: `你翻到的旧私聊原话（${new Date(hit.createdAt).toISOString().slice(0, 10)}，${speaker}）：${hit.precedingUserText?`关联用户原话：${hit.precedingUserText.slice(0,160)}；随后用户更正：`:''}${hit.content}${hit.precedingUserText?'。核对先后，以后续用户更正为准。':''}` });
       }
     }

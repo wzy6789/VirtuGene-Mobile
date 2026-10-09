@@ -5,6 +5,7 @@ import {withDouluoRelations} from '../../src/lib/douluo-relations';
 import {DOULUO_REUNION_TIMELINE} from '../../src/lib/douluo-timeline';
 import {buildCharacterVoiceCard} from '../../src/lib/chat-humanizer';
 import {buildGuYueNaRecallCard} from '../../src/lib/gu-yue-na-canon';
+import {guYueNaPromptForTurn} from '../../src/lib/gu-yue-na-runtime';
 
 const report = window.fetch.bind(window);
 let count = 0;
@@ -47,7 +48,7 @@ async function run(): Promise<void> {
   check(preset.systemPrompt.includes('关心不是每轮必须先说的一句话')&&!preset.systemPrompt.includes('普通私聊先用贴近当下的一句话表达关心'),'actual prepared persona does not require a comforting preface for every turn');
   const voice=buildCharacterVoiceCard(updated,'我是舞麟，今天就是想你了');
   check(voice.includes('人物判断依据')&&voice.includes('对舞麟熟悉而信任'),'specific authored care reaches the shared voice card');
-  check(voice.includes('自己想要什么会直说')&&voice.includes('不总把决定推回他'),'authored voice distinguishes direct affectionate agency from a generic caretaker');
+    check(voice.includes('自己想要什么会直说')&&voice.includes('彼此保留自己的主见'),'authored voice distinguishes direct affectionate agency from a generic caretaker');
   check(voice.includes('我也想你')&&!voice.includes('安静一点。这样'),'affection selects its own example without importing a preference reply');
   const invitationVoice=buildCharacterVoiceCard(updated,'我是舞麟，想听你说说话');
   check(invitationVoice.includes('我喜欢不用急着接话的聊天')&&!invitationVoice.includes('我今天去了'),'a chat invitation selects present preference instead of a fabricated daily report');
@@ -102,6 +103,20 @@ async function run(): Promise<void> {
   check(withGuYueNaCare(updated.systemPrompt) === updated.systemPrompt && reviseGuYueNaPresetPrompt(migrated.systemPrompt) === migrated.systemPrompt, 'personality revisions idempotent');
   await initSeedCharacters();
   check((await db.characters.get('legacy'))?.systemPrompt === migrated.systemPrompt, 'repeated startup never stacks rules');
+  const runtimeCard={...updated,id:'runtime-owned',sourcePresetId:'preset-guyuena',isPreset:false,systemPrompt:withDouluoRelations(updated.systemPrompt,'preset-guyuena')};
+  const storedPrompt=runtimeCard.systemPrompt;
+  const ordinary=guYueNaPromptForTurn(runtimeCard,'我是舞麟，开会前想聊几句');
+  check(ordinary.includes('本轮关系底线')&&!ordinary.includes('[VirtuGene · 斗罗家族关系]'),'ordinary owned chat routes the generated full family supplement to a compact identity boundary');
+  check(ordinary.includes('古月娜与唐舞麟已婚')&&ordinary.includes('蓝轩宇是孩子')&&ordinary.includes('不证明今天同处一室'),'compact relation context preserves marriage, child and source boundaries');
+  check(ordinary.length<storedPrompt.length-500,'ordinary relation routing meaningfully reduces redundant context');
+  for(const message of ['唐三跟你是什么关系？','我想跟你聊聊轩宇','小舞是你什么人','你们的孩子现在是谁','你和白秀秀的师徒关系'])
+    check(guYueNaPromptForTurn(runtimeCard,message)===storedPrompt,'actual family topic retains complete original relation context: '+message);
+  check(guYueNaPromptForTurn(runtimeCard,'那他呢？',['我刚提到轩宇'])===storedPrompt,'adjacent family reference preserves context across a pronoun-only follow-up');
+  const edited={...runtimeCard,systemPrompt:storedPrompt.replace('唐三是唐舞麟的父亲','用户设定唐三是普通朋友')};
+  check(guYueNaPromptForTurn(edited,'聊点别的')===edited.systemPrompt,'an edited relation supplement is never condensed');
+  check(guYueNaPromptForTurn({...runtimeCard,sourcePresetId:undefined},'聊点别的')===storedPrompt,'a copied name or marker without preset provenance cannot enable routing');
+  check(guYueNaPromptForTurn({...runtimeCard,sourcePresetId:'preset-tangsan'},'聊点别的')===storedPrompt,'other characters retain full authored identity');
+  check(runtimeCard.systemPrompt===storedPrompt&&ordinary.includes('用户自己加的性格要求：爱看书。'),'runtime rendering preserves original persona and custom additions');
   await report('/result?suite=guyuena-care', { method: 'POST', body: `ok ${count} assertions\nALL PASS` });
 }
 run().catch(async (error) => {

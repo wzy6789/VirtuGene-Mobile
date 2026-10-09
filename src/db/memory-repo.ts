@@ -1,4 +1,5 @@
 import { db, type MemoryEvidenceSource, type MemoryItem } from './index';
+import { contradictsSimpleMemory } from '../lib/memory-correction';
 import { normalizeMemoryContent, prepareMemoryMetadata } from '../lib/memory-engine';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import { memoryLedgerRepo } from './memory-ledger-repo';
@@ -441,7 +442,9 @@ export const memoryRepo = {
   async supersede(oldId: string, replacementId: string): Promise<void> {
     return db.transaction('rw', [db.memories, db.sessions, db.messages, db.memorySourceTombstones, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge], async () => {
     const old = await db.memories.get(oldId);
-    if (!old) return;
+    const replacement = await db.memories.get(replacementId);
+    if (!old || !replacement || old.id === replacement.id || old.userId !== replacement.userId
+      || old.characterId !== replacement.characterId || (replacement.status ?? 'active') !== 'active') return;
     await invalidateSessionSummariesForMemory(old);
     await memoryLedgerRepo.forgetMemoryItem(old);
     const updatedAt = Date.now();
@@ -451,46 +454,24 @@ export const memoryRepo = {
       updatedAt,
     });
     await memorySourceTombstoneRepo.record({ userId: old.userId, sourceType: 'memory', sourceId: old.id,
-      characterId: old.characterId, suppressedMessageIds: old.sourceMessageIds, sourceRevision: updatedAt, status: 'superseded' });
+      // A changed preference is not a request to forget its history. Keep the
+      // original message available as dated speech, while retiring the claim.
+      characterId: old.characterId, sourceRevision: updatedAt, status: 'superseded' });
     });
   },
 
-  /** 用户明确纠正事实时，停用最可能的旧事实；普通新记忆不会触发。 */
+  /** Retire directly contradicted claims, never just the closest shared topic. */
   async supersedeLikelyCorrections(characterId: string, userId: string, replacement: MemoryItem): Promise<void> {
-    if (!/(?:其实|不是|不再|已经改成|已经不|更正|纠正|现在是|我改口|说错了)/u.test(replacement.content)) return;
-    const stopTerms = new Set(['这个', '那个', '现在', '其实', '不是', '不再', '已经', '改成', '更正', '纠正', '我改', '说错', '用户', '觉得', '感觉', '喜欢', '不喜']);
-    const termsOf = (value: string): Set<string> => {
-      const normalized = value.normalize('NFKC').toLocaleLowerCase().replace(/[\s\u3000，。、！？：；“”‘’（）()\[\]{}.,!?;:"']/gu, '');
-      const terms = new Set<string>();
-      for (const run of normalized.matchAll(/[\u4e00-\u9fff]{2,}/gu)) {
-        const text = run[0];
-        for (let i = 0; i < text.length - 1; i += 1) {
-          const term = text.slice(i, i + 2);
-          if (!stopTerms.has(term) && !/[我你他很的了在有是不欢]/u.test(term)) terms.add(term);
-        }
-      }
-      for (const word of normalized.matchAll(/[a-z0-9]{3,}/gu)) terms.add(word[0]);
-      return terms;
-    };
-    const replacementTerms = termsOf(replacement.content);
-    if (!replacementTerms.size) return;
+    return db.transaction('rw', [db.memories, db.sessions, db.messages, db.memorySourceTombstones, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge], async () => {
+    const current = await db.memories.get(replacement.id);
+    if (!current || current.userId !== userId || current.characterId !== characterId || (current.status ?? 'active') !== 'active') return;
     const candidates = (await db.memories.where('characterId').equals(characterId).toArray())
-      .filter((memory) => memory.userId === userId && memory.id !== replacement.id && (memory.status ?? 'active') === 'active')
-      .filter((memory) => memory.memoryKind === replacement.memoryKind && (memory.memoryKind === 'fact' || memory.memoryKind === 'preference'))
-      .map((memory) => {
-        const oldTerms = termsOf(memory.content);
-        const overlap = [...replacementTerms].filter((term) => oldTerms.has(term)).length;
-        return { memory, overlap, score: overlap / Math.max(1, Math.min(replacementTerms.size, oldTerms.size)) };
-      })
-      .filter((item) => item.overlap > 0)
-      .sort((a, b) => b.score - a.score || b.overlap - a.overlap);
-    const best = candidates[0];
-    const next = candidates[1];
-    // Automatic correction is deliberately strict: ambiguous overlap leaves
-    // both claims available for review instead of silently replacing a fact.
-    if (best && (!next || best.score - next.score >= 0.2) && (best.overlap >= 2 || replacementTerms.size <= 3)) {
-      await this.supersede(best.memory.id, replacement.id);
-    }
+      .filter((memory) => memory.userId === userId && memory.id !== current.id && (memory.status ?? 'active') === 'active' && memory.createdAt <= current.createdAt)
+      .filter((memory) => memory.memoryKind === current.memoryKind && (memory.memoryKind === 'fact' || memory.memoryKind === 'preference'))
+      .filter((memory) => contradictsSimpleMemory(memory.content, current.content));
+    // Duplicate copies of the same contradicted claim must all retire.
+    for (const memory of candidates) await this.supersede(memory.id, current.id);
+    });
   },
 
   async createMany(memories: MemoryItem[]): Promise<string[]> {

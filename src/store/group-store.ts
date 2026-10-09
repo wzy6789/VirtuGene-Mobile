@@ -275,6 +275,8 @@ async function maybeExtractGroupMemories(sessionId: string, memberIds: string[],
     const sourceMessages = [...priorContext, ...msgs.slice(firstIndex, endIndex)];
     const history = boundAuxiliaryHistory(await Promise.all(sourceMessages.map(async (m) => ({
       role: m.role,
+      sourceId: m.id,
+      userAuthored: m.secretaryDispatch?.bodyOrigin !== 'composed',
       content: m.role === 'user'
         ? '用户：' + m.content.slice(0, 1200)
         : ((await characterRepo.getById(m.senderId ?? ''))?.name ?? '群成员') + '：' + m.content.slice(0, 1200),
@@ -300,7 +302,7 @@ async function maybeExtractGroupMemories(sessionId: string, memberIds: string[],
             ...prepareMemoryMetadata(content, { confidence: 0.75 }),
             createdAt: now + i,
             sourceSessionId: sessionId,
-            sourceMessageIds: sourceMessages.map((message) => message.id),
+            sourceMessageIds: result.evidence?.find(item => item.content === content)?.sourceIds ?? [],
             confidence: 0.75,
             updatedAt: now + i,
           }));

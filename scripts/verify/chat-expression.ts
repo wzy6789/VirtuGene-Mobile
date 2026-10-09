@@ -13,7 +13,7 @@ import { CHAT_MESSAGING_INSTRUCTION, withChatMessagingPolicy } from '../../serve
 import { inspectChatOutput } from '../../src/lib/chat-output-quality';
 import { generateProactiveMessage } from '../../src/lib/ai/proactive-chat';
 import { generateGroupTurn } from '../../src/lib/ai/group-chat';
-import { allowsDramaticReply, isDirectAffection, isViewExchange, directChatGuidance } from '../../src/lib/chat-expression-boundary';
+import { allowsDramaticReply, isDirectAffection, isViewExchange, isTopicInvitation, directChatGuidance } from '../../src/lib/chat-expression-boundary';
 import {hasSelfChosenPlan} from '../../src/lib/chat-turn-cues';
 import { buildSceneTimeContext, buildRelationshipContext, buildRelationshipToneContext, buildUserEmotionContext,buildLifeContext } from '../../src/lib/chat-context';
 import {findCurrentSceneRisk} from '../../src/lib/chat-current-scene-risk';
@@ -26,6 +26,10 @@ async function run() {
   // habit only suppresses this one warning and cannot validate added details.
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
+  for(const text of ['你自己现在想聊什么？','那聊点别的。你自己现在想聊什么？','你想谈什么话题','你来选一个话题','说个你想聊的话题'])
+    ok(isTopicInvitation(text)&&directChatGuidance(text,[],[]).includes('兴趣本身就可以是开场理由'),'explicit initiative receives a concrete topic without fabricated recent life: '+text);
+  for(const text of ['朋友问你自己现在想聊什么','“你自己现在想聊什么”是什么意思','翻译：你自己现在想聊什么','如果你自己现在想聊什么','你自己现在不想聊什么','你来选一个话题，帮我写演讲稿','我自己现在想聊什么','你想聊锻造还是吃饭','聊点别的吧'])
+    ok(!isTopicInvitation(text)&&!directChatGuidance(text,[],[]).includes('兴趣本身就可以是开场理由'),'quoted, writing, hypothetical and non-inviting messages retain scope: '+text);
   for(const text of ['我会选向日葵，跟你选的不一样也挺好','我喜欢青色，和你喜欢的不一样也没关系','我选“向日葵”，你不用和我一样','我还是选咖啡，跟你不一样挺好']) {
     const preferenceGuidance=directChatGuidance(text,[],[]);
     ok(preferenceGuidance.includes('这只是本轮选择')&&preferenceGuidance.includes('不拿这一个选择判断他平时的性格'),'a permitted different choice stays object-focused rather than becoming a personality reading: '+text);
@@ -415,6 +419,10 @@ async function run() {
     ok(relationship.includes('保留原有性格')&&relationship.includes('关系类型、称呼和亲密边界依据人设与真实对话')&&!relationship.includes('所有关于未来的打算')&&!relationship.includes('一个眼神就懂'),`familiarity does not force romance or universal softening at ${affinity}`);
   }
   ok(buildRelationshipContext(200,10).includes('仍尊重用户')&&buildRelationshipToneContext(200,95).includes('按原有性格表达'),'high or low mood does not erase character voice or require hostility');
+  const freshInteraction=buildRelationshipContext(0,70);
+  ok(freshInteraction.includes('本应用互动累计等阶')&&freshInteraction.includes('不是人设关系的起点')&&!freshInteraction.includes('你和用户的关系等阶'),'new app state does not assert that established characters have just met');
+  ok(freshInteraction.includes('低数值不证明')&&freshInteraction.includes('当前明确的分歧和感受仍认真回应'),'zero initialized affinity neither negates an existing marriage nor suppresses current disagreement');
+  ok(buildRelationshipContext(0,70,{'初识':'自定义记录档位'}).includes('自定义记录档位'),'custom app tier names remain available as interaction metadata');
   const staleFeeling=buildUserEmotionContext('委屈');
   ok(staleFeeling.includes('之前的情绪线索')&&staleFeeling.includes('不代表用户现在仍这样')&&!staleFeeling.includes('用户此刻似乎'),'old emotion snapshot stays background rather than current diagnosis');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('自己的往事、生活习惯和身体感受须有人设或独立生活记录支持')&&CHAT_MESSAGING_INSTRUCTION.includes('「这我喜欢」是在说喜好'),'shared policy permits natural opinions while separating them from invented biography');

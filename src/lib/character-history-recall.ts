@@ -2,6 +2,7 @@ import { db } from '../db/index';
 import { messageRepo } from '../db/message-repo';
 import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
 import Dexie from 'dexie';
+import { memorySpeaker } from '../../server/memory-source-policy.mjs';
 
 export interface HistoricalChatHit {
   messageId: string;
@@ -121,7 +122,7 @@ export function formatHistoricalPrivateChat(hits: HistoricalChatHit[]): string {
   const lines = hits.map((hit) => {
     const date = new Date(hit.createdAt);
     const stamp = `${date.getMonth() + 1}月${date.getDate()}日`;
-    return `- ${stamp} ${hit.role === 'user' ? '用户' : '你'}当时说：${hit.content}`;
+    return `- ${stamp} ${memorySpeaker(hit.role, hit.userAuthored)}：${hit.content}`;
   });
   return `【你们过去实际说过的话】\n${lines.join('\n')}\n这是原对话线索，按用户当前问题作答；不要照抄或把无关旧话题重新提起。`;
 }

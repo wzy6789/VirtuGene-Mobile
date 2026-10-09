@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DEEPSEEK_MODEL_ID, deepseekGenerationOptions } from './deepseek-policy.mjs';
 import { withChatMessagingPolicy } from './chat-messaging-policy.mjs';
+import { MEMORY_SOURCE_POLICY, memorySpeaker } from './memory-source-policy.mjs';
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -262,7 +263,7 @@ function auxMessages(operation, payload) {
       .filter(Boolean)
       .slice(0, 8)
     : [];
-  const transcript = history.map((item) => `${item?.role === 'assistant' ? 'assistant' : 'user'}: ${String(item?.content || '').slice(0, 1_000)}`).join('\n');
+  const transcript = history.map((item) => `${operation === 'context-summary' ? memorySpeaker(item?.role, item?.userAuthored) : item?.role === 'assistant' ? 'assistant' : 'user'}: ${String(item?.content || '').slice(0, 1_000)}`).join('\n');
   const prompts = {
     memory: '从对话中提取值得长期记住的用户事实。只记录用户明确说过或能直接确定的内容，不能把角色猜测当事实；注意时间范围和用户对旧事实的纠正。只输出 JSON 数组，例如 ["用户喜欢咖啡"]；没有就输出 []。',
     emotion: '分析 assistant 消息里的角色状态，只输出 JSON 对象：{"dimensions":{"valence":5,"arousal":5,"intimacy":5,"engagement":5,"expressiveness":5,"stability":5},"dominantEmotion":"","summary":""}。每个分数 1 到 10。',
@@ -270,11 +271,11 @@ function auxMessages(operation, payload) {
     'context-summary': '你是 VirtuGene 的长期对话档案管理员。把本次新增对话与之前摘要合并成精简但可检索的中文连续性记录，最多 8 行、约 1800 字。必须保留用户明确要求记住的事实、稳定偏好、重要经历与更正（更正覆盖旧说法）、共同经历的具体细节和结果、尚未完成的约定与计划、角色明确说过的自身近况或承诺、关系变化及最近话题落点。保留姓名、时间、对象和结果；没有内容的类别省略；不要猜测，也不要把已解决的话题记为未解决。只输出 JSON 对象：{"summary":""}。',
     diary: '完成日记辅助任务。根据 mode 输出 JSON：普通模式为 {"text":""}；auto、compile、combine、recall 为 {"title":"","content":"","tags":[]}；persona 为 {"persona":{"keywords":[],"topics":[],"emotion":"","summary":""}}。不要输出 Markdown。',
   };
-  const operationPrompt = prompts[operation] || prompts.diary;
+  const operationPrompt = (prompts[operation] || prompts.diary) + (operation === 'context-summary' ? '\n' + MEMORY_SOURCE_POLICY : '');
   const user = operation === 'diary'
     ? `mode=${String(payload?.mode || '')}\n内容：${text}\n上下文：${context}`
     : operation === 'context-summary' && previousSummary
-      ? `之前的压缩摘要（保留其中仍然有效的事实）：\n${previousSummary}${protectedMemories.length > 0 ? `\n\n用户明确要求长期保留的记忆（必须逐条保留）：\n${protectedMemories.map((item) => `- ${item}`).join('\n')}` : ''}\n\n本次新增对话：\n${transcript || text}`
+      ? `之前的压缩摘要（不是新增证据，保留来源和待核实标记）：\n${previousSummary}${protectedMemories.length > 0 ? `\n\n用户明确要求长期保留的记忆（必须逐条保留）：\n${protectedMemories.map((item) => `- ${item}`).join('\n')}` : ''}\n\n本次新增对话：\n${transcript || text}`
       : operation === 'context-summary' && protectedMemories.length > 0
         ? `用户明确要求长期保留的记忆（必须逐条保留）：\n${protectedMemories.map((item) => `- ${item}`).join('\n')}\n\n本次新增对话：\n${transcript || text}`
       : transcript || text;

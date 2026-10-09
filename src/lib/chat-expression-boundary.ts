@@ -9,6 +9,14 @@ export function isOpinionInvitation(message:string):boolean {
       || /^(?:你)?(?:不用|不必|别)(?:一直|总是|老|只)?(?:顺着我|迎合我|迁就我)[呀啊啦吧呢\s]*$/u.test(part.trim())));
 }
 
+/** An invitation to choose a subject, not to invent a day or an old conversation. */
+export function isTopicInvitation(message:string):boolean {
+  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  if(/(?:翻译|改写|解释|什么意思|怎么说|怎么回复|帮我写|替我写)/u.test(text))return false;
+  return text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
+    /^(?:那|所以|对了)?\s*(?:你(?:自己)?(?:现在|这会儿|今天)?(?:最|更)?想(?:聊|谈)(?:点)?什么(?:话题)?|你(?:来|自己)(?:选|挑)(?:个|一个)?话题|(?:说|聊)(?:个|一个)你(?:自己)?想聊的话题)[呀啊吧呢\s]*$/u.test(part));
+}
+
 /** A view is not an instruction to solve the situation. This is only a prompt
  * clue; it never authorizes an operation or overrides the original message. */
 function isChoiceInvitation(message:string):boolean {
@@ -75,6 +83,7 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
   if (allowsDramaticReply(userMessage,recentUserMessages)) return '本轮用户明确选择了创作或扮演，按其要求接续；不要把虚构场景当成现实经历。';
   const lines:string[]=[];
   const unquoted=userMessage.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  if(isTopicInvitation(userMessage))lines.push('用户把这轮话题的选择交给你。挑一个你此刻感兴趣的具体话题，直接聊其中一点或说自己的看法，兴趣本身就可以是开场理由，不需要先编一件生活近况或声称用户上次提过。已有真实记录仍可使用；没有记录时从你现在的兴趣开始，不把决定退回，也不把主动聊天变成要求用户汇报近况。');
   const previousUser=recentUserMessages[recentUserMessages.length-1]??'';
   const talkInvitation=unquoted.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
     /^(?:我(?:今天|现在)?|今天|现在)?(?:就|只是|只)?想(?:听听|听)你(?:说说话|说话|聊几句)[呀啊啦呢嘛\s]*$/u.test(part));
