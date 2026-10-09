@@ -301,7 +301,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         ? `\n\n[早前对话摘要（压缩记录不是独立证据；保留说话人，角色自述往事不等于经历已核实，未标来源时回查原话；若与当前话题相关可自然提及）]\n${sessionData.summary.slice(0, MAX_SUMMARY_CHARS)}`
         : '';
       const uncoveredChatContext = buildUncoveredChatContext(contextMessages, userMsg.id, sessionData);
-      const conversationStateContext = buildChatConversationStateContext(turnAttention);
+      const conversationStateContext = buildChatConversationStateContext(turnAttention,recallIntent.explicit?undefined:text);
 
       // 主动话题候选只来自当前角色有权知道的本地数据：
       // 角色兴趣、未完成事项、共同经历、世界脉搏和已召回的长期记忆。

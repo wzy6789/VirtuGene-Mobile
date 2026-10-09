@@ -2,13 +2,14 @@ import type { Character } from '../db/index';
 import { detectTopicMove, isTopicRelated } from './chat-conversation-state';
 import { assessExpressionSignals, expressionDirection, recentRhythmDirection, recentQuestionDirection, replyContainsSubstantiveQuestion, type ExpressionSignals } from './chat-expression-guidance';
 import { SAMPLE_LINE, validVoiceSamples, VOICE_SAMPLE_MARKER } from './character-voice';
-import { directChatGuidance, isDirectAffection, isViewExchange,isTopicInvitation,allowsDramaticReply } from './chat-expression-boundary';
+import { directChatGuidance, DIRECT_AFFECTION_DIRECTION, isDirectAffection, isViewExchange,isTopicInvitation,allowsDramaticReply } from './chat-expression-boundary';
 import { authoredReactionLines, emotionalExpressionGuidance, selectVoiceExamples, interactionMoment } from './chat-emotional-expression';
 import { hasExplicitTopicShift, isStandaloneClosing, isPersonalExperienceQuestion,requestsRepetition,hasSelfChosenPlan } from './chat-turn-cues';
 import {authoredVoiceFields,JUDGMENT_FIELDS,ADDRESS_FIELDS} from './character-voice-fields';
 import type {PromptSection} from './chat-context-compiler';
 import {isLongFormRequest} from './reply-quality';
 import {buildGuYueNaRecallCard} from './gu-yue-na-canon';
+import {buildHypothesisContext} from './chat-hypothesis';
 
 /**
  * 只在本地判断这一轮对话的气质，不调用模型，也不写入数据库。
@@ -22,6 +23,7 @@ export type ConversationAction =
   | 'start-topic'
   | 'follow-topic'
   | 'stay-present'
+  | 'respond-affection'
   | 'answer-directly'
   | 'finish-request'
   | 'share-life'
@@ -150,9 +152,12 @@ export function chooseConversationAction(
   const recentUserMessages = history.filter((item) => item.role === 'user').map((item) => item.content).slice(-5);
   const recentAssistantMessages = history.filter((item) => item.role === 'assistant').map((item) => item.content).slice(-6);
   const signals = detectHumanTurn(userText, recentUserMessages);
-  if(isTopicInvitation(userText)&&signals.mode!=='request')return 'start-topic';
-  if (signals.mode === 'topic-shift') return 'follow-topic';
+  // Whole-turn closing is explicit; lexical non-overlap with the previous
+  // subject must not turn a goodbye into another casual subject.
   if (isClosing(userText)) return 'short-close';
+  if(isTopicInvitation(userText)&&signals.mode!=='request')return 'start-topic';
+  if(!['request','question'].includes(signals.mode)&&isDirectAffection(userText)&&!replyContainsSubstantiveQuestion([userText]))return 'respond-affection';
+  if (signals.mode === 'topic-shift') return 'follow-topic';
   if (signals.mode === 'emotional') return 'stay-present';
   if (signals.mode === 'question') return 'answer-directly';
   if (signals.mode === 'request') return 'finish-request';
@@ -334,6 +339,7 @@ export function buildHumanConversationSections(
   const signals = detectHumanTurn(userText, recentUsers);
   const action = chooseConversationAction(userText, history, character, options);
   const directions: Record<ConversationAction, string> = {
+    'respond-affection': DIRECT_AFFECTION_DIRECTION,
     'start-topic': '这轮由你开话题：直接说一个你想聊的内容，再展开自己的一个具体想法，让对方有东西可接。可以从作品、一个假设或当下好恶出发；不需要先发生一件新近况，也不需要先向对方收集资料。',
     'follow-topic': '用户正在换话题，跟随新话题，旧线索暂时放下。不因为前面聊过情绪就继续安慰，也不必先解决旧事；普通分享可以先说你自己的反应，不必把新话题又接成一个问题。同感可以是一句当下的态度或玩笑，不必用“我以前也这样”“我有次”开一段无来源的亲身故事。本轮明确问你的问题或求助仍直接回答。',
     'stay-present': '跟着用户这句话的口气接话，像正在来回聊天；可以是纯反应或自己的态度，不需要替这一刻作一个完整解释。用户讲明的遭遇和原因照常回应，没讲明的就留白。用户想先倾诉时，继续聊眼前内容，让下一句话留给他。',
@@ -344,11 +350,12 @@ export function buildHumanConversationSections(
     'short-close': '用户正在收尾，按这个人的方式回应告别，不硬开新话题；下次聊天的时间与安排沿用对方讲明的内容，未约定时不替他定明天或要求按时回来。问候可以依照用户的作息，不用根据当前时钟纠正一句晚安。前面的普通闲聊不自动变成用户仍然挂心的事，不为显得记得细节追加「别惦记、别担心」等未经表达的安抚；有真正共同的笑点仍可以简短呼应。',
     react: '轻松交流，接这件小事的趣味或说自己的感受，表达偏好、只回反应也可以；普通分享不是让你检查生活是否正确，不自动补处理办法。用户只说当下感受时，回应这一刻就够了，不需要给出它从哪里来的解释；用户自己讲明的原因照常使用。同感可以是一句当下的态度或玩笑，不必用“我以前也这样”“我有次”开一段无来源的亲身故事。',
   };
-  const selfChosenPlan=hasSelfChosenPlan(userText)&&!['question','request'].includes(signals.mode)&&!isClosing(userText)&&!allowsDramaticReply(userText,recentUsers);
+  const selfChosenPlan=action!=='respond-affection'&&hasSelfChosenPlan(userText)&&!['question','request'].includes(signals.mode)&&!isClosing(userText)&&!allowsDramaticReply(userText,recentUsers);
   const lines = ['[本轮交流的隐藏节奏]', selfChosenPlan
     ?'用户正在告诉你自己的打算，沿用他讲明的时间、内容和范围。按人物口吻接这个打算，可以表达自己的兴趣或轻松反应，留个自然停顿；不需要替他批准、解释决定，也不把计划说成已执行，不补身体姿势、行程或另安排一项。用户希望少分析、少建议时也沿用这个节奏。明确问题和求助照常回应。'
     :directions[action]];
-  if (!selfChosenPlan && options.adviceStyle === 'listen' && !['start-topic','short-close', 'finish-request'].includes(action)) {
+  if(action==='answer-directly'&&hasExplicitTopicShift(userText))lines.push('用户正在换话题，本轮直接回答新问题。旧话题暂时放下，已有关系仍有效，但不把新内容又绕回旧情绪或告白。');
+  if (!selfChosenPlan && options.adviceStyle === 'listen' && !['respond-affection','start-topic','short-close', 'finish-request'].includes(action)) {
     lines.push(action==='follow-topic'
       ?'按用户当前这句话接话，可以对新内容有自己的反应。用户希望少分析、少建议，就不自动添加解释、休息建议或后续安排；明确问题和求助照常回应。'
       :'用户这件事想先说出来，不是在求方案。可以有你自己的感受、判断或具体接话，不必宣布“我在听”；不要把倾听变成心理解释、劝休息或自动安排下一步。明确问你的问题仍要回答。');
@@ -359,8 +366,12 @@ export function buildHumanConversationSections(
     lines.push(expressionDirection(signals.expression));
   else if (action!=='start-topic' && !isDirectAffection(userText) && action !== 'follow-topic' && recentUsers.slice(-2).some(text=>assessExpressionSignals(text).situation!=='neutral'))
     lines.push('不因为前面聊过情绪就继续安慰；本轮以用户现在说的内容为准。');
-  const direct = directChatGuidance(userText,recentUsers,recentReplies);
+  const direct = directChatGuidance(userText,recentUsers,recentReplies,{includeAffection:action!=='respond-affection'});
   if (direct) lines.push(direct);
+  if(!allowsDramaticReply(userText,recentUsers)) {
+    const hypothesis=buildHypothesisContext(userText,recentUsers);
+    if(hypothesis)lines.push(hypothesis);
+  }
   if (isPersonalExperienceQuestion(userText)) {
     const authored=(character?.systemPrompt??'').split(/\r?\n/u).filter(line=>!SAMPLE_LINE.test(line)).join('\n').slice(0,2000);
     const recorded=(options.lifeHints??[]).slice(0,4).map(line=>line.slice(0,160));

@@ -54,7 +54,7 @@ export interface RecallIntent {
   diary: boolean;
 }
 
-const EXPLICIT_PREFIX = /记得|还记得|想起来|想起|以前|之前|上次|上回|那次|那天|当时|第一次|那件事|说过|答应|约好|约定|别忘了/u;
+const EXPLICIT_PREFIX = /记得|还记得|以前|之前|上次|上回|那次|那天|当时|第一次|那件事|说过|答应|约好|约定|别忘了/u;
 
 export function detectRecallIntent(topic: string | undefined): RecallIntent {
   const text = topic ?? '';
@@ -64,7 +64,12 @@ export function detectRecallIntent(topic: string | undefined): RecallIntent {
   const moment = /朋友圈|动态|照片|评论|点赞|那条/u.test(text);
   const todo = /待办|任务|完成|做完|提醒/u.test(text);
   const diary = /日记/u.test(text);
-  const explicit = EXPLICIT_PREFIX.test(text) || group || world || moment || todo || diary;
+  // Remembering while recounting today's event does not ask the character to
+  // search history. Keep actual requests and queries, including self-recall
+  // questions; other historical anchors and channel queries remain intact.
+  const recallQuery=text.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').split(/[。！？!?，,；;\n]/u).some(part=>
+    /^(?:那|所以|对了)?\s*(?:你(?:还|能|有没有|是否|能不能)?(?:想起|想起来)|(?:请|帮我)?(?:回想|想一想)|我.{0,12}想起.{0,24}(?:什么|哪|谁|怎么|吗|么))/u.test(part.trim()));
+  const explicit = EXPLICIT_PREFIX.test(text) || recallQuery || group || world || moment || todo || diary;
   return { explicit, group: explicit && group, world: explicit && world, moment: explicit && moment, todo: explicit && todo, diary: explicit && diary };
 }
 

@@ -20,12 +20,66 @@ import {findCurrentSceneRisk} from '../../src/lib/chat-current-scene-risk';
 import { normalizeVoiceLines, voicePromptRevision, voiceIdentityWithoutExamples } from '../../src/lib/character-voice';
 import { interactionMoment, emotionalExpressionGuidance, selectVoiceExamples, authoredReactionLines, voiceExampleUserText } from '../../src/lib/chat-emotional-expression';
 import {buildChatHistoryWindow,boundChatHistory} from '../../src/lib/chat-history-window';
+import {conversationalHypothesis,buildHypothesisContext} from '../../src/lib/chat-hypothesis';
 
 async function run() {
   // These are risk checks, not blanket factual acceptance: a matching authored
   // habit only suppresses this one warning and cannot validate added details.
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
+  for(const text of ['我不是让你换名字，只是在说我自己的偏好','我刚才不是要你同意，只是说说我的想法','我不是要求你重写，这句读一下就好'])ok(directChatGuidance(text,[],[]).includes('用户在澄清刚才说话的用途或要求'),'clarifying the request does not become a challenge to the character: '+text);
+  for(const text of ['朋友说“我不是让你换名字”','如果我不是让你换名字呢','解释我不是让你换名字','我不是不喜欢你的名字','我喜欢这个名字'])ok(!directChatGuidance(text,[],[]).includes('用户在澄清刚才说话的用途或要求'),'reports, hypotheses and ordinary preferences do not trigger request-scope clarification: '+text);
+  const imagined='如果只留一种花在窗边，你会选哪种？';
+  for(const text of ['我会选向日葵，跟你不一样','不是窗边，是桌上，我刚才说错了','这次别逗我了，认真说说你为什么喜欢它']) {
+    ok(conversationalHypothesis(text,[imagined])===imagined,'an imagined choice keeps its original conditional scope through selection or correction: '+text);
+    ok(buildHumanConversationContext(text,[{role:'user',content:imagined},{role:'assistant',content:'我们已经摆好两盆花。'}]).includes('各自选一项不表示共同摆放'),'actual prompt distinguishes a hypothetical choice from an assistant invented scene: '+text);
+  }
+  for(const text of ['我已经买了向日葵','我决定明天去买花','不是假设，我真的要买花','换个话题，今天有点累','好了，我去看会儿书，明天再聊','你觉得数学题该怎么解'])ok(!buildHypothesisContext(text,[imagined]),'an actual plan, changed subject, closing or independent question ends the old hypothetical clue: '+text);
+  for(const text of ['朋友说“如果选一种花你选什么”','翻译“如果选一种花”','如果这个词是什么意思','我今天买了花'])ok(!conversationalHypothesis(text,[]),'quoted and linguistic content or an actual event does not create a hypothetical frame: '+text);
+  ok(conversationalHypothesis('如果只去一个城市，你选哪一个？',[imagined]).includes('一个城市'),'a later hypothetical replaces the earlier premise');
+  ok(!conversationalHypothesis('你为什么选它',[imagined,...Array(6).fill('嗯')]),'the bounded user history does not retain a stale fictional frame indefinitely');
+  const pendingSubjects={...emptyChatConversationState(),pausedTopics:['今天累，事情太多','明天的锻造练习','上次聊的电影名字']};
+  const pendingBefore=JSON.stringify(pendingSubjects);
+  ok(!buildChatConversationStateContext(pendingSubjects,'面包落在店里了').includes('暂时搁置的话题'),'a new ordinary subject does not re-inject unrelated paused emotion or plans');
+  ok(buildChatConversationStateContext(pendingSubjects,'想聊锻造').includes('明天的锻造练习')&&!buildChatConversationStateContext(pendingSubjects,'想聊锻造').includes('今天累'),'a related paused subject remains available without unrelated emotion');
+  ok(pendingSubjects.pausedTopics.every(topic=>buildChatConversationStateContext(pendingSubjects).includes(topic)),'explicit historical lookup can retain all local paused candidates');
+  ok(JSON.stringify(pendingSubjects)===pendingBefore,'prompt selection preserves the actual stored paused subjects');
+  const explicitlyPaused={...pendingSubjects,currentTopic:'今天累，事情太多',topicStatus:'paused' as const};
+  ok(buildChatConversationStateContext(explicitlyPaused,'我回来了').includes('留到用户明确接续时再聊'),'a user explicitly deferring the active discussion retains its own pause boundary');
+  for(const text of ['我爱你','不过今天没锻造，只是想你了','换个话题。我爱你。','我决定先去看书，我喜欢你']) {
+    const history=[{role:'user',content:'那聊聊锻造吧'},{role:'assistant',content:'你今天打算练什么？'}];
+    ok(chooseConversationAction(text,history,undefined,{adviceStyle:'listen'})==='respond-affection','a direct feeling receives the actor attitude rather than a counselling or prior-topic action: '+text);
+    const prompt=buildHumanConversationContext(text,history,undefined,{adviceStyle:'listen'});
+    ok(prompt.includes('这轮说你自己的感受')&&!prompt.includes('用户这件事想先说出来')&&!prompt.includes('用户正在告诉你自己的打算'),'the affection direction is not overridden by listening or self-plan guidance: '+text);
+    ok(prompt.split('明确的心意不需要改成待澄清的问题').length===2,'the existing affection rule occurs once rather than accumulating another contract: '+text);
+    const plan=planCharacterIntent(text,history,undefined);
+    ok(plan.action==='respond-affection'&&!plan.mayAskQuestion&&plan.rationale.includes('不把亲近当作待处理的情绪'),'local planning preserves the same actual affection priority: '+text);
+  }
+  for(const text of ['她说“我喜欢你”','如果我喜欢你呢','我不喜欢你','帮我写情书，我爱你','我爱你，你觉得这件事怎么办？','我喜欢你，帮我改这个报告'])ok(chooseConversationAction(text,[])!=='respond-affection','quoted, hypothetical, denied feelings and actual tasks retain their own reply direction: '+text);
+  const declinedDirection=buildHumanConversationContext('我喜欢你',[],{name:'访客角色',tags:['冷淡'],systemPrompt:'亲密反应：不愿成为恋人，认真说明界限。',proactivity:.5});
+  ok(declinedDirection.includes('是否愿意靠近或你需要的界限')&&declinedDirection.includes('不愿成为恋人'),'the affection action does not force reciprocity on an unwilling character');
+  ok(CHAT_MESSAGING_INSTRUCTION.includes('未做某事，不证明今天在做什么、是否空闲'),'the shared source contract does not promote an omitted activity into an available day');
+  for(const prior of ['月亮要起个名字，我叫它小灯','报告的第一段得改一下','今天有点难过，想聊几句']) {
+    const history=[{role:'user',content:prior},{role:'assistant',content:'嗯，继续说。'}];
+    for(const goodbye of ['好了，我去看会儿书，明天再聊','我先去做饭，回来再聊','我出门了，回头再来']) {
+      ok(chooseConversationAction(goodbye,history)==='short-close','whole-turn goodbye outranks historical topic non-overlap: '+prior+'/'+goodbye);
+      ok(buildHumanConversationContext(goodbye,history).includes('用户正在收尾'),'actual goodbye guidance survives a different earlier subject: '+prior+'/'+goodbye);
+      const state=updateChatConversationState({...emptyChatConversationState(),currentTopic:prior,topicStatus:'active'},goodbye,'',undefined,Date.now(),prior);
+      ok(state.topicStatus==='closed'&&!state.userWantsToShift&&state.pausedTopics.length===0,'goodbye state does not also create a fresh subject or deferred-topic entry: '+prior+'/'+goodbye);
+    }
+  }
+  for(const text of ['我是唐舞麟，今天就想听听你说话','我现在只是想听你聊几句','想听你说说话呀']) {
+    ok(isTopicInvitation(text)&&chooseConversationAction(text,[],undefined,{adviceStyle:'listen'})==='start-topic','listening to the character is an actual opening invitation: '+text);
+    const direction=buildHumanConversationContext(text,[],undefined,{adviceStyle:'listen'});
+    ok(direction.includes('这轮由你开话题')&&!direction.includes('用户这件事想先说出来'),'the invitation does not contradict itself with passive listening: '+text);
+    ok(planCharacterIntent(text,[],undefined).action==='start-topic','the actor plan and runtime agree for listening invitations: '+text);
+  }
+  for(const text of ['如果今天没事，我想听你说话','朋友说，我想听你说话','我不想听你说话','我想听你说话的原因','“我想听你说话”是什么意思','我想听你说话，帮我改报告'])ok(chooseConversationAction(text,[])!=='start-topic','a hypothetical, report, denial or task retains its actual scope: '+text);
+  for(const text of ['不说这个了，假如能给月亮起个名字，你会叫什么？','先不聊这个，说说电影','这个先不说了，今天买了个杯子']) {
+    const history=[{role:'user',content:'我喜欢你'},{role:'assistant',content:'我也喜欢你。'}];
+    ok(['follow-topic','answer-directly'].includes(chooseConversationAction(text,history))&&detectTopicMove(text,'我喜欢你'),'ending the old subject follows the new content without affection carryover: '+text);
+    ok(buildHumanConversationContext(text,history).includes('用户正在换话题'),'the actual prompt receives the explicit new-subject direction: '+text);
+  }
   for(const text of ['好，这个话题先留着。我去开会，结束再来。','我先去上课，回来再聊','行，我得去做饭了，忙完再说','我出门了，回头再来','这个问题先不展开，我下线了，明天再聊']) {
     ok(!!conversationDeparture(text)&&detectChatIntent(text)==='closing'&&chooseConversationAction(text,[])==='short-close','an explicit whole-turn departure uses the closing flow: '+text);
     ok(buildHumanConversationContext(text,[]).includes('用户正在收尾'),'a compound departure does not receive the generic casual-sharing direction: '+text);

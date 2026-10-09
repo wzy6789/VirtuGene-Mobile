@@ -62,7 +62,7 @@ function compact(text: string): string {
 
 function topicLabel(text: string): string {
   const normalized = compact(text)
-    .replace(/^(?:对了|另外|先不说这个|说点别的|换个话题|算了)[，,、:：\s]*/u, '')
+    .replace(/^(?:对了|另外|先不说这个|不说这个了|先不聊这个|这个先不说了|说点别的|换个话题|算了)[，,、:：\s]*/u, '')
     .replace(/[。！？!?]+$/u, '');
   return normalized.slice(0, 42);
 }
@@ -236,7 +236,7 @@ export function updateChatConversationState(
   const oldTopic = base.currentTopic?.trim();
   const resumesPausedTopic=!!oldTopic&&base.topicStatus==='paused'&&userText.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').split(/[。！？!?，,；;\n]/u)
     .some(part=>/^(?:那|我们|咱们)?(?:继续|接着)(?:聊|说)?(?:刚才|前面|上次|那个)(?:的|那个)?(?:话题|问题)(?:吧|了)?$/u.test(part.trim()));
-  const shifting = !resumesPausedTopic&&detectTopicMove(userText, previousUserText);
+  const shifting = intent!=='closing'&&!resumesPausedTopic&&detectTopicMove(userText, previousUserText);
   const pausedTopics = [...(base.pausedTopics ?? [])];
 
   if (shifting && oldTopic && oldTopic !== label) {
@@ -280,7 +280,7 @@ export function updateChatConversationState(
 }
 
 /** 把状态压成隐藏指令，避免把内部状态展示到 UI。 */
-export function buildChatConversationStateContext(state: Partial<ChatConversationState> | undefined): string {
+export function buildChatConversationStateContext(state: Partial<ChatConversationState> | undefined, currentMessage?:string): string {
   const current = { ...emptyChatConversationState(), ...(state ?? {}) };
   const prefs = { ...DEFAULT_CHAT_PREFERENCES, ...(current.preferences ?? {}) };
   const lines = ['[本会话的连续注意力]'];
@@ -289,8 +289,12 @@ export function buildChatConversationStateContext(state: Partial<ChatConversatio
   } else if (current.currentTopic && current.topicStatus !== 'closed') {
     lines.push(`当前话题只作为背景参考：「${current.currentTopic}」。用户已经换题时，以用户的新话题为准。`);
   }
-  if (current.pausedTopics.length > 0) {
-    lines.push(`暂时搁置的话题：${current.pausedTopics.slice(0, 3).map((item) => `「${item}」`).join('、')}。除非用户主动提起，不要自行拉回。`);
+  // Stored candidates are not all relevant context for the next utterance.
+  // Callers doing an explicit history query can omit currentMessage to retain
+  // the candidate list; ordinary new topics do not repeat unrelated feelings.
+  const pausedTopics=currentMessage===undefined?current.pausedTopics:current.pausedTopics.filter(topic=>isTopicRelated(currentMessage,topic));
+  if (pausedTopics.length > 0) {
+    lines.push(`暂时搁置的话题：${pausedTopics.slice(0, 3).map((item) => `「${item}」`).join('、')}。除非用户主动提起，不要自行拉回。`);
   }
   if (current.userWantsToShift) lines.push('当前话题有转向线索，以用户原话为准；不自动追问旧事。');
   if (prefs.brevity === 'short') lines.push('用户偏好短回复，先说最重要的一句。');

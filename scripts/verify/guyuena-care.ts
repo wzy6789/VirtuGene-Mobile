@@ -48,6 +48,8 @@ async function run(): Promise<void> {
   check(preset.systemPrompt.includes('关心不是每轮必须先说的一句话')&&!preset.systemPrompt.includes('普通私聊先用贴近当下的一句话表达关心'),'actual prepared persona does not require a comforting preface for every turn');
   const voice=buildCharacterVoiceCard(updated,'我是舞麟，今天就是想你了');
   check(voice.includes('人物判断依据')&&voice.includes('对舞麟熟悉而信任'),'specific authored care reaches the shared voice card');
+  check(voice.includes('先注意事情的反差')&&voice.includes('骄傲落在自己的选择上'),'ordinary voice supplies a positive subject for humour and confidence rather than grading the spouse');
+  check(voice.includes('偏爱的爱人')&&voice.includes('轻松分享小事'),'the ordinary judgment card keeps partner warmth without turning the relationship into supervision');
     check(voice.includes('自己想要什么会直说')&&voice.includes('彼此保留自己的主见'),'authored voice distinguishes direct affectionate agency from a generic caretaker');
   check(voice.includes('我也想你')&&!voice.includes('安静一点。这样'),'affection selects its own example without importing a preference reply');
   const invitationVoice=buildCharacterVoiceCard(updated,'我是舞麟，想听你说说话');
@@ -129,6 +131,15 @@ async function run(): Promise<void> {
   check(guYueNaPromptForTurn({...runtimeCard,sourcePresetId:undefined},'聊点别的')===storedPrompt,'a copied name or marker without preset provenance cannot enable routing');
   check(guYueNaPromptForTurn({...runtimeCard,sourcePresetId:'preset-tangsan'},'聊点别的')===storedPrompt,'other characters retain full authored identity');
   check(runtimeCard.systemPrompt===storedPrompt&&ordinary.includes('用户自己加的性格要求：爱看书。'),'runtime rendering preserves original persona and custom additions');
+  const fullPreset={...preset,systemPrompt:withDouluoRelations(preset.systemPrompt,'preset-guyuena')};
+  const dailyPreset=guYueNaPromptForTurn(fullPreset,'我是舞麟，刚看到一个好玩的名字');
+  check(!dailyPreset.includes('- 天海大比：')&&!dailyPreset.includes('- 史莱克：')&&!dailyPreset.includes('- 分离与守护：'),'ordinary shipped replies do not preload unrelated rescue, mission and separation plots');
+  check(dailyPreset.includes('【熟悉舞麟的依据】')&&dailyPreset.includes('舞麟喜欢锻造')&&dailyPreset.includes('亲密反应：'),'daily rendering preserves sourced familiarity, character judgment and affectionate reaction');
+  for(const text of ['你记忆中的过去是什么样','聊聊天海大比','原著里你为什么失忆'])check(guYueNaPromptForTurn(fullPreset,text).includes('- 分离与守护：')||text==='聊聊天海大比'&&guYueNaPromptForTurn(fullPreset,text).includes('- 天海大比：'),'relevant or broad historical discussion retains its authored story: '+text);
+  check(guYueNaPromptForTurn(fullPreset,'后来呢',['你为什么失忆']).includes('- 分离与守护：'),'adjacent anaphoric follow-up retains the relevant old story');
+  const customStory={...fullPreset,systemPrompt:fullPreset.systemPrompt.replace('- 天海大比：','- 天海大比：这是我的改编。')};
+  check(guYueNaPromptForTurn(customStory,'聊点轻松的').includes('- 天海大比：这是我的改编。'),'edited story text is never condensed as an app-owned paragraph');
+  check(fullPreset.systemPrompt.includes('- 分离与守护：')&&dailyPreset.length<fullPreset.systemPrompt.length-700,'runtime routing reduces ordinary context without modifying stored biography');
   await report('/result?suite=guyuena-care', { method: 'POST', body: `ok ${count} assertions\nALL PASS` });
 }
 run().catch(async (error) => {

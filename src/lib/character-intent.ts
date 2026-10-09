@@ -18,6 +18,7 @@ function compact(text: string): string {
 }
 
 function needFor(intent: ChatIntent, action: ConversationAction): CharacterIntentPlan['need'] {
+  if(action==='respond-affection')return '陪伴';
   if(action==='start-topic')return '新鲜感';
   if (intent === 'emotional') return '陪伴';
   if (intent === 'question') return '获得答案';
@@ -49,9 +50,11 @@ export function planCharacterIntent(
   // Repeated punctuation and last turn's question do not remove this character's
   // freedom to ask. Only the user's explicit preference constrains follow-ups.
   const questionBlocked = state?.preferences?.questionTolerance === 'low';
-  const mayAskQuestion = !questionBlocked && intent !== 'closing' && intent !== 'request' && intent !== 'topic-shift' && action !== 'short-close' && action !== 'start-topic';
+  const mayAskQuestion = !questionBlocked && intent !== 'closing' && intent !== 'request' && intent !== 'topic-shift' && action !== 'short-close' && action !== 'start-topic' && action !== 'respond-affection';
   const avoidTopics = (state?.pausedTopics ?? []).filter(Boolean).slice(0, 3);
-  const rationale = action==='start-topic'
+  const rationale = action==='respond-affection'
+    ? '用户直接表达心意，按人物的真实态度与关系回应，不把亲近当作待处理的情绪。'
+    : action==='start-topic'
     ? '用户邀请人物自己开话题，先给出自己的内容，让对方有东西可接。'
     : signals.topicShift
     ? '用户正在换题，旧话题暂停。'
@@ -78,6 +81,7 @@ export function buildCharacterIntentContext(plan: CharacterIntentPlan): string {
     'start-topic': '从自己在意的内容开一个话题',
     'follow-topic': '跟随用户的新话题',
     'stay-present': '陪在情绪里',
+    'respond-affection': '表达人物自己的心意或界限',
     'answer-directly': '直接回答',
     'finish-request': '完成眼前的请求',
     'share-life': '分享角色自己的一个具体细节',

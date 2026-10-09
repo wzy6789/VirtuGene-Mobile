@@ -7,7 +7,7 @@ import { messageRepo } from '../../src/db/message-repo';
 import { memoryRepo } from '../../src/db/memory-repo';
 import { sessionRepo } from '../../src/db/session-repo';
 import { todoRepo } from '../../src/db/todo-repo';
-import { indexPromptMemoryReferences, recallCharacterMemory, packCharacterMemory } from '../../src/lib/character-memory';
+import { detectRecallIntent, indexPromptMemoryReferences, recallCharacterMemory, packCharacterMemory } from '../../src/lib/character-memory';
 import { findSpokenMemoryIds, rankConversationMemories } from '../../src/lib/memory-engine';
 import { buildContextTrace } from '../../src/lib/chat-trace';
 import { buildWorldContext, renderCharacterContext, renderWorldLayer, renderWorldBrief } from '../../src/lib/world/world-context';
@@ -30,6 +30,8 @@ const report = window.fetch.bind(window);
 async function run() {
   let count = 0;
   const check = (condition: unknown, label: string) => { if (!condition) throw new Error(label); count++; };
+  for(const text of ['对了，我把刚买的面包落在店里了，走到家才想起来，真服了。','我到家才想起来忘了买牛奶','刚刚想起要拿钥匙','他说“你想起来了吗”'])check(!detectRecallIntent(text).explicit,'ordinary recollection or quoted recall does not request a history search: '+text);
+  for(const text of ['你想起来了吗？','你能不能想起那件事','我刚才想起什么来着？','帮我回想一下','我想起以前和你逛过小吃街','查一下日记','你还记得上次说过什么吗'])check(detectRecallIntent(text).explicit,'actual recall, historical anchors and channel queries remain available: '+text);
   window.fetch = (() => { throw new Error('Unexpected network'); }) as typeof fetch;
   await db.open();
   const now = Date.now();

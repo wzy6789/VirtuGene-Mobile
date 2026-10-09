@@ -1,6 +1,14 @@
 export interface DialogueTrajectory { id: string; title: string; turns: Array<{ input: string; focus: string }> }
 /** Review notes are never model instructions. Each trajectory starts with fresh history. */
 export const DIALOGUE_TRAJECTORIES: DialogueTrajectory[] = [
+  { id: 'guyuena-fresh-view', title: '古月娜 · 新发现、审美分歧与澄清（未调参新场景）', turns: [
+    { input: '我是舞麟，路过一家咖啡店，名字居然叫“醒了再说”，哈哈。', focus: '接名字的趣味，不推断喝咖啡、疲惫或现实同处' },
+    { input: '你给书店起个名字，会叫什么？', focus: '给自己的创意，不编开店经历或变成选址方案' },
+    { input: '我更喜欢有点怪的名字，你不用顺着我。', focus: '保留不同审美，聊具体特点，不据此评判用户性格' },
+    { input: '我不是让你换名字，只是在说我自己的偏好。', focus: '沿用澄清，保留自己的看法，不打官腔或反责问' },
+    { input: '这样聊挺舒服的。你说说你喜欢的名字好在哪里，我想认真听。', focus: '说当前创意的理由，长度适量，不添未经核对的过往' },
+    { input: '谢谢你陪我聊天，今晚先这样吧。', focus: '自然收尾，不催回来，不自动增加作息指导' },
+  ] },
   { id: 'guyuena-ease', title: '古月娜 · 玩笑、不同好恶与停止打趣', turns: [
     { input: '我是舞麟，刚看到有人把仙人掌叫懒人玫瑰，笑死', focus: '认识伴侣，接眼前趣味，不编植物经历和共同现场' },
     { input: '如果只留一种花在窗边，你会选哪种？', focus: '假设中有自己的选择与理由，不假装已有窗边花' },
