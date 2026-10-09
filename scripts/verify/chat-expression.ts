@@ -214,12 +214,12 @@ async function run() {
     ok(guidance.includes('不是让你安排下一步')&&guidance.includes('历史里你猜过的原因仍是猜测'),`view prompt preserves the boundary between user facts and prior model guesses: ${message}`);
   }
   for(const message of ['你怎么看，帮我写条回复','你怎么看，给我一个具体方案','你怎么看，我该怎么处理','你怎么看，帮我看看报告','不用说你怎么看','她问你怎么看','朋友说“你觉得呢”','如果你同意吗','我觉得这个名字挺好','我不同意你'])ok(!isViewExchange(message),`actual assistance, reports, negation and ordinary statements retain their scope: ${message}`);
-  for(const message of ['你说去书店还是在家看电影','那你更喜欢书店还是电影院','你会选清汤还是辣锅','你觉得这个杯子买白色还是蓝色','你更喜欢“白色”还是“蓝色”']){
+  for(const message of ['那你想聊吃饭还是锻造？你自己选','你想谈电影还是音乐','你说去书店还是在家看电影','那你更喜欢书店还是电影院','你会选清汤还是辣锅','你觉得这个杯子买白色还是蓝色','你更喜欢“白色”还是“蓝色”']){
     ok(isViewExchange(message)&&detectChatIntent(message)==='question',`unpunctuated choice invitation is a personal question: ${message}`);
     ok(buildHumanConversationContext(message,[],undefined,{adviceStyle:'listen'}).includes('用户邀请你说真实看法'),`listening preference preserves an explicit later choice invitation: ${message}`);
     ok(directChatGuidance(message,[],[]).includes('给一个你自己喜欢的理由'),`a choice answer can express character preference rather than a prescribed correct plan: ${message}`);
   }
-  for(const message of ['朋友说你选书店还是电影院','朋友说“你更喜欢书店还是电影院”','“你更喜欢书店还是电影院”','如果你更喜欢书店还是电影院','不用说你选书店还是电影院','我在想去书店还是电影院','你说话快还是慢都行','你觉得开心还是难过都可以'])ok(!isViewExchange(message),`reported, hypothetical and permitted alternatives do not become a choice question: ${message}`);
+  for(const message of ['朋友问你想聊吃饭还是锻造','“你想聊吃饭还是锻造”','如果你想聊吃饭还是锻造','你想聊吃饭还是锻造，帮我写一段对白','朋友说你选书店还是电影院','朋友说“你更喜欢书店还是电影院”','“你更喜欢书店还是电影院”','如果你更喜欢书店还是电影院','不用说你选书店还是电影院','我在想去书店还是电影院','你说话快还是慢都行','你觉得开心还是难过都可以'])ok(!isViewExchange(message),`reported, hypothetical and permitted alternatives do not become a choice question: ${message}`);
   ok(detectChatIntent('你怎么看，帮我写条回复')==='request'&&chooseConversationAction('你怎么看，帮我写条回复',[])==='finish-request','explicit assistance survives the view-exchange clue');
   const unrelatedHistory=[{role:'user',content:'今天买的橘子特别酸'}];
   ok(chooseConversationAction('帮我写一句拒绝邀请的回复',unrelatedHistory)==='finish-request','a concrete new task outranks inferred lexical topic change');
@@ -316,6 +316,14 @@ async function run() {
   for (const message of ['她说我只是吐槽', '朋友说不想要建议', '如果我只是吐槽呢', '帮我写一句我只是吐槽', '他说“不是要建议”', '不是只想吐槽', '不是要建议，算了现在给我建议']) {
     ok(!updateChatConversationState(undefined, message).topicAdvice, `quoted, hypothetical, negated or superseded venting is not adopted: ${message}`);
   }
+  for(const message of ['别哄我，也别出主意，我就是嫌今天事情太多','这件事先不用帮我想办法','暂时不必替我支招','不要急着提建议']) {
+    const listening=updateChatConversationState(undefined,message);
+    ok(listening.topicAdvice==='listen'&&listening.preferences.adviceStyle==='mixed','a situational request not to solve the problem is temporary rather than a permanent preference: '+message);
+    ok(updateChatConversationState(listening,'还有，我就是觉得麻烦', '',undefined,Date.now(),message).topicAdvice==='listen','temporary listening persists through a same-topic follow-up: '+message);
+    ok(!updateChatConversationState(listening,'对了，帮我看看这句通不通顺').topicAdvice,'an explicit new request is not suppressed by situational listening: '+message);
+  }
+  for(const message of ['朋友说别出主意','“不用帮我想办法”什么意思','如果我说别支招呢','帮我写一句别出主意','不是说别出主意','别出主意，还是直接说怎么做吧'])
+    ok(!updateChatConversationState(undefined,message).topicAdvice,'quotation, hypotheticals, writing, negation and a later positive request do not install a listening restriction: '+message);
   const directBeforeVenting = updateChatConversationState(undefined, '给我建议');
   const temporarilyListening = updateChatConversationState(directBeforeVenting, '我只是吐槽');
   ok(temporarilyListening.topicAdvice === 'listen' && updateChatConversationState(temporarilyListening, '还有，他也没听完').topicAdvice === 'listen', 'temporary listening can override an older direct preference through follow-up turns');
@@ -430,7 +438,8 @@ async function run() {
   for(const text of ['为什么？','帮我看','我不同意','谢谢你','对不起'])ok(!buildHumanConversationContext(text,[]).includes('可以只回反应'),`short substantive speech is not nudged toward empty acknowledgement: ${text}`);
   for(const text of ['他说“换个话题”','不要换个话题','如果换个话题呢','我昨天看过另外一本书'])ok(detectChatIntent(text)!=='topic-shift',`quoted or negated topic cue is not a control instruction: ${text}`);
   for(const text of ['换个话题。我爱你。','对了，我想你了','我爱你，但我还没准备好开始一段关系'])ok(isDirectAffection(text),`direct feeling survives natural prefix or boundary: ${text}`);
-  for(const text of ['他说“我爱你”','如果我爱你呢','帮我写情书，我爱你','我爱你这句话是什么意思'])ok(!isDirectAffection(text),`discussion of feeling is not personal affection: ${text}`);
+  for(const text of ['不过今天没锻造，只是想你了','就是我想你了','就是想你了'])ok(isDirectAffection(text),`a direct affection after contextual lead-in keeps its actual emotional meaning: ${text}`);
+  for(const text of ['他说“只是想你了”','如果只是想你了呢','帮我写一句，只是想你了','只是想你了这句话怎么翻译','只是想你了所以不去了','他说“我爱你”','如果我爱你呢','帮我写情书，我爱你','我爱你这句话是什么意思'])ok(!isDirectAffection(text),`discussion of feeling is not personal affection: ${text}`);
   ok(directChatGuidance('换个话题。我爱你。',[],[]).includes('明确的心意不需要改成待澄清的问题'),'compound affection receives attitude guidance rather than an interview');
   const recentChoice='你说去书店还是在家看电影';
   ok(directChatGuidance('我偏想看电影，就这么定了',[recentChoice],['我选书店。']).includes('用户已选定一项'),'a concrete decision after asking a preference does not become a rejection of the character');

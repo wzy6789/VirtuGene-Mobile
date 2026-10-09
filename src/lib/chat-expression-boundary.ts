@@ -16,7 +16,7 @@ function isChoiceInvitation(message:string):boolean {
   // person report still cannot start with an address to the current character.
   return message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'选项')
     .split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
-      /^(?:那|所以|对了)?\s*你(?:说|觉得|会选|更喜欢|想选|选)\s*.{1,55}还是.{1,55}$/u.test(part)
+      /^(?:那|所以|对了)?\s*你(?:说|觉得|会选|更喜欢|想选|想聊|想谈|选)\s*.{1,55}还是.{1,55}$/u.test(part)
       && !/(?:都行|都可以|都好|随便|无所谓)$/u.test(part)
       && !/(?:不用|不要|别|不必|无需|不需要).{0,8}(?:选|说|回答|觉得)/u.test(part));
 }
@@ -37,7 +37,7 @@ export function isViewExchange(message:string):boolean {
 export function isDirectAffection(message: string): boolean {
   const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
   if(/^(?:如果|假如|假设|比如|例如|帮我写|写一段|写一个|他|她|朋友|同事|主角)/u.test(text))return false;
-  return text.split(/[。！？!?，,；;\n]/u).some(part=>/^(?:我(?:真的|好|很|也|还是)?(?:爱你|喜欢你|想你)(?:了)?|想你了|好想你|你对我很重要)[～~\s]*(?:呀|啊|呢|啦|嘛)?[～~\s]*$/u.test(part.trim()));
+  return text.split(/[。！？!?，,；;\n]/u).some(part=>/^(?:(?:只是|就是|就)?我(?:真的|好|很|也|还是)?(?:爱你|喜欢你|想你)(?:了)?|(?:只是|就是|就)?想你了|好想你|你对我很重要)[～~\s]*(?:呀|啊|呢|啦|嘛)?[～~\s]*$/u.test(part.trim()));
 }
 
 export function allowsDramaticReply(message: string, recentUserMessages: string[] = []): boolean {

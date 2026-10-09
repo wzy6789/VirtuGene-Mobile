@@ -8,6 +8,7 @@ import { hasExplicitTopicShift, isStandaloneClosing, isPersonalExperienceQuestio
 import {authoredVoiceFields,JUDGMENT_FIELDS,ADDRESS_FIELDS} from './character-voice-fields';
 import type {PromptSection} from './chat-context-compiler';
 import {isLongFormRequest} from './reply-quality';
+import {buildGuYueNaRecallCard} from './gu-yue-na-canon';
 
 /**
  * 只在本地判断这一轮对话的气质，不调用模型，也不写入数据库。
@@ -255,6 +256,8 @@ function characterVoiceLines(character?: HumanCharacter | null, userText?:string
   if (address.length) lines.push(`称呼习惯：${address.map(line => line.slice(0, 100)).join(' / ')}`);
   const values = authoredJudgments.slice(0,2).map(row=>row.line);
   if (values.length) lines.push(`人物判断依据（具体设定优先于通用标签）：${values.map(line => line.slice(0, 150)).join(' / ')}`);
+  const recall=buildGuYueNaRecallCard(character.systemPrompt??'',userText??'');
+  if(recall)lines.push(recall);
   lines.push('称呼、立场与边界继续依据这张卡和当前人设；历史回复只用于接续内容，不能因为聊久了就改成通用助理，也不把历史措辞当作新的人设要求。');
   return lines;
 }

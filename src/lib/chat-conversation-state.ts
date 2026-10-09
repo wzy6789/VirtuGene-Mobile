@@ -209,7 +209,7 @@ function updatePreferences(previous: ChatPreferences, text: string): ChatPrefere
 function adviceForCurrentTopic(text: string): 'listen' | 'direct' | undefined {
   let advice: 'listen' | 'direct' | undefined;
   for (const clause of preferenceClauses(text)) {
-    const directives = [...clause.matchAll(/不是(?:想|要|来)(?:听|让你给|让你提)?建议|不想(?:要|听)(?:你的|你给的)?建议|(?:我)?(?:只是|就是|只想)吐槽(?:一下)?|给我建议|告诉我怎么办|直接说怎么做/gu)];
+    const directives = [...clause.matchAll(/不是(?:想|要|来)(?:听|让你给|让你提)?建议|不想(?:要|听)(?:你的|你给的)?建议|(?:先|暂时)?(?:别|不要|不用|不必)(?:再|急着)?(?:给我|帮我|替我)?(?:出主意|支招|想办法|提建议)|(?:我)?(?:只是|就是|只想)吐槽(?:一下)?|给我建议|告诉我怎么办|直接说怎么做/gu)];
     for (const match of directives) {
       if (/(?:别|不要|不用|不是|不想).{0,5}$/u.test(clause.slice(0, match.index))) continue;
       advice = /^(?:给我建议|告诉我怎么办|直接说怎么做)$/u.test(match[0]) ? 'direct' : 'listen';
