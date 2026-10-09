@@ -90,7 +90,7 @@ export function buildRelationshipToneContext(
 }
 
 /**
- * 生命轨迹注入：让角色知道自己最近正在经历什么，避免每次对话都像重新开始。
+ * 生命轨迹注入：接续已保存的变化，保留记录时间与事件时间的区别。
  * 只放入最近事件，核心人格仍由角色基因决定。
  */
 export function buildLifeContext(state: CharacterState): string {
@@ -98,9 +98,9 @@ export function buildLifeContext(state: CharacterState): string {
   if (!state.lifeFocus && events.length === 0) return '';
   const focus = state.lifeFocus ? `你最近最在意的事：${state.lifeFocus}。\n` : '';
   const trace = events.length > 0
-    ? `最近的共同经历：\n${events.map((event) => `- ${event.title}${event.detail ? `：${event.detail}` : ''}`).join('\n')}\n`
+    ? `已保存的轨迹：\n${events.map((event) => `- ${event.title}${event.detail ? `：${event.detail}` : ''} [类型=${event.type}；记录时间=${Number.isFinite(new Date(event.createdAt).getTime())?new Date(event.createdAt).toISOString():'未知'}]`).join('\n')}\n`
     : '';
-  return `\n\n[你的生命轨迹]\n${focus}${trace}这些经历会自然影响你的情绪、态度和下一步行动，但不要像报告一样逐条复述。`;
+  return `\n\n[你的生命轨迹]\n${focus}${trace}记录时间不是事件发生时间，计划和关注也不代表已执行或现在正在做。沿用原文的时间与范围；旧轨迹不证明眼前的天气、光线或身体动作。这些内容可以影响态度，聊天时自然回应即可，不逐条汇报。`;
 }
 
 /**

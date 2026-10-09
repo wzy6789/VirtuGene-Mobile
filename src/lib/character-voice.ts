@@ -1,6 +1,7 @@
 import type { Character } from '../db';
 import { allowsDramaticReply, hasUninvitedStaging, hasOverwrittenAffection } from './chat-expression-boundary';
 import { selectVoiceExamples } from './chat-emotional-expression';
+import {findCurrentSceneRisk} from './chat-current-scene-risk';
 
 export interface VoiceSamples { lines: string[]; generatedAt: number; promptRevision: number }
 export const VOICE_SAMPLE_MARKER = '[角色声音样本]';
@@ -40,6 +41,7 @@ export function normalizeVoiceLines(value: unknown): string[] {
   for (const example of examples) {
     const match=example.match(/^对话样本：用户说(.{1,80}?)\s*→\s*你说(.+)$/u);
     if(match && !allowsDramaticReply(match[1]) && (hasUninvitedStaging(match[2]) || hasOverwrittenAffection(match[2],match[1]))) throw Error('声音样本把普通消息写成了现场表演，请重新补全。');
+    if(match && !allowsDramaticReply(match[1]) && findCurrentSceneRisk(match[2],match[1])) throw Error('声音样本补写了没有来源的当前光线，请重新补全。');
   }
   return [address[0], judgment[0], ...examples];
 }

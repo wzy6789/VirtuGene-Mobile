@@ -14,7 +14,9 @@ import { inspectChatOutput } from '../../src/lib/chat-output-quality';
 import { generateProactiveMessage } from '../../src/lib/ai/proactive-chat';
 import { generateGroupTurn } from '../../src/lib/ai/group-chat';
 import { allowsDramaticReply, isDirectAffection, isViewExchange, directChatGuidance } from '../../src/lib/chat-expression-boundary';
-import { buildSceneTimeContext, buildRelationshipContext, buildRelationshipToneContext, buildUserEmotionContext } from '../../src/lib/chat-context';
+import {hasSelfChosenPlan} from '../../src/lib/chat-turn-cues';
+import { buildSceneTimeContext, buildRelationshipContext, buildRelationshipToneContext, buildUserEmotionContext,buildLifeContext } from '../../src/lib/chat-context';
+import {findCurrentSceneRisk} from '../../src/lib/chat-current-scene-risk';
 import { normalizeVoiceLines, voicePromptRevision, voiceIdentityWithoutExamples } from '../../src/lib/character-voice';
 import { interactionMoment, emotionalExpressionGuidance, selectVoiceExamples, authoredReactionLines, voiceExampleUserText } from '../../src/lib/chat-emotional-expression';
 import {buildChatHistoryWindow,boundChatHistory} from '../../src/lib/chat-history-window';
@@ -42,6 +44,15 @@ async function run() {
   ok(!buildHumanConversationContext('悬疑故事一定要反转吗，详细展开解释一下',[]).includes('聊到这里就可以停'),'explicit detailed explanation is not capped by ordinary-question rhythm');
   for(const text of ['顺便问你，悬疑故事一定要反转吗','你喜欢这种颜色吗','明天会下雨么'])
     ok(chooseConversationAction(text,[])==='answer-directly','a real particle-ended question without question-mark punctuation receives answering rhythm: '+text);
+  for(const text of ['你喜欢这种颜色吗','悬疑故事一定要反转吗','明天会下雨么','对了，你喜欢哪种颜色吗']) {
+    ok(detectChatIntent(text)==='question'&&inferReplyAction(text,'我喜欢蓝色。')==='answer',`persisted attention recognizes the same direct question as the current reply planner: ${text}`);
+  }
+  const beforeColor=updateChatConversationState(undefined,'今天好累','今天事情不少啊。');
+  const colorReply=updateChatConversationState(beforeColor,'对了，你喜欢这种颜色吗','我喜欢蓝色。',inferReplyAction('对了，你喜欢这种颜色吗','我喜欢蓝色。'),Date.now(),'今天好累');
+  const restoredColor=JSON.parse(JSON.stringify(colorReply));
+  ok(restoredColor.lastIntent==='question'&&restoredColor.lastAction==='answer'&&restoredColor.userWantsToShift&&restoredColor.pausedTopics.includes('今天好累'),'question and answer classification survives saved-state serialization while the previous emotional topic remains paused');
+  ok(buildChatConversationStateContext(restoredColor).includes('直接回答'),'the next request receives an answering history rather than a mislabeled casual reaction');
+  for(const text of ['他说悬疑故事一定要反转吗','我不知道悬疑故事需不需要反转','“你喜欢这种颜色吗”是他问的'])ok(detectChatIntent(text)!=='question','a saved attention state still distinguishes reports and uncertainty from an unpunctuated current question: '+text);
   ok(chooseConversationAction('顺便问你，悬疑故事一定要反转吗',[{role:'user',content:'我打开冰箱忘了要拿什么'},{role:'assistant',content:'冰箱也跟着待机了。'},{role:'user',content:'刚想起来，要拿酸奶'}])==='answer-directly','a current question still receives answering rhythm when its subject differs from the real previous conversation');
   for(const text of ['他说悬疑故事一定要反转吗','我不知道悬疑故事需不需要反转','“你喜欢这种颜色吗”是他问的'])
     ok(chooseConversationAction(text,[])!=='answer-directly','reported or uncertain speech is not turned into a current question: '+text);
@@ -65,6 +76,12 @@ async function run() {
   for(const text of ['我不知道你想聊什么。','你想聊什么都可以。','不管你想聊什么，我都愿意听。','他说“你想从哪开始”。','你本来想说什么不重要，我们先看眼前这件事。','你想聊什么就聊什么。','想聊什么都可以。'])
     ok(!replyContainsSubstantiveQuestion([text]),`preserves reported questions and freedom to choose: ${text}`);
   ok(recentQuestionDirection([['你想从哪开始。'],['说吧，你本来想聊什么。']]).includes('让一段话自然结束'),'two actual open-ended prompts receive the same rhythm correction without question marks');
+  for(const text of ['他说为什么非要秒回？','她问我选哪部电影？','同事问几点开始？','朋友说你想看什么？']) {
+    ok(!replyContainsSubstantiveQuestion([text]),`a punctuated reported question is not an interview of the current user: ${text}`);
+  }
+  ok(!recentQuestionDirection([['他说为什么非要秒回？'],['她问几点开始？']]),'two quoted-topic reports do not trigger an unnecessary question cooldown');
+  ok(replyContainsSubstantiveQuestion(['他说为什么非要秒回？','你怎么看？']),'an independent current question remains detectable after a reported question bubble');
+  ok(replyContainsSubstantiveQuestion(['我不知道。','你想看什么？']),'a separate direct question cannot be swallowed by an uncertainty opener in the preceding bubble');
   for(const mode of ['private','proactive','group'] as const) {
     const context={mode,userMessage:'我把手机拿起来又忘了要干嘛，离谱',persona:'你是小林，偏爱推理故事。'};
     ok(inspectChatOutput('我一般会盯着锁屏等它主动交代。',context).check.issue==='self-report-risk',`${mode} flags a recurring physical self-report absent from independent sources`);
@@ -233,6 +250,20 @@ async function run() {
   ok(!buildHumanConversationSections('帮我写条回复',[],null,listeningOptions)[0].text.includes('用户这件事想先说出来'),'concrete help does not receive a contradictory listening-only tail');
   const newTopicListen=buildHumanConversationContext('不用分析，我准备先放一天假',[{role:'user',content:'但也有点空，好像一下不知道干嘛了'}],undefined,{adviceStyle:'listen'});
   ok(newTopicListen.includes('用户希望少分析、少建议')&&newTopicListen.includes('明确问题和求助照常回应'),'effective listening preference survives a detected new subject without becoming emotional analysis');
+  for(const text of ['不用分析，我准备先放一天假','我打算明天去书店','那我决定不去了','我已经想好了，在家看电影']) {
+    ok(hasSelfChosenPlan(text)&&buildHumanConversationContext(text,[],undefined,{adviceStyle:'listen'}).includes('用户正在告诉你自己的打算'),`self-directed plans get a response without adding a posture, date or assignment: ${text}`);
+  }
+  for(const text of ['我还没决定','我没有准备去书店','我不打算放假','她说我准备放一天假','今天朋友说，我准备先放一天假','假如我准备放一天假','“我准备先放一天假”是什么意思','帮我写一句：我准备先放一天假','我准备吃什么？']) {
+    ok(!hasSelfChosenPlan(text),`an uncertain, reported, hypothetical or quoted plan does not become a current decision: ${text}`);
+  }
+  for(const text of ['我准备去书店，你说呢？','我准备放假，你帮我推荐一本书','我准备放假，要怎么安排？']) {
+    ok(!buildHumanConversationContext(text,[],undefined,{adviceStyle:'listen'}).includes('用户正在告诉你自己的打算'),`a current explicit question or request keeps priority over a self-directed plan: ${text}`);
+  }
+  const ownPlan=buildHumanConversationContext('我打算明天去书店',[],{name:'朋友',tags:[],systemPrompt:'',proactivity:1},{lifeHints:['昨天读了本书'],proactiveTopics:['新来的店铺'],turnNumber:4});
+  ok(!ownPlan.includes('角色确实有这些生活线索')&&!ownPlan.includes('打开一个具体小话题')&&ownPlan.includes('沿用他讲明的时间、内容和范围'),'a personal plan is not diverted to a cadence-selected topic or character itinerary');
+  ok(!buildHumanConversationContext('我打算明天去书店',[{role:'user',content:'陪我演一段剧情'}]).includes('用户正在告诉你自己的打算'),'an explicit continuing roleplay retains its own authored scene mode');
+  const emotionalPresent=buildHumanConversationContext('今天好累',[],{name:'朋友',tags:['温柔'],systemPrompt:''});
+  ok(emotionalPresent.includes('没讲明的就留白')&&!emotionalPresent.includes('说这件事让你在意的具体一点'),'emotional sharing keeps unexplained feelings open rather than requiring a complete commentary');
   for (const text of ['现在帮我写一句回复，短一点，我想告诉他先听我说完。','帮我写条回复，告诉他别问我，给我建议就行','帮我翻译这段，内容是我只是吐槽，不想要建议','写一句拒绝的话，别问我，简单点']) {
     const state=updateChatConversationState(undefined,text);
     ok(state.preferences.adviceStyle==='mixed'&&state.preferences.brevity==='balanced'&&state.preferences.questionTolerance==='normal'&&!state.topicAdvice,`generated-text requirements never become ongoing chat preferences: ${text}`);
@@ -345,6 +376,31 @@ async function run() {
     ok(new Set(variations).size===5&&variations.every(s=>s.length<500),`reaction habits differ by personality and stay bounded: ${text}`);
   }
   const friction=[{role:'user',content:'你理解错了'}];
+  const inventedMoon='月光刚好照进窗子了，安安静静地陪会儿。';
+  ok(inspectChatOutput('舒服点就好。我也没做什么，就是听着。---'+inventedMoon,{mode:'private',userMessage:'谢谢你听我说，舒服点了',persona:'喜欢夜色。'}).check.issue==='self-report-risk','the complete real gratitude reply exposes invented light without deleting its emotional response');
+  for(const text of [inventedMoon,'我这边阳光正好照到窗台了','我房间里日光现在落在窗边','我喜欢夜色，月光刚好照进窗子了']) {
+    ok(!!findCurrentSceneRisk(text),`a current illuminated room needs a present source: ${text}`);
+    for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput(text,{mode,userMessage:'谢谢你听我说',persona:'喜欢夜色。',independentCharacterRecords:['昨晚月光照进窗子了。']}).check.issue==='self-report-risk',`a like or old record cannot supply a current scene in ${mode}`);
+  }
+  for(const text of ['月光真好看','我喜欢月光照进窗子的感觉','像月光刚好照进窗子了','如果天气好，月光刚好照进窗子了的话就很美','昨天月光刚好照进窗子了','她说“月光刚好照进窗子了”','月光没有照进窗子','月光刚好照进窗子了吗？'])ok(!findCurrentSceneRisk(text),`preferences, metaphors, conditions, past reports and questions retain expression: ${text}`);
+  ok(!findCurrentSceneRisk(inventedMoon,'月光照进我的窗子了'),'an implicit observation can follow the current user scene');
+  ok(!!findCurrentSceneRisk(inventedMoon,'昨天月光照进我的窗子了'),'a dated user report does not establish current light');
+  ok(!!findCurrentSceneRisk(inventedMoon,'阳光照进我的窗子了'),'user sunlight does not prove moonlight');
+  ok(!findCurrentSceneRisk(inventedMoon,'你看看这张图',true)&&!!findCurrentSceneRisk('我这边月光刚好照进窗子了','你看看这张图',true),'a current attached image supports observation without inventing the character own location');
+  ok(inspectChatOutput(inventedMoon,{mode:'private',userMessage:'陪我演一段夜晚的剧情'}).check.ok,'explicit roleplay retains its fictional scene');
+  const datedLife=buildLifeContext({lifeFocus:'准备看电影',lifeEvents:[{id:'plan',type:'goal',title:'准备看电影',createdAt:Date.UTC(2026,9,8,13)},{id:'light',type:'interaction',title:'昨天看到月光',createdAt:Infinity}]} as any);
+  ok(datedLife.includes('2026-10-08T13:00:00.000Z')&&datedLife.includes('记录时间=未知')&&datedLife.includes('类型=goal'),'life context keeps recording timestamps, goal type and invalid legacy timestamp limits');
+  ok(datedLife.includes('记录时间不是事件发生时间')&&datedLife.includes('旧轨迹不证明眼前的天气'),'a saved life trajectory is not a present observation or a completed plan');
+  for(const text of ['我刚才没有误会你','我刚才并不是误会你，只是在确认','我刚才差点误会你，还好问清楚了','我刚才说他误会你了','今天有人说我误会你了']) {
+    ok(interactionMoment(text)==='ordinary',`denied, averted or reported misunderstandings do not establish a self-apology: ${text}`);
+    ok(!emotionalExpressionGuidance('谢谢你听我说',[...friction,{role:'user',content:text}],{tags:['温柔'],systemPrompt:''}).includes('刚从分歧转到澄清和感谢'),`a non-apology cannot close an inferred repair arc: ${text}`);
+  }
+  for(const text of ['我刚才误会你了','刚才是我太冲了','其实我误会你了','我刚才那句话说得太冲了']) {
+    ok(interactionMoment(text)==='repair',`direct self-correction still receives a natural repair response: ${text}`);
+  }
+  for(const text of ['你理解错了是什么意思','你误会我了这句话是什么意思','我不是这个意思用英语怎么说','不是这个意思这个说法怎么理解']) {
+    ok(interactionMoment(text)==='ordinary',`a question about correction wording is not a current interpersonal correction: ${text}`);
+  }
   for(const text of ['我不太同意，我觉得不秒回就是不在乎','不完全赞成','我也不怎么认同','其实不太同意','我还是不赞成']){
     ok(interactionMoment(text)==='disagreement',`soft disagreement is still a real opinion difference: ${text}`);
     ok(emotionalExpressionGuidance(text,[],{tags:['幽默'],systemPrompt:'判断习惯：有自己的意见。'}).includes('不需要让用户认输'),'authored personality can disagree without an imposed victory or appeasement');
@@ -506,6 +562,11 @@ async function run() {
   ok(!planCharacterIntent('今天特别开心', [], attention).mayAskQuestion && buildChatConversationStateContext(attention).includes('确实需要时再补问'), 'explicit user preference still limits unnecessary follow-up');
   ok(checkReplyQuality('？？---啊？？---真的假的？？', '有事想说').ok, 'question mark groups are emotional reactions, not a question barrage');
   ok(checkReplyQuality('谁说的？在哪儿？什么时候？', '有事想说').issue === 'question-barrage', 'three consecutive substantive questions are still an interview');
+  for(const reaction of ['真的吗？','真的假的？？','不会吧？','是吗？','啊？？'])ok(!replyContainsSubstantiveQuestion([reaction]),`a complete surprise reaction is not a request for interview details: ${reaction}`);
+  ok(checkReplyQuality('真的吗？真的假的？？不会吧？','我中了奖').ok,'three surprise reactions preserve expressive punctuation without a quality retry');
+  ok(!recentQuestionDirection([['真的吗？'],['不会吧？']]),'consecutive surprise reactions do not create a question cooldown');
+  for(const question of ['真的吗，什么时候的事？','不会吧，你打算怎么办？','是吗，你在哪儿？'])ok(replyContainsSubstantiveQuestion([question]),`a reaction opener cannot exempt the concrete question following it: ${question}`);
+  ok(checkReplyQuality('什么时候？在哪儿？谁跟你说的？','今天发生件事').issue==='question-barrage','clear consecutive questions retain the existing interview check');
   ok(checkReplyQuality('谁说的？这也太离谱了。在哪儿？先别急。什么时候？', '有事想说').ok, 'separate questions with substantive reactions are not flattened or retried');
   ok(checkReplyQuality('他问“谁说的？在哪儿？什么时候？”', '我听到了这段话').ok, 'quoted questions are not assistant interrogation');
   const phrase = '先说正事，我今天在学校看到了一件有趣的事情。';
@@ -661,7 +722,7 @@ async function run() {
   const tiredGuidance=buildHumanConversationContext('今天讲了半天还是没被听懂，真累。',[],warm);
   ok(tiredGuidance.includes('先少说一点')&&tiredGuidance.includes('你自己的反应')&&tiredGuidance.includes('不把少说话自动变成劝休息'),'tired guidance reduces reply burden and keeps empathy distinct from unrequested rest advice');
   ok(tiredGuidance.includes('不替任何一方断定表达或理解能力'),'being misunderstood does not establish the user or third party communication ability');
-  ok(tiredGuidance.includes('不必先复述用户整句感受')&&tiredGuidance.includes('用人物自己的口语表达反应'),'private emotional rhythm offers a concrete personal reaction rather than a mandatory empathy receipt');
+  ok(tiredGuidance.includes('纯反应或自己的态度')&&tiredGuidance.includes('没讲明的就留白'),'private emotional rhythm permits personal reactions without a mandatory empathy receipt or invented explanation');
   ok(distress.includes('具体感受和原因由用户自己说明'),'distress leaves the user authority over their feeling rather than asking the role to diagnose it');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('用户的具体感受与原因留给用户说明'),'shared private, proactive and actor messaging contract keeps inferred psychology separate from the character reaction');
   ok(buildHumanConversationContext('终于做完了，但我好累', [], warm).includes('感受不止一种'), 'mixed feelings are not flattened into compulsory positivity');
@@ -730,6 +791,10 @@ async function run() {
     ok(await generateProactiveMessage(params)===''&&attempts===2,'two unresolved proactive self-report risks produce no canned replacement');
     attempts=0;
     ok(await generateProactiveMessage({...params,systemPrompt:'生活习惯：平时盯着锁屏发呆。'})===proactiveReplies[0]&&attempts===1,'authored recurring character habit never spends a quality retry');
+    attempts=0;proactiveReplies[0]=inventedMoon;proactiveReplies[1]='忽然想跟你聊两句。';
+    ok(await generateProactiveMessage(params)===proactiveReplies[1]&&attempts===2,'an actual proactive call repairs invented moonlight within the existing retry budget');
+    attempts=0;proactiveReplies[1]=inventedMoon;
+    ok(await generateProactiveMessage(params)===''&&attempts===2,'two invented current scenes are omitted instead of becoming a canned greeting');
   } finally {window.fetch=originalFetch;}
   let groupCalls = 0;const actorPayloads:any[]=[];
   let groupDrafts = [JSON.stringify({turns:[{speaker:'小林',content:'今天聊聊吧'}]}),'很高兴为您服务','（顿了顿，把手机放下）今天\n想起你'];

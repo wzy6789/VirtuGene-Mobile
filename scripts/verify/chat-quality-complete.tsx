@@ -65,6 +65,13 @@ async function run(){
     ok(smallPayloads[1].messages.some((m:any)=>m.role==='assistant'&&m.content===small.rows[0].reply),'next turn feeds actual prior reply rather than a fixture answer');
     ok(small.rows.every((r,i)=>r.input===repairTrajectory.turns[i].input),'trajectory follows coherent user turns');
     ok(!JSON.stringify(smallPayloads).includes(repairTrajectory.turns[0].focus),'human assessment focus is never fed to actor model');
+    const freshStart=calls;
+    const freshTrajectory=DIALOGUE_TRAJECTORIES.find(trajectory=>trajectory.id==='smalltalk')!;
+    const fresh=await runExpressionEvaluation([role],60,new AbortController().signal,()=>{},{trajectoryId:freshTrajectory.id});
+    const freshPayloads=payloads.slice(freshStart);
+    ok(fresh.complete&&fresh.rows.length===6&&calls-freshStart===6,'the new everyday scene runs as one bounded six-turn sequence');
+    ok(fresh.rows.every((row,index)=>row.input===freshTrajectory.turns[index].input)&&freshPayloads.every(p=>p.max_tokens===320),'new scene inputs and output budget remain fixed for reproducible comparison');
+    ok(freshTrajectory.turns.every(turn=>!JSON.stringify(freshPayloads).includes(turn.focus)),'new scene review notes do not guide the actor toward expected test answers');
     ok(small.rows[1].attention?.preferences.adviceStyle==='listen'&&smallPayloads[2].messages[0].content.includes('未经请求不要立刻给解决方案'),'repair trajectory carries natural no-solution expression into the following clarification');
     const attentionStart=payloads.length;
     const listeningTest=await runExpressionEvaluation([role],60,new AbortController().signal,()=>{},{trajectoryId:'tired'});

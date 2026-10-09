@@ -552,7 +552,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           break;
         }
 
-        const inspected = inspectChatOutput(result.content, {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords});
+        const inspected = inspectChatOutput(result.content, {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords,hasCurrentImage:!!(image||momentImage)});
         const check = inspected.check;
         if (!bestDraft || inspected.severity < bestDraft.severity) bestDraft = {result,raw:rawResponse,severity:inspected.severity};
         if (check.ok || retries >= MAX_RETRIES) {
@@ -674,7 +674,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         // No token-level database writes and no duplicate preview/final bubbles.
         request.completed = true;
         if (streamed) savedReplies.forEach(addMessage);
-        const finalQuality = inspectChatOutput(savedReplies.map(m => m.content).join('\n---\n'), {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords});
+        const finalQuality = inspectChatOutput(savedReplies.map(m => m.content).join('\n---\n'), {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords,hasCurrentImage:!!(image||momentImage)});
         recordChatQuality(userId, rawResponse ?? result.content, savedReplies.map(m => m.content).join(''), retries, rawResponse !== undefined, {issue:finalQuality.check.issue, streamed:request.stream.published,durationMs:Date.now()-startedAt,firstVisibleMs:request.stream.firstTextAt!==undefined?request.stream.firstTextAt-startedAt:undefined});
         if (stillCurrent()) { observer.onComplete?.(); }
         if (result.interrupted || request.controller.signal.aborted) return;

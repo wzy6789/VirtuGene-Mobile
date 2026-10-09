@@ -5,7 +5,7 @@
 
 import { collapseChatNewlines } from './ai/text';
 import { normalizeChatParagraphBoundaries } from './chat-pacing';
-import {requestsRepetition} from './chat-turn-cues';
+import {requestsRepetition,isQuestionReaction} from './chat-turn-cues';
 export {requestsRepetition} from './chat-turn-cues';
 
 export type ReplyIssue =
@@ -168,7 +168,7 @@ export function checkReplyQuality(
   let questionRun = 0;
   const barrage = sentences.some(sentence => {
     const core = sentence.replace(/[。！？!?；;\s]/gu, '');
-    const question = /[?？]/u.test(sentence) && core.length > 0 && !/^(?:啊|嗯|哈+|哦|诶|哎)$/u.test(core);
+    const question = /[?？]/u.test(sentence) && core.length > 0 && !isQuestionReaction(sentence);
     questionRun = question ? questionRun + 1 : 0;
     return questionRun >= 3;
   });

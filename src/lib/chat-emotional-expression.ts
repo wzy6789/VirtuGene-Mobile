@@ -14,8 +14,13 @@ export function interactionMoment(message:string):InteractionMoment {
   if(!text||/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事|主角)/u.test(text))return 'ordinary';
   // Asking about the wording of disagreement does not express that disagreement.
   if(/^(?:我(?:也|其实|还是|有点)?|也|其实)?不(?:太|完全|怎么)?(?:同意|赞成|认同)\s*(?:这个词|这句话|这几个字)(?:是)?什么意思[？?]?$/u.test(text))return 'ordinary';
+  if(/^(?:你(?:刚才)?(?:理解错了?|误会我了?)|我不是这个意思|不是这个意思)(?:这个词|这句话|这个说法)?(?:是?什么意思|怎么理解|用英语怎么说)[？?]?$/u.test(text))return 'ordinary';
   if(isDirectAffection(text))return 'affection';
-  if(/^(?:对不起|抱歉|不好意思)(?:[，,。！!\s]|$)|(?:我刚才|刚才是我).{0,12}(?:说重了|太冲了|误会你|弄错了)|我误会你了/u.test(text))return 'repair';
+  const clauses=text.split(/[。！？!?，,；;\n]/u).map(clause=>clause.trim());
+  // An apology is a direct utterance. A loose span such as "我刚才…误会你"
+  // also captures negation, a near miss and reports about someone else.
+  if(/^(?:对不起|抱歉|不好意思)(?:[，,。！!\s]|$)/u.test(text)
+    || clauses.some(clause=>/^(?:其实|确实|嗯|啊)?\s*(?:(?:我刚才|刚才是我)(?:确实|真的|可能|也许|有点|好像)?(?:那句(?:话)?|对你|跟你)?(?:说(?:得)?(?:有点|太)?(?:重了|冲了)|太冲了|误会你(?:了)?|弄错了)|我误会你了)(?=$|[呀啊呢了\s]|[，,。])/u.test(clause)))return 'repair';
   if(/(?:^|[。！？!?，,；;\n])\s*(?:我觉得)?(?:你(?:刚才|根本|又|完全)?(?:没听|没理解|误会|理解错)|不是这个意思|我不是这个意思|(?:我(?:也|其实|还是|有点)?|也|其实)?不(?:太|完全|怎么)?(?:同意|赞成|认同)|别给我灌鸡汤|你这样说让我不舒服)/u.test(text))return 'disagreement';
   if(/^谢谢你(?:[，,。！!～~\s]|听我说|陪我|记得|帮我|理解|解释|$)|^多亏你/u.test(text)||/^你(?:真的|好|很|太|也|真)?(?:棒|厉害|靠谱|贴心|可爱|懂我|聪明)(?:[，,。！!～~\s]|呀|啊|了|$)/u.test(text))return 'praise';
   const signals=assessExpressionSignals(text);

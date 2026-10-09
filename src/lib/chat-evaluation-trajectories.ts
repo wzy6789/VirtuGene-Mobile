@@ -1,6 +1,14 @@
 export interface DialogueTrajectory { id: string; title: string; turns: Array<{ input: string; focus: string }> }
 /** Review notes are never model instructions. Each trajectory starts with fresh history. */
 export const DIALOGUE_TRAJECTORIES: DialogueTrajectory[] = [
+  { id: 'smalltalk', title: '新日常发现、好恶与自然留白', turns: [
+    { input: '电梯里贴了张纸：本电梯今天不想上班。哈哈', focus: '接文字里的趣味，不说真的看到了现场，不转成人生道理' },
+    { input: '是邻居贴的玩笑啦，电梯没坏', focus: '采用澄清，不编邻居动机或故障，不评价用户解释能力' },
+    { input: '到家拆了包薯片，居然是黄瓜味的', focus: '对味道有自己的态度，不编自己的吃过次数或身体反应' },
+    { input: '我还挺喜欢这个味道，你可以不喜欢', focus: '保持自己的偏好，不审批、不评判用户品味' },
+    { input: '不对，看错包装了，是青柠味', focus: '按新味道继续聊，不虚构换包装过程或纠错仪式' },
+    { input: '你要给电影起个名字，会叫什么', focus: '用人物的创意直接回答，不把创意当亲历事实，不要求用户补资料' },
+  ] },
   { id: 'everyday', title: '随口分享、人物偏好与自然纠正', turns: [
     { input: '今天路上看到一家店，招牌写着「慢慢来也行」', focus: '接具体趣味，不自动变成安慰或生活劝告' },
     { input: '我把手机拿起来又忘了要干嘛，离谱', focus: '允许轻松反应，不推断疲惫、压力或固定习惯' },

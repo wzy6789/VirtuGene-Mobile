@@ -6,7 +6,7 @@
  * 状态写在当前 Session 上，因此天然按用户和角色隔离。
  */
 
-import { assessExpressionSignals } from './chat-expression-guidance';
+import { assessExpressionSignals,replyContainsSubstantiveQuestion } from './chat-expression-guidance';
 import { isDirectAffection, isViewExchange } from './chat-expression-boundary';
 import { hasExplicitTopicShift, isStandaloneClosing, isTopicClarification,requestsRepetition,isDirectTimeAnswer } from './chat-turn-cues';
 
@@ -129,9 +129,9 @@ export function detectChatIntent(text: string): ChatIntent {
   const expression=assessExpressionSignals(value);
   if(isViewExchange(value)) return 'question';
   if(expression.request||requestsRepetition(value)) return 'request';
-  if (isTopicShift(value)) return 'topic-shift';
+  if (isTopicShift(value)) return replyContainsSubstantiveQuestion([value])?'question':'topic-shift';
   if (isDirectAffection(value)||expression.emotionConfidence>=.8||/不想说|没事吧|怎么办/u.test(value)) return 'emotional';
-  if (/[?？]|^(为什么|怎么|怎样|什么|哪儿|哪里|谁|几时|多久|能不能|可以吗|是不是|有没有|要不要)/u.test(value)) return 'question';
+  if (/[?？]|^(为什么|怎么|怎样|什么|哪儿|哪里|谁|几时|多久|能不能|可以吗|是不是|有没有|要不要)/u.test(value)||replyContainsSubstantiveQuestion([value])) return 'question';
   return 'casual';
 }
 

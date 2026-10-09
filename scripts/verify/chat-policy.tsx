@@ -5,7 +5,7 @@ import { useChatStore } from '../../src/store/chat-store';
 import { useSettingsStore } from '../../src/store/settings-store';
 import { fakeCharacter } from './world-harness';
 import { CreateGeneTab } from '../../src/components/character/CreateGeneTab';
-import { refreshVoiceSamples, readVoiceSampleCharacter } from '../../src/lib/chat/voice-sample-cache';
+import { refreshVoiceSamples, readVoiceSampleCharacter,voiceCacheStatus } from '../../src/lib/chat/voice-sample-cache';
 import { normalizeVoiceLines, validVoiceSamples, voicePromptRevision, voiceSampleBlock, stripVoiceSampleBlock } from '../../src/lib/character-voice';
 import { buildHumanConversationContext } from '../../src/lib/chat-humanizer';
 import { cleanupDifference, recordChatQuality, chatQualityReport } from '../../src/lib/chat-quality-metrics';
@@ -25,7 +25,7 @@ import { characterRepo } from '../../src/db/character-repo';
 
 const owner = 'voice-test-owner';
 const lines = ['称呼：你', '判断习惯：先听具体经过，不猜别人的动机。', '对话样本：用户说今天好累 → 你说今天哪件事最耗神？---先坐一会儿。', '对话样本：用户说真好笑 → 你说哈哈哈😂'];
-let checks = 0, calls = 0, malformed = false, closed = false;
+let checks = 0, calls = 0, malformed = false, closed = false, truncatedVoice = false;
 let beforeResponse: (() => Promise<void>) | undefined;
 let lastSignal: AbortSignal | undefined;
 let releaseHeld: (() => void) | undefined;
@@ -40,7 +40,7 @@ window.fetch = (async (_url, init) => {
   if (beforeResponse) { const hook = beforeResponse; beforeResponse = undefined; await hook(); }
   const greetingTask = bodies.at(-1)?.messages?.[0]?.content?.includes('开场白建议');
   const content = JSON.stringify(greetingTask ? { greeting: '来了呀，今天想聊什么' } : { lines: malformed ? ['称呼：你'] : lines });
-  return new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: 'stop' }] }), { headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify({ choices: [{ message: { content }, finish_reason: truncatedVoice?'length':'stop' }] }), { headers: { 'Content-Type': 'application/json' } });
 }) as typeof fetch;
 webApi.chat.send = async params => {
   prompts.push(params.systemPrompt);
@@ -113,6 +113,44 @@ async function run() {
   const invalid = await legacy('invalid'); malformed = true; const countBad = calls;
   await refreshVoiceSamples(owner, invalid.id, 'sk-fixture'); await refreshVoiceSamples(owner, invalid.id, 'sk-fixture'); malformed = false;
   ok(calls === countBad + 1 && !(await db.characters.get(invalid.id))?.voiceSamples, 'invalid generation is uncached and short cooldown prevents per-turn request storms');
+  const clipped=await legacy('clipped-voice');truncatedVoice=true;
+  try {
+    await refreshVoiceSamples(owner,clipped.id,'sk-fixture');
+    ok(!(await db.characters.get(clipped.id))?.voiceSamples,'even parseable JSON from a length-limited generation is never adopted as a complete voice');
+  } finally {truncatedVoice=false;}
+  let rejectedScene=false;
+  try {normalizeVoiceLines([...lines.slice(0,2),'对话样本：用户说谢谢你听我说 → 你说月光刚好照进窗子了。',lines[3]]);} catch {rejectedScene=true;}
+  ok(rejectedScene,'a generated voice sample cannot teach gratitude through an invented current window scene');
+  ok(normalizeVoiceLines([...lines.slice(0,2),'对话样本：用户说月光照进我的窗子了 → 你说月光刚好照进窗子了，挺好看。',lines[3]]).length===4,'a voice example can respond to a scene actually provided in its user message');
+  ok(normalizeVoiceLines([...lines.slice(0,2),'对话样本：用户说陪我演一段夜晚的剧情 → 你说月光刚好照进窗子了。',lines[3]]).length===4,'a voice sample requested as roleplay retains the intended fictional scene');
+  const actualNow=Date.now;
+  let testNow=actualNow();
+  Date.now=()=>testNow;
+  try {
+    const retrying=await legacy('budgeted-retry');malformed=true;
+    const budgetBefore=calls;
+    await refreshVoiceSamples(owner,retrying.id,'sk-fixture');
+    testNow+=60000;
+    await refreshVoiceSamples(owner,retrying.id,'sk-fixture');
+    ok(calls===budgetBefore+1&&voiceCacheStatus(retrying)==='failed','a minute of continued chatting does not trigger another failed background voice call');
+    testNow+=4*60000;
+    await refreshVoiceSamples(owner,retrying.id,'sk-fixture');
+    ok(calls===budgetBefore+2,'an eligible five-minute retry can recover without becoming a per-turn loop');
+    testNow+=5*60000;
+    await refreshVoiceSamples(owner,retrying.id,'sk-fixture');
+    ok(calls===budgetBefore+2,'a second failure increases the background cooldown');
+    malformed=false;
+    await refreshVoiceSamples(owner,retrying.id,'sk-fixture',{manual:true});
+    ok(calls===budgetBefore+3&&!!(await db.characters.get(retrying.id))?.voiceSamples,'explicit sample completion bypasses cooldown and restores a valid voice');
+    const revised=await legacy('failed-then-edited');malformed=true;
+    await refreshVoiceSamples(owner,revised.id,'sk-fixture');
+    const editedVoice={...revised,systemPrompt:revised.systemPrompt+'现在更直接地说自己的看法。'};
+    await db.characters.update(revised.id,{systemPrompt:editedVoice.systemPrompt});
+    ok(voiceCacheStatus(editedVoice)==='missing','a failure for an old persona does not label the edited voice as failed');
+    malformed=false;const countEdited=calls;
+    await refreshVoiceSamples(owner,revised.id,'sk-fixture');
+    ok(calls===countEdited+1&&validVoiceSamples((await db.characters.get(revised.id))!)?.promptRevision===voicePromptRevision(editedVoice),'a new source revision can generate immediately without inheriting an old cooldown');
+  } finally {Date.now=actualNow;malformed=false;}
   ok(cleanupDifference('哈哈😂---真的吗？？', '哈哈😂真的吗？？').ratio === 0, 'separators are excluded while emoji and punctuation remain comparison content');
   ok(cleanupDifference('{"messages":["嗯","真的吗？？"]}', '嗯真的吗？？').ratio === 0, 'JSON transport formatting does not inflate cleanup difference');
   ok(cleanupDifference('（笑）哈哈', '哈哈').ratio > .15, 'actual action stripping crossing fifteen percent raises observation threshold');

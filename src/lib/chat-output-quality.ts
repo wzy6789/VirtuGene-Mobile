@@ -3,6 +3,7 @@ import { stripRoleplayActions } from './ai/text';
 import { checkReplyQuality, isLongFormRequest, polishChatResponse, type ReplyCheck } from './reply-quality';
 import { allowsDramaticReply, hasOverwrittenAffection, hasUninvitedStaging } from './chat-expression-boundary';
 import { findSelfReportRisk } from './chat-self-report-risk';
+import {findCurrentSceneRisk} from './chat-current-scene-risk';
 
 export interface OutputQualityContext {
   mode: 'private' | 'proactive' | 'group';
@@ -14,6 +15,9 @@ export interface OutputQualityContext {
   /** Only character-owned independent life records. Never previous assistant
    * messages, style examples or user memories. */
   independentCharacterRecords?: string[];
+  /** Current attached image supports observations about the user's scene,
+   * never an invented scene on the character's side. */
+  hasCurrentImage?: boolean;
 }
 /** Shared textual checks; proactive history is not a new user request. */
 export function inspectChatOutput(raw: string, context: OutputQualityContext): { content: string; check: ReplyCheck; severity: number } {
@@ -26,6 +30,10 @@ export function inspectChatOutput(raw: string, context: OutputQualityContext): {
     else {
       const risk=findSelfReportRisk(content,context.persona,context.independentCharacterRecords);
       if(risk)check={ok:false,issue:'self-report-risk',retryHint:`刚才新增了缺少独立来源的具体生活习惯自述：${JSON.stringify(risk.quote)}。保留对眼前事情的反应、当下喜好或玩笑，不需要补一个共同经历。不要用以前或正在做的另一种动作替换它，不否认未记载的过去，不向用户解释核对过程。`};
+      else {
+        const scene=findCurrentSceneRisk(content,context.userMessage,context.hasCurrentImage);
+        if(scene)check={ok:false,issue:'self-report-risk',retryHint:`刚才凭空补了当前窗边或房间的光线：${JSON.stringify(scene)}。人物喜欢夜色或阳光不证明眼前的光线，旧经历也不是现在的现场。直接接用户说的话，用自己的态度表达温柔或开心即可；不要换成风声、下雨等另一段现场，也不要向用户解释检查过程。`};
+      }
     }
   }
   // Only explicit authored constraints are enforceable locally. No score for

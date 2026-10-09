@@ -15,7 +15,7 @@ async function run() {
   const priorCopies:Array<{id:string;sourceId:string;prompt:string}>=[];
   for(const original of originals) {
     const revised=reviseOriginalPresetVoice(original.systemPrompt,original.id);
-    const sampleCount=original.id==='preset-linshuang'?5:3;
+    const sampleCount=['preset-linshuang','preset-guqinghan'].includes(original.id)?5:3;
     ok(revised!==original.systemPrompt&&revised.includes('判断习惯：')&&revised.split('对话样本：').length===sampleCount+1,`${original.name} gains concrete judgment and ${sampleCount} distinct scenes`);
     ok(reviseOriginalPresetVoice(revised,original.id)===revised,`${original.name} revision is idempotent`);
     const introPreserved=original.id==='preset-xiawanxing'?revised.split('\n')[0].startsWith('你是夏晚星，'):revised.split('\n')[0]===original.systemPrompt.split('\n')[0];
@@ -55,7 +55,12 @@ async function run() {
     ok(card.includes('人物判断依据')&&!card.includes('语言指纹与判断：'),`${original.name} concrete authored judgment precedes generic personality fallback`);
   }
   const ownedAfter=await db.characters.get('owned-'+source.id);
-  ok(priorCopies.length===15,'all prior cat, architect, gentle, swordsman and traveler source versions remain covered');
+  ok(priorCopies.length===16,'all prior cat, architect, gentle, swordsman and traveler source versions remain covered');
+  const guarded=originals.find(c=>c.id==='preset-guqinghan')!;
+  const guardedPrompt=reviseOriginalPresetVoice(guarded.systemPrompt,guarded.id);
+  const guardedCard=buildCharacterVoiceCard({...guarded,systemPrompt:guardedPrompt},'我打开冰箱忘了要拿什么哈哈');
+  ok(guardedCard.includes('拿得倒快')&&!guardedCard.includes('守住承诺 →'),'a guarded everyday mishap selects its own light example without importing a pledge scene');
+  ok(guardedPrompt.includes('喜欢干脆、有余味的故事')&&guardedPrompt.includes('不拿信义衡量每句闲聊'),'the guarded authored voice has everyday tastes as well as a conditional promise principle');
   for(const copy of priorCopies) {
     const original=originals.find(item=>item.id===copy.sourceId)!;
     ok((await db.characters.get(copy.id))?.systemPrompt===reviseOriginalPresetVoice(original.systemPrompt,original.id),'an exact previously upgraded copy receives the current voice');

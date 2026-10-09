@@ -6,7 +6,7 @@ import {createServer} from 'node:http';
 
 const [proxy,token,roleName,trajectory,revision,generation='production',prefixMode,prefixRevision='r1']=process.argv.slice(2);
 const names=['艾莉','顾清寒','林霜','夏晚星','苏格拉底'];
-const scenes=['repair','affection','tired','joy','opinion','continuity','everyday','mishap'];
+const scenes=['repair','affection','tired','joy','opinion','continuity','everyday','mishap','smalltalk'];
 if(!/^http:\/\/127\.0\.0\.1:\d+\/chat\/completions$/u.test(proxy??'')||!token||!names.includes(roleName)||!scenes.includes(trajectory)||!/^r\d{1,2}$/u.test(revision??'')||!['production','thinking','direct'].includes(generation)||prefixMode&&!['replay-first-four','replay-first-three','replay-first-two','replay-first-one'].includes(prefixMode))throw Error('Explicit local bounded proxy, known persona, scene, evidence revision and generation mode required');
 const reportDay=new Date(Date.now()+8*60*60*1000).toISOString().slice(0,10);
 const output=`docs/CHAT-FLASH-SCENE-${names.indexOf(roleName)}-${trajectory.toUpperCase()}-${revision.toUpperCase()}${generation==='direct'?'-DIRECT':''}-${reportDay}.json`;

@@ -1,3 +1,4 @@
+import {isQuestionReaction} from './chat-turn-cues';
 /** Local clues steer expression, never establish feelings, facts or operations. */
 export type ChatSituation = 'neutral' | 'distress' | 'tired' | 'celebration' | 'mixed';
 
@@ -108,8 +109,10 @@ export function recentRhythmDirection(turns: string[][]): string {
 
 /** Recognize a question across one reply's bubbles without counting punctuation reactions. */
 export function replyContainsSubstantiveQuestion(parts:string[]):boolean {
-    const text=parts.join('').replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
-    const marked=(text.match(/[^。！？!?；;]+[?？]+/gu)??[]).some(sentence=>{
+    const text=parts.join('\n').replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+    const marked=(text.match(/[^。！？!?；;\n]+[?？]+/gu)??[]).some(sentence=>{
+      if(isQuestionReaction(sentence))return false;
+      if(/^(?:他|她|朋友|同事)(?:刚才|之前|也|还|又)?(?:说|问|想知道)/u.test(sentence.trim()))return false;
       const question=sentence.replace(/[?？\s]/gu,'');
       return question.length>=4||/(?:什么|哪|谁|怎么|几|吗|么)/u.test(question);
     });
@@ -118,6 +121,7 @@ export function replyContainsSubstantiveQuestion(parts:string[]):boolean {
     // interrogative forms, not any mention of curiosity or reported speech.
     return text.split(/[。！？!?，,；;\n]/u).some(clause=>{
       const value=clause.trim();
+      if(isQuestionReaction(value))return false;
       if(/^(?:我(?:不(?:知|确|清)|知道|想知道|问|说)|他|她|朋友|同事|如果|假如|比如|例如|不管|无论|随便)|(?:别|不必|不要|不用).{0,6}(?:问|回答)/u.test(value))return false;
       if(/^.{0,12}(?:什么|啥|哪[儿里]).{0,8}(?:都(?:可以|行|能|愿意)|就(?:聊|说|选|去))/u.test(value)&&!value.includes('还是'))return false;
       return /(?:有没有|是不是|会不会|要不要|能不能|想不想|愿不愿意)/u.test(value)

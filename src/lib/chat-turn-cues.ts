@@ -1,4 +1,22 @@
 /** Shared local hints. These never override the original message or authorize actions. */
+/** A complete reaction, not a blanket exemption for sentences containing it. */
+export function isQuestionReaction(message:string):boolean {
+  const core=message.trim().replace(/[。！？!?；;，,\s]/gu,'');
+  return /^(?:啊+|嗯+|哈+|哦+|诶+|哎+|真的(?:吗|啊)?|真的吗|真的假的|不会吧|不是吧|是吗)$/u.test(core);
+}
+
+/** A stated personal plan, not consent to execute it or proof it happened.
+ * Callers must still give explicit questions and requests priority.
+ */
+export function hasSelfChosenPlan(message:string):boolean {
+  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  if(/^(?:他|她|朋友|同事|如果|假如|假设|比如|例如|帮我写|写一句)/u.test(text)
+    || /(?:他|她|朋友|同事).{0,12}(?:说|问|告诉)|(?:解释|翻译|复述|是什么意思|怎么理解)/u.test(text))return false;
+  return text.split(/[。！？!?，,；;\n]/u).some(clause=>
+    /^(?:那|不过|其实|所以)?\s*我(?:已经)?(?:(?:准备|打算|决定)(?:先|就|要)?[^？?]{1,80}|想好了[^？?]{0,80})$/u.test(clause.trim())
+    && !/我(?:还)?(?:没|没有|不|并不|不是|不再)(?:准备|打算|决定)|(?:什么|怎么|哪[个儿里]|谁|吗|么)(?:呀|啊|呢|来着)?$/u.test(clause.trim()));
+}
+
 export function isDirectTimeAnswer(message:string,previousUserMessage:string):boolean {
   const previous=previousUserMessage.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim()
     .replace(/^(?:对了|那|所以)[，,\s]*/u,'');

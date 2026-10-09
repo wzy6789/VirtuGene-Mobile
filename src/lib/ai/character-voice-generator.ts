@@ -10,6 +10,7 @@ export async function generateVoiceSamples(character: Character, apiKey: string,
     ],
   });
   if (signal?.aborted) throw Error('声音样本补全已停止。');
+  if (result.truncated) throw Error('声音样本达到输出上限，请重新补全。');
   let value: unknown;
   try { value = JSON.parse(result.content).lines; } catch { throw Error('没有生成完整的声音样本，请重试。'); }
   return { lines: normalizeVoiceLines(value), generatedAt: Date.now(), promptRevision: voicePromptRevision(character) };
