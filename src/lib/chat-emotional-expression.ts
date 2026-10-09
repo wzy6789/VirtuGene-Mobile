@@ -103,17 +103,34 @@ export function voiceExampleUserText(line:string):string {
   return (quoted?.[1]??text).trim();
 }
 
+/** A narrow scene analogy for harmless mishaps, not an emotion diagnosis.
+ * It only ranks the character's own existing examples; it generates no reply
+ * and establishes no fact about either speaker.
+ */
+function isCasualMishap(message:string):boolean {
+  const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  const signal=assessExpressionSignals(text);
+  if(!text||interactionMoment(text)!=='ordinary'||signal.request||signal.emotionConfidence>=.8)return false;
+  if(/^(?:如果|假如|假设|比如|例如)|(?:别|不要|不想).{0,6}(?:开玩笑|逗|笑)|(?:没|没有|不会|不是).{0,4}(?:忘|找)|(?:吃药|药物|医院|密码|银行卡|转账|开车|驾驶|受伤|着火|燃气|煤气|丢失|丢了|文件|报警)/u.test(text))return false;
+  return /(?:忘了|忘记了?)(?:本来|自己|刚才)?(?:要|想)?(?:干嘛|干什么|拿什么|做什么|找什么)/u.test(text)
+    || /(?:端着|拿着|握着|戴着)[^。！？!?]{1,12}(?:却|还|又|一直)?(?:在)?找[^。！？!?]{1,12}/u.test(text)
+    || /袜子.{0,12}(?:不是一对|不成对|不一样|穿错)/u.test(text)
+    || /(?:衣服|袜子|鞋|帽子).{0,6}(?:穿|戴)(?:错|反)|(?:穿|戴)(?:错|反).{0,6}(?:衣服|袜子|鞋|帽子)/u.test(text);
+}
+
 export function selectVoiceExamples(lines:string[],message?:string,options:{allowUnrelatedNeutral?:boolean}={}):string[]{
   if(message===undefined)return lines.slice(0,5);
   const moment=interactionMoment(message);
   const current=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
   const terms=topicTerms(current);
+  const mishap=isCasualMishap(current);
   const ranked=lines.map((line,index)=>{
     const example=voiceExampleUserText(line);
     const exampleTerms=topicTerms(example.replace(/[“「『"][^”」』"]*[”」』"]/gu,''));
     const overlap=[...exampleTerms].filter(term=>terms.has(term)).length;
     const exact=example.trim().replace(/[。！？!?～~]+$/u,'')===current.replace(/[。！？!?～~]+$/u,'')&&current.length>=2;
-    return {line,index,moment:interactionMoment(example),general:!example,relevance:exact?2:overlap/Math.max(1,exampleTerms.size)};
+    const sceneMatch=mishap&&isCasualMishap(example);
+    return {line,index,moment:interactionMoment(example),general:!example,sceneMatch,relevance:exact?2:Math.max(sceneMatch ? 0.9 : 0,overlap/Math.max(1,exampleTerms.size))};
   })
     // A fatigue example is a poor voice reference for an explicit new subject.
     // Keep neutral examples as voice references, not unrelated emotional scripts.

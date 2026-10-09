@@ -118,10 +118,13 @@ export function replyContainsSubstantiveQuestion(parts:string[]):boolean {
     // interrogative forms, not any mention of curiosity or reported speech.
     return text.split(/[。！？!?，,；;\n]/u).some(clause=>{
       const value=clause.trim();
-      if(/^(?:我(?:不(?:知|确|清)|知道|想知道|问|说)|他|她|朋友|同事|如果|假如|比如|例如)|(?:别|不必|不要|不用).{0,6}(?:问|回答)/u.test(value))return false;
+      if(/^(?:我(?:不(?:知|确|清)|知道|想知道|问|说)|他|她|朋友|同事|如果|假如|比如|例如|不管|无论|随便)|(?:别|不必|不要|不用).{0,6}(?:问|回答)/u.test(value))return false;
+      if(/^.{0,12}(?:什么|啥|哪[儿里]).{0,8}(?:都(?:可以|行|能|愿意)|就(?:聊|说|选|去))/u.test(value)&&!value.includes('还是'))return false;
       return /(?:有没有|是不是|会不会|要不要|能不能|想不想|愿不愿意)/u.test(value)
         || value.length>=4&&/(?:吗|么)(?:[呀啊呢\s]*)$/u.test(value)
         || /(?:是什么|叫什么|(?:在|去|到|从)哪[儿里]|选哪(?:个|部|种)|几点|多少|怎么样)(?:[呀啊呢啦哦\s]*)$/u.test(value)
+        || /^(?:你(?:刚才|本来|现在|今天|接下来)?)?(?:是)?(?:想|打算|准备)(?:先|接着|继续|随便)?(?:说|聊|谈)(?:点|些)?(?:什么|啥)(?:[呀啊呢啦哦\s]*)$/u.test(value)
+        || /^你(?:现在|接下来)?(?:想|打算|准备)从哪(?:里|儿)?(?:开始|聊起|说起)(?:[呀啊呢啦哦\s]*)$/u.test(value)
         || /(?:想|打算|准备)(?:去|在)?(?:哪[儿里]|什么|怎么).{0,40}还是/u.test(value);
     });
 }

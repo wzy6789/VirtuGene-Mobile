@@ -7,6 +7,7 @@ import { authoredReactionLines, emotionalExpressionGuidance, selectVoiceExamples
 import { hasExplicitTopicShift, isStandaloneClosing, isPersonalExperienceQuestion,requestsRepetition } from './chat-turn-cues';
 import {authoredVoiceFields,JUDGMENT_FIELDS,ADDRESS_FIELDS} from './character-voice-fields';
 import type {PromptSection} from './chat-context-compiler';
+import {isLongFormRequest} from './reply-quality';
 
 /**
  * 只在本地判断这一轮对话的气质，不调用模型，也不写入数据库。
@@ -279,9 +280,9 @@ export function detectHumanTurn(userText: string, recentUserMessages: string[] =
   let mode: HumanTurnMode = 'casual';
   if (isViewExchange(current)) mode = 'question';
   else if (expression.request||requestsRepetition(current)) mode = 'request';
-  else if (topicShift) mode = 'topic-shift';
+  else if (topicShift) mode = QUESTION_MARKERS.test(current) || replyContainsSubstantiveQuestion([current]) ? 'question' : 'topic-shift';
   else if (isDirectAffection(current) || expression.emotionConfidence >= .8 || /不想说|没事吧|怎么办/u.test(current)) mode = 'emotional';
-  else if (QUESTION_MARKERS.test(current)) mode = 'question';
+  else if (QUESTION_MARKERS.test(current) || replyContainsSubstantiveQuestion([current])) mode = 'question';
 
   return {
     mode,
@@ -330,9 +331,9 @@ export function buildHumanConversationSections(
   const directions: Record<ConversationAction, string> = {
     'follow-topic': '用户正在换话题，跟随新话题，旧线索暂时放下。不因为前面聊过情绪就继续安慰，也不必先解决旧事；普通分享可以先说你自己的反应，不必把新话题又接成一个问题。同感可以是一句当下的态度或玩笑，不必用“我以前也这样”“我有次”开一段无来源的亲身故事。本轮明确问你的问题或求助仍直接回答。',
     'stay-present': '说这件事让你在意的具体一点，用人物自己的口语表达反应；不必先复述用户整句感受，再宣布自己正在倾听。不急着分析或解决，需要时才补一条独立反应。',
-    'answer-directly': '回应自己真正懂、在意的点；不懂或不想回答可以坦白说，不强装标准答案。',
+    'answer-directly': (isLongFormRequest(userText)?'按用户要求充分展开。':'普通问句也在聊天，先说自己最在意的一点和理由，聊到这里就可以停，让对方接得上话；长短仍按人物和当前内容，不强凑完整评论。')+'回应自己真正懂、在意的点；需要举例时可以明确设想一种情况，不必把它说成自己见过或经历过。有原文、作品资料或独立角色经历时可依据它们举例。不懂或不想回答可以坦白说，不强装标准答案。',
     'finish-request': '按角色的能力和边界回应这个请求，不擅自扩展任务或宣称应用操作已完成。',
-    'share-life': '气氛合适时可以说一点自己的近况，仍先回应眼前的话。',
+    'share-life': '先回应眼前的话，气氛合适时就已提供的角色生活线索说一点自己的看法；时间和经过沿用线索，不把过去的事说成现在正在做，也不从职业、爱好补写今天的行程。',
     'fresh-angle': '旧谈话有整段重复倾向，可以换一个具体角度；口癖不需要换掉。',
     'short-close': '用户正在收尾，按这个人的方式回应告别，不硬开新话题；问候可以依照用户的作息，不用根据当前时钟纠正一句晚安。前面的普通闲聊不自动变成用户仍然挂心的事，不为显得记得细节追加「别惦记、别担心」等未经表达的安抚；有真正共同的笑点仍可以简短呼应。',
     react: '轻松交流，接这件小事的趣味或说自己的感受，表达偏好、只回反应也可以；普通分享不是让你检查生活是否正确，不自动补处理办法。用户只说当下感受时，回应这一刻就够了，不需要给出它从哪里来的解释；用户自己讲明的原因照常使用。同感可以是一句当下的态度或玩笑，不必用“我以前也这样”“我有次”开一段无来源的亲身故事。',

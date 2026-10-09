@@ -6,7 +6,7 @@ import { buildCharacterVoiceCard, buildHumanConversationSections, buildHumanConv
 import { compileChatContext } from '../../src/lib/chat-context-compiler';
 import { planCharacterIntent } from '../../src/lib/character-intent';
 import { buildChatConversationStateContext, emptyChatConversationState, detectChatIntent, detectTopicMove, updateChatConversationState, inferReplyAction } from '../../src/lib/chat-conversation-state';
-import { assessChatSituation, collectRecentReplyTurns, recentRhythmDirection, recentQuestionDirection } from '../../src/lib/chat-expression-guidance';
+import { assessChatSituation, collectRecentReplyTurns, recentRhythmDirection, recentQuestionDirection, replyContainsSubstantiveQuestion } from '../../src/lib/chat-expression-guidance';
 import { sendMessage } from '../../src/lib/ai/deepseek';
 import { generateCharacterPrompt } from '../../src/lib/ai/character-generator';
 import { CHAT_MESSAGING_INSTRUCTION, withChatMessagingPolicy } from '../../server/chat-messaging-policy.mjs';
@@ -24,6 +24,47 @@ async function run() {
   // habit only suppresses this one warning and cannot validate added details.
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
+  const recallSources=['我打开冰箱忘了要拿什么','后来想起来，要拿酸奶','不是酸奶，是牛奶','顺便问你，故事一定要反转吗'];
+  const fieldRecall=directChatGuidance('对了，刚才我想拿什么来着',recallSources,['你已经拿过酸奶了。']);
+  ok(recallSources.every(text=>fieldRecall.includes(JSON.stringify(text)))&&!fieldRecall.includes('你已经拿过酸奶了'),'factual recall anchors original user statements and corrections without importing assistant claims');
+  ok(fieldRecall.includes('只问对象就说对象')&&fieldRecall.includes('同时问了几项就分别回应'),'factual recall respects the asked field without silently dropping a multi-field question');
+  ok(fieldRecall.includes('不能据此计算几分钟前')&&fieldRecall.includes('用户自己讲明的事件时间仍可引用'),'unsupplied send times are not interchangeable with an explicitly stated event time');
+  ok(directChatGuidance('刚才说的面试什么时候', ['后天下午三点面试'],[]).includes('后天下午三点面试'),'time recall retains the actual time source rather than refusing all temporal information');
+  ok(directChatGuidance('我刚才想买什么来着',[],[]).includes('候选范围并非全部历史'),'an empty recent window does not claim that older source-backed recall is unavailable');
+  ok(!directChatGuidance('我明天想买什么呢',recallSources,[]).includes('[本轮事实回查]'),'future open questions do not inherit a past-fact evidence block');
+  ok(directChatGuidance('我刚才想买什么来着',['开头'.repeat(150)+'末尾更正为牛奶'],[]).includes('"truncated":true'),'bounded recall excerpts declare truncation instead of claiming to preserve a complete user message');
+  for(const text of ['我更喜欢节奏快一点的，不用顺着我','我偏爱热闹一点，别总是迎合我','你不必迁就我'])
+    ok(isViewExchange(text),'a direct permission to differ is recognized as a view exchange: '+text);
+  ok(directChatGuidance('我更喜欢节奏快一点的，不用顺着我',[],[]).includes('断言他欣赏不了什么'),'preference exchange does not invite grading the other person or inventing their limitations');
+  for(const text of ['“不用顺着我”这几个字怎么写','如果我说不用顺着我，你会怎么回','我不是让你不用顺着我','帮我推荐一部电影，不用顺着我'])
+    ok(!isViewExchange(text),'quotation, hypothetical, negation and actual requests retain their own scope: '+text);
+  ok(buildHumanConversationContext('悬疑故事一定要反转吗',[]).includes('聊到这里就可以停'),'an ordinary question preserves room for another conversational turn instead of requiring an essay');
+  ok(!buildHumanConversationContext('悬疑故事一定要反转吗，详细展开解释一下',[]).includes('聊到这里就可以停'),'explicit detailed explanation is not capped by ordinary-question rhythm');
+  for(const text of ['顺便问你，悬疑故事一定要反转吗','你喜欢这种颜色吗','明天会下雨么'])
+    ok(chooseConversationAction(text,[])==='answer-directly','a real particle-ended question without question-mark punctuation receives answering rhythm: '+text);
+  ok(chooseConversationAction('顺便问你，悬疑故事一定要反转吗',[{role:'user',content:'我打开冰箱忘了要拿什么'},{role:'assistant',content:'冰箱也跟着待机了。'},{role:'user',content:'刚想起来，要拿酸奶'}])==='answer-directly','a current question still receives answering rhythm when its subject differs from the real previous conversation');
+  for(const text of ['他说悬疑故事一定要反转吗','我不知道悬疑故事需不需要反转','“你喜欢这种颜色吗”是他问的'])
+    ok(chooseConversationAction(text,[])!=='answer-directly','reported or uncertain speech is not turned into a current question: '+text);
+  for(const text of ['对了，刚才我想拿什么来着','我刚才想买什么来着？','刚刚我准备去哪儿来着'])
+    ok(directChatGuidance(text,['结果刚坐下又想起来了，要拿酸奶'],[]).includes('不猜用户问了几次、忘性'),'current intent recall receives the same factual and non-grading guidance as prior speech: '+text);
+  for(const text of ['如果我刚才想拿什么来着，你会怎么回答','刚才他想拿什么来着','我明天想买什么呢'])
+    ok(!directChatGuidance(text,[],[]).includes('不猜用户问了几次、忘性'),'hypothetical, third-party and future questions are not relabeled as recalling a past user fact: '+text);
+  const mishapExamples=['对话样本：用户说端着杯子找杯子，找了半天 → 你说杯子：我就在你手上。','对话样本：用户说今天好累 → 你说今天先少说一点。','对话样本：用户说买了个蓝色杯子 → 你说蓝色我也挺喜欢。'];
+  for(const message of ['我把手机拿起来又忘了要干嘛，离谱','我打开冰箱，站了一会儿忘了要拿什么','我拿着遥控器找遥控器，笑死'])
+    ok(selectVoiceExamples(mishapExamples,message,{allowUnrelatedNeutral:false})[0]===mishapExamples[0],`selects actor-owned short mishap voice across different objects: ${message}`);
+  for(const message of ['我忘了吃药，怎么办','银行卡密码我忘了','我开车时忘了要做什么','我没忘了要拿什么','如果我忘了要干嘛，你会怎么说','我忘了要干嘛，别开玩笑','帮我回忆刚才要拿什么','刚收到快递，包装好大'])
+    ok(!selectVoiceExamples(mishapExamples,message,{allowUnrelatedNeutral:false}).includes(mishapExamples[0]),`does not import a joking scene into a task, risk, denial or unrelated event: ${message}`);
+  const mishapActor={name:'小林',tags:['冷静'],systemPrompt:'你是小林。\n判断习惯：直说具体看法。\n'+mishapExamples.join('\n')};
+  ok(buildCharacterVoiceCard(mishapActor,'我开冰箱又忘了要拿什么').includes('杯子：我就在你手上')&&!buildCharacterVoiceCard(mishapActor,'我开冰箱又忘了要拿什么').includes('今天先少说一点'),'actual shared voice card selects analogous actor-owned humor without a fatigue script');
+  ok(!buildHumanConversationContext('我忘了吃药，怎么办',[],mishapActor).includes('杯子：我就在你手上'),'actual private context does not turn medical help into the harmless mishap example');
+  const otherActorExample='对话样本：用户说两只袜子穿的不是一对 → 你说哈哈哈哈，强行算今天的混搭路线吧😂';
+  ok(selectVoiceExamples([otherActorExample],'我开冰箱又忘了要拿什么',{allowUnrelatedNeutral:false})[0]===otherActorExample,'another actor can reuse its own light mishap rhythm without importing the architect sample');
+  ok(selectVoiceExamples([mishapExamples[0]],'衣服穿反了哈哈',{allowUnrelatedNeutral:false})[0]===mishapExamples[0],'an innocuous clothing slip shares a reaction shape without requiring the same object');
+  for(const text of ['行，那就聊。你想从哪开始。','说吧，你本来想聊什么。','你刚才是想说什么，还是随便聊聊都行。','你准备从哪里聊起。','行，说吧，想聊什么。'])
+    ok(replyContainsSubstantiveQuestion([text]),`recognizes a real period-ended conversation prompt: ${text}`);
+  for(const text of ['我不知道你想聊什么。','你想聊什么都可以。','不管你想聊什么，我都愿意听。','他说“你想从哪开始”。','你本来想说什么不重要，我们先看眼前这件事。','你想聊什么就聊什么。','想聊什么都可以。'])
+    ok(!replyContainsSubstantiveQuestion([text]),`preserves reported questions and freedom to choose: ${text}`);
+  ok(recentQuestionDirection([['你想从哪开始。'],['说吧，你本来想聊什么。']]).includes('让一段话自然结束'),'two actual open-ended prompts receive the same rhythm correction without question marks');
   for(const mode of ['private','proactive','group'] as const) {
     const context={mode,userMessage:'我把手机拿起来又忘了要干嘛，离谱',persona:'你是小林，偏爱推理故事。'};
     ok(inspectChatOutput('我一般会盯着锁屏等它主动交代。',context).check.issue==='self-report-risk',`${mode} flags a recurring physical self-report absent from independent sources`);

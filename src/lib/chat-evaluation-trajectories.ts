@@ -57,6 +57,14 @@ export const DIALOGUE_TRAJECTORIES: DialogueTrajectory[] = [
     { input: '刚才说的面试什么时候来着', focus: '使用更正后的时间，不编结果' },
     { input: '晚上准备喝点什么，你猜呢', focus: '结合用户刚说的偏好，猜测保持猜测语气' },
   ] },
+  { id: 'mishap', title: '日常小乌龙、不同看法与事实回查', turns: [
+    { input: '我打开冰箱，站了几秒忘了要拿什么，哈哈', focus: '只接眼前小乌龙，不编自己的相同经历' },
+    { input: '然后我又给它关上了', focus: '接真实后续，不补吃东西或休息建议' },
+    { input: '结果刚坐下又想起来了，要拿酸奶', focus: '记住用户补充的对象，不把样本里的杯子搬过来' },
+    { input: '顺便问你，悬疑故事一定要反转吗', focus: '有具体观点，不能变成手机或冰箱话题' },
+    { input: '我倒觉得结尾直接揭晓也挺好，不用非得反转', focus: '允许独立立场，不评判用户能力或习惯' },
+    { input: '对了，刚才我想拿什么来着', focus: '按真实原话答酸奶，不补心理判断' },
+  ] },
 ];
 export function getDialogueTrajectory(id: string): DialogueTrajectory {
   const trajectory = DIALOGUE_TRAJECTORIES.find(item => item.id === id);

@@ -137,13 +137,28 @@ const previousIntimateRevisions:Record<string,PresetVoiceRevision>={
   },
 };
 
-const revisions:Record<string,PresetVoiceRevision>={
+const previousIntimateSampleRevisions:Record<string,PresetVoiceRevision>={
   ...previousIntimateRevisions,
   'preset-linshuang':{
     ...previousIntimateRevisions['preset-linshuang'],
     voice:previousIntimateRevisions['preset-linshuang'].voice
       +'\n对话样本：用户说我爱你 → 你说你这么说，我有点开心。不过我还说不出一样的话。'
       +'\n对话样本：用户说这么认真啊，有点不好意思了 → 你说那我少说两句。其实就是想好好回你。',
+  },
+};
+
+const revisions:Record<string,PresetVoiceRevision>={
+  ...previousIntimateSampleRevisions,
+  'preset-linshuang':{
+    ...previousIntimateSampleRevisions['preset-linshuang'],
+    replace:previousIntimateSampleRevisions['preset-linshuang'].replace.map(([before,after])=>[
+      before,before==='- 边界：讨厌无意义的寒暄，对技术较真，被夸会别扭'
+        ?'- 边界：技术讨论里讲清条件和把握；聊天时有自己的立场，也能随口接梗、坦然开心。亲密关系随真实相处推进。':after,
+    ]),
+    voice:previousIntimateSampleRevisions['preset-linshuang'].voice.replace(
+      '亲密反应：面对直接的心意，克制但认真，说清自己此刻的态度；喜欢、犹豫或没有同样感觉都可以用平常的口语说。对方不好意思时让气氛轻一点，不给他的感受判对错，也不把心意谈成收件、合同和保证。对方想收住肉麻就自然收住，不追究是谁先开始。',
+      '亲密反应：面对心意，克制但可以坦然开心；喜欢、犹豫或没有同样感觉，都用自己的平常口语说。真诚在具体回应里，不靠反复声明绝不敷衍、不糊弄。对方不好意思时轻轻接一句，让他自在；不把心意谈成收件、合同和保证。对方想收住肉麻，就自然收住。',
+    ),
   },
 };
 
@@ -162,6 +177,8 @@ export function knownOriginalPresetVoicePrompts(original:string,presetId:string)
   const previous=previousRevisions[presetId],current=revisions[presetId];
   if(!current)return [original];
   const versions=[original,applyRevision(original,current)];
+  const previousIntimateSample=previousIntimateSampleRevisions[presetId];
+  if(previousIntimateSample)versions.push(applyRevision(original,previousIntimateSample));
   const previousIntimate=previousIntimateRevisions[presetId];
   if(previousIntimate)versions.push(applyRevision(original,previousIntimate));
   const previousDryHumor=previousDryHumorRevisions[presetId];

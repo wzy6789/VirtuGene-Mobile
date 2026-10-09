@@ -5,7 +5,8 @@ export function isOpinionInvitation(message:string):boolean {
   return unquoted.split(/[。！？!?，,；;\n]/u).some(part=>
     !/^(?:他|她|朋友|同事|如果|假如|例如|比如)/u.test(part.trim())
     && !/(?:不用|不要|别|不必).{0,8}(?:不同意|反对|直说|说实话)/u.test(part)
-    && /(?:你(?:有不同意见|不同意|不赞成|反对).{0,8}(?:也可以|可以|就|尽管).{0,4}(?:直说|说出来|说)|(?:别只顺着我|别一味赞同|不用迎合我|说说你自己的看法))/u.test(part));
+    && (/(?:你(?:有不同意见|不同意|不赞成|反对).{0,8}(?:也可以|可以|就|尽管).{0,4}(?:直说|说出来|说)|(?:别只顺着我|别一味赞同|不用迎合我|说说你自己的看法))/u.test(part)
+      || /^(?:你)?(?:不用|不必|别)(?:一直|总是|老|只)?(?:顺着我|迎合我|迁就我)[呀啊啦吧呢\s]*$/u.test(part.trim())));
 }
 
 /** A view is not an instruction to solve the situation. This is only a prompt
@@ -78,8 +79,16 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
   if(isSelfViewRevision(unquoted)&&!hasExplicitTopicShift(unquoted))lines.push('用户在调整刚才的观点，还在聊同一件事。顺着这个新看法，说你自己的具体态度即可；对方的感受和原因以其已经讲明的内容为准。把注意力放在新的观点或事情上，让这次改口自然过去，双方可以继续各有看法。');
   else if(isTopicClarification(unquoted))lines.push('用户在更正刚才的说法，接最新内容即可。更正的是自己的认识还是外部事实，以其原话为准；未说改期、取消或发生新变化，就不替事件补一段变动经过。');
   if(unquoted.split(/[。！？!?，,；;\n]/u).some(part=>
-    /^(?:刚才|前面|之前)(?:我|我们)?(?:说|提)(?:过|的|到).{0,24}(?:什么时候|几点|哪天|在哪|哪里|叫什么|是什么|哪个)/u.test(part.trim())))
+    /^(?:刚才|前面|之前)(?:我|我们)?(?:说|提)(?:过|的|到).{0,24}(?:什么时候|几点|哪天|在哪|哪里|叫什么|是什么|哪个)/u.test(part.trim())
+    || /^(?:我)?(?:刚才|刚刚|前面)(?:我)?(?:想|准备|要|打算)(?:拿|买|吃|喝|去|做|找)(?:的)?(?:什么|啥|哪[儿里]|哪个)(?:来着|来着呢|了)?[？?\s]*$/u.test(part.trim()))) {
     lines.push('用户在回查刚才说过的具体内容，按最新原话及更正直接回答。不把告知说成以前问过，不猜用户问了几次、忘性或为什么再问。找不到对应原话才具体补问，不把旧推测当作已知事实。');
+    const originals=recentUserMessages.slice(-5).map(text=>({text:text.slice(0,240),truncated:text.length>240}));
+    lines.push('[本轮事实回查]',
+      `最近用户原话候选（按先后顺序，truncated 为 true 的只显示片段，省略部分不能推断；候选范围并非全部历史）：${JSON.stringify(originals)}。需要更早资料时仍以带来源的召回为准。`,
+      '按这轮问的字段接话：只问对象就说对象，问时间就说已有的时间；同时问了几项就分别回应。改口以较新的原话为准，未查明的部分留白或具体补问。',
+      '这些候选没有附消息发送时刻，不能据此计算几分钟前说的；用户自己讲明的事件时间仍可引用。计划是否后来执行、消息间隔多久，要有各自的来源。人物语气保留在措辞里，正文不需要附带回查过程、对忘性的评价或未经提供的时间和后续安排。',
+      '[/本轮事实回查]');
+  }
   if(isDirectTimeAnswer(userMessage,recentUserMessages[recentUserMessages.length-1]??''))lines.push('这轮的时间在接上一条时间问题，按原问题的事件和时间语境理解。现在说出来不代表事件刚刚发生，也不代表用户醒来或办完后第一件事就来找你；未来安排也不说成已经完成。只用用户讲明的内容接话。');
   if(requestsRepetition(userMessage))lines.push('用户明确要复述：按其指定的对象保留原措辞，不把用户的原话改写成人物自己的事实，不追加点评、解释或询问要不要再念。对象确实不清楚或找不到原文时，具体问是哪一句，不编一个替代版本。');
   if(requestsRepetition(userMessage)&&/我(?:刚才那句|上一句|上一条)/u.test(unquoted)
@@ -100,6 +109,8 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
   if(singleReply)lines.push('用户要一句能发给对方的回复：直接给这一句，语气和内容以用户要求为准。不加开场、使用说明、替代版本或挑选问题；不声称已经替用户发送。');
   if(isViewExchange(userMessage)) lines.push(isChoiceInvitation(userMessage)
     ?'用户邀请你说真实看法：两项里可以说自己更喜欢哪项，给一个你自己喜欢的理由，而不是替用户评选正确答案、分析其状态或安排怎么放假。用户最后另选一项也正常，不需要你批准或再判对错；确实想聊那项内容可以接话。'
+    :unquoted.split(/[。！？!?，,；;\n]/u).some(part=>/^我(?:倒|更|还是|比较|其实|就|偏)?(?:喜欢|偏爱|倾向)/u.test(part.trim()))
+    ?'用户在说自己的偏好，也允许你不同。可以继续喜欢自己那种，讲一处你喜欢的细节；对方喜欢另一种，不需要论证谁更懂，也不替他补原因或断言他欣赏不了什么。这里是在交换偏好，不是在给对方挑作品、评分或安排怎么体验。具体事实有分歧仍可说明。'
     :'用户邀请你说真实看法：以这个人物自己的立场回应一处具体观点，同意或不同意都可以。这里是在交流看法，不是让你安排下一步；说清态度和依据即可收住，不固定追加“你觉得呢”。用户说出的原因是事实，历史里你猜过的原因仍是猜测；拿不准时留白或具体问，不替用户补理由。');
   if (isDirectAffection(userMessage)) lines.push('用户直接表达了喜欢，不是在请你分析爱的定义。这轮说你自己的感受、是否愿意靠近或你需要的界限；亲密程度以人物与实际关系为准。态度说清即可，不追加考查心意来历或要求解释的问题；保持发消息的方式，不安排当面重说。明确的心意不需要改成待澄清的问题。');
   if (recentReplies.slice(-3).some(text=>hasUninvitedStaging(text)||hasOverwrittenAffection(text,userMessage))) lines.push('最近回复带出了现场表演或情绪独白。历史里的门、动作和氛围不是现在同处一室的证据；这轮回到发消息，接用户眼前的话，不再续演那个布景。');

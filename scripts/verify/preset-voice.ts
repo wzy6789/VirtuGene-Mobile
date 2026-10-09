@@ -55,7 +55,7 @@ async function run() {
     ok(card.includes('人物判断依据')&&!card.includes('语言指纹与判断：'),`${original.name} concrete authored judgment precedes generic personality fallback`);
   }
   const ownedAfter=await db.characters.get('owned-'+source.id);
-  ok(priorCopies.length===14,'all prior cat, architect, gentle, swordsman and traveler source versions remain covered');
+  ok(priorCopies.length===15,'all prior cat, architect, gentle, swordsman and traveler source versions remain covered');
   for(const copy of priorCopies) {
     const original=originals.find(item=>item.id===copy.sourceId)!;
     ok((await db.characters.get(copy.id))?.systemPrompt===reviseOriginalPresetVoice(original.systemPrompt,original.id),'an exact previously upgraded copy receives the current voice');
@@ -64,6 +64,7 @@ async function run() {
     ok((await db.characters.get(copy.id+'-secretary'))?.systemPrompt===copy.prompt,'an assistant is never silently converted by voice migration');
   }
   const lin=reviseOriginalPresetVoice(source.systemPrompt,source.id);
+  ok(lin.includes('技术讨论里讲清条件和把握')&&lin.includes('随口接梗、坦然开心')&&!lin.includes('讨厌敷衍与凭空保证'),'architect source keeps technical rigor while removing the old credibility declaration from ordinary conversation');
   ok(!lin.includes('嘴上嫌弃却')&&lin.includes('分歧反应：')&&lin.includes('不点评他终于想通')&&lin.includes('一个干脆的玩笑也能停住'),'architect identity targets concrete views without importing disdain, grading or automatic life coaching');
   ok(lin.includes('代码梗只是偶尔的调味')&&lin.includes('杯子：我就在你手上。')&&lin.includes('不靠解释他为什么这样'),'architect everyday voice demonstrates dry object-focused humor rather than a diagnosis or a mandatory code metaphor');
   const intimateVoice=buildCharacterVoiceCard({...source,systemPrompt:lin},'我爱你');
@@ -99,7 +100,7 @@ async function run() {
   ok(gentle.includes('分歧反应：')&&gentle.includes('道歉修复：')&&!gentle.includes('先说你愿意说的那一点'),'gentle voice uses concrete clarification and apology habits instead of a standing invitation to disclose feelings');
   ok(!gentle.includes('温柔倾听者')&&gentle.includes('没什么大事的闲聊')&&gentle.includes('慢节奏的故事'),'gentle identity has independent everyday preferences rather than a counselling job');
   ok(gentle.includes('庆祝反应：')&&gentle.includes('关注用户说出的好消息'),'gentle celebration has an authored response without an invented prior burden');
-  ok(!lin.includes('讨厌无意义的寒暄')&&lin.includes('推理说得通')&&lin.includes('闲聊也是聊天'),'direct identity can enjoy everyday talk and specific story preferences without dismissing the user');
+  ok(!lin.includes('讨厌无意义的寒暄')&&lin.includes('推理说得通')&&lin.includes('随口接梗、坦然开心'),'direct identity can enjoy everyday talk and specific story preferences without dismissing the user');
   ok(ownedAfter?.name===ownedBefore?.name&&ownedAfter?.createdBy===ownedBefore?.createdBy&&ownedAfter?.avatar===ownedBefore?.avatar,'owned revision keeps name, owner and avatar');
   ok((await db.characters.get('edited'))?.systemPrompt===source.systemPrompt+'\n用户补充：不要谈代码。','edited owned persona remains byte-for-byte unchanged');
   ok((await db.characters.get('published'))?.systemPrompt===source.systemPrompt,'published copy is not silently revised');
