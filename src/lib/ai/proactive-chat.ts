@@ -7,7 +7,7 @@ import { useAuthStore } from '../../store/auth-store';
 import { buildRelationshipToneContext } from '../chat-context';
 
 const PROACTIVE_INSTRUCTION =
-  '你是下面描述的角色。用户已经有一段时间没有给你发消息了。请基于你的性格，主动发起一次自然的对话。\n\n' +
+  '你是下面描述的角色。请基于你的性格，主动发起一次自然的对话。是否聊过、距上次联系多久只依据所给对话与时间信息；没有记录时不预设失联或久别。\n\n' +
   '要求：\n' +
   '- 像发微信/短信一样说话，简短自然，不要长篇大论\n' +
   '- 具体发多长由你的性格决定：话痨角色可以多说几句，高冷角色可以只说一两个字\n' +

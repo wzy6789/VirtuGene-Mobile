@@ -1,5 +1,5 @@
 /** Delivery guidance, never permission for application operations. */
-import {requestsRepetition,isDirectTimeAnswer,isTopicClarification,isSelfViewRevision,hasExplicitTopicShift} from './chat-turn-cues';
+import {requestsRepetition,isDirectTimeAnswer,isTopicClarification,isSelfViewRevision,hasExplicitTopicShift,conversationDeparture} from './chat-turn-cues';
 export function isOpinionInvitation(message:string):boolean {
   const unquoted=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   return unquoted.split(/[。！？!?，,；;\n]/u).some(part=>
@@ -24,7 +24,7 @@ function isChoiceInvitation(message:string):boolean {
   // person report still cannot start with an address to the current character.
   return message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'选项')
     .split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
-      /^(?:那|所以|对了)?\s*你(?:说|觉得|会选|更喜欢|想选|想聊|想谈|选)\s*.{1,55}还是.{1,55}$/u.test(part)
+      /^(?:那|所以|对了)?\s*你(?:自己|个人)?(?:说|觉得|会选|更喜欢|更偏爱|想选|想聊|想谈|选)\s*.{1,55}还是.{1,55}$/u.test(part)
       && !/(?:都行|都可以|都好|随便|无所谓)$/u.test(part)
       && !/(?:不用|不要|别|不必|无需|不需要).{0,8}(?:选|说|回答|觉得)/u.test(part));
 }
@@ -82,6 +82,7 @@ export function hasOverwrittenAffection(content: string, userMessage: string): b
 export function directChatGuidance(userMessage:string, recentUserMessages:string[], recentReplies:string[]):string {
   if (allowsDramaticReply(userMessage,recentUserMessages)) return '本轮用户明确选择了创作或扮演，按其要求接续；不要把虚构场景当成现实经历。';
   const lines:string[]=[];
+  if(conversationDeparture(userMessage)?.topicDeferred)lines.push('用户把话题暂时留到回来再聊：现在自然道别即可。保留的是讨论，不是已经约定共同活动；对方说回来聊天，也没有因此答应你之前提出的出游、见面或其他安排。后续具体约定仍以实际说清的内容为准。');
   const unquoted=userMessage.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   if(isTopicInvitation(userMessage))lines.push('用户把这轮话题的选择交给你。挑一个你此刻感兴趣的具体话题，直接聊其中一点或说自己的看法，兴趣本身就可以是开场理由，不需要先编一件生活近况或声称用户上次提过。已有真实记录仍可使用；没有记录时从你现在的兴趣开始，不把决定退回，也不把主动聊天变成要求用户汇报近况。');
   const previousUser=recentUserMessages[recentUserMessages.length-1]??'';
@@ -128,7 +129,7 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
     && !/(?:再|也|顺便|同时|然后|并且|并).{0,8}(?:解释|分析|说明|评价|给.{0,4}(?:版本|选项|一句)|写.{0,4}(?:一段|一句))|(?:多个|几种|两种|三个|两个|多种|\d+种|\d+个).{0,4}(?:版本|选项|说法)/u.test(unquoted);
   if(singleReply)lines.push('用户要一句能发给对方的回复：直接给这一句，语气和内容以用户要求为准。不加开场、使用说明、替代版本或挑选问题；不声称已经替用户发送。');
   if(isViewExchange(userMessage)) lines.push(isChoiceInvitation(userMessage)
-    ?'用户邀请你说真实看法：两项里可以说自己更喜欢哪项，给一个你自己喜欢的理由，而不是替用户评选正确答案、分析其状态或安排怎么放假。用户最后另选一项也正常，不需要你批准或再判对错；确实想聊那项内容可以接话。'
+    ?'用户邀请你说真实看法：两项里说自己此刻会选哪项，给一个你自己喜欢的理由；这份选择本身足够，不必以日常频次或亲历来证明，也不替用户评选正确答案、分析状态或安排接下来怎么做。用户最后另选一项也正常，不需要你批准或再判对错；确实想聊那项内容可以接话。'
     :unquoted.split(/[。！？!?，,；;\n]/u).some(part=>/^我(?:倒|更|还是|比较|其实|就|偏)?(?:喜欢|偏爱|倾向)/u.test(part.trim()))
     ?'用户在说自己的偏好，也允许你不同。可以继续喜欢自己那种，讲一处你喜欢的细节；对方喜欢另一种，不需要论证谁更懂，也不替他补原因或断言他欣赏不了什么。这里是在交换偏好，不是在给对方挑作品、评分或安排怎么体验。具体事实有分歧仍可说明。'
     :'用户邀请你说真实看法：以这个人物自己的立场回应一处具体观点，同意或不同意都可以。这里是在交流看法，不是让你安排下一步；说清态度和依据即可收住，不固定追加“你觉得呢”。用户说出的原因是事实，历史里你猜过的原因仍是猜测；拿不准时留白或具体问，不替用户补理由。');

@@ -2,7 +2,7 @@ import type { Character } from '../db/index';
 import { detectTopicMove, isTopicRelated } from './chat-conversation-state';
 import { assessExpressionSignals, expressionDirection, recentRhythmDirection, recentQuestionDirection, replyContainsSubstantiveQuestion, type ExpressionSignals } from './chat-expression-guidance';
 import { SAMPLE_LINE, validVoiceSamples, VOICE_SAMPLE_MARKER } from './character-voice';
-import { directChatGuidance, isDirectAffection, isViewExchange,allowsDramaticReply } from './chat-expression-boundary';
+import { directChatGuidance, isDirectAffection, isViewExchange,isTopicInvitation,allowsDramaticReply } from './chat-expression-boundary';
 import { authoredReactionLines, emotionalExpressionGuidance, selectVoiceExamples, interactionMoment } from './chat-emotional-expression';
 import { hasExplicitTopicShift, isStandaloneClosing, isPersonalExperienceQuestion,requestsRepetition,hasSelfChosenPlan } from './chat-turn-cues';
 import {authoredVoiceFields,JUDGMENT_FIELDS,ADDRESS_FIELDS} from './character-voice-fields';
@@ -19,6 +19,7 @@ export type HumanTurnMode = 'casual' | 'emotional' | 'question' | 'request' | 't
 
 /** 本地决定这一轮的交流动作；它只是给模型一个方向，不会触发额外请求。 */
 export type ConversationAction =
+  | 'start-topic'
   | 'follow-topic'
   | 'stay-present'
   | 'answer-directly'
@@ -149,6 +150,7 @@ export function chooseConversationAction(
   const recentUserMessages = history.filter((item) => item.role === 'user').map((item) => item.content).slice(-5);
   const recentAssistantMessages = history.filter((item) => item.role === 'assistant').map((item) => item.content).slice(-6);
   const signals = detectHumanTurn(userText, recentUserMessages);
+  if(isTopicInvitation(userText)&&signals.mode!=='request')return 'start-topic';
   if (signals.mode === 'topic-shift') return 'follow-topic';
   if (isClosing(userText)) return 'short-close';
   if (signals.mode === 'emotional') return 'stay-present';
@@ -332,6 +334,7 @@ export function buildHumanConversationSections(
   const signals = detectHumanTurn(userText, recentUsers);
   const action = chooseConversationAction(userText, history, character, options);
   const directions: Record<ConversationAction, string> = {
+    'start-topic': '这轮由你开话题：直接说一个你想聊的内容，再展开自己的一个具体想法，让对方有东西可接。可以从作品、一个假设或当下好恶出发；不需要先发生一件新近况，也不需要先向对方收集资料。',
     'follow-topic': '用户正在换话题，跟随新话题，旧线索暂时放下。不因为前面聊过情绪就继续安慰，也不必先解决旧事；普通分享可以先说你自己的反应，不必把新话题又接成一个问题。同感可以是一句当下的态度或玩笑，不必用“我以前也这样”“我有次”开一段无来源的亲身故事。本轮明确问你的问题或求助仍直接回答。',
     'stay-present': '跟着用户这句话的口气接话，像正在来回聊天；可以是纯反应或自己的态度，不需要替这一刻作一个完整解释。用户讲明的遭遇和原因照常回应，没讲明的就留白。用户想先倾诉时，继续聊眼前内容，让下一句话留给他。',
     'answer-directly': (isLongFormRequest(userText)?'按用户要求充分展开。':'普通问句也在聊天，先说自己最在意的一点和理由，聊到这里就可以停，让对方接得上话；长短仍按人物和当前内容，不强凑完整评论。')+'回应自己真正懂、在意的点；需要举例时可以明确设想一种情况，不必把它说成自己见过或经历过。有原文、作品资料或独立角色经历时可依据它们举例。不懂或不想回答可以坦白说，不强装标准答案。',
@@ -345,16 +348,16 @@ export function buildHumanConversationSections(
   const lines = ['[本轮交流的隐藏节奏]', selfChosenPlan
     ?'用户正在告诉你自己的打算，沿用他讲明的时间、内容和范围。按人物口吻接这个打算，可以表达自己的兴趣或轻松反应，留个自然停顿；不需要替他批准、解释决定，也不把计划说成已执行，不补身体姿势、行程或另安排一项。用户希望少分析、少建议时也沿用这个节奏。明确问题和求助照常回应。'
     :directions[action]];
-  if (!selfChosenPlan && options.adviceStyle === 'listen' && !['short-close', 'finish-request'].includes(action)) {
+  if (!selfChosenPlan && options.adviceStyle === 'listen' && !['start-topic','short-close', 'finish-request'].includes(action)) {
     lines.push(action==='follow-topic'
       ?'按用户当前这句话接话，可以对新内容有自己的反应。用户希望少分析、少建议，就不自动添加解释、休息建议或后续安排；明确问题和求助照常回应。'
       :'用户这件事想先说出来，不是在求方案。可以有你自己的感受、判断或具体接话，不必宣布“我在听”；不要把倾听变成心理解释、劝休息或自动安排下一步。明确问你的问题仍要回答。');
   }
   // The shared contract already covers ordinary chat. Only add an emotion or
   // request clue when it contributes something specific to this turn.
-  if (!isDirectAffection(userText) && (signals.expression.situation !== 'neutral' || signals.expression.request))
+  if (action!=='start-topic' && !isDirectAffection(userText) && (signals.expression.situation !== 'neutral' || signals.expression.request))
     lines.push(expressionDirection(signals.expression));
-  else if (!isDirectAffection(userText) && action !== 'follow-topic' && recentUsers.slice(-2).some(text=>assessExpressionSignals(text).situation!=='neutral'))
+  else if (action!=='start-topic' && !isDirectAffection(userText) && action !== 'follow-topic' && recentUsers.slice(-2).some(text=>assessExpressionSignals(text).situation!=='neutral'))
     lines.push('不因为前面聊过情绪就继续安慰；本轮以用户现在说的内容为准。');
   const direct = directChatGuidance(userText,recentUsers,recentReplies);
   if (direct) lines.push(direct);
@@ -364,7 +367,7 @@ export function buildHumanConversationSections(
     lines.push('[本轮经历核对]',`人设正文参考（剔除声音例句；完整正文仍有效）：${authored||'未提供'}`,`本地生活记录参考：${recorded.join(' / ')||'未提供；仍可核对本轮其他有来源的经历记录'}`,
       '用户在问你自己的经历：先核对独立的角色设定或本轮有来源的经历记录，再作答。声音例句和你先前随口生成的自述不能证明经历发生过；旧回复里出现过也不等于有依据。已知发生过某件事，不代表知道当时的地点、频次、家人反应或身体感受；说已有事实即可，生动可以来自此刻的看法，不靠补写回忆。缺少记载不等于从未发生，不能断言「没这事」；不确定就坦白不确定。如果上轮编过，简短更正那一句，不给自己补失忆，也不拿「可能、大概」续编。纠正时保留人物自己的口语，别说「依据、核验、记录不足、拿不出经历」等内部审查措辞，不解释核对过程，也不反复道歉。用户明确要求创作或扮演时仍按其情境交流。','[/本轮经历核对]');
   }
-  const feeling=emotionalExpressionGuidance(userText,history,character?{...character,hasVoiceJudgment:!!validVoiceSamples(character)}:character,options.recentReplyTurns);
+  const feeling=action==='start-topic'?'':emotionalExpressionGuidance(userText,history,character?{...character,hasVoiceJudgment:!!validVoiceSamples(character)}:character,options.recentReplyTurns);
   if(feeling)lines.push(feeling);
   const replyTurns=options.recentReplyTurns??[];
   if(['casual','emotional'].includes(signals.mode)&&!signals.topicShift

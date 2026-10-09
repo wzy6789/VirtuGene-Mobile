@@ -73,7 +73,24 @@ export function hasExplicitTopicShift(message:string):boolean {
     || /^算了[，,、:：\s]+.{3,}/u.test(text);
 }
 
+/** Only a whole turn closing this conversation. A departure inside a question,
+ * report or task does not imply that the user has finished talking. */
+export function conversationDeparture(message:string):{topicDeferred:boolean}|undefined {
+  if(/[?？]/u.test(message))return undefined;
+  const clauses=message.trim().split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).filter(Boolean);
+  if(clauses.length<2||clauses.length>6)return undefined;
+  const acknowledgement=/^(?:嗯+|好(?:的|吧|呀|啦|了)?|行|知道了|谢谢(?:你)?)$/u;
+  const deferred=/^(?:那|这个|这|刚才那个)?(?:话题|话|问题)(?:先)?(?:留着|放一放|放着|不展开)(?:吧|了)?$/u;
+  const leaving=/^我(?:先|得|要)?(?:去[^“”「」『』"\s]{1,18}|出门|下线|忙)(?:了|啦)?$/u;
+  const isLeaving=(part:string)=>leaving.test(part)&&!/(?:吗|么|怎么|如何|哪[个里儿]|还是|要不要|该不该|能不能|是不是)/u.test(part);
+  const returning=/^(?:(?:我)?(?:回来|回头|结束|忙完|下次|明天|改天)(?:后)?(?:再|接着)(?:来|聊|说|找你|聊这个)|(?:我)?(?:先|就)聊到这(?:里)?)(?:吧|了|啦)?$/u;
+  if(!clauses.some(isLeaving)||!returning.test(clauses[clauses.length-1]))return undefined;
+  if(!clauses.every(part=>acknowledgement.test(part)||deferred.test(part)||isLeaving(part)||returning.test(part)))return undefined;
+  return {topicDeferred:clauses.some(part=>deferred.test(part))};
+}
+
 export function isStandaloneClosing(message:string):boolean {
+  if(conversationDeparture(message))return true;
   // A brief acknowledgement before an explicit end remains a goodbye.
   // Other facts, questions, quoted ends and requests keep their own intent.
   const clauses=message.trim().split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).filter(Boolean);

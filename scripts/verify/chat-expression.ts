@@ -14,8 +14,8 @@ import { inspectChatOutput } from '../../src/lib/chat-output-quality';
 import { generateProactiveMessage } from '../../src/lib/ai/proactive-chat';
 import { generateGroupTurn } from '../../src/lib/ai/group-chat';
 import { allowsDramaticReply, isDirectAffection, isViewExchange, isTopicInvitation, directChatGuidance } from '../../src/lib/chat-expression-boundary';
-import {hasSelfChosenPlan} from '../../src/lib/chat-turn-cues';
-import { buildSceneTimeContext, buildRelationshipContext, buildRelationshipToneContext, buildUserEmotionContext,buildLifeContext } from '../../src/lib/chat-context';
+import {hasSelfChosenPlan,conversationDeparture} from '../../src/lib/chat-turn-cues';
+import { buildSceneTimeContext, buildRelationshipContext, buildRelationshipToneContext, buildUserEmotionContext,buildLifeContext,buildDayContext } from '../../src/lib/chat-context';
 import {findCurrentSceneRisk} from '../../src/lib/chat-current-scene-risk';
 import { normalizeVoiceLines, voicePromptRevision, voiceIdentityWithoutExamples } from '../../src/lib/character-voice';
 import { interactionMoment, emotionalExpressionGuidance, selectVoiceExamples, authoredReactionLines, voiceExampleUserText } from '../../src/lib/chat-emotional-expression';
@@ -26,8 +26,34 @@ async function run() {
   // habit only suppresses this one warning and cannot validate added details.
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
-  for(const text of ['你自己现在想聊什么？','那聊点别的。你自己现在想聊什么？','你想谈什么话题','你来选一个话题','说个你想聊的话题'])
+  for(const text of ['好，这个话题先留着。我去开会，结束再来。','我先去上课，回来再聊','行，我得去做饭了，忙完再说','我出门了，回头再来','这个问题先不展开，我下线了，明天再聊']) {
+    ok(!!conversationDeparture(text)&&detectChatIntent(text)==='closing'&&chooseConversationAction(text,[])==='short-close','an explicit whole-turn departure uses the closing flow: '+text);
+    ok(buildHumanConversationContext(text,[]).includes('用户正在收尾'),'a compound departure does not receive the generic casual-sharing direction: '+text);
+  }
+  for(const text of ['朋友说“我去开会，结束再来”','如果我去开会，结束再来','我去开会吗，结束再来','我去开会还是上课，结束再来','我去开会，帮我整理一下要点，结束再来','这个话题先留着，我有点担心','我去开会，结束再来，提醒我带材料','我去医院，刚才胸口很难受，回来再聊','我明天去开会，结束再来'])ok(!conversationDeparture(text),'reports, hypotheses, questions, future plans and substantive tasks retain their own intent: '+text);
+  ok(directChatGuidance('好，这个话题先留着。我去开会，结束再来。',[],[]).includes('保留的是讨论，不是已经约定共同活动'),'deferring a discussion never accepts an earlier proposed shared activity');
+  ok(!directChatGuidance('我先去开会，回来再聊',[],[]).includes('保留的是讨论'),'plain goodbye does not fabricate a deferred topic');
+  const beforeDeparture={...emptyChatConversationState(),currentTopic:'想去小吃街走走',topicStatus:'active' as const};
+  const deferredState=updateChatConversationState(beforeDeparture,'好，这个话题先留着。我去开会，结束再来。');
+  ok(deferredState.lastIntent==='closing'&&deferredState.topicStatus==='paused'&&deferredState.currentTopic===beforeDeparture.currentTopic,'a deferred conversation closes the turn but retains the topic as paused');
+  const returnedState=updateChatConversationState(JSON.parse(JSON.stringify(deferredState)),'我回来了');
+  ok(returnedState.topicStatus==='paused'&&buildChatConversationStateContext(returnedState).includes('回来本身不表示答应其中的行动'),'reopening and returning alone do not revive a deferred discussion or accept its plans');
+  const resumedState=updateChatConversationState(returnedState,'我回来了，继续刚才那个话题');
+  ok(resumedState.topicStatus==='active'&&resumedState.currentTopic===beforeDeparture.currentTopic&&!resumedState.userWantsToShift,'explicit discussion resumption restores the retained topic instead of labeling the resumption text as a new topic');
+  ok(updateChatConversationState(returnedState,'朋友说“继续刚才那个话题”').topicStatus==='paused','quoted resumption does not reactivate a paused topic');
+  ok(updateChatConversationState(undefined,'这个话题先留着，我去开会，结束再来').currentTopic===undefined,'a closing without a prior topic does not invent one from the departure text');
+  for(const text of ['你自己现在想聊什么？','那聊点别的。你自己现在想聊什么？','你想谈什么话题','你来选一个话题','说个你想聊的话题']) {
     ok(isTopicInvitation(text)&&directChatGuidance(text,[],[]).includes('兴趣本身就可以是开场理由'),'explicit initiative receives a concrete topic without fabricated recent life: '+text);
+    ok(chooseConversationAction(text,[],undefined,{adviceStyle:'listen'})==='start-topic','an explicit invitation is actor initiative rather than generic answering or listening: '+text);
+    const opening=buildHumanConversationContext(text,[],undefined,{adviceStyle:'listen'});
+    ok(opening.includes('这轮由你开话题')&&!opening.includes('用户这件事想先说出来'),'listening preference does not override an explicit request for the character to open a subject: '+text);
+    const plan=planCharacterIntent(text,[],undefined);
+    ok(plan.action==='start-topic'&&plan.need==='新鲜感'&&!plan.mayAskQuestion,'local intent planning uses the same actor-owned opening direction: '+text);
+  }
+  for(const text of ['朋友问你自己现在想聊什么','如果你自己现在想聊什么','你自己现在想聊什么，帮我查看报告','你自己现在想聊什么，帮我写演讲稿'])ok(chooseConversationAction(text,[])!=='start-topic','a report, hypothetical or mixed actual task does not become a topic opening: '+text);
+  ok(chooseConversationAction('今天有点累，你来选一个话题',[])==='start-topic','an explicit invitation after fatigue controls the reply direction instead of forcing listening');
+  const tiredOpening=buildHumanConversationContext('今天有点累，你来选一个话题',[],undefined,{adviceStyle:'listen'});
+  ok(tiredOpening.includes('这轮由你开话题')&&!tiredOpening.includes('用户这件事想先说出来')&&!tiredOpening.includes('正在告诉你'),'a tired topic invitation keeps its own opening without turning back into emotion analysis');
   for(const text of ['朋友问你自己现在想聊什么','“你自己现在想聊什么”是什么意思','翻译：你自己现在想聊什么','如果你自己现在想聊什么','你自己现在不想聊什么','你来选一个话题，帮我写演讲稿','我自己现在想聊什么','你想聊锻造还是吃饭','聊点别的吧'])
     ok(!isTopicInvitation(text)&&!directChatGuidance(text,[],[]).includes('兴趣本身就可以是开场理由'),'quoted, writing, hypothetical and non-inviting messages retain scope: '+text);
   for(const text of ['我会选向日葵，跟你选的不一样也挺好','我喜欢青色，和你喜欢的不一样也没关系','我选“向日葵”，你不用和我一样','我还是选咖啡，跟你不一样挺好']) {
@@ -218,6 +244,13 @@ async function run() {
     ok(guidance.includes('不是让你安排下一步')&&guidance.includes('历史里你猜过的原因仍是猜测'),`view prompt preserves the boundary between user facts and prior model guesses: ${message}`);
   }
   for(const message of ['你怎么看，帮我写条回复','你怎么看，给我一个具体方案','你怎么看，我该怎么处理','你怎么看，帮我看看报告','不用说你怎么看','她问你怎么看','朋友说“你觉得呢”','如果你同意吗','我觉得这个名字挺好','我不同意你'])ok(!isViewExchange(message),`actual assistance, reports, negation and ordinary statements retain their scope: ${message}`);
+  for(const message of ['你自己会选茶还是咖啡？','你个人更喜欢短篇还是长篇？','你自己更偏爱热闹还是安静？']) {
+    ok(isViewExchange(message)&&chooseConversationAction(message,[])==='answer-directly',`explicit personal choice is recognized without turning into advice: ${message}`);
+    ok(directChatGuidance(message,[],[]).includes('不必以日常频次或亲历来证明'),`current personal choice does not require a habit claim: ${message}`);
+  }
+  for(const message of ['她问你自己会选茶还是咖啡','朋友说“你个人更喜欢短篇还是长篇？”','如果你自己会选茶还是咖啡','不用回答你自己会选茶还是咖啡','你自己会选茶还是咖啡，帮我写份采购方案']) {
+    ok(!isViewExchange(message),`personal-choice wording preserves reported, quoted, hypothetical, negative and task scope: ${message}`);
+  }
   for(const message of ['那你想聊吃饭还是锻造？你自己选','你想谈电影还是音乐','你说去书店还是在家看电影','那你更喜欢书店还是电影院','你会选清汤还是辣锅','你觉得这个杯子买白色还是蓝色','你更喜欢“白色”还是“蓝色”']){
     ok(isViewExchange(message)&&detectChatIntent(message)==='question',`unpunctuated choice invitation is a personal question: ${message}`);
     ok(buildHumanConversationContext(message,[],undefined,{adviceStyle:'listen'}).includes('用户邀请你说真实看法'),`listening preference preserves an explicit later choice invitation: ${message}`);
@@ -423,6 +456,17 @@ async function run() {
   ok(freshInteraction.includes('本应用互动累计等阶')&&freshInteraction.includes('不是人设关系的起点')&&!freshInteraction.includes('你和用户的关系等阶'),'new app state does not assert that established characters have just met');
   ok(freshInteraction.includes('低数值不证明')&&freshInteraction.includes('当前明确的分歧和感受仍认真回应'),'zero initialized affinity neither negates an existing marriage nor suppresses current disagreement');
   ok(buildRelationshipContext(0,70,{'初识':'自定义记录档位'}).includes('自定义记录档位'),'custom app tier names remain available as interaction metadata');
+  for(const affinity of [0,40,10000]) {
+    const tone=buildRelationshipToneContext(affinity,70);
+    ok(tone.includes('本应用互动累计等阶')&&tone.includes('已有熟悉、婚姻与亲情')&&!tone.includes('你和用户目前相处在'),`group, proactive and moment tone preserve established relationship origin at ${affinity}`);
+  }
+  ok(buildRelationshipToneContext(0,70,{'初识':'我的档位'}).includes('我的档位'),'shared actor tone retains a custom app tier');
+  for(const day of [7,30,100,365,500]) {
+    const milestone=buildDayContext(day);
+    ok(milestone.includes(`第 ${day} 天`)&&milestone.includes('这段会话首条消息')&&!milestone.includes('你们认识的'),`record milestone measures this session without inventing first acquaintance: ${day}`);
+    ok(milestone.includes('不是两人相识、相恋或结婚的日期')&&milestone.includes('不要求庆祝'),'a stored chat milestone does not impose an anniversary performance');
+  }
+  for(const day of [undefined,0,1,8,-7,7.5,NaN,Infinity])ok(buildDayContext(day)==='',`ordinary or invalid session age does not inject a milestone: ${day}`);
   const staleFeeling=buildUserEmotionContext('委屈');
   ok(staleFeeling.includes('之前的情绪线索')&&staleFeeling.includes('不代表用户现在仍这样')&&!staleFeeling.includes('用户此刻似乎'),'old emotion snapshot stays background rather than current diagnosis');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('自己的往事、生活习惯和身体感受须有人设或独立生活记录支持')&&CHAT_MESSAGING_INSTRUCTION.includes('「这我喜欢」是在说喜好'),'shared policy permits natural opinions while separating them from invented biography');
@@ -882,9 +926,11 @@ async function run() {
   const proactivePayloads:any[]=[];
   window.fetch = async (_url,init) => {proactivePayloads.push(JSON.parse(String(init?.body)));return new Response(JSON.stringify({choices:[{message:{content:proactiveReplies[Math.min(attempts++,1)]},finish_reason:'stop'}]}),{headers:{'Content-Type':'application/json'}});};
   try {
-    const params = {apiKey:'isolated-test-key',systemPrompt:sceneRole.systemPrompt,characterName:'小林',lastMessages:[],voiceCard:neutralCard};
+    const params = {apiKey:'isolated-test-key',systemPrompt:sceneRole.systemPrompt,characterName:'小林',lastMessages:[],voiceCard:neutralCard,affinity:0,mood:70};
     const reply = await generateProactiveMessage(params);
     ok(attempts === 2 && reply === proactiveReplies[1], 'actual proactive transport retries failed quality once');
+    ok(proactivePayloads.every(p=>!p.messages[0].content.includes('用户已经有一段时间没有给你发消息了')&&p.messages[0].content.includes('没有记录时不预设失联或久别')),'proactive requests with no prior messages do not invent a gap or reunion');
+    ok(proactivePayloads.every(p=>p.messages[0].content.includes('不是人设关系的起点')&&!p.messages[0].content.includes('你和用户目前相处在')),'initial and retried proactive payloads preserve authored familiarity despite zero app affinity');
     ok(proactivePayloads.every(p=>p.messages[0].content.includes('喂，来啦')&&!p.messages[0].content.includes('今天先歇歇')&&!p.messages[0].content.includes('我也喜欢你')),'initial and retried proactive requests preserve neutral voice without borrowing past scene samples');
     ok(proactivePayloads.every(p=>p.messages[0].content.split('对话样本：用户说你好').length===2)&&params.systemPrompt.includes('今天先歇歇'),'proactive source examples occur only once in the card without mutating the original persona');
     attempts=0;proactiveReplies[1]='很高兴为您服务';
@@ -905,9 +951,10 @@ async function run() {
   let groupDrafts = [JSON.stringify({turns:[{speaker:'小林',content:'今天聊聊吧'}]}),'很高兴为您服务','（顿了顿，把手机放下）今天\n想起你'];
   window.fetch = async (_url,init) => {actorPayloads.push(JSON.parse(String(init?.body)));return new Response(JSON.stringify({choices:[{message:{content:groupDrafts[Math.min(groupCalls++,groupDrafts.length-1)]},finish_reason:'stop'}]}),{headers:{'Content-Type':'application/json'}});};
   try {
-    const params = {apiKey:'isolated-test-key',groupName:'测试群',members:[{id:'lin',name:'小林',persona:'自然聊天的朋友',tags:['温柔']}],history:[],userMessage:'你理解错了'};
+    const params = {apiKey:'isolated-test-key',groupName:'测试群',members:[{id:'lin',name:'小林',persona:'自然聊天的朋友',tags:['温柔'],relationshipContext:buildRelationshipToneContext(0,70)}],history:[],userMessage:'你理解错了'};
     const group = await generateGroupTurn(params);
     ok(groupCalls === 3 && group.turns.length === 1 && group.turns[0].content === '今天想起你', 'actual group actor retries only its failed draft and cleans actions/newlines');
+    ok(!actorPayloads[0].messages[0].content.includes('不是人设关系的起点')&&actorPayloads.slice(1).every(p=>p.messages[0].content.includes('不是人设关系的起点')),'zero-affinity origin belongs to the actor request and retry, without leaking into the shared group director');
     ok(!actorPayloads[0].messages[0].content.includes('用户正在纠正理解')&&actorPayloads[1].messages[0].content.includes('用户正在纠正理解'),'group emotional guidance belongs to the selected actor, not the shared director');
     groupCalls=0;groupDrafts=[JSON.stringify({turns:[{speaker:'小林',content:'很高兴为您服务'}]}),'很高兴为您服务'];
     const failed = await generateGroupTurn(params);

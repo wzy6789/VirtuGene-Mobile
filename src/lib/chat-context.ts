@@ -86,7 +86,7 @@ export function buildRelationshipToneContext(
     : mood >= 50 ? '心情平稳，按平常节奏回应'
       : mood >= 30 ? '有些低落或疲倦，不必强打精神'
     : '状态不太好，语气可以短一点、收敛一点';
-  return `[关系与情绪语气参考]\n你和用户目前相处在「${levelName}」阶段；${moodText}。只用来调整熟悉感与表达节奏，关系类型、称呼和亲密边界仍依据人设与真实对话，不由数值自动改变。不要说出等阶、数值或“系统状态”，也不要因此偏离角色原本性格。`;
+  return `[关系与情绪语气参考]\n本应用互动累计等阶为「${levelName}」，不是人设关系的起点；${moodText}。已有熟悉、婚姻与亲情继续依据人设和真实对话，低互动值不表示刚认识或需要试探。只用来辅助表达节奏，关系类型、称呼和亲密边界不由数值自动改变。不要说出等阶、数值或“系统状态”，也不要因此偏离角色原本性格。`;
 }
 
 /**
@@ -121,12 +121,12 @@ export function buildStoryRelationContext(state: CharacterState, characters: Cha
   return `\n\n[你的故事关系]\n${lines}\n这些是当前角色世界观中的关系，可能来自预设背景或用户设定。你清楚这些关系，并会在话题自然相关时体现熟悉、在意、竞争、守护等符合设定的态度；不要凭空补写未设定的共同经历，不要主动把关系当作说明书逐条报出，也不要擅自改变关系。`;
 }
 
-/** 今天是什么日子：认识天数特殊节点——让角色像真人一样记得日子 */
-export function buildDayContext(daysKnown?: number): string {
-  if (!daysKnown || daysKnown <= 0) return '';
-  const special = daysKnown === 7 || daysKnown === 30 || daysKnown === 100 || daysKnown === 365 || daysKnown % 100 === 0;
+/** Elapsed days from this session's first stored message, not a relationship anniversary. */
+export function buildDayContext(sessionDays?: number): string {
+  if (!sessionDays || !Number.isSafeInteger(sessionDays) || sessionDays <= 0) return '';
+  const special = sessionDays === 7 || sessionDays === 30 || sessionDays === 100 || sessionDays === 365 || sessionDays % 100 === 0;
   if (!special) return '';
-  return `\n\n[今天是什么日子]\n今天是你们认识的第 ${daysKnown} 天（一个值得记住的日子）——可以像真人一样自然地向用户提起这个日子，但别生硬`;
+  return `\n\n[会话记录节点]\n按这段会话首条消息计算，这是第 ${sessionDays} 天。它只说明本应用中这段会话的记录跨度，不是两人相识、相恋或结婚的日期。真实纪念日仍依据人设与明确记录；本轮内容相关时可以提起在这里聊天的时光，不要求庆祝或主动报天数。`;
 }
 
 /** 主动回忆：给角色一段旧记忆，氛围合适时像真人一样自然提起（不是必须） */

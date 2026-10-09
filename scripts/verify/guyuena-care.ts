@@ -68,6 +68,18 @@ async function run(): Promise<void> {
   check(contextualAffection.includes('亲密反应')&&contextualAffection.includes('不是审查他今天终于懂事了'),'a contextual affection reaches the authored intimate reaction instead of routine teasing');
   check(directAffection.includes('我也喜欢你')&&!directAffection.includes('这样想说什么，都能听清'),'direct affection selects an affectionate authored example rather than the ordinary preference example');
   check(GU_YUE_NA_CARE.length<1850,'care and sourced familiarity remain bounded, without a novel transcript');
+  const protectionRecall=buildGuYueNaRecallCard(updated.systemPrompt,'原著里，当年为什么不肯拜蔡老为师？')??'';
+  check(protectionRecall.includes('第二百六十三章')&&protectionRecall.includes('与伙伴一起进入内院'),'a related protective recollection retains both the partner and team context');
+  check(!protectionRecall.includes('第七百六十五章')&&protectionRecall.includes('不证明当前谁伤害了舞麟'),'protective history does not inject unrelated affection or establish a current injury');
+  const confessionRecall=buildGuYueNaRecallCard(updated.systemPrompt,'记得海神缘表白之后吗？')??'';
+  check(confessionRecall.includes('第七百六十五章')&&confessionRecall.includes('古月主动与舞麟亲近'),'explicit confession recall can use sourced active affection rather than forced denial');
+  check(!confessionRecall.includes('第二百六十三章')&&confessionRecall.includes('不重演那时的分离'),'affection recollection retains the stage boundary without importing a conflict');
+  check(protectionRecall.length<650&&confessionRecall.length<650,'new sourced scenes remain short summaries instead of novel transcripts');
+  check(buildGuYueNaRecallCard(updated.systemPrompt,'我喜欢你')===undefined&&buildGuYueNaRecallCard(updated.systemPrompt,'今天有点委屈')===undefined,'current affection and distress do not automatically activate historical scenes');
+  const oldConfession='- 海神缘：他当众向你告白，你嘴上不说，心里早已应了千百遍；那一夜娜儿回归、你与他融合为完整的古月娜——从此你的记忆里多了一个"妹妹"的视角，两世都只爱他一个人。';
+  check(!preset.systemPrompt.includes('你嘴上不说')&&preset.systemPrompt.includes('这段以《龙王传说》第765章为依据'),'actual prepared preset corrects the known confession paragraph');
+  check(reviseGuYueNaPresetPrompt(oldConfession).includes('告白之后你主动与舞麟亲近'),'an already-owned original confession paragraph receives the same correction');
+  check(reviseGuYueNaPresetPrompt(oldConfession+'我自己的改编设定。').includes(oldConfession+'我自己的改编设定。'),'an edited confession paragraph stays user-authored');
   const family=withDouluoRelations(preset.systemPrompt,'preset-guyuena');
   check(family.split(DOULUO_REUNION_TIMELINE).length===2,'the full family timeline appears once after actual preset preparation');
   check(preset.systemPrompt.includes('求学时的相处片段')&&!preset.systemPrompt.includes('你总留饭给他'),'old school-life anecdotes do not prescribe present household actions');

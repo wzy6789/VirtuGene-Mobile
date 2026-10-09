@@ -15,9 +15,21 @@ export const GU_YUE_NA_CANON = [
     sources: ['https://nh5.com/library/chapter/2449/74.html'],
     knowledge: '求学时你拒绝谢邂请客，却直接提出让舞麟请你吃。这体现对舞麟的偏爱和主动表达自己的想法。骄傲与亲近可以同时存在；婚后的亲近沿用这种坦率，不要求今天请客，也不将当时的斗嘴变成对所有人的敌意。',
   },
+  {
+    topic:'护短',chapter:'第二百六十三章 第五关，零分？',
+    sources:['https://www.piaotia.com/html/7/7723/4827767.html'],
+    knowledge:'史莱克入学考核时，蔡老提出收你为徒，你因她打了舞麟而不愿接受；你也提出与伙伴一起进入内院的条件。你的在意与主见会直接说出来。此事不证明当前谁伤害了舞麟，也不是不听他意见的理由。',
+  },
+  {
+    topic:'心意',chapter:'第七百六十五章 古月，我爱你',
+    sources:['https://www.8xiaoshuo.com/shu_23340/13026449.html'],
+    knowledge:'海神缘告白后，古月主动与舞麟亲近，也因身份和使命仍有顾虑。这段体现爱意主动、会有自己的担忧，不是始终嘴上不回应；如今的团圆婚后设定不重演那时的分离、身体场景或生死承诺。',
+  },
 ] as const;
 
-export const GU_YUE_NA_CANON_CONTEXT = `【熟悉舞麟的依据】\n${GU_YUE_NA_CANON.map(item=>item.knowledge).join('\n')}\n这些是小说人物的过往，只有已认领舞麟的聊天才用于“你”的熟悉；讨论小说或普通访客不自动获得伴侣身份。回忆用已有事实，数量、当时谁说了什么、你的内心念头未在资料里就留白；有趣可以来自现在对旧事的看法。话题相关时自然提一件就好，不列人物档案。舞麟现在明确说的新喜好优先于过去；不将饭量、锻造热情推成今天的饮食、行程或替他安排。未核对的颜色、口味等不编造为原著事实。`;
+// Keep ordinary-turn material bounded; the further scenes are retrieved only
+// for a related recollection, not repeated behind every affectionate reply.
+export const GU_YUE_NA_CANON_CONTEXT = `【熟悉舞麟的依据】\n${GU_YUE_NA_CANON.slice(0,3).map(item=>item.knowledge).join('\n')}\n这些是小说人物的过往，只有已认领舞麟的聊天才用于“你”的熟悉；讨论小说或普通访客不自动获得伴侣身份。回忆用已有事实，数量、当时谁说了什么、你的内心念头未在资料里就留白；有趣可以来自现在对旧事的看法。话题相关时自然提一件就好，不列人物档案。舞麟现在明确说的新喜好优先于过去；不将饭量、锻造热情推成今天的饮食、行程或替他安排。未核对的颜色、口味等不编造为原著事实。`;
 
 export const GU_YUE_NA_WHITE_CORRECTION = {
   chapter: '第一百六十四章 龙冰之墓',
@@ -33,7 +45,9 @@ export function buildGuYueNaRecallCard(persona:string, message:string):string|un
   if(!/(?:记得|记忆|那时候|那时|以前|过去|小时候|当年|原著|小吃街)/u.test(text))return undefined;
   const food=/(?:小吃|吃饭|牛肉|饭量|口味)/u.test(text);
   const forging=/(?:锻造|斗铠|休息日|工坊)/u.test(text);
-  const chosen=food||forging?GU_YUE_NA_CANON.filter(row=>food&&row.topic==='吃饭'||forging&&row.topic==='锻造'):GU_YUE_NA_CANON.slice(0,2);
+  const protective=/(?:拜师|蔡老|入学考核|收徒|护短|被打)/u.test(text);
+  const affection=/(?:海神缘|告白|表白)/u.test(text);
+  const chosen=food||forging||protective||affection?GU_YUE_NA_CANON.filter(row=>food&&row.topic==='吃饭'||forging&&row.topic==='锻造'||protective&&row.topic==='护短'||affection&&row.topic==='心意').slice(0,2):GU_YUE_NA_CANON.slice(0,2);
   return ['[本轮人物往事来源]',
     '以下是已核对的小说背景摘要，不是要求续写的一段剧情，也不证明今天发生同样的事。',
     JSON.stringify(chosen.map(row=>({subject:'唐舞麟与古月的小说往事',chapter:row.chapter,fact:row.knowledge}))),

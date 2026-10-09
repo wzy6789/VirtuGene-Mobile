@@ -224,11 +224,11 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         }
       }
 
-      // 今天是什么日子：认识天数特殊节点
-      const daysKnown = firstMsg
+      // Session history age is not when these characters first met.
+      const sessionDays = firstMsg
         ? Math.max(1, Math.floor((Date.now() - firstMsg.createdAt) / 86400000) + 1)
         : 0;
-      const dayContext = buildDayContext(daysKnown);
+      const dayContext = buildDayContext(sessionDays);
 
 
       // 时间感知：现在几点、距上次聊天多久（上一轮消息 = allMsgs 倒数第二条）

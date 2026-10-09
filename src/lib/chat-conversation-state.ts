@@ -8,7 +8,7 @@
 
 import { assessExpressionSignals,replyContainsSubstantiveQuestion } from './chat-expression-guidance';
 import { isDirectAffection, isViewExchange } from './chat-expression-boundary';
-import { hasExplicitTopicShift, isStandaloneClosing, isTopicClarification,requestsRepetition,isDirectTimeAnswer } from './chat-turn-cues';
+import { hasExplicitTopicShift, isStandaloneClosing, isTopicClarification,requestsRepetition,isDirectTimeAnswer,conversationDeparture } from './chat-turn-cues';
 
 export type ChatIntent = 'casual' | 'emotional' | 'question' | 'request' | 'topic-shift' | 'closing';
 export type ChatTopicStatus = 'active' | 'paused' | 'closed';
@@ -233,17 +233,20 @@ export function updateChatConversationState(
   const topicAdvice = adviceForCurrentTopic(userText);
   const rawLabel = topicLabel(userText);
   const label = rawLabel.length >= 3 ? rawLabel : '';
-  const shifting = detectTopicMove(userText, previousUserText);
   const oldTopic = base.currentTopic?.trim();
+  const resumesPausedTopic=!!oldTopic&&base.topicStatus==='paused'&&userText.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').split(/[。！？!?，,；;\n]/u)
+    .some(part=>/^(?:那|我们|咱们)?(?:继续|接着)(?:聊|说)?(?:刚才|前面|上次|那个)(?:的|那个)?(?:话题|问题)(?:吧|了)?$/u.test(part.trim()));
+  const shifting = !resumesPausedTopic&&detectTopicMove(userText, previousUserText);
   const pausedTopics = [...(base.pausedTopics ?? [])];
 
   if (shifting && oldTopic && oldTopic !== label) {
     pausedTopics.unshift(oldTopic);
   }
   // 同一主题内的后续短句不覆盖主题锚点；只有明确换题，或首次建立会话时才更新。
-  const nextTopic = shifting ? (label || undefined) : (!oldTopic ? (label || oldTopic) : oldTopic);
+  const nextTopic = intent==='closing'?oldTopic:shifting ? (label || undefined) : (!oldTopic ? (label || oldTopic) : oldTopic);
   const nextStatus: ChatTopicStatus = intent === 'closing'
-    ? 'closed'
+    ? conversationDeparture(userText)?.topicDeferred&&oldTopic?'paused':'closed'
+    : resumesPausedTopic?'active'
     : shifting || !oldTopic
       ? (nextTopic ? 'active' : base.topicStatus)
       : base.topicStatus === 'closed' ? 'active' : base.topicStatus;
@@ -281,7 +284,9 @@ export function buildChatConversationStateContext(state: Partial<ChatConversatio
   const current = { ...emptyChatConversationState(), ...(state ?? {}) };
   const prefs = { ...DEFAULT_CHAT_PREFERENCES, ...(current.preferences ?? {}) };
   const lines = ['[本会话的连续注意力]'];
-  if (current.currentTopic && current.topicStatus !== 'closed') {
+  if(current.currentTopic&&current.topicStatus==='paused') {
+    lines.push(`暂缓的话题：「${current.currentTopic}」。留到用户明确接续时再聊；回来本身不表示答应其中的行动或希望马上展开。`);
+  } else if (current.currentTopic && current.topicStatus !== 'closed') {
     lines.push(`当前话题只作为背景参考：「${current.currentTopic}」。用户已经换题时，以用户的新话题为准。`);
   }
   if (current.pausedTopics.length > 0) {
