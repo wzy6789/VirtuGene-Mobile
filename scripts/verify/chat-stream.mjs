@@ -1,7 +1,7 @@
 import { build } from 'esbuild';
 import { createRequire } from 'node:module';
 import { dirname, join, basename } from 'node:path';
-import { readFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 const { chromium } = createRequire(join(dirname(process.execPath), 'package.json'))('playwright');
 const bundle = await build({ entryPoints: ['scripts/verify/chat-stream.tsx'], bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic', loader: { '.png': 'dataurl', '.webp': 'dataurl', '.css': 'empty' }, define: { 'import.meta.env': '{"VITE_AI_GATEWAY_URL":""}', __APP_VERSION__: '"test"' } });
@@ -15,6 +15,7 @@ const server = createServer((req, res) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 let checks = 0;
+const pacingCases = [];
 let debugPage;
 try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
@@ -29,6 +30,55 @@ try {
   const ready = async history => { await test('setup', history); await page.getByRole('textbox', { name: '消息内容' }).waitFor({ state: 'visible' }); await page.waitForTimeout(100); };
   await ready(0);
   checks += await test('unitChecks'); console.log('ok transport and buffering checks');
+  const watchArrivals = () => page.evaluate(() => {
+    window.bubbleArrivalTimes=[];
+    window.bubbleArrivalObserver=new MutationObserver(() => {
+      const count=document.querySelectorAll('[data-streaming-reply] .vg-streaming-part').length;
+      if(count>window.bubbleArrivalTimes.length)window.bubbleArrivalTimes.push({count,time:performance.now()});
+    });
+    window.bubbleArrivalObserver.observe(document.body,{childList:true,subtree:true,attributes:true});
+  });
+  for(const buffered of [false,true]) {
+    await ready(0); await watchArrivals();
+    const reply='嗯，收到了。---这一条单独说。---还有另一件事。---先聊到这里。';
+    if(buffered)await test('useCompleteResponses',[reply]);
+    await test('submit','分开说说');
+    if(!buffered){await waitRequests(1);await test('push',0,reply);}
+    await page.locator('[data-streaming-reply]').waitFor();
+    check(await page.locator('.vg-streaming-part').count()===1, `${buffered?'complete':'SSE'} reply first arrival does not reveal the whole batch`);
+    if(!buffered)await test('finish',0);
+    await done();
+    const times=await page.evaluate(()=>{window.bubbleArrivalObserver.disconnect();return window.bubbleArrivalTimes;});
+    pacingCases.push({transport:buffered?'complete':'SSE',reducedMotion:true,arrivals:times,gapsMs:times.slice(1).map((item,index)=>Math.round(item.time-times[index].time)),totalMs:Math.round(times.at(-1).time-times[0].time)});
+    check(times.length===4&&times.every((item,index)=>item.count===index+1&&(!index||item.time-times[index-1].time>=350)),`${buffered?'complete':'SSE'} actual DOM receives four separate paced arrivals even after the provider finishes`);
+    const rows=(await test('records')).filter(m=>m.role==='assistant');
+    check(rows.length===4&&rows.map(m=>m.content).join('---')===reply&&rows.every((m,index)=>m.replyBatchSize===4&&m.replyBatchIndex===index),`${buffered?'complete':'SSE'} paced preview hands off to exactly four saved rows in order`);
+  }
+  for(const buffered of [false,true]) {
+    await ready(0);
+    const reply='第一条已看到。---第二条还没出现。---第三条还没出现。';
+    if(buffered)await test('useCompleteResponses',[reply]);
+    await test('submit','分条回复一下');
+    if(!buffered){await waitRequests(1);await test('push',0,reply);}
+    await page.locator('[data-streaming-reply]').waitFor();
+    if(!buffered)await test('finish',0);
+    await page.getByRole('button',{name:'停止生成',exact:true}).click();await done();
+    await page.waitForTimeout(900);
+    const rows=(await test('records')).filter(m=>m.role==='assistant');
+    check(rows.length===1&&rows[0].content==='第一条已看到。'&&rows[0].stopped&&rows[0].interrupted&&!rows[0].replyBatchId,`${buffered?'complete':'SSE'} stop after provider completion drops hidden bubbles and saves only the visible prefix`);
+    check((await test('records')).every(m=>!m.failed),`${buffered?'complete':'SSE'} delivery cancellation does not create a send failure`);
+  }
+  for(const cancel of [true,false]) {
+    await ready(0);const memoryId=await test('seedMemory');
+    await test('useCompleteResponses',['嗯，我记得。---你喜欢海边星空。']);await test('submit','你记得我喜欢什么吗');
+    await page.locator('[data-streaming-reply]').waitFor();
+    if(cancel)await page.getByRole('button',{name:'停止生成',exact:true}).click();
+    await done();await page.waitForTimeout(100);
+    const rows=(await test('records')).filter(m=>m.role==='assistant');const memory=await test('deliveryMemory');
+    check(rows[0].contextTrace?.memoryIds?.includes(memoryId),'pacing memory fixture really recalls its independent preference');
+    check(cancel? !memory.lastMentionedAt&&!rows.some(m=>m.contextTrace?.spokenMemoryIds?.includes(memoryId)) : !!memory.lastMentionedAt&&rows[0].contextTrace?.spokenMemoryIds?.includes(memoryId),cancel?'cancelled hidden memory is never marked as spoken':'a memory in a displayed later bubble is marked spoken after delivery');
+  }
+  await ready(0);
   await test('useCompleteResponses',['过来陪我坐会儿。','想聊就聊，我听着。']);
   await page.evaluate(()=>{
     window.completePreviewTexts=[];
@@ -255,7 +305,82 @@ try {
   await test('logout'); await page.waitForTimeout(200);
   check(!(await test('records')).some(m => m.role === 'assistant'), 'account switch rejects late reply writes');
   check(await page.locator('[data-streaming-reply]').count() === 0, 'account switch clears the old live preview');
+  for (const sourcePresetId of ['preset-guyuena', 'preset-luxueqi']) {
+  const visualDraft='我看看像不像……行吧，算你有想象。';
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit','刚看到的云有点像一只猫。');await waitRequests(1);
+  await test('push',0,visualDraft);await page.waitForTimeout(100);
+  check(await page.locator('[data-streaming-reply]').count()===0,`${sourcePresetId}: a false visual verdict never flashes before inspection`);
+  await test('finish',0);await waitRequests(2);await test('push',1,'猫形状的云，我也想看看。');await test('finish',1);await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='猫形状的云，我也想看看。'&&(await test('requests')).length===2,`${sourcePresetId}: no-image inspection uses one repair and saves current curiosity`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',[visualDraft+'这个比喻我喜欢。','我已经看到你发来的照片了。']);await test('submit','说起刚才的云');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='这个比喻我喜欢。'&&(await test('completeRequests')).length===2,`${sourcePresetId}: two false visual drafts keep only independent reaction without a third call`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',[visualDraft,'我已经看到你发来的照片了。']);await test('submit','说起刚才的云');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check(!(await test('records')).some(m=>m.role==='assistant')&&(await test('records'))[0].failed,`${sourcePresetId}: wholly false sight fails without pretending to receive a photo`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',[visualDraft,'这个比喻我喜欢。---其实我刚才也看了一眼窗外的云。']);await test('submit','刚看到的云有点像一只猫。');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='这个比喻我喜欢。'&&(await test('completeRequests')).length===2,`${sourcePresetId}: usable repair wins over lower-scored wholly false draft without invented window activity or third call`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('seedUserImage','data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==');await test('useCompleteResponses',['我已经看到你发来的照片了。']);await test('submit','刚才的照片呢？');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===1);await done();
+  const imageRequest=(await test('completeRequests'))[0];
+  check(imageRequest.messages.some(message=>message.role==='user'&&Array.isArray(message.content)&&message.content.some(part=>part.type==='image_url'))&&(await test('records')).some(m=>m.role==='assistant'&&m.content==='我已经看到你发来的照片了。'),`${sourcePresetId}: actually forwarded history image permits inspection with one call`);
+  const childhoodDraft='我记得小时候天天听这首歌。';
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit','今天听见了小时候的歌。');await waitRequests(1);
+  await test('push',0,childhoodDraft);await page.waitForTimeout(100);
+  check(await page.locator('[data-streaming-reply]').count()===0,`${sourcePresetId}: an unsupported childhood memory never flashes before review`);
+  await test('finish',0);await waitRequests(2);await test('push',1,'旧歌重听，还挺有意思。');await test('finish',1);await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='旧歌重听，还挺有意思。',`${sourcePresetId}: actual DB saves the correction rather than borrowed childhood`);
+  check((await test('requests')).length===2,`${sourcePresetId}: childhood correction shares the existing single retry`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',[childhoodDraft+'这首我也想听。','我小时候养过一只猫。']);await test('submit','说起小时候的歌');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='这首我也想听。'&&(await test('completeRequests')).length===2,`${sourcePresetId}: two unsupported childhood drafts preserve only current interest without a third call`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',[childhoodDraft,'我小时候养过一只猫。']);await test('submit','随便聊聊');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check(!(await test('records')).some(m=>m.role==='assistant')&&(await test('records'))[0].failed,`${sourcePresetId}: wholly unsupported childhood fails without a canned replacement`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId,'往事：小时候天天听这首歌。');await test('useCompleteResponses',[childhoodDraft]);await test('submit','你小时候听过吗？');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===1);await done();
+  check((await test('completeRequests')).length===1&&(await test('records')).some(m=>m.role==='assistant'&&m.content===childhoodDraft),`${sourcePresetId}: a supported childhood memory survives unchanged with one call`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit','刚把一本书拿倒了，自己都笑了。');await waitRequests(1);
+  await test('push',0,'我看书看倒过一页。');await page.waitForTimeout(100);
+  check(await page.locator('[data-streaming-reply]').count()===0,`${sourcePresetId}: an episodic self-report is held before display`);
+  await test('finish',0);await waitRequests(2);await test('push',1,'哈哈，这一下还挺有趣。');await test('finish',1);await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='哈哈，这一下还挺有趣。',`${sourcePresetId}: an actual send retries an unsupported episode into a natural reaction`);
+  check((await test('requests')).length===2,`${sourcePresetId}: episode repair does not add another model budget`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',['我看书看倒过一页。哈哈，这一下还挺有趣。','我喝茶把杯子打翻过。']);await test('submit','刚把一本书拿倒了，自己都笑了。');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='哈哈，这一下还挺有趣。',`${sourcePresetId}: two unsafe episodes cannot restore the first anecdote through bestDraft`);
+  check((await test('completeRequests')).length===2,`${sourcePresetId}: removing an unsafe episode spends no third generation`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',['我看书看倒过一页。','我喝茶把杯子打翻过。']);await test('submit','聊两句');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check(!(await test('records')).some(m=>m.role==='assistant')&&(await test('records'))[0].failed,`${sourcePresetId}: wholly unsupported episodes fail without a canned or invented reply`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId,'经历：我看书看倒过一页。');await test('useCompleteResponses',['我看书看倒过一页。']);await test('submit','你看书有过趣事吗？');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===1);await done();
+  check((await test('completeRequests')).length===1&&(await test('records')).some(m=>m.role==='assistant'&&m.content==='我看书看倒过一页。'),`${sourcePresetId}: independent authored episode survives without retry or removal`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',['我看书看倒过一页。']);await test('submit','陪我演一段看倒书的剧情。');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===1);await done();
+  check((await test('completeRequests')).length===1&&(await test('records')).some(m=>m.role==='assistant'&&m.content==='我看书看倒过一页。'),`${sourcePresetId}: explicitly invited fictional episode remains available`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit','我很开心');await waitRequests(1);
+  const ownedRequest = (await test('requests'))[0].body.messages.find(m=>m.role==='system').content;
+  check(ownedRequest.includes('[人物关系与表达节奏]')&&!ownedRequest.includes('本应用互动累计等阶：'),`${sourcePresetId}: actual send keeps authored relations instead of a new app acquaintance tier`);
+  await test('push',0,'你开心的时候，声音里都带着笑意，我听得出来。');await page.waitForTimeout(100);
+  check(await page.locator('[data-streaming-reply]').count()===0,`${sourcePresetId}: ordinary draft is held before publication even with real SSE`);
+  await test('finish',0);await waitRequests(2);
+  await test('push',1,'你开心，我也开心。');await test('finish',1);await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='你开心，我也开心。','reviewed SSE correction stores only the independent emotional response');
+  check((await test('requests')).length===2,'reviewed delivery still uses at most one quality correction');
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit','聊两句');await waitRequests(1);await test('push',0,'我听到你的笑声了。');
+  await page.getByRole('button',{name:'停止生成',exact:true}).click();await done();
+  check(!(await test('records')).some(m=>m.role==='assistant')&&!(await test('records'))[0].failed,'cancelling an unpublished reviewed draft creates no hidden partial or false send failure');
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',['我听到你的笑声了。我也开心。','你的嗓音听起来有点哑。']);await test('submit','我很开心');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='我也开心。','two bad drafts retain only an independent safe sentence rather than restoring fake hearing');
+  check((await test('completeRequests')).length===2,'audio fallback adds no third request');
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',['我听到你的笑声了。','你的嗓音听起来有点哑。']);await test('submit','我很开心');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check(!(await test('records')).some(m=>m.role==='assistant')&&(await test('records'))[0].failed,'two entirely unsupported audio drafts fail without writing an invented reply');
+  check((await test('completeRequests')).length===2,'entirely rejected audio stays within the same budget');
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit','陪我演一段我们打电话的剧情');await waitRequests(1);
+  await test('push',0,'我听到你的笑声了。');await page.locator('[data-streaming-reply]').waitFor();
+  check((await page.locator('[data-streaming-reply]').innerText()).includes('我听到你的笑声了。'),`${sourcePresetId}: explicitly fictional calling still streams`);
+  await test('finish',0);await done();
+  check((await test('requests')).length===1&&(await test('records')).some(m=>m.role==='assistant'&&m.content==='我听到你的笑声了。'),`${sourcePresetId}: chosen fictional scene is not retried or stripped`);
+  await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit','详细写一段说明');await waitRequests(1);
+  await test('push',0,'第一段。');await page.locator('[data-streaming-reply]').waitFor();
+  check((await page.locator('[data-streaming-reply]').innerText()).includes('第一段。'),`${sourcePresetId}: explicit long answer still streams`);
+  await test('finish',0);await done();
+  check((await test('requests')).length===1&&(await test('records')).some(m=>m.role==='assistant'&&m.content==='第一段。'),`${sourcePresetId}: long answer persists once`);
+  }
   check(await test('extraNetwork') === 0 && errors.length === 0, 'no real network or uncaught page errors');
+  mkdirSync('.tmp-preview/chat-delivery-pacing',{recursive:true});
+  writeFileSync('.tmp-preview/chat-delivery-pacing/verification.json',JSON.stringify({date:new Date().toISOString(),status:'PASS',checks,pacingCases,paidModelCalls:0,generatedModelTokens:0,scope:'Mock transports through real ChatWindow, delivery queue and IndexedDB; excludes real-device subjective waiting assessment'},null,2)+'\n');
   console.log(`PASS chat-stream: ${checks} checks`);
 } catch(error) {
   if(debugPage)console.log('stream failure state',await debugPage.evaluate(async()=>({requests:window.chatStreamTest.requests().map(r=>({aborted:r.aborted,lastInput:r.body.messages?.at(-1)?.content,raw:r.raw})),a:(await window.chatStreamTest.records('a')).map(m=>({role:m.role,content:m.content,failed:m.failed})),b:(await window.chatStreamTest.records('b')).map(m=>({role:m.role,content:m.content,failed:m.failed})),input:document.querySelector('[aria-label="消息内容"]')?.value,preview:document.querySelector('[data-streaming-reply]')?.textContent})).catch(()=>null));

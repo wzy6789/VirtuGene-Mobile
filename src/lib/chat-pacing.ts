@@ -3,20 +3,18 @@
  *
  * 规则（与产品约定一致）：
  * - 尊重反应条与内容条，最多 4 条；短反应不补长、不强制拼回完整句
- * - 第一条 350~900ms 出现，后续短句 450~1100ms，长句最多 1800ms
- * - 一轮总等待不超过 3500ms
- * - 用户开启「减少动态效果」时整体压缩，不做长时间等待
+ * - 首条不追加分条等待，后续按上一条长度停顿 380~850ms
+ * - 最多四条，一轮额外停顿不超过 2550ms；不模拟逐字打字耗时
+ * - 减少动效只关闭视觉运动，保留消息之间的交流节奏
  */
 
 import { collapseChatNewlines } from './ai/text';
 
-export const MIN_FIRST_DELAY = 350;
-export const MAX_FIRST_DELAY = 900;
-export const MIN_FOLLOW_DELAY = 450;
-export const MAX_FOLLOW_DELAY = 1800;
-export const MAX_TOTAL_DELAY = 3500;
-/** 一条消息超过这个字数就算"长句"，等待上限放宽到 1800ms */
-const LONG_MESSAGE_CHARS = 60;
+export const MIN_FIRST_DELAY = 0;
+export const MAX_FIRST_DELAY = 0;
+export const MIN_FOLLOW_DELAY = 380;
+export const MAX_FOLLOW_DELAY = 850;
+export const MAX_TOTAL_DELAY = 2550;
 /** 普通私聊超过这个长度时，优先在自然标点处分成多个气泡，避免一整块文字压满手机屏幕。 */
 const NATURAL_SPLIT_CHARS = 60;
 export const MAX_REPLY_PARTS = 4;
@@ -114,16 +112,16 @@ export function prefersReducedMotion(): boolean {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
-/** 第一条消息的相对延迟：短句快、长句慢，但落在 350~900ms */
+/** Do not hold ready text behind another artificial first-bubble delay. */
 export function firstMessageDelay(first: string): number {
-  return clamp(MIN_FIRST_DELAY + first.trim().length * 7, MIN_FIRST_DELAY, MAX_FIRST_DELAY);
+  void first;
+  return 0;
 }
 
-/** 后续消息的相对延迟：短句 450~1100ms，长句最多 1800ms */
+/** Give the preceding bubble a brief reading beat, without a typing simulation. */
 export function followUpDelay(part: string): number {
-  const len = part.trim().length;
-  const cap = len > LONG_MESSAGE_CHARS ? MAX_FOLLOW_DELAY : 1100;
-  return clamp(MIN_FOLLOW_DELAY + len * 7, MIN_FOLLOW_DELAY, cap);
+  const len = Array.from(part.trim()).length;
+  return clamp(MIN_FOLLOW_DELAY + len * 6, MIN_FOLLOW_DELAY, MAX_FOLLOW_DELAY);
 }
 
 /**
@@ -178,29 +176,13 @@ export function formatSpokenParagraphs(content: string, options: { longForm?: bo
 }
 
 /**
- * 计算每条消息「出现前」需要等待的毫秒数（相对本轮开始）。
- * reducedMotion 时整体压缩到约 30%，并且总时长不超过 1s。
+ * Relative inter-bubble delays, shared by buffered and streamed delivery.
+ * Generation time is credited by the streaming queue, rather than added twice.
  */
 export function computeMessageDelays(
   parts: string[],
   options: { reducedMotion?: boolean; alreadyElapsedMs?: number } = {},
 ): number[] {
-  const reduced = options.reducedMotion ?? prefersReducedMotion();
-  const elapsed = Math.max(0, options.alreadyElapsedMs ?? 0);
-  const raw: number[] = [];
-  parts.forEach((part, index) => {
-    raw.push(index === 0 ? firstMessageDelay(part) : followUpDelay(part));
-  });
-
-  let scale = 1;
-  const total = raw.reduce((sum, n) => sum + n, 0);
-  if (total > MAX_TOTAL_DELAY) scale = MAX_TOTAL_DELAY / total;
-  if (reduced) scale = Math.min(scale, 0.3);
-
-  // 第一条只等「剩余时间」：网络本身已经花掉的时间也算在内，避免又多等一轮
-  return raw.map((base, index) => {
-    const target = Math.round(base * scale);
-    if (index === 0) return Math.max(0, target - elapsed);
-    return target;
-  });
+  void options; // Compatibility with callers that supply motion/network options.
+  return parts.map((_, index) => index === 0 ? 0 : followUpDelay(parts[index - 1]));
 }

@@ -1,12 +1,15 @@
 /** Delivery guidance, never permission for application operations. */
-import {requestsRepetition,isDirectTimeAnswer,isTopicClarification,isSelfViewRevision,hasExplicitTopicShift,conversationDeparture} from './chat-turn-cues';
+import {requestsRepetition,isDirectTimeAnswer,isTopicClarification,isSelfViewRevision,hasExplicitTopicShift,conversationDeparture,declinesThirdPartyAnalysis} from './chat-turn-cues';
+import {requestsBriefReply} from './chat-reply-size';
+const DIFFERENCE_PERMISSION=/^你(?:不用|不必|不需要)(?:跟|和)我(?:选|选择)(?:得)?(?:一样|相同)(?:的)?[呀啊啦吧呢\s]*$/u;
 export function isOpinionInvitation(message:string):boolean {
   const unquoted=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   return unquoted.split(/[。！？!?，,；;\n]/u).some(part=>
     !/^(?:他|她|朋友|同事|如果|假如|例如|比如)/u.test(part.trim())
     && !/(?:不用|不要|别|不必).{0,8}(?:不同意|反对|直说|说实话)/u.test(part)
     && (/(?:你(?:有不同意见|不同意|不赞成|反对).{0,8}(?:也可以|可以|就|尽管).{0,4}(?:直说|说出来|说)|(?:别只顺着我|别一味赞同|不用迎合我|说说你自己的看法))/u.test(part)
-      || /^(?:你)?(?:不用|不必|别)(?:一直|总是|老|只)?(?:顺着我|迎合我|迁就我)[呀啊啦吧呢\s]*$/u.test(part.trim())));
+      || /^(?:你)?(?:不用|不必|别)(?:一直|总是|老|只)?(?:顺着我|迎合我|迁就我)[呀啊啦吧呢\s]*$/u.test(part.trim())
+      || DIFFERENCE_PERMISSION.test(part.trim())));
 }
 
 /** An invitation to choose a subject, not to invent a day or an old conversation. */
@@ -16,7 +19,8 @@ export function isTopicInvitation(message:string):boolean {
   if(/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事)/u.test(text.trim()))return false;
   return text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
     /^(?:那|所以|对了)?\s*(?:你(?:自己)?(?:现在|这会儿|今天)?(?:最|更)?想(?:聊|谈)(?:点)?什么(?:话题)?|你(?:来|自己)(?:选|挑)(?:个|一个)?话题|(?:说|聊)(?:个|一个)你(?:自己)?想聊的话题)[呀啊吧呢\s]*$/u.test(part)
-    || /^(?:我(?:今天|现在)?|今天|现在)?(?:就|只是|只)?想(?:听听|听)你(?:说说话|说话|聊几句)[呀啊啦呢嘛\s]*$/u.test(part));
+    || /^(?:我(?:今天|现在)?|今天|现在)?(?:就|只是|只)?想(?:听听|听)你(?:说说话|说话|聊几句)[呀啊啦呢嘛\s]*$/u.test(part)
+    || /^(?:(?:那|嗯|好|所以)\s*)?(?:(?:我们|咱们)(?:就|先)?|我(?:现在|今天)?(?:就|只是|只)?想(?:和你|跟你))?(?:随便|随意)(?:说|聊)(?:两句|几句|一会儿|一会|说话|聊)[呀啊吧呢啦\s]*(?:就好|就行|也好)?[呀啊吧呢啦\s]*$/u.test(part));
 }
 
 /** A view is not an instruction to solve the situation. This is only a prompt
@@ -24,31 +28,67 @@ export function isTopicInvitation(message:string):boolean {
 function isChoiceInvitation(message:string):boolean {
   // Quoted option names remain options; a wholly quoted request or a third-
   // person report still cannot start with an address to the current character.
-  return message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'选项')
-    .split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
-      /^(?:那|所以|对了)?\s*你(?:自己|个人)?(?:说|觉得|会选|更喜欢|更偏爱|想选|想聊|想谈|选)\s*.{1,55}还是.{1,55}$/u.test(part)
+  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'选项');
+  if(/(?:翻译|改写|什么意思|怎么说|怎么回复|帮我写|替我写)/u.test(text))return false;
+  return text
+    .replace(/[，,]\s*(?=还是)/gu,'')
+    // Keep a report or condition across its comma; a later separate current
+    // question still has its own scope. This is only a delivery clue.
+    .split(/[。！？!?\n]/u).map(sentence=>sentence.trim())
+    .filter(sentence=>!/^(?:朋友|同事|他|她|我听(?:说|见|到)?|我看到|如果|假如|假设|比如|例如)/u.test(sentence))
+    .flatMap(sentence=>sentence.split(/[，,；;]/u)).map(part=>part.trim()).some(part=>
+      (/^(?:那|所以|对了)?\s*你(?:自己|个人)?(?:说|觉得|会选|(?:会)?(?:更)?(?:喜欢|偏爱|在意|看重|在乎)|想选|想聊|想谈|选)\s*.{1,55}还是.{1,55}$/u.test(part)
+        || /^(?:那|所以|对了)?\s*你(?:自己|个人)?(?:会)?(?:更)?(?:喜欢|偏爱|想选)(?:哪种|哪个|哪一个)[^。！？!?，,；;\n]{0,30}$/u.test(part))
       && !/(?:都行|都可以|都好|随便|无所谓)$/u.test(part)
       && !/(?:不用|不要|别|不必|无需|不需要).{0,8}(?:选|说|回答|觉得)/u.test(part));
 }
 
 export function isViewExchange(message:string):boolean {
-  const clauses=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'')
-    .split(/[。！？!?，,；;\n]/u).map(part=>part.trim())
+  const unquoted=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  const clauses=unquoted
+    .split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).filter(Boolean)
     .filter(part=>!/^(?:他|她|朋友|同事|如果|假如|假设|例如|比如)/u.test(part));
   const asksForHelp=clauses.some(part=>
     !/(?:不用|不要|别|不必|无需|不需要).{0,10}(?:建议|办法|方案|步骤|帮|告诉|教|怎么)/u.test(part)
     && /(?:怎么办|怎么(?:做|处理|回复|拒绝|安排)|有什么(?:建议|办法)|(?:给我|请你|帮我|替我|教我).{0,12}(?:建议|办法|方案|步骤|写|改|整理|安排|看|分析|解释|推荐|查))/u.test(part));
   if(asksForHelp)return false;
-  return isChoiceInvitation(message)||isOpinionInvitation(message)||clauses.some(part=>
+  // “我喜欢这种结尾，你呢？” asks for the character's preference without
+  // restating the object. Do not turn ordinary activity or affection into an
+  // opinion debate, or borrow the preference from a quoted/reported speaker.
+  const reciprocalPreference=!/^(?:他|她|朋友|同事|如果|假如|假设|例如|比如|翻译|解释|帮我写|写一句)/u.test(unquoted)
+    && !/^我(?:听|听说|听到|看到|看见|记得)[^。！？!?]{0,20}(?:说|问|写)/u.test(unquoted)
+    && !/(?:翻译|解释|改写|什么意思|怎么说|怎么回复)/u.test(unquoted)
+    && /^(?:那)?你呢(?:呀|啊)?$/u.test(clauses[clauses.length-1]??'')
+    && clauses.slice(0,-1).some(part=>/^我(?:倒|更|还是|比较|其实|就|偏|也)?(?:喜欢|偏爱|倾向|不喜欢|不太喜欢|讨厌)[^？?]{1,100}$/u.test(part)&&!isDirectAffection(part));
+  return reciprocalPreference||isChoiceInvitation(message)||isOpinionInvitation(message)||clauses.some(part=>
     !/(?:不用|不要|别|不必).{0,8}(?:看法|观点|怎么看|觉得)/u.test(part)
-    && /(?:你怎么看|你觉得呢|你(?:同意|赞成)吗|(?:说说|聊聊|听听|告诉我).{0,6}你(?:自己)?的(?:看法|观点))/u.test(part));
+    && (/(?:你怎么看|你觉得呢|你(?:同意|赞成)吗|(?:说说|聊聊|听听|告诉我).{0,6}你(?:自己)?的(?:看法|观点))/u.test(part)
+      || /^(?:那|所以|对了)?\s*你(?:自己|个人)?觉得.{0,55}(?:该不该|应不应该|是不是应该|非得|一定要|必须|有没有必要|值不值得|算不算|好不好|合理不合理|重要不重要)/u.test(part)));
 }
 
+const FEELING_TIME='(?:今天|现在|刚才|这会儿|最近|昨天)';
+// Optional subject/time and conversational modifiers, followed by the actual
+// addressee. The object and whole-clause boundary are required: liking a book
+// recommended by someone is not the same statement as liking that person.
+const DIRECT_FEELING=new RegExp(`^(?:(?:只是|就是|就)?(?:我(?:${FEELING_TIME})?|(?:${FEELING_TIME})?(?:我)?)(?:真的|好|很|也|还是|有点|有一点|有些|有一些|挺|只是|就是|就|忽然|突然){0,3}(?:(?:爱你|喜欢你)(?:了)?|想你(?:了|的)?|惦记(?:着)?你(?:了)?)|你对我很重要)[～~\\s]*(?:呀|啊|呢|啦|嘛)?[～~\\s]*$`,'u');
 export function isDirectAffection(message: string): boolean {
   const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
   if(/^(?:如果|假如|假设|比如|例如|帮我写|写一段|写一个|他|她|朋友|同事|主角)/u.test(text))return false;
-  return text.split(/[。！？!?，,；;\n]/u).some(part=>/^(?:(?:只是|就是|就)?我(?:真的|好|很|也|还是|有点|有一点|有些|有一些)?(?:爱你|喜欢你|想你)(?:了)?|(?:只是|就是|就)?想你了|好想你|你对我很重要)[～~\s]*(?:呀|啊|呢|啦|嘛)?[～~\s]*$/u.test(part.trim()));
+  return [...text.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)]
+    .some(match=>!/[?？]/u.test(match[2])&&DIRECT_FEELING.test(match[1].trim()));
 }
+
+/** A direct question about the interlocutor's feelings, rather than a request
+ * to define love, discuss somebody else, or solve a second task. */
+export function isAffectionQuestion(message:string):boolean {
+  const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  const clauses=text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).filter(Boolean);
+  const question=/^你(?:也|还|现在|真的|有没有|会不会)?(?:想我|爱我|喜欢我)(?:了)?(?:吗|么|不|没有)?[呀啊呢嘛\s]*$/u;
+  return clauses.some(part=>question.test(part)&&(/[?？]/u.test(text)||/(?:吗|么|有没有|会不会|没有|不)[呀啊呢嘛\s]*$/u.test(part)))
+    &&clauses.every(part=>question.test(part)||/^(?:那|对了|嗯|我想问你|我想问问|想问问|说真的)$/u.test(part));
+}
+
+export const AFFECTION_QUESTION_DIRECTION='用户在问你自己的心意。直接说你此刻的态度，亲密程度以人物与实际关系为准，可以亲近，也可以坦率说明界限。愿意回应本身就能表达在意，让这一句自然说清；无需先让对方交代日程、证明关系或解释为什么问。';
 
 export function allowsDramaticReply(message: string, recentUserMessages: string[] = []): boolean {
   // Only user requests establish this mode; assistant prose and ambient location
@@ -67,9 +107,30 @@ export function allowsDramaticReply(message: string, recentUserMessages: string[
 /** Specific co-location invitations suffice; generic rest advice does not. */
 export function hasUninvitedStaging(content: string): boolean {
   const text=content.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  if(findUninvitedSharedPosture(content))return true;
   if (/(?:^|[。！？!?，,；;\n]|-{3,}|——)\s*(?:你(?:先|快|就)?\s*)?(?:过来(?:陪我)?坐(?:会儿|一会儿|一会|一下|坐)?|来我(?:身边|旁边)(?:坐(?:会儿|一会儿|一会|一下|坐)?)?|坐到我旁边)(?:吧|呀|啊|好不好|好吗|？|\?)?(?=[。！？!?，,；;—\n\s]|$)/u.test(text)) return true;
   const directives=text.match(/(?:^|[。！？!?，,；;\n]|-{3,}|——)\s*(?:你(?:先|快|就)?\s*)?(?:进来(?:吧|呀|啊)?|坐(?:下|过来)(?:吧|呀|啊)?|人坐下|把门(?:带上|关上)|把(?:手机|杯子)(?:放下|递给我)|靠(?:过来|近一点)|抬(?:起)?头(?:看我)?|看着我(?:说)?|当(?:着我的)?面再说一遍|再当面说一遍)(?=[。！？!?，,；;—\n\s]|$)/gu) ?? [];
   return directives.length>=2;
+}
+
+/** A shared bodily pose used as the means of chatting. This is not ordinary
+ * “陪你聊”, a metaphor, a question, or a clearly imagined/quoted scene. */
+export function findUninvitedSharedPosture(content:string):string|undefined {
+  const text=content.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  for(const sentence of text.split(/[。！!；;\n]|-{3,}/u)) {
+    if(/[?？]|(?:如果|假如|假设|要是|比如|例如|的话|以后|将来|下次)|(?:不|没|没有|不用|不必|不能|不会).{0,4}(?:陪|一起)/u.test(sentence))continue;
+    const claim=/(?:我(?:就|也|会|可以|愿意|先|一直)?(?:陪你|跟你|和你)|(?:我们|咱们)(?:就|先|可以|一起)?)(?:一起)?(?:坐着|并肩坐着|靠在一起|坐在一起)(?:好好|慢慢|静静|安静)?(?:说|聊|听你说)/u.test(sentence);
+    if(claim)return sentence.trim().slice(0,160);
+  }
+  return undefined;
+}
+
+/** Caller owns explicit fiction exemption and the existing retry budget. */
+export function omitUninvitedSharedPosture(content:string):string {
+  let removed=false;
+  const safe=content.split(/\s*-{3,}\s*/u).map(bubble=>bubble.split(/(?<=[。！？!?；;\n])/u)
+    .filter(sentence=>{if(findUninvitedSharedPosture(sentence)){removed=true;return false;}return true;}).join('').trim()).filter(Boolean).join('\n---\n');
+  return removed?safe:content;
 }
 
 /** Only a short, directly expressed feeling plus several editorial devices. */
@@ -81,13 +142,50 @@ export function hasOverwrittenAffection(content: string, userMessage: string): b
   return Number(receipt)+Number(explanation)+Number(dramatizing)>=2;
 }
 
-export const DIRECT_AFFECTION_DIRECTION='用户直接表达了喜欢，不是在请你分析爱的定义。这轮说你自己的感受、是否愿意靠近或你需要的界限；亲密程度以人物与实际关系为准。态度说清即可，不追加考查心意来历或要求解释的问题；保持发消息的方式，不安排当面重说。明确的心意不需要改成待澄清的问题。';
+export const DIRECT_AFFECTION_DIRECTION='用户直接表达了心意，接他这次说的想念、喜欢或爱，说自己的真实感受与态度，而不是点评他来聊天、说话的方式或坦率程度。亲密程度以人物与实际关系为准，也可以坦率说明界限。亲近可以停在共享这份感受，不必自动转成照顾安排；需要照顾什么，沿用对方真正说出的处境。态度说清即可，不追加考查心意来历或要求解释的问题；保持发消息的方式，不安排当面重说。明确的心意不需要改成待澄清的问题。';
+
+/** An explicitly described reaction to the immediately answered feeling.
+ * Neither shyness alone nor an old declaration establishes this context. */
+export function isAffectionReaction(message:string,previousUser:string,hasReply:boolean):boolean {
+  if(!hasReply||!isDirectAffection(previousUser))return false;
+  const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  if(text!==message.trim()||hasExplicitTopicShift(text)||/[?？]/u.test(text))return false;
+  const simple=/^(?:(?:你(?:这么|好|太)?认真(?:啊|了)?|这么认真啊?|哈哈(?:哈)*|嘿嘿)[，,。！!\s]*)?(?:我(?:都|也|现在)?(?:有点|有一点|有些|有一些)?|有点|有一点|有些)?(?:不好意思|害羞)(?:了)?(?:哈哈(?:哈)*|嘿嘿|呀|啊|啦|呢|嘛|～|~|[，,。！!\s])*$/u;
+  if(simple.test(text))return true;
+  const clauses=text.split(/[。！!，,；;\n]/u).map(part=>part.trim()).filter(Boolean);
+  const feeling=/^(?:我(?:都|也|现在|刚才)?(?:有点|有一点|有些|有一些)?|有点|有一点|有些)(?:不好意思|害羞)(?:了)?(?:呀|啊|呢|啦|嘛|嘿嘿|哈哈哈*)?$/u;
+  const saying=/^(?:我)?(?:刚才|刚刚)(?:说|讲|发)(?:出来|出口|这句话|那句话|完)(?:的时候|时)?$/u;
+  const willingness=/^(?:但|不过)?(?:我)?(?:也|还是|并)?(?:不想|不愿意|不愿)(?:把)?(?:这(?:些)?|那(?:些)?)?(?:话|心意)(?:再)?(?:藏着|藏起来|藏在心里|收回)(?:了|吧)?$/u;
+  return clauses.some(part=>feeling.test(part))&&clauses.every(part=>feeling.test(part)||saying.test(part)||willingness.test(part));
+}
+
+/** A local rhythm hint for an explicitly stated difference in taste. Sentence
+ * boundaries and an added reason do not turn it into a demand to agree. */
+export function independentPreference(message:string):string|undefined {
+  const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,(quote:string,offset:number,source:string)=>{
+    const preceding=source.slice(0,offset).split(/[。！？!?，,；;\n]/u);
+    const prefix=preceding[preceding.length-1]?.trim()??'';
+    if(!/^我(?:(?:更|比较|也|倒|偏|还挺|还是)?(?:喜欢|不喜欢|想吃|想看)|(?:会|更想|还是|想)?选)$/u.test(prefix))return '';
+    const value=quote.slice(1,-1);
+    return /[。！？!?，,；;\n]/u.test(value)?'所引选项':value;
+  }).trim();
+  if(/^(?:他|她|朋友|同事|如果|假如|假设|比如|例如|帮我|替我|写|翻译|解释)/u.test(text)
+    ||/(?:帮我|替我|请你).{0,12}(?:改|选|写|查|做)/u.test(text))return undefined;
+  if(/(?:你(?:觉得|认为|看)?我|我是).{0,12}(?:什么|怎样|哪种).{0,6}(?:性格|人|习惯)|(?:我的性格|我是什么样的人)/u.test(text))return undefined;
+  const clauses=[...text.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)].filter(match=>!/[?？]/u.test(match[2])).map(match=>match[1].trim()).filter(Boolean);
+  if(clauses.some(part=>/^(?:不过|但|还有|顺便)?\s*(?:帮我|替我|请你)/u.test(part)))return undefined;
+  const choice=clauses.find(part=>/^我(?:其实)?(?:(?:更|比较|也|倒|偏|还挺|还是)?(?:喜欢|不喜欢|想吃|想看)|(?:会|更想|还是|想|倒想|更想要)?选)[^。！？!?，,；;\n]{1,40}$/u.test(part)&&!/(?:吗|么|是不是|是否|不确定)$/u.test(part));
+  const separate=clauses.some(part=>DIFFERENCE_PERMISSION.test(part)||/^(?:但|不过)?\s*(?:你(?:不用|不必|不需要)(?:改|改变|跟我一样|和我一样|一样)|不是(?:要|让)你(?:跟着选|跟我选|跟我一样|和我一样)|(?:跟|和)你(?:选的|喜欢的)?不一样(?:也|就)?(?:挺好|很好|没关系|可以|正常))[呀啊吧呢\s]*$/u.test(part));
+  return choice&&separate?choice:undefined;
+}
 
 export function directChatGuidance(userMessage:string, recentUserMessages:string[], recentReplies:string[],options:{includeAffection?:boolean}={}):string {
   if (allowsDramaticReply(userMessage,recentUserMessages)) return '本轮用户明确选择了创作或扮演，按其要求接续；不要把虚构场景当成现实经历。';
   const lines:string[]=[];
+  if(declinesThirdPartyAnalysis(userMessage))lines.push('用户这轮不想分析第三人的心思。接已说出的事件与本人感受，可以表达你自己的心疼、失望或在意；少一句回应也不必解读成对方故意冷落、看不起或不重视。真正明确的言行可以谈，但未知原因留白，不替用户决定要不要理那个人，也不擅自转成劝断交。关心的重点是眼前与你说话的人；他说出的感受已经足够接话，不需要让他再精确拆分、证明或深入分析心情，确有新内容想了解再自然问。');
   if(conversationDeparture(userMessage)?.topicDeferred)lines.push('用户把话题暂时留到回来再聊：现在自然道别即可。保留的是讨论，不是已经约定共同活动；对方说回来聊天，也没有因此答应你之前提出的出游、见面或其他安排。后续具体约定仍以实际说清的内容为准。');
   const unquoted=userMessage.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  if(requestsBriefReply(userMessage))lines.push('用户这次要求简短：先说够用的核心内容，必要时补一个关键说明即可。保持人物自己的口吻，不追加其他方案、实施教程、总结或可有可无的补问；确实缺少关键信息时仍可简短问清。这是本轮长度要求，不改变以后交流的长短。');
   const scopeClarification=unquoted.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
     /^我(?:刚才)?不是(?:让|要|要求|叫)你.{1,36}$/u.test(part))
     && !/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事|翻译|解释|帮我写)/u.test(unquoted.trim());
@@ -97,16 +195,13 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
   const talkInvitation=unquoted.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
     /^(?:我(?:今天|现在)?|今天|现在)?(?:就|只是|只)?想(?:听听|听)你(?:说说话|说话|聊几句)[呀啊啦呢嘛\s]*$/u.test(part));
   if(talkInvitation&&!/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事|帮我|替我|写)/u.test(unquoted.trim()))lines.push('用户想听你说话，是在邀请你主动聊一点，不是在索要今天的行程或近况报告。可以说一个你现在感兴趣的想法、自己的好恶，或有来源的生活线索；无需先让他选听什么，也不用编一件今天或前几天发生的事来填满空白。');
-  const affectionReaction=isDirectAffection(previousUser)&&recentReplies.length>0
-    && unquoted.trim()===userMessage.trim()
-    && !hasExplicitTopicShift(unquoted)
-    && /^(?:(?:你(?:这么|好|太)?认真(?:啊|了)?|这么认真啊?|哈哈(?:哈)*|嘿嘿)[，,。！!\s]*)?(?:我(?:都|也|现在)?(?:有点|有一点|有些|有一些)?|有点|有一点|有些)?(?:不好意思|害羞)(?:了)?(?:哈哈(?:哈)*|嘿嘿|呀|啊|啦|呢|嘛|～|~|[，,。！!\s])*$/u.test(unquoted.trim());
+  const affectionReaction=isAffectionReaction(userMessage,previousUser,recentReplies.length>0);
   if(affectionReaction)lines.push('上一轮用户直接表达心意，这轮是在回应你刚才的态度，说自己有点不好意思或害羞。沿着刚才真实的态度轻轻接话即可，包括你已经说清的界限；不用为了缓和气氛收回自己的认真，也不把他的反应改成撤回心意。语气可以轻一点，有分寸地逗一句或坦然说自己的感受，不替他解释心理、不另找心情变好的原因。');
-  const preference=userMessage.trim().match(/^(我(?:(?:更|比较|也|倒|偏|还挺)?(?:喜欢|不喜欢|想吃|想看)|(?:会|更想|还是|想)?选)[^，,。！？!?；;\n]{1,30})[，,]\s*(?:但|不过)?\s*(?:你(?:不用|不必|不需要).{0,6}(?:跟我一样|和我一样|一样)|(?:跟|和)你(?:选的|喜欢的)?不一样(?:也|就)?(?:挺好|很好|没关系|可以|正常))[。！!\s]*$/u);
-  if(preference)lines.push(`用户这轮明确说「${preference[1]}」，随后允许你有不同偏好，不是在改口。按这句当前喜好接话，你可以说自己的好恶，不必替他换一种口味或替他安排；这只是本轮选择，不概括成永久习惯。关注所选东西的具体特点与自己的态度，不拿这一个选择判断他平时的性格或眼光；不同喜好可以平常地并存，不需要记账或证明谁更懂。`);
+  const preference=independentPreference(userMessage);
+  if(preference)lines.push(`用户这轮明确说「${preference}」，同时保留了你的不同选择，不是在改口。两人的好恶已经说清，接着聊所选东西的具体特点或自己的兴趣就好。你之前表达的偏好仍是你自己的看法；愿意陪他选另一种，是陪伴意愿，不等于你更喜欢那一种。确实有了新的理由也可以自然改主意，不为迎合自动换选项。表达完可以自然停顿；不必证明自己没有被改变，也不替对方的喜好作许可或评分。这只是本轮选择，不拿这一个选择判断他平时的性格，不概括成永久习惯，不转成安排。本轮问你具体喜欢哪一点，就回应自己的理由。`);
   if(isChoiceInvitation(previousUser)&&/^(?:我(?:还是|更|偏)?(?:想|选|决定)|那就|就选).{1,50}(?:就这么定了|就它了|就这样吧|吧|了)[。！!\s]*$/u.test(unquoted.trim()))lines.push('用户已选定一项。话题从选哪个好转到选中的内容本身：你可以保留自己的偏好，也自然接受不同选择。说一点对这个内容的兴趣或具体反应就好，不需要认可、解释或评价用户的决定；真正想知道内容里的某一点才问，不为接话额外补日期和安排。');
   if(isSelfViewRevision(unquoted)&&!hasExplicitTopicShift(unquoted))lines.push('用户在调整刚才的观点，还在聊同一件事。顺着这个新看法，说你自己的具体态度即可；对方的感受和原因以其已经讲明的内容为准。把注意力放在新的观点或事情上，让这次改口自然过去，双方可以继续各有看法。');
-  else if(isTopicClarification(unquoted))lines.push('用户在更正刚才的说法，接最新内容即可。更正的是自己的认识还是外部事实，以其原话为准；未说改期、取消或发生新变化，就不替事件补一段变动经过。');
+  else if(isTopicClarification(unquoted))lines.push('用户在更正刚才的说法，接最新内容即可。更正的是自己的认识还是外部事实，以其原话为准；未说改期、取消或发生新变化，就不替事件补一段变动经过。普通更正不是征求你对他记性、认真程度或决定是否明智的评价；把更正的内容接上，仍可以说自己的兴趣与反应，不要求他想清楚再说，也不预告他还会再改。');
   if(unquoted.split(/[。！？!?，,；;\n]/u).some(part=>
     /^(?:刚才|前面|之前)(?:我|我们)?(?:说|提)(?:过|的|到).{0,24}(?:什么时候|几点|哪天|在哪|哪里|叫什么|是什么|哪个)/u.test(part.trim())
     || /^(?:我)?(?:刚才|刚刚|前面)(?:我)?(?:想|准备|要|打算)(?:拿|买|吃|喝|去|做|找)(?:的)?(?:什么|啥|哪[儿里]|哪个)(?:来着|来着呢|了)?[？?\s]*$/u.test(part.trim()))) {
@@ -136,7 +231,10 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
     && unquoted.split(/[。！？!?，,；;\n]/u).some(part=>/^(?:现在|这次|先|就|只)?\s*(?:帮我|替我|给我|请你)(?:写|拟)(?:一|1)句(?:回复|回话|回应)/u.test(part.trim()))
     && !/(?:再|也|顺便|同时|然后|并且|并).{0,8}(?:解释|分析|说明|评价|给.{0,4}(?:版本|选项|一句)|写.{0,4}(?:一段|一句))|(?:多个|几种|两种|三个|两个|多种|\d+种|\d+个).{0,4}(?:版本|选项|说法)/u.test(unquoted);
   if(singleReply)lines.push('用户要一句能发给对方的回复：直接给这一句，语气和内容以用户要求为准。不加开场、使用说明、替代版本或挑选问题；不声称已经替用户发送。');
-  if(isViewExchange(userMessage)) lines.push(isChoiceInvitation(userMessage)
+  // A settled independent preference already has a more specific direction.
+  // Stacking another view-exchange paragraph repeats the same instructions
+  // and makes discussion of the conversational stance crowd out the object.
+  if(!preference&&isViewExchange(userMessage)) lines.push(isChoiceInvitation(userMessage)
     ?'用户邀请你说真实看法：两项里说自己此刻会选哪项，给一个你自己喜欢的理由；这份选择本身足够，不必以日常频次或亲历来证明，也不替用户评选正确答案、分析状态或安排接下来怎么做。用户最后另选一项也正常，不需要你批准或再判对错；确实想聊那项内容可以接话。'
     :unquoted.split(/[。！？!?，,；;\n]/u).some(part=>/^我(?:倒|更|还是|比较|其实|就|偏)?(?:喜欢|偏爱|倾向)/u.test(part.trim()))
     ?'用户在说自己的偏好，也允许你不同。可以继续喜欢自己那种，讲一处你喜欢的细节；对方喜欢另一种，不需要论证谁更懂，也不替他补原因或断言他欣赏不了什么。这里是在交换偏好，不是在给对方挑作品、评分或安排怎么体验。具体事实有分歧仍可说明。'

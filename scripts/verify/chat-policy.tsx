@@ -177,7 +177,7 @@ async function run() {
     ok(stageCalls===2&&hints[1].includes('不是同处一室'),'actual private pipeline retries screenshot staging once with a concrete repair');
     const saved=(await db.messages.toArray()).filter(m=>!beforeStage.has(m.id)&&m.role==='assistant');
     ok(saved.length===1&&saved[0].content==='突然这么认真……我有点开心。','real database stores the repaired reply once without the rejected scene draft');
-    ok(affectionPrompt.includes('不证明你与用户同处一室')&&affectionPrompt.includes('用户直接表达了喜欢')&&!affectionPrompt.includes('用户说得很短，可以只回'),'actual prompt combines ambient limits with affection instead of generic short-reaction padding');
+    ok(affectionPrompt.includes('不证明你与用户同处一室')&&affectionPrompt.includes('用户直接表达了心意')&&!affectionPrompt.includes('用户说得很短，可以只回'),'actual prompt combines ambient limits with affection instead of generic short-reaction padding');
     stageCalls=0;
     webApi.chat.send=async params=>{stageCalls++;params.onDelta?.(stage);await new Promise(resolve=>setTimeout(resolve,60));return {content:stage};};
     await turn(old,'我想你');

@@ -1,4 +1,4 @@
-import {hasExplicitTopicShift,isStandaloneClosing} from './chat-turn-cues';
+import {hasExplicitTopicShift,isStandaloneClosing,requestsCharacterPerspective} from './chat-turn-cues';
 import {isTopicRelated} from './chat-conversation-state';
 
 /** Derive from recent user originals each turn, rather than storing a fictional
@@ -27,5 +27,22 @@ export function conversationalHypothesis(message:string,recentUsers:string[]):st
 
 export function buildHypothesisContext(message:string,recentUsers:string[]):string {
   const premise=conversationalHypothesis(message,recentUsers);
-  return premise?`[正在讨论的假设]\n用户提出的条件：${JSON.stringify(premise)}。本轮仍在这个假设里交换想法；可以给自己的选择、理由和玩笑，改口沿用最新条件。各自选一项不表示共同摆放、购买、见面或已经约定行动；真实计划另按用户明确说的内容。\n[/正在讨论的假设]`:'';
+  return premise?`[正在讨论的假设]\n用户提出的条件：${JSON.stringify(premise)}。本轮仍在这个假设里交换想法；可以给自己的选择、理由和玩笑，改口沿用最新条件。用设想中的例子说明你会怎样选择；已知背景照常保留，尚未提供的具体物品与活动仍属于设想。各自选一项不表示共同摆放、购买、见面或已经约定行动；真实计划另按用户明确说的内容。\n[/正在讨论的假设]`:'';
+}
+
+/** A modal question about this speaker's preference does not put both people
+ * into a fictional scene. In particular, retain real user events around it. */
+export function buildPreferenceProposalContext(message:string,recentUsers:string[]):string {
+  const isChoiceQuestion=(raw:string)=>{
+    const text=raw.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+    if(/^(?:他|她|朋友|同事|如果|假如|假设|翻译|解释|帮我写)/u.test(text))return false;
+    return text.split(/[。！？!?，,；;\n]/u).some(part=>
+      /^(?:那|不过|所以)?你(?:自己)?(?:会|想|更想|愿意)(?:想)?(?:选|吃|看|去)(?:什么|哪(?:个|里|种)?)(?:呢|呀|啊)?$/u.test(part.trim()));
+  };
+  if(isStandaloneClosing(message))return '';
+  const current=isChoiceQuestion(message);
+  const previous=recentUsers[recentUsers.length-1]??'';
+  const continuing=!hasExplicitTopicShift(message)&&requestsCharacterPerspective(message)&&isChoiceQuestion(previous);
+  if(!current&&!continuing)return '';
+  return '[正在交换各自的选择]\n对方在问你想选什么：说自己的偏好与理由就好，用户已讲出的真实情况照常保留。你的选择只是你的想法，不证明用户也选了、正在做、已经邀请你同行，或同意共同安排。可以保留玩笑和亲近，实际行动另按对方明确说的内容。\n[/正在交换各自的选择]';
 }

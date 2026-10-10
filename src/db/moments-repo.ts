@@ -73,7 +73,7 @@ async function generateComment(userId: string, character: Character, moment: Mom
   const personalTodos = await todoRepo.visibleOccurrencesForCharacter(userId, character.id, 3, true).catch(() => []);
   const characterState = await stateRepo.get(character.id, userId).catch(() => undefined);
   const relationshipTone = characterState
-    ? buildRelationshipToneContext(characterState.affinity, characterState.mood, characterState.tierNames)
+    ? buildRelationshipToneContext(characterState.affinity, characterState.mood, characterState.tierNames, character)
     : '';
   const privateContext = `${recalled.text}${personalTodos.length
     ? `\n\n【只分享给你的未完成事项，仅供调整语气，不要在公开评论中提起】\n${personalTodos.map(({ todo, occurrence }) => `- ${todo.title}${occurrence.dueDate !== '9999-12-31' ? `（${occurrence.dueDate}）` : ''}`).join('\n')}`

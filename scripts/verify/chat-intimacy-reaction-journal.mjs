@@ -1,0 +1,24 @@
+import {readFileSync,writeFileSync,appendFileSync,existsSync} from 'node:fs';
+const root='D:/月起云归/VirtuGene/手机版',evidence='release/chat-intimacy-reaction-evaluation-2026-10-10.json';
+if(existsSync(evidence))throw Error('Preserve existing evidence');
+const files=['docs/GUYUENA-LIVE-MIXED-AFFECTION-TRANSFER-R7-2026-10-10.json','docs/GUYUENA-LIVE-ORDINARY-CLOSENESS-TRANSFER-R3-2026-10-10.json'];
+const usage={calls:0,input:0,output:0,total:0};
+const reports=files.map(file=>{
+ const r=JSON.parse(readFileSync(file,'utf8'));if(!r.complete||r.usage.missingUsage||r.rows.some(row=>row.failed||row.calls.some(call=>call.finish!=='stop')))throw Error('Incomplete actual comparison '+file);
+ if(!r.persona.systemPrompt.includes('亲近不靠另讲一件近期发生的事来证明'))throw Error('Current owned intimate direction missing');
+ for(const key of Object.keys(usage))usage[key]+=r.usage[key];return {file,report:r};
+});
+const dialogue=reports[1].report,priorFiles=['R1','R2'].map(revision=>`docs/GUYUENA-LIVE-ORDINARY-CLOSENESS-TRANSFER-${revision}-2026-10-10.json`);
+for(const file of priorFiles){const p=JSON.parse(readFileSync(file,'utf8'));if(!p.complete||JSON.stringify(p.rows.map(row=>row.input))!==JSON.stringify(dialogue.rows.map(row=>row.input)))throw Error('Whole input sequence differs');}
+const path=root+'/聊天验收/古月娜-2026-10-10.md',before=readFileSync(path,'utf8'),marker='## ordinary-closeness-transfer /',start=before.indexOf(marker);
+if(start<0)throw Error('Existing whole group required');
+const next=before.indexOf('\n## ',start+marker.length),end=next<0?before.length:next;
+let block='## ordinary-closeness-transfer / r3（生产对话）\n';
+for(const row of dialogue.rows){block+='\n**chatgpt**：'+row.input+'\n';for(const reply of row.replies)block+='\n**古月娜**：'+reply+'\n';}
+const after=before.slice(0,start)+block.trimEnd()+'\n'+before.slice(end);
+writeFileSync(evidence,JSON.stringify({usage,files,compared:priorFiles,selection:{ordinary:files[1],mixed:'docs/GUYUENA-LIVE-MIXED-AFFECTION-TRANSFER-R1-2026-10-10.json',reason:'Ordinary whole R3 avoids earlier physical co-presence, return-home instructions and again-absent-minded accusation, directly reciprocates longing and closes. Still adds unverified lack of agenda and some extra guidance/questions. Mixed R7 is shorter but adds past mental coincidence, so original R1 remains.'},chat:{path,before,after},retained:'One shorter app-owned intimate reaction: express current affection; no new occasion needed to demonstrate closeness. Existing spouse trust, different opinions, sourced facts and visitor boundary remain.',qualityComplete:false,limits:'Small stochastic samples with previous intervening production changes; no isolated causal proof, no real Lu, Android or long-chat acceptance.'},null,2));
+writeFileSync(path,after);
+appendFileSync(root+'/优化方向/2026-10-10.md','\n\n## 古月娜的亲密回应\n- 缩短自有亲密指导：接心意，一句说清就说一句，不另找近期故事证明亲近；保留自己的主见与打趣分寸。\n- 四轮新组少了盘问、回家接应和共同现场，直接回应想念；整组换R3。混合两轮仍留原R1。\n- 刚才想你、没打算去别处仍无来源，普通回复也有多余追问与安排；继续优化，不称满分。\n');
+appendFileSync(root+'/开发日志/2026-10-10.md',`\n\n## 古月娜亲密指导缩短与跨话题实测\n- 上轮为进展：具体旧稿隔离工具、15边界测试与实际接续/再审已完成，但新回复仍默认问题前提，未接生产。本轮回到人物的生成方向：读取当前CARE亲密反应，原段同时要求说明喜欢哪里、回应喜欢听想法、认真回答、得意与玩笑，可能促使一次接话扩展为新近况。作为待验证假说，改为直接表达本轮心意、一句能说清时说一句，亲近不用另讲近期事件；保留现时偏爱、不过度比较、普通观点不绕告白。只改自有bounded CARE的亲密行，未删身份/配偶信任/访客边界、独立观点、原著喜好事实或其他反应字段，未改共享契约和调用设置。\n- CARE自有标记由既有revise/withCare替换，用户标记外人设不改。人物原文变化会使声音缓存和旧精确审核persona快照失效，这是既有约束；上轮旧quarantine snapshot不得静默用于新原文。本轮没有启用任何历史标记/隔离或新模型审核。\n- Gu mixed-affection R7同两轮：我也想你后仍“刚才正好在想你的事，你就来了”，告别短。无展开家里花草/孩子近况，但无来源过去心念仍存在；完整仍逊于原R1，所以展示不换。普通ordinary-closeness R3四轮同R1/R2输入：拿错钥匙→安静偏好且否认累/生气→喜欢听想法+想念→告别。相较R1少了下次门口喊我、旁边有你的共同现场；相较R2少了又心不在焉的用户习惯推断、想我不用找理由的点评，直接我也想你。第一轮想看表情是愿望而非声称看见，但追问后来还笑、多一点静待/陪聊建议仍有；第三轮“我也没打算去别的地方”仍补无来源日程否定，告别我等你稍多。选择完整R3为本组较好，四轮不拼句，不称事实或完整人味合格。\n- 旧两版之前还有其他生产调整和临时日常指导试验，本次非同一提交严格A/B；模型随机且各前轮生成不同，不能把全部改善独立归因一个亲密行。保留较简洁的表达导向，但完成标准仍未满足。没有本轮Lu新实测，未将Gu结果泛化。\n- chat-expression2200项通过（release/chat-intimacy-reaction-expression-2026-10-10.log）；Gu185断言ALL PASS（release/chat-intimacy-reaction-gu-2026-10-10.log）；类型通过（release/chat-intimacy-reaction-types-2026-10-10.log）。原两条测试仅断言旧段措辞，改为现“打趣是你此刻的偏爱”“一句能说清时就说一句”，保留情境选中与不点评/不比较的要求。Gu资料长度仍在1850限制内。测试证明接线与边界，不能证明模型自然。\n- ${files.join('、')}；release/guyuena-intimacy-reaction-{transfer-}live-2026-10-10.log；${evidence}含原展示全量前后备份、整组比较与用量。输入chatgpt，聊天与简短方向/技术证据分开。session76063已实际poll确认exit1且报告complete/usage/finish完整，exit1来自既有esbuild警告，不重启。\n- 本轮deepseek-flash ${usage.calls}付费调用input${usage.input}/output${usage.output}/total${usage.total}；两轮4597/143/4740，四轮9878/513/10391。每轮一次、无质量重试和隐藏paid摘要/提取/结算，500输出上限、finish stop。actual private与隔离IndexedDB、非流式上游，不是Android或长聊。凭据未输出。\n- 全目标继续，近况/过去心理/日程否定的来源仍有问题，人物差异和长聊需更多证据。6.0.13未改，不打包、不发布、不更新官网下载。\n`);
+appendFileSync(root+'/00-总览.md',`\n- 古月娜亲密指导缩短：2200项、Gu185与类型通过；6调用${usage.total}token，四轮整组R3少盘问和共同现场但仍添日程，混合两轮仍留R1；目标继续。\n`);
+console.log(JSON.stringify({usage,selected:files[1],mixedUnchanged:true,qualityComplete:false}));

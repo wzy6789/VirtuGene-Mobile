@@ -1,0 +1,14 @@
+import {build} from 'esbuild';
+const bundle=await build({entryPoints:['scripts/verify/history-provenance.ts'],bundle:true,write:false,format:'esm',platform:'node'});
+const {markAssistantHistorySources,ASSISTANT_HISTORY_MARKER}=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'));
+let checks=0;const ok=(value,label)=>{if(!value)throw Error(label);checks++;};
+const messages=[{role:'system',content:'独立人物设定'},{role:'user',content:'今天我有点想你。'},{role:'assistant',content:'我也想你。\n---\n最近去了一个地方。',image:'image-ref',sourceMessageIds:['m1','m2']},{role:'assistant',content:[{type:'text',text:'多模态旧回复'}]},{role:'user',content:'那换个话题。'}];
+const before=JSON.stringify(messages),marked=markAssistantHistorySources(messages);
+ok(JSON.stringify(messages)===before,'stored source objects remain unchanged');
+ok(marked[0]===messages[0]&&marked[1]===messages[1]&&marked[4]===messages[4],'system sources and all user utterances retain their exact text and roles');
+ok(marked[2].content===ASSISTANT_HISTORY_MARKER+'\n'+messages[2].content,'old assistant dialogue is preserved under an unverified source marker');
+ok(marked[2].image===messages[2].image&&marked[2].sourceMessageIds===messages[2].sourceMessageIds,'image and source identities remain unchanged');
+ok(marked[3]===messages[3],'unknown multimodal representation is not rewritten');
+ok(markAssistantHistorySources([{role:'assistant',content:''}])[0].content==='','empty replies gain no invented history');
+ok(marked.length===messages.length&&marked.map(m=>m.role).join('/')===messages.map(m=>m.role).join('/'),'turn order and role ownership are preserved');
+console.log(`PASS history-provenance: ${checks} boundary checks; evaluation only`);

@@ -167,7 +167,7 @@ export function inferReplyAction(userText: string, assistantText: string): ChatR
 function preferenceClauses(text: string): string[] {
   const unquoted = text.replace(/[“「『"][^”」』"]*[”」』"]/gu, '');
   if (/^(?:如果|假如|假设|比如|例如)/u.test(unquoted.trim())) return [];
-  return unquoted.split(/[。！？!?\n]/u)
+  return unquoted.split(/[。！!\n]|(?<=[？?])/u)
     // A comma does not end a writing request: its following recipient and
     // content clauses still belong to the material the user wants composed.
     .filter(sentence => !/(?:帮我|请你|替我|给我)(?:写|改写|翻译)|(?:^|[，,；;])\s*(?:现在|这次|先)?(?:写一句|写一段|翻译|改写)/u.test(sentence))
@@ -178,6 +178,8 @@ function preferenceClauses(text: string): string[] {
 
 function updatePreferences(previous: ChatPreferences, text: string): ChatPreferences {
   const next = { ...previous };
+  const currentTask=assessExpressionSignals(text).request
+    &&!/(?:以后|今后|后面|以后都|一直).{0,10}(?:回答|回复|说话|聊天)/u.test(text);
   let signal = false;
   for(const clause of preferenceClauses(text)) {
     const found:Array<{index:number;field:'brevity'|'questionTolerance'|'adviceStyle';value:string}>=[];
@@ -196,6 +198,7 @@ function updatePreferences(previous: ChatPreferences, text: string): ChatPrefere
     scan(/先听我说|只听我说|(?:我)?不想听(?:你)?(?:的)?建议|(?:先)?(?:别|不要|不用|不必)(?:急着)?(?:再)?给(?:我)?建议|(?:不用|不要|别)分析|(?:别|不要|不用)(?:给我|跟我)?(?:讲|说|解释)(?:怎么(?:处理|做|办)|该怎么做)/u,'adviceStyle','listen');
     scan(/给我建议|告诉我怎么办|直接说怎么做/u,'adviceStyle','direct');
     for(const preference of found.sort((a,b)=>a.index-b.index)) {
+      if(currentTask&&preference.field==='brevity')continue;
       if(preference.field==='brevity')next.brevity=preference.value as ChatPreferences['brevity'];
       else if(preference.field==='questionTolerance')next.questionTolerance=preference.value as ChatPreferences['questionTolerance'];
       else next.adviceStyle=preference.value as ChatPreferences['adviceStyle'];
@@ -206,10 +209,14 @@ function updatePreferences(previous: ChatPreferences, text: string): ChatPrefere
   return next;
 }
 
-function adviceForCurrentTopic(text: string): 'listen' | 'direct' | undefined {
+export function adviceForCurrentTopic(text: string): 'listen' | 'direct' | undefined {
   let advice: 'listen' | 'direct' | undefined;
   for (const clause of preferenceClauses(text)) {
-    const directives = [...clause.matchAll(/不是(?:想|要|来)(?:听|让你给|让你提)?建议|不想(?:要|听)(?:你的|你给的)?建议|(?:先|暂时)?(?:别|不要|不用|不必)(?:再|急着)?(?:给我|帮我|替我)?(?:出主意|支招|想办法|提建议)|(?:我)?(?:只是|就是|只想)吐槽(?:一下)?|给我建议|告诉我怎么办|直接说怎么做/gu)];
+    // A person's temporary decision not to solve/analyse this event is not
+    // a request to stop talking, nor a permanent no-advice preference. Anchor
+    // the new forms to a declaration so reports, questions and doubled
+    // negation cannot install this scope.
+    const directives = [...clause.matchAll(/不是(?:想|要|来)(?:听|让你给|让你提)?建议|不想(?:要|听)(?:你的|你给的)?建议|(?:先|暂时)?(?:别|不要|不用|不必)(?:再|急着)?(?:给我|帮我|替我)?(?:出主意|支招|想办法|提建议)|(?:我)?(?:只是|就是|只想)吐槽(?:一下)?|给我建议|告诉我怎么办|直接说怎么做|^(?:但|不过|可是)?(?:我)?(?:现在|今天|这次|暂时)?(?:也|还|先)?不想(?:马上|现在|急着)?(?:分析(?:这件事|原因)?|(?:找|想)?办法|找谁的错|解决这件事)(?:了|吧|啊|呢)?$/gu)];
     for (const match of directives) {
       if (/(?:别|不要|不用|不是|不想).{0,5}$/u.test(clause.slice(0, match.index))) continue;
       advice = /^(?:给我建议|告诉我怎么办|直接说怎么做)$/u.test(match[0]) ? 'direct' : 'listen';
@@ -302,7 +309,7 @@ export function buildChatConversationStateContext(state: Partial<ChatConversatio
   if (prefs.questionTolerance === 'low') lines.push('用户不喜欢连续被提问，优先回应，确实需要时再补问。');
   if (prefs.adviceStyle === 'listen') lines.push('用户更希望先被听见，未经请求不要立刻给解决方案。');
   if (prefs.adviceStyle === 'direct' && current.topicAdvice !== 'listen') lines.push('用户在需要建议时偏好直接、具体的判断。');
-  if (current.topicAdvice === 'listen') lines.push('这件事用户只想吐槽，不是在求建议；就已说出的事情表达你的反应，不替用户分析心理，也不追加休息、放松或处理步骤。用户换题时跟随，后来明确求助时再提供办法。');
+  if (current.topicAdvice === 'listen') lines.push('这件事用户目前不求建议；不想找办法或分析，不等于不想聊这件事。就已说出的事情表达你的反应，不替用户分析心理，也不追加休息、放松或处理步骤。是否继续、停下或换题按用户自己的话，不替他结束话题；后来明确求助时再提供办法。');
   if (current.recentActions.length > 0) {
     lines.push(`最近的交流：${current.recentActions.map((action) => ACTION_LABELS[action] ?? action).join('、')}。只作为上下文，不强制轮换反应或语气。`);
   }

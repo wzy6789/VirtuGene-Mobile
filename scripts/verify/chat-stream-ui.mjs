@@ -80,7 +80,11 @@ try {
   for (const text of ['阳光', '从窗边', '一点点落下来。']) { await test('push', 0, text); await page.waitForTimeout(45); }
   check(await page.evaluate(starts => window.draftNode === document.querySelector('[data-streaming-reply] .vg-message-bubble') && window.streamAnimations === starts, starts), 'token append preserves DOM and never restarts entrance animation');
   check(await page.locator('[data-streaming-reply]').getAttribute('aria-live') === 'off', 'screen reader does not announce every token');
-  await test('push', 0, '---适合出门散散步。'); await page.waitForTimeout(70);
+  await test('push', 0, '---适合出门散散步。');
+  await page.waitForFunction(() => document.querySelectorAll('[data-streaming-reply] .vg-message-bubble').length === 2);
+  // Measure the preview after the newly paced row finishes its entrance,
+  // rather than comparing two different points in that entrance animation.
+  await page.waitForFunction(() => [...document.querySelectorAll('.vg-streaming-part')].every(el => getComputedStyle(el).transform === 'none'));
   check(await page.locator('[data-streaming-reply] .vg-message-bubble').count() === 2 && await page.locator('.vg-stream-caret').count() === 1 && await page.locator('[data-streaming-reply] .vg-message-bubble').last().locator('.vg-stream-caret').count() === 1, 'only the actively growing part carries a caret');
   check(await page.locator('[data-streaming-reply] button').count() === 0, 'unfinished parts expose no premature copy or speech actions');
   await page.screenshot({ path: `${out}/streaming-dark.png` });

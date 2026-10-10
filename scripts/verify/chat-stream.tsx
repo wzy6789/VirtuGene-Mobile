@@ -8,6 +8,7 @@ import { useUIStore } from '../../src/store/ui-store';
 import { webApi } from '../../src/lib/web-api';
 import { fakeCharacter, typeInto, pressEnter } from './world-harness';
 import { ChatReplyStream, streamedReplyParts } from '../../src/lib/chat-stream';
+import { computeMessageDelays, followUpDelay, MAX_TOTAL_DELAY } from '../../src/lib/chat-pacing';
 import { sendMessage } from '../../src/lib/ai/deepseek';
 import { readSseResponse } from '../../src/lib/ai/llm';
 import { gatewayChatStream } from '../../src/lib/ai/gateway';
@@ -105,11 +106,35 @@ async function unitChecks() {
   check(starts === 1 && publishes === 2 && stream.getSnapshot()[0].length === 101, 'burst coalescing without text loss');
   stream.finish('终稿'); check(stream.getSnapshot()[0] === '终稿', 'completion flush'); stream.dispose();
   const four = new ChatReplyStream('four', () => undefined);
+  const arrivals: number[] = [];
+  four.subscribe(() => { if(four.getSnapshot().length > arrivals.length) arrivals.push(performance.now()); });
   four.push('长长的第一条---嗯---啊---长长的第四条');
+  check(four.getSnapshot().length === 1, 'a burst reveals only the first bubble immediately');
   const originalIds = [...four.ids];
-  four.finish('长长的第一条---嗯---啊---长长的第四条---最后');
+  const draining = four.finish('长长的第一条---嗯---啊---长长的第四条---最后');
+  check(four.getSnapshot().length === 1, 'completion does not bypass queued arrival delays');
+  await draining;
   check(four.getSnapshot().join('|') === '长长的第一条|嗯|啊|长长的第四条最后' && four.ids.length === 4 && four.ids.every((id, i) => id === originalIds[i]), 'real stream class preserves four published row identities through overflow');
+  check(arrivals.length===4&&arrivals.slice(1).every((time,index)=>time-arrivals[index]>=followUpDelay(four.getSnapshot()[index])-5), 'all four bubble arrivals have distinct content-aware reading beats');
+  check(arrivals[3]-arrivals[0]<MAX_TOTAL_DELAY+500, 'fast four-bubble delivery stays within the extra waiting budget');
   four.dispose();
+  const longDelays=computeMessageDelays(['长'.repeat(400),'短','长'.repeat(400),'尾']);
+  check(longDelays[0]===0&&longDelays[1]===850&&longDelays[2]<longDelays[1]&&longDelays.reduce((a,b)=>a+b,0)<=MAX_TOTAL_DELAY,'ready first bubble is immediate and long messages have a bounded reading beat');
+  check(JSON.stringify(longDelays)===JSON.stringify(computeMessageDelays(['长'.repeat(400),'短','长'.repeat(400),'尾'],{reducedMotion:true,alreadyElapsedMs:10000})),'reduced motion preserves social pacing without another first-bubble delay');
+  const slow=new ChatReplyStream('slow',()=>undefined);
+  slow.push('嗯'); await new Promise(resolve=>setTimeout(resolve,500));
+  slow.push('嗯---继续。'); await new Promise(resolve=>setTimeout(resolve,45));
+  check(slow.getSnapshot().length===2,'slow model generation is credited rather than followed by another artificial pause');
+  await slow.finish(); slow.dispose();
+  const cancelled=new ChatReplyStream('cancelled',()=>undefined);
+  cancelled.push('已看到。---尚未看到。---也未看到。');
+  const cancelDrain=cancelled.finish(); cancelled.stop(); await cancelDrain;
+  cancelled.push('不该再出现。'); await new Promise(resolve=>setTimeout(resolve,450));
+  check(cancelled.getSnapshot().join('|')==='已看到。','stop cancels final draining and never flushes hidden bubbles or late tokens');
+  cancelled.dispose();
+  const disposed=new ChatReplyStream('disposed',()=>undefined);
+  const disposeDrain=disposed.finish('一---二'); disposed.dispose(); await disposeDrain;
+  check(disposed.getSnapshot().length===1,'disposing clears the reveal queue and releases completion waiters');
   const bytes = encoder.encode(frame('你好🌙') + 'data: [DONE]\r\n\r\n');
   const seen: string[] = [];
   const parsed = await readSseResponse(new Response(new ReadableStream({ start(c) { for (const byte of bytes) c.enqueue(new Uint8Array([byte])); c.close(); } })), all => seen.push(all));
@@ -143,7 +168,22 @@ async function unitChecks() {
 }
 
 (window as any).chatStreamTest = { setup, switchTo, submit, push, finish, unitChecks,
+  useReviewedCharacter: async (sourcePresetId: 'preset-guyuena' | 'preset-luxueqi', systemPrompt?:string) => {
+    const character = { ...(await db.characters.get('a'))!, name: sourcePresetId === 'preset-luxueqi' ? '陆雪琪' : '古月娜', sourcePresetId, ...(systemPrompt?{systemPrompt}: {}) };
+    await db.characters.put(character);
+    useChatStore.setState({ characters: useChatStore.getState().characters.map(c => c.id === 'a' ? character : c) });
+  },
   useCompleteResponses: (values:string[]) => {completeResponses=[...values];},
+  seedMemory: async () => {
+    const memory={id:'delivery-memory',userId:uid,characterId:'a',content:'用户喜欢海边星空。',type:'auto' as const,memoryKind:'preference' as const,pinned:true,confidence:1,createdAt:Date.now()};
+    await db.memories.add(memory); return memory.id;
+  },
+  deliveryMemory: () => db.memories.get('delivery-memory'),
+  seedUserImage: async (image:string) => {
+    const source:Message={id:crypto.randomUUID(),sessionId:'a',role:'user',content:'看这张图。',image,createdAt:Date.now()-1000,isProactive:false};
+    await db.messages.add(source);
+    useChatStore.setState({messages:await db.messages.where('sessionId').equals('a').sortBy('createdAt')});
+  },
   completeRequests: () => completeRequests,
   fail: (index: number) => requests[index].controller.error(new TypeError('connection lost')),
   records: (session = 'a') => db.messages.where('sessionId').equals(session).sortBy('createdAt'),

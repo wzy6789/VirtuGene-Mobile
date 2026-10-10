@@ -1,0 +1,17 @@
+import {readFileSync,writeFileSync,appendFileSync,existsSync} from 'node:fs';
+const root='D:/月起云归/VirtuGene/手机版';
+const evidence='release/chat-voice-scene-coverage-2026-10-10.json';
+if(existsSync(evidence))throw Error('Already recorded');
+if(!readFileSync('release/expression-voice-scene-coverage-final-2026-10-10.log','utf16le').includes('PASS chat-expression: 1794 checks'))throw Error('Checks incomplete');
+const file='docs/GUYUENA-LIVE-SPOILER-CHOICE-TRANSFER-R4-2026-10-10.json';
+const report=JSON.parse(readFileSync(file,'utf8'));
+if(!report.complete||report.usage.calls!==3||report.usage.missingUsage)throw Error('Incomplete live evidence');
+const extractCard=row=>{const s=row.calls[0].messages.find(m=>m.role==='system').content;return s.slice(s.lastIndexOf('[人物声音卡]'),s.lastIndexOf('[/人物声音卡]')+'[/人物声音卡]'.length);};
+const previous=JSON.parse(readFileSync('docs/GUYUENA-LIVE-SPOILER-CHOICE-TRANSFER-R3-2026-10-10.json','utf8'));
+const oldCard=extractCard(previous.rows[1]),newCard=extractCard(report.rows[1]);
+if(!oldCard.includes('今天就是想你了')||newCard.includes('声音样本'))throw Error('Unexpected actual prompt selection');
+writeFileSync(evidence,JSON.stringify({input:report.rows[1].input,oldCard,newCard,overlap:['是想'],change:'Require corroborating overlap and minimum example coverage; exact matches and existing explicit scene analogies retain priority; short topical examples remain eligible.',usage:report.usage,source:file,curation:{selected:'docs/GUYUENA-LIVE-SPOILER-CHOICE-TRANSFER-R1-2026-10-10.json',reason:'R4 remains a complete three-turn raw variant. Its second response appraises patience, generalizes that such people are uncommon, then grants permission and asks an unnecessary question. R1 is still relatively better; do not splice the stronger first R4 response into it.'},scope:'Actual prompt contamination fixed; no proof of stable human-quality improvement or causality'},null,2));
+appendFileSync(root+'/优化方向/2026-10-10.md','\n\n## 声音样本选取\n- 普通聊故事竟因共有“是想”两字选中告白样本，已收紧弱匹配；真实请求确认移除，保留明确同话题与情境类比。\n- 新Gu三轮仍有评价和许可口吻，展示继续留较好的完整R1，Lu也补本地检查；不认定人味达标。\n');
+appendFileSync(root+'/开发日志/2026-10-10.md',`\n\n### 声音样本弱相关误选\n- 排查真实R3请求发现：第二轮碰巧知道结局的澄清，声音卡注入“今天就是想你了”样本。现有interactionMoment把该长亲密表达视为ordinary，topicTerms仅共有“是想”，selectVoiceExamples只要求相关度>0便入选。\n- 修改chat-emotional-expression：长样本需至少两个匹配项且覆盖率>=25%；仅两项以内的短样本仍可由一个主题词匹配，完整原话与原有无害失误情境类比照常。不是扩大角色关键词词表，不改用户人设；字符重叠仍不能完整证明语义相关，情境识别漏判也未宣称全部修复。\n- 1794表达检查与类型通过；新增10项覆盖故事澄清、图色与参数问法不误选亲密例句，Gu/Lu实际声音卡仍保留作者判断字段，短下雨例句仍匹配。原有晚位主题、完整亲密原话、称呼归属、情境类比检查通过。证据release/expression-voice-scene-coverage-final-2026-10-10.log；scripts/verify/chat-scene-rank-audit.mjs本地输出确认旧重叠只“是想”，当前选择空。\n- Gu三轮新生成，input7124/output377/total7501，3调用，deepseek-flash，单次500上限，usage完整、stop、无重试；非流式隔离实际发送/IndexedDB，摘要/提取/结算替身，非Android。凭据未输出或落盘。R4实际请求不再含亲密样本，但第二轮仍说耐心/这种人不多/随你并追问故事是否选好；没有稳定收益结论。证据${file}与release/guyuena-voice-scene-coverage-2026-10-10.log；${evidence}保存真实前后卡、用量和完整比较理由。\n- 本轮不再为Lu重复同场景付费；共用选择器与Lu本地实际卡检查适用，不宣称新Lu真实表现。Gu整组R1仍相对最佳，不混入R4的较好首句；原稿全保留。无新增Obsidian聊天重复组。Gu连续503展示/84回放/421付费，input1321590/output49704/total1371294；本日连续155请求412693，冻结20/51217、独立3/7695不变。\n- 批准/评价口吻、语义接续与长聊辨识度仍未达标，目标继续。6.0.13不变，未打包/发布/改官网。\n`);
+appendFileSync(root+'/00-总览.md','\n- 声音样本弱匹配修复：1794项通过，实际请求确认无关亲密样本已移除；真实人味仍待继续优化，证据与用量见手机版日志。\n');
+console.log(JSON.stringify({usage:report.usage,actualCardFixed:true,wholeSceneKept:'r1',qualityComplete:false}));

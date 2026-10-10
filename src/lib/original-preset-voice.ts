@@ -3,6 +3,7 @@ type PresetVoiceRevision={replace:Array<[string,string]>;voice:string};
 
 /** Exact shipped card text only; user-authored openings and signatures win. */
 export function reviseOriginalPresetCard(card:{greeting:string;signature:string},presetId:string):{greeting:string;signature:string} {
+  if(presetId==='preset-luxueqi'&&card.greeting==='我是陆雪琪。你找我，有什么话想说？')return {...card,greeting:'何事？'};
   if(presetId!=='preset-socrates')return {greeting:card.greeting,signature:card.signature};
   return {
     greeting:card.greeting==='喵。你来了。那就……从"你是谁"这个问题开始吧。'?'喵，来啦。今天想听点有意思的。':card.greeting,

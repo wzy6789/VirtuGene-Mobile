@@ -18,7 +18,7 @@ try {
   await page.goto('http://127.0.0.1:' + server.address().port);
   await page.waitForFunction(() => !!window.luXueQiTest);
   const result = await page.evaluate(() => window.luXueQiTest.run());
-  writeFileSync('docs/LUXUEQI-PRESET-R3-2026-10-09.json', JSON.stringify(result, null, 2));
+  writeFileSync('docs/LUXUEQI-PRESET-FINAL-2026-10-10.json', JSON.stringify(result, null, 2));
   console.log(`PASS luxueqi-preset: ${result.checks} local integration checks; zero model calls`);
 } finally {
   await browser?.close(); await new Promise(resolve => server.close(resolve));

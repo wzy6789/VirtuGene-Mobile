@@ -1,0 +1,23 @@
+import {readFileSync,writeFileSync,appendFileSync} from 'node:fs';
+const root='D:/月起云归/VirtuGene/手机版';
+const sources=['docs/GUYUENA-LIVE-STANDALONE-CHOICE-HOLDOUT-R2-2026-10-10.json','docs/LUXUEQI-LIVE-STANDALONE-CHOICE-HOLDOUT-R2-2026-10-10.json'];
+const reports=sources.map(path=>JSON.parse(readFileSync(path,'utf8')));
+if(reports.some(r=>!r.complete||r.rows.length!==2||r.usage.missingUsage||r.rows.some(row=>row.failed||row.calls.at(-1)?.finish!=='stop')))throw Error('Complete paired R2 evidence required');
+if(!readFileSync('release/chat-choice-voice-2026-10-10.log','utf16le').includes('PASS chat-expression: 2693'))throw Error('Local checks missing');
+if(readFileSync('release/chat-choice-voice-types-2026-10-10.log','utf16le').replace(/^\uFEFF/,'').trim())throw Error('Typecheck not clean');
+const usage=reports.reduce((s,r)=>({calls:s.calls+r.usage.calls,input:s.input+r.usage.input,output:s.output+r.usage.output,total:s.total+r.usage.total}),{calls:0,input:0,output:0,total:0});
+const guSystem=reports[0].rows[0].calls[0].messages.find(m=>m.role==='system')?.content??'';
+if(!guSystem.includes('声音样本（只学说法，不当作真实经历）：对话样本：用户说你偏爱热闹还是安静'))throw Error('Actual payload did not include selected actor voice');
+const path=root+'/聊天验收/古月娜-2026-10-10.md',before=readFileSync(path,'utf8'),heading='## standalone-choice-holdout / r2（生产对话）';
+const transcript=reports[0].rows.map(row=>'**chatgpt**：'+row.input+'\n\n'+row.replies.map(reply=>'**古月娜**：'+reply).join('\n\n')).join('\n\n');
+const after=before.includes(heading)?before:before+'\n\n'+heading+'\n\n'+transcript+'\n';
+const evidence='release/chat-choice-voice-evaluation-2026-10-10.json';
+writeFileSync(evidence,JSON.stringify({sources,usage,checks:2693,typeCheck:true,qualityComplete:false,selection:{guyuena:sources[0],luxueqi:'docs/LUXUEQI-LIVE-STANDALONE-CHOICE-HOLDOUT-R1-2026-10-10.json'},chat:{path,before,after},findings:['Use actor-owned existing direct two-option voice examples as a light conversational analogy; exact topic still wins. No generated samples or persona rewrite.','Verified actual Gu upstream system contains the quiet-versus-lively sample; hypothetical Lu outing is not promoted into an unrelated direct choice.','Gu R2 retains the same choice with concrete story reasons, no previous reader-type or patience-trait framing; full group selected.','Lu R2 adds an unsolicited offer to read user writing; keep cleaner R1 whole group rather than replacing it or splicing.','Paired two-turn samples cannot prove causality, stable voices or long-chat quality. Book taste is present character choice, not a verified novel preference.','Reports, conditions and ordinary other contexts are excluded from the new analogy; existing directly topical examples still work as before.','No extra model review, extraction or summary calls; no version, package or publication change.']},null,2)+'\n');
+writeFileSync(path,after);
+const log=root+'/开发日志/2026-10-10.md',logHeading='## 声音样本按交流方式轻量匹配';
+if(!readFileSync(log,'utf8').includes(logHeading)){
+ appendFileSync(log,`\n${logHeading}\n- 上轮是真实进展：独立偏好问句已进入ownPerspective，Gu仍以读者类型与耐性描述理由。当前读selectVoiceExamples/characterVoiceLines/原样本与实际请求发现：Gu有安静与热闹二选表达样本，但未见新主题书籍关键词时没有任何声音示例进入卡；只靠判断指令生成。\n- 新轻量同交流方式匹配：当前明确普通二选问句可选人物自己已有直接二选示例（0.4弱分，精确原话2、旧mishap0.9仍在），不生成新样本、不补事实、不改用户人设。只学怎么说选择，不规定答案或把样本喜好当新话题偏好；同主题精确样本优先。转述、条件与写作不启新跨题匹配，源样本为假设同行也不作普通选择模板。原直接topical规则保留，不能误称相关假设场景完全不许参考。\n- 新10项选择类比/同题优先/六类不相干场景/假设同行不借用/实际Gu卡接线，共2693项通过，类型通过：release/chat-choice-voice-2026-10-10.log、release/chat-choice-voice-types-2026-10-10.log。首测试误将相关安静/热闹条件问句应无样本作为预期，与原topical规则冲突；改为真正不相关条件读故事测试，未为绿测试禁掉正常topic检索。身份冷淡和隔离既有检查仍过。\n- 同standalone-choice-holdout两轮R2实际Gu系统消息已见安静/热闹示例，Lu无普通直接二选示例，假设下山样本未进入。Gu长篇选择和第二轮具体人物变化/关系展开理由保留，没再说读短篇的人更挑或我是没那个耐心；偏好对话更清楚，但短篇给不了这个仍是一种较强断言，非普遍事实。LuR2新增你要写长的我也看，用户未谈写作，非假已发生却岔题；保留已有更干净完整R1。不因新版本号替换较好组，不拼句。\n- ${sources.join('、')}全部原稿/请求/上屏/用量保留；${evidence}含实际payload接线、选GuR2与留LuR1判断、精选前后。GuR1原本没精选，现只添加整组R2；Lu该组R1原记录不动。聊天chatgpt/角色/场景，与优化分开，电脑版不改。未修改原著事实或存储人设。\n- deepseek-flash ${usage.calls}实际调用/input ${usage.input}/output ${usage.output}/total ${usage.total}（Gu5258、Lu7429），complete/final stop/usage齐，无真实重试、无付费审查/提取/摘要。仅一组每版，样本随机性仍在，不能作因果证明。\n- 下一步仍需更多不重复题材与长聊，防类比导致答案照搬、倾听套句与观点趋同。整体近真人与原著广泛熟悉度尚未达标。6.0.13不变，无打包发布。\n`);
+ appendFileSync(root+'/优化方向/2026-10-10.md','\n## 声音样本按交流方式\n- 新话题也能参考人物已有选择表达，学说法不搬答案。\n- 不借假设同行做普通偏好模板，同题样本优先。\n- Gu整组更自然；Lu保留较干净旧整组，不拼版本。\n');
+ appendFileSync(root+'/00-总览.md',`\n- 声音样本选择匹配：2693项/类型过，${usage.calls}调用/${usage.total}token，实际Gu声音卡接线；选Gu完整R2，Lu留完整R1。短测进展非长聊证明，无发布。\n`);
+}
+console.log(JSON.stringify({usage,evidence,qualityComplete:false}));

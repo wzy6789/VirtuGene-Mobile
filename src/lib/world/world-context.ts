@@ -234,7 +234,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     perCharacter[characterId] = {
       ...(characterState ? {
         characterStateContext: [
-          buildRelationshipContext(characterState.affinity, characterState.mood, characterState.tierNames),
+          buildRelationshipContext(characterState.affinity, characterState.mood, characterState.tierNames, params.characters.find(character=>character.id===characterId)),
           buildStoryRelationContext(characterState, params.characters),
         ].filter(Boolean).join('\n'),
         ...(carryMemory ? { characterLifeContext: buildLifeContext(characterState) } : {}),

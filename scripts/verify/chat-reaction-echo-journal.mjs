@@ -1,0 +1,19 @@
+import {readFileSync,writeFileSync,appendFileSync,existsSync} from 'node:fs';
+const root='D:/月起云归/VirtuGene/手机版',evidence='release/chat-reaction-echo-evaluation-2026-10-10.json';
+if(existsSync(evidence))throw Error('Do not overwrite evidence');
+const files=['R5','R6'].map(revision=>`docs/GUYUENA-LIVE-MIXED-AFFECTION-TRANSFER-${revision}-2026-10-10.json`);
+const usage={calls:0,input:0,output:0,total:0};
+const reports=files.map(file=>{
+ const r=JSON.parse(readFileSync(file,'utf8'));if(!r.complete||r.usage.missingUsage||r.rows.length!==2||r.rows.some(row=>row.failed||row.calls.some(call=>call.finish!=='stop')))throw Error('Incomplete actual evidence '+file);
+ for(const key of Object.keys(usage))usage[key]+=r.usage[key];
+ const system=r.rows[0].calls[0].messages.find(message=>message.role==='system')?.content??'';
+ if(!system.includes('人物情境反应（具体设定优先，仅影响表达）：亲密反应：'))throw Error('Trial did not retain complete selected reaction card');
+ return {file,usage:r.usage,hasReactionMeta:system.includes('优先按人物写明的情境反应表达'),hasBalconySource:system.includes('阳台')||system.includes('花草')};
+});
+if(reports[0].hasReactionMeta||!reports[1].hasReactionMeta||reports[1].hasBalconySource)throw Error('Trial/source scope differs; reconsider conclusions');
+const chats=['古月娜','陆雪琪'].map(name=>({path:`${root}/聊天验收/${name}-2026-10-10.md`,content:readFileSync(`${root}/聊天验收/${name}-2026-10-10.md`,'utf8')}));
+writeFileSync(evidence,JSON.stringify({usage,reports,chatSnapshots:chats,chatChanged:false,selected:'Existing whole Gu R1 and Lu R3 remain unchanged.',retained:'Only exact complete copied judgment fields authorize head compaction; an embedded quote/sample cannot substitute. Reaction compaction and removal of authored-reaction priority meta guidance both reverted.',qualityComplete:false},null,2));
+appendFileSync(root+'/优化方向/2026-10-10.md','\n\n## 重复指导实验\n- 人物反应去重与引导简化实测未改善，均撤回；保留原整组展示。\n- 无来源近况会在下一轮变成继续聊的材料，事实与接续需要一起处理。\n- 判断去重改为完整字段匹配，引用里含相同文字不能授权删除；人物原文保持。\n');
+appendFileSync(root+'/开发日志/2026-10-10.md',`\n\n## 反应指导重复的隔离实验与撤回\n- 上轮为进展：观点提示试验撤回，诊断来源审核分类从1/4到4/4，仍有多余主观证明且未接生产。本轮读取actual private拼装、guYueNaPromptForTurn、authoredReactionLines、emotionalExpressionGuidance、compactOwnedJudgmentEcho。选中的完整“亲密反应”既在head又在尾部voice card，另有“本轮涉及…”元指导；推测可能形成表演压力，但先按假说而非事实处理。\n- 第一实验R5：精确完整反应去重与删除已有具体反应时的泛化优先元指导，两项一起；Gu同mixed-affection两轮，首轮仍“最近一直想元素/血脉、翻了不少东西”，还邀晚上吃饭，未证明改善。恢复元指导后第二实验R6隔离反应去重，实际首轮编“最近家里安静”、阳台花草与共同评价“你大概又说我折腾”，第二轮继续“阳台的花先不折腾”，错误内容进入后续回复。读取首轮实际系统，确认阳台/花草无来源，不把它冒称已有生活记录。R5尾卡仍完整反应但无优先元指导，R6有尾卡与恢复元指导。随机性与新首轮造成后续环境变化，不能宣称移除一个重复行必然产生这些错误；两实验均未证明目标收益，因此都撤回。\n- 当前生产恢复原反应head/card与原情绪元指导。只保留原判断去重的更严格匹配：原includes会把“声音样本：判断习惯完整原文”或“补充引述完整原文”算成实际独立字段；现在按卡中完整“ / ”分隔字段精确相等，完整复制才授权去重，不删除引用/样本/截断/多卡/其他角色或用户编辑Lu原文。没有扩大到其他人物、其他链路或新事实；没有新增paid审核生产层。\n- 测试新增16项反应保留/边界和6项判断嵌入负例，最终2200项通过（release/chat-reaction-echo-restored-expression-2026-10-10.log），类型通过（release/chat-reaction-echo-restored-types-2026-10-10.log）。实验前2194项通过与类型保存。两次中间失败是旧断言要求元提示字样，实验时曾改成检查实际尾卡优先，最终恢复元指导后旧断言完整恢复，不删保护；失败release/chat-reaction-echo-expression及r2日志保留，测试不等于人味评分。\n- 原稿${files.join('、')}；release/guyuena-reaction-echo-{final-}live-2026-10-10.log。两轮实际private与隔离IndexedDB，非流式上游，摘要/提取/结算替身，每轮一次、500输出上限、finish stop、usage完整。每个原report独立保留，不拼句，不把更短的告别替代整组质量。现有Gu R1、Lu R3展示不变，${evidence}含现有聊天原样快照、范围核对与用量。\n- 本轮deepseek-flash付费${usage.calls}次input${usage.input}/output${usage.output}/total${usage.total}；R5 4567/274/4841，R6 4604/306/4910。凭据未打印，不因esbuild warning exit1重启。本轮没有实际Lu新对话，不能把Gu实验扩成Lu真实结论。\n- 目标未达标；进一步需证明自发话题同时自然且有来源，并避免失败稿中的生活细节成为后续“事实”。原话、简短方向、技术与用量分开，输入chatgpt；6.0.13不变，没有打包、发布或官网下载更新。\n`);
+appendFileSync(root+'/00-总览.md',`\n- 反应重复实验：两版未改善已撤回，保留完整字段去重保护；2200项与类型通过，4调用${usage.total}token，原展示不变，虚构内容后续沿用仍开放。\n`);
+console.log(JSON.stringify({usage,chatChanged:false,retained:'exact complete judgment matching',qualityComplete:false}));

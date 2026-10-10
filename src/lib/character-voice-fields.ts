@@ -1,7 +1,7 @@
 /** Read explicit authored voice fields without inferring personality from prose. */
 export const JUDGMENT_FIELDS = ['判断习惯','价值观','在意的事','关心方式','分歧与失败'] as const;
 export const ADDRESS_FIELDS = ['称呼','称谓'] as const;
-export const REACTION_FIELDS = ['情境反应','被夸反应','分歧反应','道歉修复','亲密反应','疲惫回应','庆祝反应'] as const;
+export const REACTION_FIELDS = ['情境反应','被夸反应','分歧反应','道歉修复','亲密反应','疲惫回应','受挫回应','庆祝反应'] as const;
 const FIELDS = new Set<string>([...JUDGMENT_FIELDS,...ADDRESS_FIELDS,...REACTION_FIELDS]);
 export interface AuthoredVoiceField { field:string; value:string; line:string }
 

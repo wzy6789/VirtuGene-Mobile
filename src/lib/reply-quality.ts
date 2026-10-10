@@ -6,6 +6,7 @@
 import { collapseChatNewlines } from './ai/text';
 import { normalizeChatParagraphBoundaries } from './chat-pacing';
 import {requestsRepetition,isQuestionReaction} from './chat-turn-cues';
+import {requestsBriefReply} from './chat-reply-size';
 export {requestsRepetition} from './chat-turn-cues';
 
 export type ReplyIssue =
@@ -107,13 +108,65 @@ const OVER_STRUCTURED_PATTERNS: RegExp[] = [
   /(^|\n)\s*[-*•]\s+/m,
 ];
 
-/** 明确要长内容时不限制；普通闲聊超过这个长度先让模型收束一次。 */
-const LONG_FORM_REQUEST = /详细|解释|分析|教程|步骤|整理|总结|长一点|展开|写一篇|创作/;
+/** A task or reply-size instruction, rather than a word in the current topic. */
+const LONG_FORM_ACTION = /详细|解释|分析|教程|步骤|整理|总结|长一点|展开|写一篇|创作/u;
 const MAX_CONVERSATIONAL_REPLY_CHARS = 180;
 
 export function isLongFormRequest(message: string): boolean {
-  return message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').split(/[。！？!?，,；;\n]/u)
-    .some(clause=>LONG_FORM_REQUEST.test(clause)&&!/(?:别|不要|不用|无需|不需要|不是要).{0,8}(?:详细|解释|分析|教程|步骤|整理|总结|长一点|展开|写一篇|创作)/u.test(clause));
+  const text=message.replace(/“[^”]*”|「[^」]*」|『[^』]*』|"[^"]*"|‘[^’]*’|'[^']*'/gu,'');
+  let longForm=false;
+  for(const sentence of text.split(/[。！？!?；;\n]/u)){
+    const reported=/^(?:他|她|他们|她们|朋友|同事|老师|孩子).{0,30}(?:说(?=要|让|请|希望|[：:，,]|$)|让|希望|要求|叫)/u.test(sentence.trim());
+    const discussing=/更喜欢|喜欢.*吗|你会(?:先|不会)|的时候|也没关系/u.test(sentence);
+    for(const raw of sentence.split(/[，,]/u)){
+      const clause=raw.trim()
+        .replace(/^(?:(?:但|不过|还是|等等|现在|那么|这次|先|再|然后|之后|算了|其实|所以|那)[，,\s]*)+/u,'')
+        .replace(/^今天(?=请|麻烦|帮我)/u,'')
+        .replace(/^轮到我问你[：:]\s*/u,'');
+      if(!clause)continue;
+      const ownRequest=/^我(?:现在|这次|也|还是)?(?:(?:想|希望|需要)(?:请你|让你|你|听(?:你)?(?=详细|解释|分析|展开)|要你)|请你|要你)/u.test(clause);
+      // Unquoted reported speech and hypothetical activities keep their source.
+      // An explicit later request by the current speaker can still take over.
+      if(reported&&!ownRequest)continue;
+      if(/^(?:如果|假如|假设|要是|比如|例如)/u.test(clause))continue;
+      // A short conclusion may accompany a detailed body; a new global short
+      // instruction instead replaces the earlier request for a long answer.
+      const localShort=/^(?:然后|再).*(?:结论|标题|摘要)|^(?:结论|结尾|标题|摘要)(?:请|只|用)/u.test(raw.trim());
+      if(!localShort&&(requestsBriefReply(clause)
+        ||/^(?:请|你|麻烦你)?(?:只(?:用|需|要)?|用)?(?:一句话|一两句|一句|两句).*(?:告诉我|回答|回复|说|就好|就行)/u.test(clause)
+        ||/^(?:请|你)?只(?:说|讲|回答|回复)(?:一句话|一两句|一句)(?:就好|就行|吧|$)/u.test(clause)
+        ||/^(?:请|你)?(?:先|暂时|现在)?(?:别|不要)说(?:了|下去)/u.test(clause)
+        ||/^(?:请|你)?(?:不用|别|不要|无需|不需要)(?:再)?(?:展开|详细(?:解释|说|讲)?|写长|写一篇)/u.test(clause))){
+        longForm=false;
+        continue;
+      }
+      if(!LONG_FORM_ACTION.test(clause))continue;
+      if(/(?:别|不要|不用|无需|不需要|不是要|不是让|不想让|不希望).{0,24}(?:详细|解释|分析|教程|步骤|整理|总结|长一点|展开|写一篇|创作)/u.test(clause)
+        &&!/不要只(?:总结|说|讲)/u.test(clause))continue;
+      // Physical tidying is a life action, including when someone asks for it.
+      // Asking for its tutorial, plan, or steps is a separate writing task.
+      if(/整理(?:一下|好|完|过)?(?:屋子|房间|衣柜|旧物|杂物|行李|床铺|书桌|箱子|抽屉|书架)/u.test(clause)
+        &&!/(?:教程|步骤|方案|建议|方法)/u.test(clause))continue;
+      const requestPrefix=/^(?:我(?:现在|这次|也|还是)?(?:(?:想|希望|需要)(?:请你|让你|你|听(?:你)?|要你)|请你|要你)|请(?:你)?|麻烦(?:你)?|帮我|给我|替我|为我|你(?:能不能|可不可以|可以|能)|能不能|可不可以|可以|能)/u;
+      const requestBody=clause.replace(requestPrefix,'')
+        .replace(/^(?:(?:先|再|现在|这次|好好|仔细|认真|帮我|给我|替我|为我))+/u,'');
+      const requestedAction=/^(?:详细(?:地)?(?:解释|分析|说|讲|介绍|说明|展开|写)|解释|分析|整理|总结|创作|写(?:一篇|长(?:一)?点)|展开(?:说|讲|谈)|(?:说|讲|回答)(?:得)?详细(?:一)?点|(?:详细|长)(?:一)?点|教程|步骤|(?:一份|一套|一个).{0,24}(?:教程|步骤))/u.test(requestBody);
+      const delivery=/^(?:把|将).{1,80}(?:列给我|写给我|发给我|展开(?:说|讲)|详细(?:解释|分析)|整理成(?:一份|一个|一套))/u.test(requestBody);
+      const ownArtifact=/^我(?:想|需要|希望)(?:要|得到)?(?:一份|一套|一个).{0,24}(?:教程|步骤|分析|总结)/u.test(clause);
+      const addressed=requestPrefix.test(clause)&&requestedAction||delivery||ownArtifact;
+      const objectRequest=/^(?:这(?:个|部分|一点|段|道题)|那(?:个|部分|一点|段)|其中|理由|原因|细节|背景|过程|内容)(?:请|能|可以)?(?:详细|解释|分析|展开)/u.test(clause);
+      const indicative=/^(?:详细(?:地)?)?(?:解释|分析|总结|整理|创作)(?:过|了|完|得|着|起来|出来)/u.test(clause)
+        ||/(?:也|并不|很|不)(?:容易|简单|轻松|困难|重要)[吧啊呀]?$/u.test(clause)
+        ||/(?:的|过)(?:人|朋友|同事|老师|孩子)(?:都|也|很|挺|不|$)/u.test(clause)
+        ||/也没关系$/u.test(clause);
+      const commandEnding=/(?:一下|一遍|吧|好吗|可以吗)$/u.test(clause);
+      const explicitSpeech=/^(?:展开(?:说|讲|谈)|详细(?:地)?(?:解释|分析|说|讲|介绍|展开|写))/u.test(clause);
+      const imperative=!indicative&&(!discussing||commandEnding||explicitSpeech)
+        &&/^(?:详细(?:地)?(?:解释|分析|说|讲|介绍|展开|写)|解释|分析|总结|整理|创作|写一篇|展开(?:说|讲|谈)|(?:说|讲|写|回答)(?:得)?(?:详细|长一点)|(?:详细|长)(?:一)?点(?:吧|好吗|好不好|可以吗|$))/u.test(clause);
+      if(!indicative&&(addressed||objectRequest||imperative))longForm=true;
+    }
+  }
+  return longForm;
 }
 
 const RETRY_HINTS: Record<ReplyIssue, string> = {
@@ -201,6 +254,11 @@ export function checkReplyQuality(
     .map((part) => part.trim())
     .filter(Boolean);
   const longestBubble = bubbles.reduce((max, bubble) => Math.max(max, bubble.length), 0);
+  const totalChars=bubbles.reduce((sum,bubble)=>sum+bubble.length,0);
+  if(requestsBriefReply(userMessage)&&!isLongFormRequest(userMessage)
+    &&(totalChars>140||totalChars>100&&bubbles.length>2)){
+    return {ok:false,issue:'too-long',retryHint:'用户这次明确要求简单、简短，刚才展开太多。保留够用的核心回答和必要的关键说明，用人物自己的话说清；不再加教程、替代方案、总结或可有可无的追问。不截断事实或安全必需的信息，确实缺关键信息时简短问清。'};
+  }
   if (!isLongFormRequest(userMessage) && longestBubble > MAX_CONVERSATIONAL_REPLY_CHARS) {
     return { ok: false, issue: 'too-long', retryHint: RETRY_HINTS['too-long'] };
   }

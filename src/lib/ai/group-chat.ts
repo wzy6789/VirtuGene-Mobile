@@ -16,6 +16,7 @@ import { recordQualityEvent } from '../chat-quality-metrics';
 import { useAuthStore } from '../../store/auth-store';
 import { emotionalExpressionGuidance } from '../chat-emotional-expression';
 import { directChatGuidance } from '../chat-expression-boundary';
+import {ownedPartnerContext,ownedPartnerRecognition,type OwnedPartnerRole} from '../chat-owned-identity';
 
 export interface GroupMemberBrief {
   id: string;
@@ -24,6 +25,7 @@ export interface GroupMemberBrief {
   publicPersona?: string;
   persona: string;
   voiceCard?: string;
+  distantVoiceCard?: string;
   catchphrase?: string;
   tags?: string[];
   /** 当前群全体成员都可知的共同资料；不能放入某一成员的私聊或私密状态。 */
@@ -32,6 +34,8 @@ export interface GroupMemberBrief {
   privateMemory?: string;
   /** Actor-only relationship / mood cue, used only to shape this speaker's voice. */
   relationshipContext?: string;
+  /** Verified owned source only; group user identity is resolved actor-locally. */
+  storyPartnerRole?: OwnedPartnerRole;
   /** 与这段共享资料对应的准确本地来源，仅供消息溯源，不拼进模型提示词。 */
   memoryReferences?: { source: 'chat' | 'group' | 'world' | 'moment' | 'todo' | 'diary'; id: string }[];
 }
@@ -230,10 +234,14 @@ async function generateActorReply(
   const relationship = includePrivate && member.relationshipContext
     ? `\n\n${member.relationshipContext}`
     : '';
-  const feeling=params.mode==='user'||!params.mode?emotionalExpressionGuidance(params.userMessage??'',history.filter(h=>h.role==='user'||h.senderName===member.name),{tags:member.tags??[],systemPrompt:member.persona,catchphrase:member.catchphrase}):'';
-  const direct=params.mode==='user'||!params.mode?directChatGuidance(params.userMessage??'',history.filter(h=>h.role==='user').map(h=>h.content),history.filter(h=>h.role==='assistant'&&h.senderName===member.name).map(h=>h.content)):'';
+  const groupUserSpeech=history.filter(turn=>turn.role==='user').map(turn=>turn.content);
+  const distant=params.mode!=='banter'&&member.storyPartnerRole&&ownedPartnerRecognition(member.storyPartnerRole,params.userMessage??'',groupUserSpeech)!==true;
+  const feeling=!distant&&(params.mode==='user'||!params.mode)?emotionalExpressionGuidance(params.userMessage??'',history.filter(h=>h.role==='user'||h.senderName===member.name),{tags:member.tags??[],systemPrompt:member.persona,catchphrase:member.catchphrase}):'';
+  const direct=!distant&&(params.mode==='user'||!params.mode)?directChatGuidance(params.userMessage??'',groupUserSpeech,history.filter(h=>h.role==='assistant'&&h.senderName===member.name).map(h=>h.content)):'';
   const identity = member.voiceCard ? voiceIdentityWithoutExamples(member.persona) : member.persona;
-  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【角色设定（只有你自己的，例句在声音卡中）】\n${identity}${shared}${personal}${relationship}\n\n${feeling}\n${direct}\n${member.voiceCard ?? ''}\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
+  const storyIdentity=member.storyPartnerRole&&params.mode!=='banter'?ownedPartnerContext(member.storyPartnerRole,params.userMessage??'',groupUserSpeech):'';
+  const voice=distant?member.distantVoiceCard??'':member.voiceCard??'';
+  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【角色设定（只有你自己的，例句在声音卡中）】\n${identity}${shared}${personal}${relationship}\n\n${feeling}\n${direct}\n${voice}\n${storyIdentity}\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
   const recentReplies = history.filter(h => h.role === 'assistant' && h.senderName === member.name).map(h => h.content);
   let hint = '';
   for (let attempt = 0; attempt < 2; attempt++) {

@@ -1,0 +1,25 @@
+import {readFileSync,writeFileSync,appendFileSync,existsSync} from 'node:fs';
+const root='D:/月起云归/VirtuGene/手机版',evidence='release/chat-personal-view-selection-2026-10-10.json';
+if(existsSync(evidence))throw Error('Preserve prior evidence');
+const files=['GUYUENA','LUXUEQI'].map(role=>`docs/${role}-LIVE-ORDINARY-SHARING-TRANSFER-R3-2026-10-10.json`);
+const reports=files.map(file=>JSON.parse(readFileSync(file,'utf8')));
+const usage={calls:0,input:0,output:0,total:0};
+const decisions=reports.map((report,index)=>{
+ if(!report.complete||report.rows.length!==3||report.usage.missingUsage||report.rows.some(row=>row.failed||row.calls.some(call=>call.finish!=='stop')))throw Error('Complete actual evidence required');
+ for(const key of Object.keys(usage))usage[key]+=report.usage[key];
+ const system=report.rows[2].calls[0].messages.find(message=>message.role==='system')?.content;
+ if(!system?.includes('用户邀请你说真实看法')||!system.includes('不必把所有情况分门别类'))throw Error('Experimental view guidance was not delivered');
+ const selected=files[index].replace('R3','R1'),old=JSON.parse(readFileSync(selected,'utf8'));
+ if(report.rows.some((row,i)=>row.input!==old.rows[i].input))throw Error('Compare whole groups with identical inputs');
+ const path=`${root}/聊天验收/${report.roleName}-2026-10-10.md`,display=readFileSync(path,'utf8');
+ const start=display.indexOf('## ordinary-sharing-transfer / r1（生产对话）');
+ if(start<0||display.includes('## ordinary-sharing-transfer / r3'))throw Error('Current selected whole group must remain intact');
+ const next=display.indexOf('\n## ',start+3),block=display.slice(start,next<0?display.length:next);
+ for(const row of old.rows)for(const reply of row.replies)if(!block.includes(reply))throw Error('Whole selected dialogue missing');
+ return {selected,notSelected:files[index],path,unchangedSelectedBlock:block,reason:index===0?'R3末轮四条长论述，R1更短；第二轮重复认可与否认鼓励，不替换整组。':'R3把不用鼓励延伸成不念文字，末轮普通故事分歧转为伤及无辜原则；R1更连贯。',promptDiagnostics:{systemCharacters:system.length,principlePhraseOccurrences:(system.match(/伤及无辜/gu)||[]).length,judgmentFieldOccurrences:(system.match(/判断习惯/gu)||[]).length},qualityComplete:false};
+});
+writeFileSync(evidence,JSON.stringify({files,usage,decisions,retainedChange:'Explicit evaluative modal questions recognized as personal view invitations, with fact/report/quote/hypothesis/negation/task exclusions.',revertedChange:'Experimental personal-view wording in boundary and humanizer; final production returns to prior wording. Final retained state has local tests, not an additional fresh model rerun.',qualityComplete:false},null,2));
+appendFileSync(root+'/优化方向/2026-10-10.md','\n\n## 观点邀请与原则套用\n- “你觉得非得…”等判断问句已接个人观点，事实猜测、转述、假设与任务仍分开。\n- 新指导真实复测未更好，已撤回措辞实验，保留识别；古月娜长论述、陆雪琪套原则与误接续仍存在。\n- 后续检查声音卡是否把人物底色重复强调成每轮必须裁判；不靠继续堆禁令，不改用户人设。\n');
+appendFileSync(root+'/开发日志/2026-10-10.md',`\n\n## 个人观点问句：识别修复与表达试验撤回\n- 上轮是进展：分享前缀实际接线修复，2076项及类型通过，真实R2整组未更好。本轮读取现有生产、actual R2及声音卡逻辑发现“你觉得非得有一个人让步吗”不属于isViewExchange，尽管已经是问句；补直接评价性情态结构，严格保留事实猜测、转述、引用、假设、否定和真实求助边界。新增16项，最终2092项通过。\n- 尝试将个人看法指导改为表达自己最在意一点、无需覆盖全部情况；两人相同三输入R3各跑一次，实际第三轮system含个人观点提示与新措辞。Gu末轮反而四条长论述；Lu把不求鼓励接成“不念”且将无害故事分歧套入伤及无辜，明显未达到目标。无同行为因果证明，模型随机、先前历史不同；但此组不足以采纳实验。\n- 已撤回新增表达指导，保留评价问句识别；最终2092项与类型通过（release/chat-personal-view-retained-verified-2026-10-10.log、-types-2026-10-10.log）。最终保留状态没有再次付费复跑，不把实验稿当最终生产效果。初测因新测试漏传directChatGuidance历史参数失败，修正测试调用后通过，失败日志release/chat-personal-view-verified-2026-10-10.log保留。\n- 保留两人R1整组展示，R3不入选，对话文件没有改写、不拼句；整组选择、展示快照和提示诊断${evidence}。原稿${files.join('、')}，生产模型调用日志release/{guyuena,luxueqi}-personal-view-live-2026-10-10.log；Lu会话78088实际poll确认终止后读报告，没有重启。\n- 本轮6次deepseek-flash付费调用input${usage.input}/output${usage.output}/total${usage.total}；Gu7763/561/8324，Lu11774/256/12030。每轮1次，无重试，500输出上限、finish stop、usage完整。非流式actual private/隔离IndexedDB，摘要/提取/结算替身，未验证Android、真实流式及长聊。凭据不输出。\n- 声音卡构造末尾重复提取判断习惯与在意的事，原则可能过度显著，但本轮仅诊断，尚未证明是生成错误原因。下一步应对提示冗余与角色声音做可撤回对照，避免继续加禁令和关键词过拟合。用户原文未改，版本6.0.13不变，无打包发布。目标未完成。\n`);
+appendFileSync(root+'/00-总览.md',`\n- 观点问句识别：2092项与类型通过，6调用${usage.total}token。新增表达指导实测未更好已撤回，两人仍展示完整R1；声音卡原则显著性需进一步验证。\n`);
+console.log(JSON.stringify({usage,decisions:decisions.map(({selected,promptDiagnostics})=>({selected,promptDiagnostics})),qualityComplete:false}));

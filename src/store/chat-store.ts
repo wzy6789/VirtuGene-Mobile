@@ -399,7 +399,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const target = candidates[0];
       const session = await getOrCreateSession(target.id, userId);
       const msgs = await messageRepo.getBySession(session.id);
-      const lastMessages = msgs.slice(-10).map((m) => ({ role: m.role, content: m.content }));
+      const lastMessages = msgs.filter(m=>!(m.role==='user'&&m.secretaryDispatch?.bodyOrigin==='composed')).slice(-10).map((m) => ({ role: m.role, content: m.content }));
       const state = await stateRepo.getOrCreate(target.id, userId);
       const lastMessageAt = msgs.length > 0 ? msgs[msgs.length - 1].createdAt : undefined;
 
@@ -411,6 +411,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         apiKey: apiKey ?? '',
         systemPrompt: target.systemPrompt,
         characterName: target.name,
+        relationshipSource: {id:target.id,sourcePresetId:target.sourcePresetId,isPreset:target.isPreset},
         voiceCard:buildCharacterVoiceCard(voiced),
         catchphrase:target.catchphrase,
         lastMessages,

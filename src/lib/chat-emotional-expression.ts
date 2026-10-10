@@ -1,10 +1,10 @@
 import {assessExpressionSignals} from './chat-expression-guidance';
-import {isDirectAffection,allowsDramaticReply} from './chat-expression-boundary';
+import {isDirectAffection,isAffectionQuestion,isAffectionReaction,allowsDramaticReply,isViewExchange,isTopicInvitation} from './chat-expression-boundary';
 import {authoredVoiceFields,JUDGMENT_FIELDS,REACTION_FIELDS} from './character-voice-fields';
 import {topicTerms} from './chat-conversation-state';
 import {recentQuestionDirection} from './chat-expression-guidance';
 
-export type InteractionMoment='praise'|'affection'|'disagreement'|'repair'|'tired'|'celebration'|'ordinary';
+export type InteractionMoment='praise'|'affection'|'disagreement'|'repair'|'tired'|'distress'|'celebration'|'ordinary';
 type VoiceStyle='professional'|'partner'|'gentle'|'energetic'|'playful'|'guarded';
 type ExpressionCharacter={tags:string[];systemPrompt:string;catchphrase?:string;hasVoiceJudgment?:boolean};
 
@@ -13,23 +13,40 @@ export function interactionMoment(message:string):InteractionMoment {
   const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
   if(!text||/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事|主角)/u.test(text))return 'ordinary';
   // Asking about the wording of disagreement does not express that disagreement.
-  if(/^(?:我(?:也|其实|还是|有点)?|也|其实)?不(?:太|完全|怎么)?(?:同意|赞成|认同)\s*(?:这个词|这句话|这几个字)(?:是)?什么意思[？?]?$/u.test(text))return 'ordinary';
+  if(/^(?:我(?:也|其实|还是|有点)?|也|其实)?不(?:太|完全|怎么)?(?:同意|赞成|赞同|认同)\s*(?:这个词|这句话|这几个字)(?:是)?什么意思[？?]?$/u.test(text))return 'ordinary';
   if(/^(?:你(?:刚才)?(?:理解错了?|误会我了?)|我不是这个意思|不是这个意思)(?:这个词|这句话|这个说法)?(?:是?什么意思|怎么理解|用英语怎么说)[？?]?$/u.test(text))return 'ordinary';
-  if(isDirectAffection(text))return 'affection';
+  if(isDirectAffection(text)||isAffectionQuestion(text))return 'affection';
   const clauses=text.split(/[。！？!?，,；;\n]/u).map(clause=>clause.trim());
+  const statements=[...text.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)]
+    .filter(match=>!/[?？]/u.test(match[2])).map(match=>match[1].trim());
+  // The speaker can locate their reaction in what was just said without
+  // repeating a formal opening such as “我不同意”. Keep a whole declaration;
+  // quoted, reported, negated and wording questions are not concessions.
+  const ownRepair=statements.some(clause=>/^(?:那是|原来是|其实是|是|那|原来|其实)?我(?:刚才)?(?:确实|真的|有点)?误会你(?:的意思)?了(?:呀|啊|呢)?$/u.test(clause));
+  const framedDifference=statements.some(clause=>/^(?:你(?:这样|这么)说|你(?:刚才|这次)(?:的|说的)?(?:说法|看法|观点)|这个(?:说法|看法|观点)|这句话)我(?:也|其实|还是|有点|有些|真的|并)?不(?:太|完全|怎么)?(?:同意|赞成|赞同|认同)(?:了|呀|啊|呢)?$/u.test(clause));
+  const ownDifference=statements.some(clause=>/^我(?:也|其实|还是|有点|有些|真的|并)?不(?:太|完全|怎么)?赞同(?:你(?:的)?(?:说法|看法|观点)|这个(?:说法|看法|观点))?(?:了|呀|啊|呢)?$/u.test(clause));
   // An apology is a direct utterance. A loose span such as "我刚才…误会你"
   // also captures negation, a near miss and reports about someone else.
-  if(/^(?:对不起|抱歉|不好意思)(?:[，,。！!\s]|$)/u.test(text)
+  if(ownRepair||/^(?:对不起|抱歉|不好意思)(?:[，,。！!\s]|$)/u.test(text)
     || clauses.some(clause=>/^(?:其实|确实|嗯|啊)?\s*(?:(?:我刚才|刚才是我)(?:确实|真的|可能|也许|有点|好像)?(?:那句(?:话)?|对你|跟你)?(?:说(?:得)?(?:有点|太)?(?:重了|冲了)|太冲了|误会你(?:了)?|弄错了)|我误会你了)(?=$|[呀啊呢了\s]|[，,。])/u.test(clause)))return 'repair';
-  if(/(?:^|[。！？!?，,；;\n])\s*(?:我觉得)?(?:你(?:刚才|根本|又|完全)?(?:没听|没理解|误会|理解错)|不是这个意思|我不是这个意思|(?:我(?:也|其实|还是|有点)?|也|其实)?不(?:太|完全|怎么)?(?:同意|赞成|认同)|别给我灌鸡汤|你这样说让我不舒服)/u.test(text))return 'disagreement';
+  if(framedDifference||ownDifference||/(?:^|[。！？!?，,；;\n])\s*(?:我觉得)?(?:你(?:刚才|根本|又|完全)?(?:没听|没理解|误会|理解错)|不是这个意思|我不是这个意思|(?:我(?:也|其实|还是|有点)?|也|其实)?不(?:太|完全|怎么)?(?:同意|赞成|认同)|别给我灌鸡汤|你这样说让我不舒服)/u.test(text))return 'disagreement';
   if(/^谢谢你(?:[，,。！!～~\s]|听我说|陪我|记得|帮我|理解|解释|$)|^多亏你/u.test(text)||/^你(?:真的|好|很|太|也|真)?(?:棒|厉害|靠谱|贴心|可爱|懂我|聪明)(?:[，,。！!～~\s]|呀|啊|了|$)/u.test(text))return 'praise';
   const signals=assessExpressionSignals(text);
   if(signals.emotionConfidence>=.8&&signals.situation==='tired')return 'tired';
+  if(signals.emotionConfidence>=.8&&signals.situation==='distress')return 'distress';
   if(signals.emotionConfidence>=.8&&signals.situation==='celebration')return 'celebration';
   return 'ordinary';
 }
 
-const MOMENT_NAMES:Record<Exclude<InteractionMoment,'ordinary'>,string>={praise:'被夸或被感谢',affection:'直接的心意',disagreement:'意见不同或理解纠正',repair:'道歉与澄清',tired:'疲惫',celebration:'进展与开心'};
+/** Actual adjacent dialogue can resolve a reaction, without deriving a new
+ * relationship or treating a different speaker's feeling as this user's. */
+export function interactionMomentForTurn(message:string,history:Array<{role:string;content:string}>):InteractionMoment {
+  const last=history[history.length-1];
+  const previousUser=history.slice(0,-1).reverse().find(turn=>turn.role==='user')?.content??'';
+  return isAffectionReaction(message,previousUser,last?.role==='assistant'&&!!last.content.trim())?'affection':interactionMoment(message);
+}
+
+const MOMENT_NAMES:Record<Exclude<InteractionMoment,'ordinary'>,string>={praise:'被夸或被感谢',affection:'直接的心意',disagreement:'意见不同或理解纠正',repair:'道歉与澄清',tired:'疲惫',distress:'受挫与难过',celebration:'进展与开心'};
 const STYLES:Array<[VoiceStyle,RegExp]>=[
   ['professional',/专业|理性|高冷|冷淡|寡言|冷静|外冷/u],
   ['partner',/搭档|随和|爽朗|直率|坦率/u],
@@ -40,6 +57,7 @@ const STYLES:Array<[VoiceStyle,RegExp]>=[
 ];
 const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,string>>={
   professional:{
+    distress:'回应已经说清的遭遇，简短表达自己的关切；用户没要方案时先一起说话。',
     praise:'可以坦然接受夸奖，回应用户认可的具体一点，不用假谦虚或回赠一整段赞美。',
     affection:'把真实态度说清，允许短而认真；克制不等于敷衍，也不突然变成热烈告白。',
     disagreement:'先核对具体分歧，承认有依据的纠正；有不同判断就说明一点理由，不用冷漠或教训压过去。',
@@ -48,6 +66,7 @@ const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,s
     celebration:'注意这次突破的具体难点，允许简洁地一起高兴，不立即安排下一项。',
   },
   partner:{
+    distress:'接具体不顺的那一点，愿意陪对方聊；办法等对方想讨论时再理。',
     praise:'自然接下认可，可以露出一点得意，不必把功劳全部推回去。',
     affection:'用熟悉的来回表达态度，认真时就认真，不用硬塞玩笑或解释关系。',
     disagreement:'把卡住的那一点摊开说，允许各有看法，不装作一切都对。',
@@ -56,6 +75,7 @@ const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,s
     celebration:'回应一起在意的进展，允许分享开心，不抢着总结成经验教训。',
   },
   gentle:{
+    distress:'体谅这次已经说出的委屈或失落，说自己的感受，给对方选择话题的余地。',
     praise:'回应这份认可里让你在意的具体心意，可以承认开心，不急着反过来夸用户。',
     affection:'语气可以更贴近，表达自己的态度；不反复解释自己如何珍藏、接住这句话。',
     disagreement:'认真听用户指出哪一句没被理解，不分析其心理、不急着证明自己的好意。',
@@ -64,6 +84,7 @@ const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,s
     celebration:'看见这件事对用户的具体意义，跟着开心，不把喜悦重新讲成心理分析。',
   },
   energetic:{
+    distress:'收住热闹，认真回应这件不顺的事，让对方按自己的节奏说。',
     praise:'可以明显开心，接住夸奖就好，不把每次认可都演成夸张庆典。',
     affection:'允许快而直接的反应，认真时收住嬉闹；热情不等于升级关系或许诺未来。',
     disagreement:'先停下热闹，回应具体意见，不用玩笑、表情或强行乐观盖过去。',
@@ -72,6 +93,7 @@ const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,s
     celebration:'可以自然兴奋，重点仍是这次进展，不要求用户继续保持高能量。',
   },
   playful:{
+    distress:'先关心这次遭遇，对方想轻松聊时再接梗，别拿失落作笑料。',
     praise:'可以带一点小得意和共同的笑点，不每次都用相同反问讨更多夸奖。',
     affection:'有分寸地接这句话，认真与玩笑都可以；不拿用户的真心试探、嘲弄或逼其重复。',
     disagreement:'收住锋芒，说明自己的判断，吐槽不对准用户的脆弱。',
@@ -80,6 +102,7 @@ const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,s
     celebration:'分享这个具体喜悦里的反差，不抢戏或把它变成自己的段子。',
   },
   guarded:{
+    distress:'关切可以含蓄，但让对方听得明白；少说具体的话，不用挖苦遮掩在意。',
     praise:'可以有一点不习惯被夸的含蓄，但别每次否认夸奖或硬演口是心非。',
     affection:'表达可以留余地，仍让态度可理解，不固定假结巴、否认或反问。',
     disagreement:'保留自己的立场，必要时坦白在意，不用赌气、沉默惩罚或挖苦拖住用户。',
@@ -89,9 +112,9 @@ const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,s
   },
 };
 
-const FIELD_NAMES:Partial<Record<InteractionMoment,string>>={praise:'被夸反应',disagreement:'分歧反应',repair:'道歉修复',affection:'亲密反应',tired:'疲惫回应',celebration:'庆祝反应'};
-export function authoredReactionLines(prompt:string,message?:string):string[]{
-  const field=message===undefined?undefined:FIELD_NAMES[interactionMoment(message)];
+const FIELD_NAMES:Partial<Record<InteractionMoment,string>>={praise:'被夸反应',disagreement:'分歧反应',repair:'道歉修复',affection:'亲密反应',tired:'疲惫回应',distress:'受挫回应',celebration:'庆祝反应'};
+export function authoredReactionLines(prompt:string,message?:string,history:Array<{role:string;content:string}>=[]):string[]{
+  const field=message===undefined?undefined:FIELD_NAMES[interactionMomentForTurn(message,history)];
   return authoredVoiceFields(prompt,REACTION_FIELDS)
     .filter(row=>message===undefined||row.field==='情境反应'||row.field===field)
     .slice(0,3).map(row=>row.line.slice(0,180));
@@ -123,23 +146,56 @@ function isCasualMishap(message:string):boolean {
     || /(?:衣服|袜子|鞋|帽子).{0,6}(?:穿|戴)(?:错|反)|(?:穿|戴)(?:错|反).{0,6}(?:衣服|袜子|鞋|帽子)/u.test(text);
 }
 
-export function selectVoiceExamples(lines:string[],message?:string,options:{allowUnrelatedNeutral?:boolean}={}):string[]{
+/** Only remove a supplied, explicit opening identity for topic ranking. The
+ * original text still determines emotion, identity, examples and output. */
+function exampleTopic(text: string, identityNames: readonly string[]): string {
+  for (const prefix of ['我是','我就是','我叫']) for (const name of identityNames) {
+    if (!text.startsWith(prefix + name)) continue;
+    const rest = text.slice(prefix.length + name.length);
+    if (!rest || /^[，,。！!；;\n\s]/u.test(rest)) return rest.replace(/^[，,。！!；;\n\s]+/u,'').trim();
+  }
+  return text;
+}
+
+/** A voice sample for opening an otherwise empty conversation is not a sample
+ * for reacting to a concrete anecdote, even if both end with “说说话”. */
+function plainConversationOpening(text:string):boolean {
+  const clauses=text.split(/[，,。！？!?；;\n]/u).map(part=>part.trim()).filter(Boolean);
+  const invitation=(part:string)=>isTopicInvitation(part)||/^(?:我(?:今天|现在)?(?:就|只是|只)?)?(?:就|只是|只)?(?:想|来|想来)(?:和你|跟你)(?:说说话|说话|聊聊|聊几句|说几句)[呀啊呢吧啦\s]*$/u.test(part);
+  return clauses.length>0&&clauses.every(part=>/^(?:没什么事|没有什么事|没事|你好|嗨)$/u.test(part)||invitation(part))&&clauses.some(invitation);
+}
+
+export function selectVoiceExamples(lines:string[],message?:string,options:{allowUnrelatedNeutral?:boolean;identityNames?:readonly string[];moment?:InteractionMoment}={}):string[]{
   if(message===undefined)return lines.slice(0,5);
-  const moment=interactionMoment(message);
+  const moment=options.moment??interactionMoment(message);
   const current=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
-  const terms=topicTerms(current);
+  const currentTopic = exampleTopic(current, options.identityNames ?? []);
+  const terms=topicTerms(currentTopic);
   const mishap=isCasualMishap(current);
+  // The actor's existing answer to another direct choice can demonstrate how
+  // they state a preference. Do not borrow hypothetical outings or reports;
+  // the sample remains a voice reference, never a fact about the new object.
+  const choice=isViewExchange(current)&&current.includes('还是')&&moment==='ordinary';
   const ranked=lines.map((line,index)=>{
     const example=voiceExampleUserText(line);
-    const exampleTerms=topicTerms(example.replace(/[“「『"][^”」』"]*[”」』"]/gu,''));
+    const exampleContent = example.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+    const matchingTopic = exampleTopic(exampleContent, options.identityNames ?? []);
+    const exampleTerms=topicTerms(matchingTopic);
     const overlap=[...exampleTerms].filter(term=>terms.has(term)).length;
-    const exact=example.trim().replace(/[。！？!?～~]+$/u,'')===current.replace(/[。！？!?～~]+$/u,'')&&current.length>=2;
+    // A stray two-character link such as “是想” is not a shared scene.
+    // Long examples need corroborating overlap; short topic-only examples
+    // can still match one complete term. Exact utterances and an explicit
+    // scene analogy keep their own stronger signals.
+    const coverage=overlap/Math.max(1,exampleTerms.size);
+    const topical=coverage>=0.25&&(overlap>=2||exampleTerms.size<=2)?coverage:0;
+    const exact=matchingTopic.trim().replace(/[。！？!?～~]+$/u,'')===currentTopic.replace(/[。！？!?～~]+$/u,'')&&currentTopic.length>=2;
     const sceneMatch=mishap&&isCasualMishap(example);
-    return {line,index,moment:interactionMoment(example),general:!example,sceneMatch,relevance:exact?2:Math.max(sceneMatch ? 0.9 : 0,overlap/Math.max(1,exampleTerms.size))};
+    const choiceMatch=choice&&isViewExchange(example)&&example.includes('还是')&&interactionMoment(example)==='ordinary';
+    return {line,index,moment:interactionMoment(example),general:!example,sceneMatch,opening:plainConversationOpening(matchingTopic),relevance:exact?2:Math.max(sceneMatch ? 0.9 : 0,choiceMatch?0.4:0,topical)};
   })
     // A fatigue example is a poor voice reference for an explicit new subject.
     // Keep neutral examples as voice references, not unrelated emotional scripts.
-    .filter(row=>row.moment==='ordinary'||row.moment===moment);
+    .filter(row=>(row.moment==='ordinary'||row.moment===moment)&&(!current||!row.opening||plainConversationOpening(currentTopic)));
   ranked.sort((a,b)=>Number(b.moment===moment&&moment!=='ordinary')-Number(a.moment===moment&&moment!=='ordinary')||b.relevance-a.relevance||a.index-b.index);
   if (!current) return ranked.slice(0,3).map(row=>row.line);
   // Examples teach local response habits as well as a voice. A bookshop or
@@ -153,13 +209,15 @@ export function selectVoiceExamples(lines:string[],message?:string,options:{allo
   return (general.length ? general : moment === 'ordinary' && options.allowUnrelatedNeutral !== false ? ranked.slice(0,1) : []).map(row=>row.line);
 }
 
-export function emotionalExpressionGuidance(message:string,history:Array<{role:string;content:string}>,character?:ExpressionCharacter|null,recentReplyTurns?:string[][]):string{
+export function emotionalExpressionGuidance(message:string,history:Array<{role:string;content:string}>,character?:ExpressionCharacter|null,recentReplyTurns?:string[][],options:{authoredReactionAlreadyIncluded?:boolean}={}):string{
   const users=history.filter(m=>m.role==='user').slice(-3).map(m=>m.content);
   if(allowsDramaticReply(message,users))return '';
-  const moment=interactionMoment(message),lines:string[]=[];
+  const moment=interactionMomentForTurn(message,history),lines:string[]=[];
   if(moment!=='ordinary'){
-    const authored=authoredReactionLines(character?.systemPrompt??'',message);
-    if(authored.length)lines.push(`本轮涉及${MOMENT_NAMES[moment]}，优先按人物写明的情境反应表达，不套通用性格标签。`);
+    const authored=authoredReactionLines(character?.systemPrompt??'',message,history);
+    if(authored.length){
+      if(!options.authoredReactionAlreadyIncluded)lines.push(`本轮涉及${MOMENT_NAMES[moment]}，优先按人物写明的情境反应表达，不套通用性格标签。`);
+    }
     else if(character?.hasVoiceJudgment||authoredVoiceFields(character?.systemPrompt??'',JUDGMENT_FIELDS).length) {
       lines.push(`本轮涉及${MOMENT_NAMES[moment]}，按声音卡中这个人的具体判断习惯回应，不另套通用性格标签。`);
     } else{
@@ -169,9 +227,9 @@ export function emotionalExpressionGuidance(message:string,history:Array<{role:s
     }
   }
   if(moment==='disagreement'&&/(?:不是这个意思|我不是这个意思|你(?:刚才)?(?:没理解|误会|理解错))/u.test(message))lines.push('用户正在纠正理解，接这次具体澄清，不再给其用词另下一层心理定义；按其自己讲明的原因理解，不把否认的原因改写成新的疲惫或情绪解释。前文没说错的内容不用替自己认领，不补写未提供的场面、第三方态度或动机。');
-  else if(moment==='disagreement')lines.push('这轮在交流不同看法，围绕用户明确说出的观点接话；情绪或遭遇由用户自己说明。自己刚才举的情况仍是自己的例子，不归到用户名下。给出你真正认同或不认同的具体一点，可以保持分歧或自然改口；不需要让用户认输或换成他的立场。');
+  else if(moment==='disagreement')lines.push('这轮在交流不同看法，先对照你刚才实际说过的意思与用户反对的那一点：自己的偏好、对事情的判断和对方的理解可以不同。说出真正认同或不认同的一点；有误会就说明自己的原意，确实说错才改口。自己刚才举的情况仍是自己的例子，不归到用户名下。不需要让用户认输，也不要求谁认错；语气按人物与关系保持自然。');
   const prior=users.map(interactionMoment);
-  if(moment==='repair'&&prior.slice(-2).includes('disagreement'))lines.push('前面有明确分歧，这轮是道歉或澄清。接住用户此刻说的歉意或解释，表达自己真正的态度；不替用户断言“你不是冲我”“你只是心情不好”，也不假定角色已经生气、突然撒娇或宣告关系完全修复。');
+  if(moment==='repair'&&prior.slice(-2).includes('disagreement'))lines.push('前面有明确分歧，这轮是道歉或澄清。接住用户此刻说的歉意或解释，分清是谁误会了哪一点，再表达自己真正的态度；澄清后仍可各有偏好，不用轮流认错。不替用户断言“你不是冲我”“你只是心情不好”，也不假定角色已经生气、突然撒娇或宣告关系完全修复。');
   else if(moment==='praise'&&prior[prior.length-1]==='repair'&&prior.includes('disagreement'))lines.push('刚从分歧转到澄清和感谢，可以自然放松一点，不再复盘，也不为了保持情绪继续追究。');
   const turns=recentReplyTurns??history.filter(m=>m.role==='assistant').slice(-4).map(m=>[m.content]);
   const questionDirection=recentQuestionDirection(turns);

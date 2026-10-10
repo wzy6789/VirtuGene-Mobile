@@ -13,24 +13,34 @@ import { worldRepo } from '../../db/world-repo';
 import { buildContextTrace, hasTraceContent } from '../../lib/chat-trace';
 import { ipc } from '../../lib/ipc-client';
 import { buildTimeContext, buildSceneTimeContext, buildRelationshipContext, buildUserEmotionContext, buildDayContext, buildLifeContext, buildStoryRelationContext } from '../../lib/chat-context';
-import { computeMessageDelays, splitReplyParts, formatSpokenParagraphs, normalizeChatResponse, shouldPreserveChatEscapes, prefersReducedMotion, MAX_REPLY_PARTS } from '../../lib/chat-pacing';
+import { splitReplyParts, formatSpokenParagraphs, normalizeChatResponse, shouldPreserveChatEscapes, MAX_REPLY_PARTS } from '../../lib/chat-pacing';
 import { isLongFormRequest, polishChatResponse } from '../../lib/reply-quality';
 import { useNotificationStore } from '../../store/notification-store';
 import { synthesizeSpeech, audioBufToDataUrl, audioDurationSec } from '../../lib/tts';
 import { resolveModel } from '../../lib/ai/llm';
 import {appendSessionUsage,type ChatUsageEvent} from './usage';
 import { compileChatContext } from '../../lib/chat-context-compiler';
+import {compactOwnedJudgmentEcho} from '../chat-owned-judgment-compaction';
 import { voiceIdentityWithoutExamples } from '../character-voice';
-import { guYueNaPromptForTurn } from '../gu-yue-na-runtime';
-import { luXueQiRelationshipForTurn } from '../lu-xue-qi-runtime';
+import { guYueNaPromptForTurn, guYueNaRelationshipForTurn } from '../gu-yue-na-runtime';
+import { luXueQiRelationshipForTurn, luXueQiFamilyRisk, omitLuXueQiFamilyRisk } from '../lu-xue-qi-runtime';
 import {buildChatHistoryWindow} from '../chat-history-window';
 import { buildHumanConversationSections, buildProactiveTopicSeeds, recommendConversationTemperature } from '../../lib/chat-humanizer';
 import { collectRecentReplyTurns } from '../../lib/chat-expression-guidance';
 import { readVoiceSampleCharacter, refreshVoiceSamples } from './voice-sample-cache';
 import { recordChatQuality,recordQualityEvent } from '../../lib/chat-quality-metrics';
 import { inspectChatOutput } from '../../lib/chat-output-quality';
-import {allowsDramaticReply} from '../chat-expression-boundary';
+import {rejectsSelectedPartner,priorVisitorReplyIds,ownedPartnerRecognition,type OwnedPartnerRole} from '../chat-owned-identity';
+import {allowsDramaticReply,findUninvitedSharedPosture,omitUninvitedSharedPosture} from '../chat-expression-boundary';
 import {findCurrentActivityRisk,omitUnsupportedCurrentActivities} from '../chat-current-activity-risk';
+import {findUserAudioRisk,omitUnsupportedUserAudio} from '../chat-user-audio-risk';
+import {findUserHabitRisk,omitUnsupportedUserHabits} from '../chat-user-habit-risk';
+import {findDomesticReferenceRisk,omitDomesticReferences} from '../chat-domestic-reference-risk';
+import {readRecalledUserHabitSources} from '../chat-user-habit-sources';
+import {omitUnsupportedSelfReportEpisodes} from '../chat-self-report-risk';
+import {findAffectionHistoryRisk,omitUnsupportedAffectionHistory} from '../chat-affection-history-risk';
+import {findUserVisualRisk,omitUnsupportedUserVisual} from '../chat-user-visual-risk';
+import {hasUserImageEvidence} from '../ai/deepseek';
 import { findSpokenMemoryIds, prepareMemoryMetadata } from '../../lib/memory-engine';
 import { buildSummaryBatch, findUncoveredSummaryMessages } from '../../lib/ai/summary-batches';
 import { memorySpeaker } from '../../../server/memory-source-policy.mjs';
@@ -106,6 +116,9 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
   options: { userId: string; text: string; apiMessage?: string; image?: string; observer?: RoleChatObserver; validate?: () => Promise<void> }) {
   const { userId, text, image, observer = {} } = options;
   request.stream.configure({longForm:isLongFormRequest(text),preserveEscapes:shouldPreserveChatEscapes(text)});
+  const stopPresentation = () => request.stream.stop();
+  request.controller.signal.addEventListener('abort', stopPresentation, { once: true });
+  if (request.controller.signal.aborted) stopPresentation();
   const releaseHapticSilence = holdHapticSilence();
   try {
   const apiMessage = options.apiMessage ?? text;
@@ -139,7 +152,12 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         : await messageRepo.getPage(sessionId, { limit: 200 });
       const suppressedMessages = await memorySourceTombstoneRepo.suppressedMessages(userId, character.id);
       const contextMessages = allMsgs.filter(m => !m.failed && !suppressedMessages.has(m.id));
-      const historyWindow=buildChatHistoryWindow(contextMessages,userMsg.id,12,MAX_HISTORY_MESSAGE_CHARS);
+      const sourceHistory=contextMessages.filter(message=>message.id!==userMsg.id);
+      const currentOwnedRole:OwnedPartnerRole|undefined=userMsg.secretaryDispatch?.bodyOrigin==='composed'?undefined
+        :guYueNaRelationshipForTurn(character,text).context?'guyuena'
+        :luXueQiRelationshipForTurn(character,text).context?'luxueqi':undefined;
+      const priorVisitorIds=currentOwnedRole?priorVisitorReplyIds(currentOwnedRole,text,sourceHistory):new Set<string>();
+      const historyWindow=buildChatHistoryWindow(contextMessages.filter(message=>!priorVisitorIds.has(message.id)),userMsg.id,12,MAX_HISTORY_MESSAGE_CHARS);
       const history = historyWindow.map(({role,content,image})=>({role,content,image}));
       const previousUserText = [...history].reverse().find((item) => item.role === 'user')?.content ?? '';
       // 长期记忆（含"用户明确追问旧事时回查原文"）全部由 buildCharacterMemoryContext 取。
@@ -240,7 +258,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
 
       // 关系状态文字化：等阶（含用户自定义名）+ 好感度 + 心情 → 角色可见灵魂状态
       const state = await stateRepo.getOrCreate(character.id, userId);
-      const relationshipContext = buildRelationshipContext(state.affinity, state.mood, state.tierNames);
+      const relationshipContext = buildRelationshipContext(state.affinity, state.mood, state.tierNames, character);
       const lifeContext = buildLifeContext(state);
       const storyRelationContext = buildStoryRelationContext(state, characters);
 
@@ -379,12 +397,18 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       const luXueQiTurn = luXueQiRelationshipForTurn(voiceCharacter, text, contextMessages
         .filter(message => message.id !== userMsg.id && message.role === 'user' && message.secretaryDispatch?.bodyOrigin !== 'composed')
         .map(message => message.content));
+      const guYueNaTurn = guYueNaRelationshipForTurn(character,text,contextMessages
+        .filter(message=>message.id!==userMsg.id&&message.role==='user'&&message.secretaryDispatch?.bodyOrigin!=='composed')
+        .map(message=>message.content));
+      const scopedVoiceCharacter={...luXueQiTurn.character,systemPrompt:guYueNaPromptForTurn(luXueQiTurn.character,text,history.filter(turn=>turn.role==='user').slice(-2).map(turn=>turn.content))};
       const compiled = compileChatContext(
-        voiceIdentityWithoutExamples(guYueNaPromptForTurn(character, text, history.filter(turn=>turn.role==='user').slice(-2).map(turn=>turn.content))).slice(0, MAX_CHARACTER_PROMPT_CHARS),
+        voiceIdentityWithoutExamples(scopedVoiceCharacter.systemPrompt).slice(0, MAX_CHARACTER_PROMPT_CHARS),
         [
           // 本轮提示与人物声音卡分别保留预算；声音卡最后输出，
           // 不让可选记忆挤掉当前提示或把声音卡埋在通用规则前面。
-          ...buildHumanConversationSections(text, history, luXueQiTurn.character, {
+          ...buildHumanConversationSections(text, history, scopedVoiceCharacter, {
+              interpersonalBoundary:(luXueQiTurn.context&&luXueQiTurn.recognized!==true||guYueNaTurn.context&&guYueNaTurn.recognized!==true)?'distant':undefined,
+              compactOrdinaryReaction:!!luXueQiTurn.context,
               proactiveTopics: proactiveTopicSeeds,
               lifeHints,
               turnNumber: turnAttention.turnCount,
@@ -393,7 +417,8 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           }),
           { key: 'conversation-state', text: conversationStateContext, priority: 98 },
           { key: 'relationship', text: relationshipContext, priority: 100 },
-          { key: 'luxueqi-relationship', text: luXueQiTurn.context, priority: 100 },
+          { key: 'luxueqi-relationship', text: luXueQiTurn.context, priority: 100, placement:'tail', tailOrder:2 },
+          { key: 'guyuena-relationship', text: guYueNaTurn.context, priority:100, placement:'tail', tailOrder:2 },
           { key: 'story-relationships', text: storyRelationContext, priority: 97 },
           { key: 'cross-channel-memory', text: crossChannelMemory.text, priority: recallIntent.explicit ? 97 : 92 },
           { key: 'life', text: freshTopic && !isTopicRelated(text, lifeContext) ? '' : lifeContext, priority: 92 },
@@ -412,7 +437,12 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           { key: 'day', text: dayContext, priority: 45 },
         ],
       );
-      const enrichedPrompt = compiled.prompt;
+      const enrichedPrompt = compactOwnedJudgmentEcho(compiled.prompt,voiceCharacter);
+      const recalledHabitSources=compiled.included.includes('memory')
+        ? await readRecalledUserHabitSources(userId,character.id,memoryContext.memories,suppressedMessages) : [];
+      const userHabitSources=[...recalledHabitSources,...contextMessages.filter(message=>message.role==='user'&&message.secretaryDispatch?.bodyOrigin!=='composed')]
+        .sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id)).map(message=>message.content)
+        .concat(userMsg.secretaryDispatch?.bodyOrigin==='composed'?[]:[text]);
       // Keep only the character-owned life section actually made available to
       // this request; user memories and previous generated replies are not
       // evidence for this speaker's personal habits.
@@ -482,7 +512,17 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       character.proactivity ?? 0.5,
     );
 
-    // Call DeepSeek，带回复质量自检重试（静默重试，最多 2 次修正）
+    // Ordinary Gu Yue Na and Lu Xue Qi messages are delivered as reviewed whole bubbles.
+    // The provider can still stream internally; visible text is never replaced.
+    const sourcePresetId = character.sourcePresetId ?? (character.isPreset ? character.id : undefined);
+    const selectedPartnerRole:OwnedPartnerRole|undefined=userMsg.secretaryDispatch?.bodyOrigin==='composed'?undefined
+      :guYueNaTurn.context&&guYueNaTurn.recognized===true?'guyuena'
+      :luXueQiTurn.context&&luXueQiTurn.recognized===true?'luxueqi':undefined;
+    const reviewsIdentitySelection=!!selectedPartnerRole&&ownedPartnerRecognition(selectedPartnerRole,text)===true;
+    const reviewBeforeDisplay = reviewsIdentitySelection || (sourcePresetId === 'preset-guyuena' || sourcePresetId === 'preset-luxueqi')
+      && !isLongFormRequest(text)
+      && !allowsDramaticReply(text, history.filter(m => m.role === 'user').map(m => m.content));
+    // Existing quality budget: one initial draft and at most one correction.
     const startedAt = Date.now();
     const assistantContents = allMsgs.filter((m) => m.role === 'assistant').map((m) => m.content);
     // 发送期间用户可能已切走：错误横幅只显示在仍处于该会话时
@@ -503,9 +543,32 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       let retryHint: string | undefined;
       let retries = 0;
       let rawResponse: string | undefined;
-      let bestDraft: { result: typeof result; raw: string | undefined; severity:number } | undefined;
+      let bestDraft: { result: typeof result; raw: string | undefined; severity:number; usable:boolean } | undefined;
       let activityFallbackApplied=false;
+      let audioFallbackApplied=false;
+      let userHabitFallbackApplied=false;
+      let episodeFallbackApplied=false;
+      let affectionHistoryFallbackApplied=false;
+      let visualFallbackApplied=false;
+      let sharedPostureFallbackApplied=false;
+      const hasUserVisualEvidence=hasUserImageEvidence(history,image??momentImage,forceVision);
       const MAX_RETRIES = 1;
+      // A lower issue score must not discard an honest sentence from the other
+      // attempt in favour of a draft that source checks would remove entirely.
+      const draftHasUsableContent = (content:string):boolean => {
+        if(allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content)))return !!content;
+        const sources=contextMessages.filter(m=>m.role==='user').map(m=>m.content).concat(text);
+        let safe=omitLuXueQiFamilyRisk(character,content,sources,luXueQiTurn.recognized);
+        safe=omitUnsupportedAffectionHistory(safe,text,history.filter(m=>m.role==='user').map(m=>m.content),character.systemPrompt);
+        safe=omitUnsupportedCurrentActivities(safe,text,character.systemPrompt);
+        safe=omitUnsupportedUserAudio(safe);
+        safe=omitUnsupportedUserHabits(safe,userHabitSources);
+        safe=omitUninvitedSharedPosture(safe);
+        safe=omitUnsupportedSelfReportEpisodes(safe,character.systemPrompt,independentCharacterRecords);
+        safe=omitDomesticReferences(safe,character.systemPrompt,independentCharacterRecords,userHabitSources);
+        safe=omitUnsupportedUserVisual(safe,hasUserVisualEvidence);
+        return !!safe.trim();
+      };
 
       for (;;) {
         if (request.controller.signal.aborted) {
@@ -527,7 +590,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           sessionModel,
           forceVision,
           signal: request.controller.signal,
-          onDelta: (accumulated) => request.stream.push(accumulated),
+          onDelta: (accumulated) => {if(!reviewBeforeDisplay)request.stream.push(accumulated);},
           onRawResponse: raw => { rawResponse = raw; },
           onUsage:event=>{if(sameAccount())usageEvents.push(event);},
         });
@@ -537,6 +600,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           if(result.usageEvents)usageEvents.push(...result.usageEvents);
           else usageEvents.push({modelId:result.modelId??resolveModel(character,sessionModel).id,usage:result.usage,incomplete:true});
         }
+        if(reviewBeforeDisplay&&request.controller.signal.aborted)return;
 
         // Once the user has seen text, never replace it with a hidden quality retry.
         // A transport failure after that point saves the received reply instead.
@@ -562,9 +626,18 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           break;
         }
 
-        const inspected = inspectChatOutput(result.content, {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords,hasCurrentImage:!!(image||momentImage)});
+        const inspected = inspectChatOutput(result.content, {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),userHabitSources,catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords,hasCurrentImage:!!(image||momentImage),hasUserVisualEvidence,selectedPartnerRole});
+        const familyRisk = !allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))
+          && luXueQiFamilyRisk(character, result.content, contextMessages.filter(m=>m.role==='user').map(m=>m.content).concat(text), luXueQiTurn.recognized);
+        if (familyRisk) {
+          inspected.check = {ok:false,issue:'self-report-risk',retryHint:'保留温柔心意与已定家庭关系：用户若已认领小凡，就是小鼎的父亲，不让他去问另一位父亲。不添没有用户原话支持的小鼎当日近况，不引入其他作品的家人。接眼前的话即可，不用解释事实核对过程。'};
+          inspected.severity = 3;
+        }
         const check = inspected.check;
-        if (!bestDraft || inspected.severity < bestDraft.severity) bestDraft = {result,raw:rawResponse,severity:inspected.severity};
+        const usable=draftHasUsableContent(result.content);
+        if (!bestDraft || (usable&&!bestDraft.usable) || (usable===bestDraft.usable&&inspected.severity<bestDraft.severity)) {
+          bestDraft = {result,raw:rawResponse,severity:inspected.severity,usable};
+        }
         if (check.ok || retries >= MAX_RETRIES) {
           result = bestDraft.result; rawResponse = bestDraft.raw;
           break;
@@ -576,12 +649,93 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       // Never restore a known unsupported activity from bestDraft after both
       // attempts fail. Published streams keep their established identity.
       if(!request.stream.published&&!request.controller.signal.aborted&&result.content
+        &&selectedPartnerRole&&rejectsSelectedPartner(result.content,selectedPartnerRole,text)) {
+        // A rejecting draft cannot be made faithful by adding a canned love
+        // sentence. Fail without saving it after the existing retry is spent.
+        result={...result,content:undefined,error:'server:error'};
+        recordQualityEvent(userId,{mode:'private',issue:'voice-conflict',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
+      }
+      if(!request.stream.published&&!request.controller.signal.aborted&&result.content
+        &&!allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))
+        &&findAffectionHistoryRisk(result.content,text,history.filter(m=>m.role==='user').map(m=>m.content),character.systemPrompt)) {
+        const safe=omitUnsupportedAffectionHistory(result.content,text,history.filter(m=>m.role==='user').map(m=>m.content),character.systemPrompt);
+        affectionHistoryFallbackApplied=true;
+        result={...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
+        if(!safe)recordQualityEvent(userId,{mode:'private',issue:'emotional-script',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
+      }
+      if(!request.stream.published&&!request.controller.signal.aborted&&result.content
+        &&!allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))
+        &&findDomesticReferenceRisk(result.content,character.systemPrompt,independentCharacterRecords,userHabitSources)){
+        const safe=omitDomesticReferences(result.content,character.systemPrompt,independentCharacterRecords,userHabitSources);
+        activityFallbackApplied=true;
+        result={...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
+        if(!safe)recordQualityEvent(userId,{mode:'private',issue:'self-report-risk',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
+      }
+      if (!request.stream.published && !request.controller.signal.aborted && result.content
+        && !allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))) {
+        const sources = contextMessages.filter(m=>m.role==='user').map(m=>m.content).concat(text);
+        if (luXueQiFamilyRisk(character, result.content, sources, luXueQiTurn.recognized)) {
+          const safe = omitLuXueQiFamilyRisk(character, result.content, sources, luXueQiTurn.recognized);
+          activityFallbackApplied = true;
+          result = {...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
+          if (!safe) recordQualityEvent(userId,{mode:'private',issue:'self-report-risk',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
+        }
+      }
+      if(!request.stream.published&&!request.controller.signal.aborted&&result.content
         &&!allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))
         &&findCurrentActivityRisk(result.content,text,character.systemPrompt)) {
         const safe=omitUnsupportedCurrentActivities(result.content,text,character.systemPrompt);
         activityFallbackApplied=true;
         result={...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
         if(!safe)recordQualityEvent(userId,{mode:'private',issue:'self-report-risk',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
+      }
+
+      if(!request.stream.published&&!request.controller.signal.aborted&&result.content
+        &&!allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))&&findUserAudioRisk(result.content)) {
+        const safe=omitUnsupportedUserAudio(result.content);
+        audioFallbackApplied=true;
+        result={...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
+        if(!safe)recordQualityEvent(userId,{mode:'private',issue:'user-source-risk',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
+      }
+
+      if(!request.stream.published&&!request.controller.signal.aborted&&result.content
+        &&!allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))
+        &&findUserHabitRisk(result.content,userHabitSources)) {
+        const safe=omitUnsupportedUserHabits(result.content,userHabitSources);
+        userHabitFallbackApplied=true;
+        result={...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
+        if(!safe)recordQualityEvent(userId,{mode:'private',issue:'user-source-risk',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
+      }
+
+      if(!request.stream.published&&!request.controller.signal.aborted&&result.content
+        &&!allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))
+        &&findUninvitedSharedPosture(result.content)) {
+        const safe=omitUninvitedSharedPosture(result.content);
+        sharedPostureFallbackApplied=true;
+        result={...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
+        if(!safe)recordQualityEvent(userId,{mode:'private',issue:'uninvited-staging',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
+      }
+
+      // Both attempted drafts can contain the same unsupported episode. The
+      // best severity score does not establish that it happened. Never repair
+      // text already shown, and never spend a third generation on this fallback.
+      if(!request.stream.published&&!request.controller.signal.aborted&&result.content
+        &&!allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))) {
+        const safe=omitUnsupportedSelfReportEpisodes(result.content,character.systemPrompt,independentCharacterRecords);
+        if(safe!==result.content) {
+          episodeFallbackApplied=true;
+          result={...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
+          if(!safe)recordQualityEvent(userId,{mode:'private',issue:'self-report-risk',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
+        }
+      }
+
+      if(!request.stream.published&&!request.controller.signal.aborted&&result.content
+        &&!allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))
+        &&findUserVisualRisk(result.content,hasUserVisualEvidence)) {
+        const safe=omitUnsupportedUserVisual(result.content,hasUserVisualEvidence);
+        visualFallbackApplied=true;
+        result={...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
+        if(!safe)recordQualityEvent(userId,{mode:'private',issue:'user-source-risk',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
       }
 
       // 保证「对方正在输入…」自然停留一会儿，而不是秒回一闪而过
@@ -599,34 +753,29 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         await messageRepo.markFailed(userMsg.id, true);
         updateMessage(userMsg.id, { failed: true });
       } else if (result.content?.trim()) {
+        // Both live SSE and fully reviewed replies use one presentation queue.
+        // Quality checks remain before buffered text can become visible.
+        const longFormRequest = isLongFormRequest(text);
+        const wasStreamed = request.stream.published;
+        const prepared = wasStreamed ? result.content : splitReplyParts(result.content, MAX_REPLY_PARTS, request.stream.textOptions).join('\n---\n');
+        if (!prepared.trim()) throw new Error('stream:empty');
+        await request.stream.finish(prepared);
+        const parts = [...request.stream.getSnapshot()];
+        if (!parts.length || !sameAccount()) return;
+        // Cancelled queued text was never spoken to the user; do not mark its
+        // memories as used merely because the provider already generated it.
         const recalledForThisReply = new Set(contextTrace.memoryIds ?? []);
         const spokenMemoryIds = findSpokenMemoryIds(
-          result.content,
+          parts.join('\n---\n'),
           memoryContext.memories.filter((memory) => recalledForThisReply.has(memory.id)),
         );
         const responseTrace = spokenMemoryIds.length
           ? { ...contextTrace, spokenMemoryIds }
           : contextTrace;
-        // 尊重模型的反应条和内容条；用 --- 分段或普通闲聊过长时，
-        // 才在自然停顿处分成最多四条，逐条按真人打字时间出现（总长 ≤3500ms）。
-        const longFormRequest = isLongFormRequest(text);
-        const streamed = request.stream.published;
-        const parts = streamed ? streamedReplyParts(result.content, true, true,request.stream.textOptions) : splitReplyParts(result.content, MAX_REPLY_PARTS, request.stream.textOptions);
-        if (!parts.length) throw new Error('stream:empty');
-        if (streamed) request.stream.finish(result.content);
-        const reduced = prefersReducedMotion();
-        // 网络本身的耗时也算进第一条的节奏里：模型慢时不额外硬等，模型秒回时也让气泡自然出现
-        const delays = streamed ? parts.map(() => 0) : computeMessageDelays(parts, {
-          reducedMotion: reduced,
-          alreadyElapsedMs: Date.now() - startedAt,
-        });
         const replyBatchId = parts.length > 1 ? crypto.randomUUID() : undefined;
         let lastReplyCreatedAt = 0;
         const savedReplies: Message[] = [];
         for (let i = 0; i < parts.length; i++) {
-          if (delays[i] > 0) {
-            await new Promise((r) => setTimeout(r, delays[i]));
-          }
           // 被 max_tokens 截断时，最后一条补「…」（真人发整条，但偶尔也像话没说完）
           const isLast = i === parts.length - 1;
           const spoken = formatSpokenParagraphs(parts[i], { longForm: longFormRequest });
@@ -634,10 +783,10 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           const content = isLast && result.truncated && !interrupted ? spoken + '…' : spoken;
           // Voice mode keeps already-streamed text readable while audio is synthesized.
           const aiVoiceOn = !interrupted && useSettingsStore.getState().aiVoiceMode && !!character?.voice;
-          const createdAt = Math.max(streamed ? request.stream.createdAt + i : Date.now(), userMsg.createdAt + i + 1, lastReplyCreatedAt + 1);
+          const createdAt = Math.max(request.stream.createdAt + i, userMsg.createdAt + i + 1, lastReplyCreatedAt + 1);
           lastReplyCreatedAt = createdAt;
           const aiMsg: Message = {
-            id: streamed ? request.stream.ids[i] : crypto.randomUUID(),
+            id: request.stream.ids[i],
             sessionId,
             role: 'assistant',
             content,
@@ -650,12 +799,11 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
               : {}),
             ...(hasTrace ? { contextTrace: responseTrace } : {}),
             ...(aiVoiceOn ? { audio: { dataUrl: '', duration: 0, text: content } } : {}),
-            ...(aiVoiceOn && streamed ? { showAudioTranscript: true } : {}),
+            ...(aiVoiceOn ? { showAudioTranscript: true } : {}),
           };
           if (!sameAccount()) return;
           await commitReply(aiMsg);
           savedReplies.push(aiMsg);
-          if (!streamed) addMessage(aiMsg);
           if (i === 0 && spokenMemoryIds.length > 0) {
             void memoryRepo.markSpoken(spokenMemoryIds).catch(() => undefined);
             for (const memory of memoryContext.memories.filter((item) => spokenMemoryIds.includes(item.id))) {
@@ -694,9 +842,9 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         // Replace the transient preview with saved rows in one React batch.
         // No token-level database writes and no duplicate preview/final bubbles.
         request.completed = true;
-        if (streamed) savedReplies.forEach(addMessage);
-        const finalQuality = inspectChatOutput(savedReplies.map(m => m.content).join('\n---\n'), {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords,hasCurrentImage:!!(image||momentImage)});
-        recordChatQuality(userId, rawResponse ?? result.content, savedReplies.map(m => m.content).join(''), retries, rawResponse !== undefined, {issue:finalQuality.check.issue??(activityFallbackApplied?'self-report-risk':undefined), streamed:request.stream.published,durationMs:Date.now()-startedAt,firstVisibleMs:request.stream.firstTextAt!==undefined?request.stream.firstTextAt-startedAt:undefined});
+        savedReplies.forEach(addMessage);
+        const finalQuality = inspectChatOutput(savedReplies.map(m => m.content).join('\n---\n'), {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),userHabitSources,catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords,hasCurrentImage:!!(image||momentImage),hasUserVisualEvidence,selectedPartnerRole});
+        recordChatQuality(userId, rawResponse ?? result.content, savedReplies.map(m => m.content).join(''), retries, rawResponse !== undefined, {issue:finalQuality.check.issue??(sharedPostureFallbackApplied?'uninvited-staging':audioFallbackApplied||visualFallbackApplied||userHabitFallbackApplied?'user-source-risk':activityFallbackApplied||episodeFallbackApplied?'self-report-risk':affectionHistoryFallbackApplied?'emotional-script':undefined), streamed:wasStreamed,durationMs:Date.now()-startedAt,firstVisibleMs:request.stream.firstTextAt!==undefined?request.stream.firstTextAt-startedAt:undefined});
         if (stillCurrent()) { observer.onComplete?.(); }
         if (result.interrupted || request.controller.signal.aborted) return;
         // 记录本轮对话的轻量节奏状态：不存原文，只保存话题标签、用户偏好和
@@ -768,7 +916,8 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       // Abort before the first visible token is a cancellation, not a send error.
       if (request.controller.signal.aborted && !request.stream.published) return;
       if (request.stream.published) {
-        const parts = streamedReplyParts(request.stream.raw, true, true,request.stream.textOptions);
+        request.stream.stop();
+        const parts = request.stream.getSnapshot();
         for (let index = 0; index < parts.length; index += 1) {
           const id = request.stream.ids[index];
           if (await messageRepo.getById(id)) continue;
@@ -793,7 +942,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         if(cost&&stillCurrent())observer.onCost?.(cost);
       } catch {console.warn('Chat usage metadata could not be saved.');}
     }
-  } finally { releaseHapticSilence(); }
+  } finally { request.controller.signal.removeEventListener('abort', stopPresentation); releaseHapticSilence(); }
 }
 
 const summaryInFlight = new Set<string>();

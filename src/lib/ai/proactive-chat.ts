@@ -5,6 +5,9 @@ import { voiceIdentityWithoutExamples } from '../character-voice';
 import { recordQualityEvent } from '../chat-quality-metrics';
 import { useAuthStore } from '../../store/auth-store';
 import { buildRelationshipToneContext } from '../chat-context';
+import type { Character } from '../../db';
+import {luXueQiRelationshipForTurn} from '../lu-xue-qi-runtime';
+import {guYueNaRelationshipForTurn} from '../gu-yue-na-runtime';
 
 const PROACTIVE_INSTRUCTION =
   '你是下面描述的角色。请基于你的性格，主动发起一次自然的对话。是否聊过、距上次联系多久只依据所给对话与时间信息；没有记录时不预设失联或久别。\n\n' +
@@ -26,6 +29,7 @@ export interface ProactiveMessageParams {
   characterName: string;
   affinity?: number;
   mood?: number;
+  relationshipSource?: Pick<Character, 'id' | 'sourcePresetId' | 'isPreset'>;
   /** 最后一条消息的时间戳，用于感知「多久没联系了」 */
   lastMessageAt?: number;
   /** 问候类型：早安/晚安（缺省为普通主动消息） */
@@ -58,6 +62,14 @@ function buildTimeContext(lastMessageAt?: number): string {
 export async function generateProactiveMessage(params: ProactiveMessageParams): Promise<string> {
   const owner=useAuthStore.getState().userId ?? '',started=performance.now();
   const { apiKey, systemPrompt, lastMessages, characterName, affinity, mood, lastMessageAt } = params;
+  if(params.relationshipSource){
+    const character={...params.relationshipSource,systemPrompt};
+    const rawUser=lastMessages.filter(message=>message.role==='user').map(message=>message.content);
+    const relation=luXueQiRelationshipForTurn(character,'',rawUser);
+    const guRelation=guYueNaRelationshipForTurn(character,'',rawUser);
+    // These owned personas do not initiate affection or greetings to outsiders.
+    if(relation.context&&relation.recognized!==true||guRelation.context&&guRelation.recognized!==true)return '';
+  }
 
   const contextLines = lastMessages.slice(-6).map((m) => {
     const label = m.role === 'user' ? '用户' : characterName;
@@ -75,7 +87,7 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
       '\n\n[现在是夜晚] 按角色性格自然告别这一天，可以说晚安，不必固定叮嘱或追问，不提问候机制。';
   }
   if (affinity != null && mood != null) {
-    systemContent += '\n\n'+buildRelationshipToneContext(affinity,mood);
+    systemContent += '\n\n'+buildRelationshipToneContext(affinity,mood,undefined,params.relationshipSource);
   }
   if (contextLines.length > 0) {
     systemContent += '\n\n最近的对话记录：\n' + contextLines.join('\n');

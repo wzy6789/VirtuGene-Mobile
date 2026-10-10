@@ -24,7 +24,7 @@ function needFor(intent: ChatIntent, action: ConversationAction): CharacterInten
   if (intent === 'question') return '获得答案';
   if (intent === 'request') return '完成事情';
   if (intent === 'closing') return '留一点空间';
-  if (action === 'fresh-angle' || action === 'share-life') return '新鲜感';
+  if (action === 'share-life') return '新鲜感';
   return '被听见';
 }
 
@@ -62,9 +62,7 @@ export function planCharacterIntent(
       ? '用户带着情绪，先陪伴再处理。'
       : intent === 'question'
         ? '用户在等核心答案，先回答再展开。'
-        : action === 'fresh-angle'
-          ? '最近表达出现重复，换一个具体角度。'
-          : '保持自然来回，给用户留下接话空间。';
+        : '保持自然来回，给用户留下接话空间。';
   return {
     intent,
     need: needFor(intent, action),
@@ -82,10 +80,10 @@ export function buildCharacterIntentContext(plan: CharacterIntentPlan): string {
     'follow-topic': '跟随用户的新话题',
     'stay-present': '陪在情绪里',
     'respond-affection': '表达人物自己的心意或界限',
+    'respond-clarification': '按用户更正的用意继续回应当前事情',
     'answer-directly': '直接回答',
     'finish-request': '完成眼前的请求',
     'share-life': '分享角色自己的一个具体细节',
-    'fresh-angle': '换一个新角度',
     'short-close': '顺势收住',
     react: '自然回应',
   };

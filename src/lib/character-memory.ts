@@ -202,6 +202,10 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
   const explicitMomentHistory = lookupHistory;
   const explicitTodoHistory = lookupHistory;
   const items: MemoryReference[] = [];
+  // Topic cooling limits repeated presentation, not the truth of a retrieved
+  // user statement. Preserve checked original references after source gates;
+  // otherwise an omitted noun in a correction can leave only the stale fact.
+  const retrievedOriginalIds=new Set<string>();
   if (sources.has('chat') && audience.length === 1) {
     // Use the same read path as private chat so legacy detached summaries are
     // retired before any other channel can recall them.
@@ -250,6 +254,7 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
       });
       for (const hit of hits) {
         const speaker=memorySpeaker(hit.role,hit.userAuthored);
+        if(hit.role==='user'&&hit.userAuthored===true)retrievedOriginalIds.add(hit.messageId);
         items.push({ source: 'chat', id: hit.messageId, at: hit.createdAt, text: `你翻到的旧私聊原话（${new Date(hit.createdAt).toISOString().slice(0, 10)}，${speaker}）：${hit.precedingUserText?`关联用户原话：${hit.precedingUserText.slice(0,160)}；随后用户更正：`:''}${hit.content}${hit.precedingUserText?'。核对先后，以后续用户更正为准。':''}` });
       }
     }
@@ -462,7 +467,7 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
   const cooling = coolingWorldMotifs(topic, p.recentConversation ?? [], [character.name]);
   const packed = packCharacterMemory(items.filter(r => !excluded.has(`${r.source}:${r.id}`)
     && !suppressions.some(ids => ids.has(r.id))
-    && !cooling.some(motif => r.text.includes(motif))), topic, p.budget ?? 2600);
+    && (r.source==='chat'&&retrievedOriginalIds.has(r.id)||!cooling.some(motif => r.text.includes(motif)))), topic, p.budget ?? 2600);
   // The ledger only learns from references that passed the same source-level
   // visibility checks and survived prompt packing. It never widens visibility.
   const references: MemoryReference[] = [];

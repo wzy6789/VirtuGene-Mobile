@@ -19,6 +19,8 @@ import type { GroupMemberBrief, GroupTurn } from '../lib/ai/group-chat';
 import { prepareMemoryMetadata } from '../lib/memory-engine';
 import { buildSummaryBatch, findUncoveredSummaryMessages } from '../lib/ai/summary-batches';
 import { boundAuxiliaryHistory } from '../lib/ai/history-window';
+import {luXueQiRelationshipForTurn} from '../lib/lu-xue-qi-runtime';
+import {guYueNaRelationshipForTurn} from '../lib/gu-yue-na-runtime';
 
 /** 主动发言触发：距上一条消息超过该时长（且在群聊页停留时）触发一次 */
 const PROACTIVE_AFTER_MS = 5 * 60_000;
@@ -153,14 +155,16 @@ async function buildBriefs(group: Group, userId: string, query = ''): Promise<Gr
         // The old 60-character fallback silently discarded almost all of it.
         persona: (c.systemPrompt || c.signature || '').slice(0, 6000),
         voiceCard:buildCharacterVoiceCard(voiced,query),
+        distantVoiceCard:buildCharacterVoiceCard(voiced,query,[],{distant:true}),
         catchphrase:c.catchphrase,
         tags:c.tags,
+        storyPartnerRole:luXueQiRelationshipForTurn(c,'').context?'luxueqi' as const:guYueNaRelationshipForTurn(c,'').context?'guyuena' as const:undefined,
         publicPersona: [c.signature, ...(c.tags ?? []).slice(0, 5)].filter(Boolean).join('；').slice(0, 220),
         memory: shared.text || undefined,
         memoryReferences: shared.references.map(({ source, id }) => ({ source, id })),
         privateMemory: personal.text.trim() || undefined,
         relationshipContext: characterState
-          ? buildRelationshipToneContext(characterState.affinity, characterState.mood, characterState.tierNames)
+          ? buildRelationshipToneContext(characterState.affinity, characterState.mood, characterState.tierNames, c)
           : undefined,
       };
     }),

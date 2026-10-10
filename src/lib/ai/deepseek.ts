@@ -101,6 +101,15 @@ function trimHistoryImages(history: ChatHistoryItem[]): ChatHistoryItem[] {
   return history.map((h, i) => (h.image && !keep.has(i) ? { ...h, image: undefined } : h));
 }
 
+/** Use the same filtering and request window as sendMessage. Stored invalid
+ * or dropped images and a visual-mode flag alone aren't user image evidence. */
+export function hasUserImageEvidence(history:ChatHistoryItem[],image?:string,forceVision=false):boolean {
+  if(isValidImage(image))return true;
+  const prepared=trimChatHistory(trimHistoryImages(history));
+  const useVision=forceVision||prepared.slice(-VISION_CONTEXT_MESSAGES).some(item=>isValidImage(item.image));
+  return useVision&&prepared.slice(-12).some(item=>item.role==='user'&&isValidImage(item.image));
+}
+
 /** 单条消息内容：有图 → OpenAI 兼容块数组（text + image_url dataURL），无图 → 纯文本 */
 function toContentBlock(text: string, image?: string): string | Array<Record<string, unknown>> {
   if (!image) return text;

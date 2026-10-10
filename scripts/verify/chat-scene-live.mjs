@@ -6,7 +6,7 @@ import {createServer} from 'node:http';
 
 const [proxy,token,roleName,trajectory,revision,generation='production',prefixMode,prefixRevision='r1',turnGuidance='production']=process.argv.slice(2);
 const names=['艾莉','顾清寒','林霜','夏晚星','苏格拉底','古月娜'];
-const scenes=['repair','affection','tired','joy','opinion','continuity','everyday','mishap','smalltalk','guyuena-daily','guyuena-softness','guyuena-ease','guyuena-canon','guyuena-present','guyuena-outsider','guyuena-taste','guyuena-fresh-view','guyuena-music-view','guyuena-noodle-choice','guyuena-continuous-ten'];
+const scenes=['repair','affection','tired','joy','opinion','continuity','everyday','mishap','smalltalk','guyuena-daily','guyuena-softness','guyuena-ease','guyuena-canon','guyuena-present','guyuena-outsider','guyuena-taste','guyuena-fresh-view','guyuena-music-view','guyuena-noodle-choice','guyuena-continuous-ten','guyuena-past-and-present','guyuena-familiar-choice','guyuena-everyday-heldout'];
 const expectedTurns=trajectory==='guyuena-continuous-ten'?10:6;
 if(!['production','minimal-turn'].includes(turnGuidance))throw Error('Unknown evaluation guidance mode');
 if(!/^http:\/\/127\.0\.0\.1:\d+\/chat\/completions$/u.test(proxy??'')||!token||!names.includes(roleName)||!scenes.includes(trajectory)||!/^r\d{1,2}$/u.test(revision??'')||!['production','thinking','direct'].includes(generation)||prefixMode&&!['replay-first-five','replay-first-four','replay-first-three','replay-first-two','replay-first-one'].includes(prefixMode))throw Error('Explicit local bounded proxy, known persona, scene, evidence revision and generation mode required');

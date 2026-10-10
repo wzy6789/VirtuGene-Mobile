@@ -1,0 +1,19 @@
+import {readFileSync,writeFileSync,appendFileSync,existsSync} from 'node:fs';
+const root='D:/月起云归/VirtuGene/手机版',evidence='release/chat-thought-source-evaluation-2026-10-10.json';
+if(existsSync(evidence))throw Error('Preserve existing evidence');
+const files=['docs/GUYUENA-LIVE-MIXED-AFFECTION-TRANSFER-R4-2026-10-10.json',...['R1','R2','R3'].map(r=>`docs/CHAT-THOUGHT-SOURCE-AUDIT-${r}-2026-10-10.json`)];
+const usage={calls:0,input:0,output:0,total:0};
+const reports=files.map(file=>{
+ const r=JSON.parse(readFileSync(file,'utf8'));if(!r.complete||r.usage.missingUsage)throw Error('Incomplete report '+file);
+ if(file.includes('AUDIT')&&r.rows.some(row=>row.finish!=='stop'))throw Error('Unfinished review '+file);
+ for(const key of Object.keys(usage))usage[key]+=r.usage[key];
+ return {file,usage:r.usage,correct:r.correct,scope:r.scope};
+});
+const final=JSON.parse(readFileSync(files.at(-1),'utf8'));
+if(final.correct!==4)throw Error('Review classification changed; reconsider notes');
+const chats=['古月娜','陆雪琪'].map(name=>({path:`${root}/聊天验收/${name}-2026-10-10.md`,content:readFileSync(`${root}/聊天验收/${name}-2026-10-10.md`,'utf8')}));
+writeFileSync(evidence,JSON.stringify({usage,reports,chatSnapshots:chats,selected:{Gu:'docs/GUYUENA-LIVE-MIXED-AFFECTION-TRANSFER-R1-2026-10-10.json',Lu:'docs/LUXUEQI-LIVE-MIXED-AFFECTION-TRANSFER-R3-2026-10-10.json'},chatChanged:false,retained:'Diagnostic review explicitly distinguishes current subjective opinion/conditional willingness from factual prior psychology. Generation contract experiment reverted.',productionReady:false,qualityComplete:false},null,2));
+appendFileSync(root+'/优化方向/2026-10-10.md','\n\n## 观点与往事的边界\n- 直接表达观点的提示试验没有稳定改善，撤回；古月娜仍显示原较好整组。\n- 来源复核区分当下心意/观点/条件意愿与过去心理，夫妻关系不能证明从前怎么想。\n- 真实校准从1/4到4/4判定正确，但错误稿中仍有多余心意证明；暂不接入生产。继续找能同时守住事实与人物语气的办法。\n');
+appendFileSync(root+'/开发日志/2026-10-10.md',`\n\n## 观点不靠新近况与来源审核分类\n- 上轮是进展：收尾状态与声音示例隔离已接生产，2178项通过，两人真实两轮R2/R3完成并择整组。当前再次读取实际失败Gu R2/R3和共享契约：原指令已经禁止编近况，不能称加一句规则就足够。\n- 尝试将共享契约最后一行改为直接说选择/理由/好奇/心意、不必先交代新鲜事，Gu相同mixed-affection R4两轮实测。回复短，但仍“刚才也正好在想你”新增过去心念，结尾“忙完再来找我”仍有要求；未形成稳定改善，已恢复原共享契约，未改角色、人设缓存、版本与发布。生成试验原稿完整保留${files[0]}，不因第二句短就换整组，也不拼接。Gu继续R1，Lu继续上轮R3，聊天文件保持原样。\n- 新scripts/verify/chat-thought-source-audit.mjs复用诊断buildFactAuditMessages/parseFactAudit，读取Gu R2/R3真实完整首轮，独立来源为既有已核对GU_YUE_NA_CANON与本轮认领/原话，不把模型旧稿作来源；两固定边界样例明确标记人工编制，不冒称角色新对话。4例：无来源近期孩子状态与今天空闲→revise；无来源入内院回忆/过去心理→revise；当下观点心意→pass；已知亲子关系和条件意愿→pass。\n- R1仅1/4：旧审核把情绪也列事实，给当下心意/条件意愿引用过去关系，触发严格时间校验；另将“那时候没想过后来会是丈夫”的过去心理借当前婚姻作证明。保持parser严格，不放宽时间范围。诊断审核指导改为不列当下心意/观点/条件意愿、强调过去心理须past来源，R2为2/4；再加不依赖角色名的分类示例，R3判定4/4，过去心理不再由静态婚姻证成，两个正例分别claims=[]和仅亲子关系。\n- 限制：R3两个错误稿仍把“我也想你”等主观表达列成当前事实并引用用户心意。虽然整体revise正确，语义分类未完全遵约、用户想念不能独立证明角色心念发生；未覆盖新增事实漏检、对抗引用、长聊、更多角色，也未进行纠正后人味评分。因此继续诊断而不引入生产额外调用，不宣称通用内容闭环完成。现有14项fact-audit整句引文、来源ID与时间保护本地通过（release/chat-thought-source-local-2026-10-10.log）；未重复全套2178或类型，生产表达契约恢复原状，审核改动为提示文本。\n- 报告${files.join('、')}；release/guyuena-thought-expression-live-2026-10-10.log及release/chat-thought-source-audit-{r2,r3,r4}-2026-10-10.log。首次启动请求650上限被既有proxy500预算本地拒绝，无上游调用，失败日志release/chat-thought-source-audit-2026-10-10.log保留；改回500后才运行，未放宽预算。所有report.complete、finish stop、usage已核实；不因esbuild warning exit1重启。\n- 本轮deepseek-flash共${usage.calls}付费调用，input${usage.input}/output${usage.output}/total${usage.total}。生成2调用4646/248/4894；审核三组各4调用3955/775/4730、4159/797/4956、4483/538/5021。direct审核temperature0，与生成thinking low区分；每次500输出上限。证据与聊天原样快照${evidence}。凭据未输出。\n- 优化方向简短，技术与用量单独记录，聊天输入chatgpt、整组唯一版本；不把固定审核样例混入聊天展示。目标继续：事实可靠与人物特点仍未共同达标，6.0.13不变，未打包、发布或更新官网下载。\n`);
+appendFileSync(root+'/00-总览.md',`\n- 观点/往事边界：生成提示试验撤回，诊断审核分类校准1/4→2/4→4/4但主观表达仍多余列证；14次调用${usage.total}token，不接生产新审核，展示整组保持原样，目标继续。\n`);
+console.log(JSON.stringify({usage,classificationCorrect:final.correct,chatChanged:false,productionReady:false}));

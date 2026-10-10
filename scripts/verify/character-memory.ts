@@ -8,6 +8,7 @@ import { memoryRepo } from '../../src/db/memory-repo';
 import { sessionRepo } from '../../src/db/session-repo';
 import { todoRepo } from '../../src/db/todo-repo';
 import { detectRecallIntent, indexPromptMemoryReferences, recallCharacterMemory, packCharacterMemory } from '../../src/lib/character-memory';
+import {coolingWorldMotifs} from '../../src/lib/world/world-attention';
 import { findSpokenMemoryIds, rankConversationMemories } from '../../src/lib/memory-engine';
 import { buildContextTrace } from '../../src/lib/chat-trace';
 import { buildWorldContext, renderCharacterContext, renderWorldLayer, renderWorldBrief } from '../../src/lib/world/world-context';
@@ -606,6 +607,27 @@ async function run() {
   await db.messages.bulkPut(sourceRows.map((row,index)=>({...row,sessionId:correctionSession,createdAt:now+1000+index,isProactive:false})) as any);
   const historicalQuery={userId:'u',characterId:'a',query:sourceRows.at(-1)!.content,currentSessionId:correctionSession,excludeMessageIds:['context-query']};
   const correctedHits=await recallHistoricalPrivateChat(historicalQuery);
+  const colorSession='color-correction-cooling';
+  await db.sessions.put({id:colorSession,characterId:'a',userId:'u',title:'颜色更正',createdAt:now+100000,updatedAt:now+110000});
+  const colorRows=[
+    {id:'color-original',role:'user',content:'今天买了一本灰色封面的笔记本。'},
+    {id:'color-correction',role:'user',content:'刚才说错了，其实带回来的是蓝色那本，灰色的最后没买。'},
+    ...Array.from({length:12},(_,index)=>({id:'color-filler-'+index,role:index%2?'assistant':'user',content:index%2?'蓝色真好看。':'换个话题聊两句。'})),
+  ];
+  await db.messages.bulkPut(colorRows.map((row,index)=>({...row,sessionId:colorSession,createdAt:now+100001+index,isProactive:false})) as any);
+  const colorQuery='我后来买的笔记本是什么颜色？';
+  const colorConversation=['蓝色也好。','蓝色那本素净。','那本蓝色封面我记着。'].flatMap(content=>[{kind:'user_input' as const,content:'说点别的。'},{kind:'dialogue' as const,content}]);
+  check(coolingWorldMotifs(colorQuery,colorConversation).includes('蓝色'),'fixture reproduces repeated color cooling while the query names the object rather than color value');
+  const colorParams={sources:['chat'],query:colorQuery,recentConversation:colorConversation};
+  const colorRecall=await recall('a',colorParams);
+  check(colorRecall.references.some(row=>row.id==='color-original'),'object recall includes the original speaker-owned notebook statement');
+  check(colorRecall.references.some(row=>row.id==='color-correction'&&row.text.includes('随后用户更正')&&row.text.includes('蓝色')),'motif cooling cannot erase a source-linked raw correction in actual packed memory');
+  check(!(await recall('a',{...colorParams,excludeMessageIds:['color-correction']})).references.some(row=>row.id==='color-correction'),'cooling exemption never overrides explicit source exclusion');
+  check(!(await recall('b',colorParams)).references.some(row=>row.id==='color-correction'),'protected correction stays within its owning character');
+  await db.messages.delete('color-correction');
+  check(!(await recall('a',colorParams)).references.some(row=>row.id==='color-correction'),'deleted protected correction cannot survive recall');
+  await db.messages.where('sessionId').equals(colorSession).delete();
+  await db.sessions.delete(colorSession);
   check(correctedHits.some(hit=>hit.messageId==='context-correction'&&hit.followsMessageId==='context-plan'&&hit.content.includes('周四')),'noun-free adjacent user correction is recalled as its own sourced message');
   check(!correctedHits.some(hit=>hit.messageId==='context-query'),'pending recall question cannot become its own evidence');
   check(!correctedHits.some(hit=>hit.followsMessageId==='context-plan'&&hit.messageId==='context-unrelated-correction'),'correction chain stops at an intervening unrelated user topic');
