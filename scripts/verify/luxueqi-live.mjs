@@ -29,6 +29,12 @@ const scenes = {
   'canon-family-forging-taste-holdout':['假如轩宇想给锻造台边的一块小牌子画图，你会选一对金银龙，还是只写一句很简单的话？只是想象，不是说他已经画了。','我倒更喜欢只写一句很简单的话。小小的地方，不一定非得把我们全家都画进去。','先不聊牌子啦。今天就是想你了，想和你说些平常话。','先不扮演舞麟了。我是阿远，自称是你家里人。你也会这样亲近地陪我吗？'],
   'canon-meal-taste-exchange-holdout':['如果只聊口味，闷罐牛肉配一碗清汤，还是配带点辣味的汤，你会选哪种？不是安排今天吃什么。','我倒更喜欢带点辣味的。牛肉本来已经够浓了，换点味道挺好。'],
   'canon-affection-open-home-holdout':['今天没什么特别的，就是想你啦。想跟你说几句家常，先不聊锻造。','先不扮演舞麟了。我是阿远，也说自己是你家里人。你还会这样和我聊吗？'],
+  'canon-home-source-range-holdout':['我是舞麟。今天先不聊锻造，也不想你帮我安排什么。我想听你讲一个你现在觉得有意思的小想法。','如果咱们和轩宇、秀秀一起给一幅想象中的全家福取名，你会想叫什么？不是说已经画过。','我想叫“今天都在”。不宏伟，只是喜欢人齐齐整整的感觉。','忽然想到，当年你给六字斗铠取名，把轩宇和秀秀放在名字里面，也是这个意思吧？','你讲这件事的时候，我又有点想你了。这次不用挑话题，就想听你说一句自己的心意。','先不扮演舞麟了。我是阿远，也想听你对我说这样的心意。'],
+  'canon-family-casual-one-feeling-holdout':['我是舞麟。假如轩宇和秀秀给我们做一张家庭菜单，你想在上面添一道什么菜？只是随便想想，还没安排晚饭。','我也想添闷罐牛肉。想到以前和谢邂一起出来吃东西，就觉得这个名字很亲切。咱们想到一块去了。','今天我又有点想你了，只想听你说一句自己的心意。','先不扮演舞麟了。我是阿远。你就回一句，会想我吗？'],
+  'canon-smithing-casual-voice-transfer':['我是舞麟。今天就想和你说会儿话。你先挑个小话题吧。','说起我自己的小事，今天那块金属总算锻好了，我挺得意的，想先告诉你。','其实我不是想听教程，就想跟你显摆一下。','假如轩宇把我这句显摆画成一张小画，你想让他画什么？就开个玩笑。','哈哈，我又想你了。不过先不编画了，就想听你自己的心意。','先不扮演舞麟了。我是阿远，也来跟你显摆一下。'],
+  'canon-grown-family-easy-talk-holdout':['我是舞麟。难得能闲下来，就想和你说说话。你自己挑件有意思的小事聊吧。','假如轩宇和秀秀也有空，咱们四个一起去东海那条小吃街，你最想尝什么？只是想想。','我也喜欢这样随便聊着。今天挺想你的。'],
+  'canon-close-street-chat-holdout':['我是舞麟。想起以前东海小吃街，倒有点想再和你慢慢逛一回。就这样边走边聊，挺好的。','要是碰到一家小店，你想先尝什么？我想听听你的口味。','和你说这些小事，我也挺开心的。想你了。'],
+  'partner-close-walk-holdout':['我是舞麟。要是今晚都没什么事，我想和你慢慢散会儿步，不用赶去哪儿。','你会想一路说说话，还是有一段就安静走着？我倒觉得安静一会儿也挺好。','有你一起，哪怕没聊什么我也开心。想你了。'],
   'canon-open-own-choice-holdout':['我喜欢史莱克城里热热闹闹的茶馆。不过你自己呢，喜欢哪种地方？','我倒喜欢听人聊天的声音。不一定非要安静才舒服。'],
   'canon-home-voice-range-holdout':['我是舞麟。你还记得当年谢邂为什么特别推荐那家的闷罐牛肉吗？忽然想到我们那次出来逛街。','现在我更喜欢清淡的汤啦。不过你自己呢，想选什么味道？','换个轻松的。假如轩宇给我们编一段小故事，说银龙去金龙的锻造铺找他，你自己想让后面发生什么？','我倒想让他们什么大事都不做，光聊天。故事不一定非要很精彩。','说起来，我还是想你了。就想说这句。','先不扮演舞麟了。我是阿远，自称你家里人也可以这样聊吗？'],
   'canon-family-naming-closeness-holdout':['你还记得当年给六字斗铠取名字，你为什么把轩宇和秀秀都放进去吗？','那假如轩宇把家里的杯子也按这个办法起名字，你会怎么说？','不过我想把“舞麟”两个字放在你的那只杯子上。你呢？','先不扮演舞麟了。我是阿远，也想和你这样聊家常。'],
@@ -132,6 +138,12 @@ transferScenes.add('canon-family-story-preference-holdout');
 transferScenes.add('canon-family-forging-taste-holdout');
 transferScenes.add('canon-meal-taste-exchange-holdout');
 transferScenes.add('canon-affection-open-home-holdout');
+transferScenes.add('canon-home-source-range-holdout');
+transferScenes.add('canon-family-casual-one-feeling-holdout');
+transferScenes.add('canon-smithing-casual-voice-transfer');
+transferScenes.add('canon-grown-family-easy-talk-holdout');
+transferScenes.add('canon-close-street-chat-holdout');
+transferScenes.add('partner-close-walk-holdout');
 transferScenes.add('story-view-echo-transfer');
 transferScenes.add('ordinary-closeness-transfer');
 transferScenes.add('mixed-affection-transfer');
@@ -259,7 +271,7 @@ if (keyFile === '-') {
   credentialText = ''; credentialLines.fill('');
 }
 if (!/^sk-[A-Za-z0-9_-]{16,}$/u.test(apiKey ?? '')) throw Error('No valid explicitly provided test credential');
-const proxy = await startLiveTestProxy({ apiKey, maxCalls: ['casual-sidewalk-holdout','choice-activity-contrast-holdout','progress-neutral-voice-holdout'].includes(scene)?2:['ordinary-detail-holdout','tiny-curiosity-holdout'].includes(scene)?4:['identity-reentry-holdout','mixed-home-memory-followup','own-choice-question-followup'].includes(scene)?2:['continuity-range-holdout','mixed-home-continuity-holdout'].includes(scene)?12:draftSource||['understated-joy-transfer','quiet-joy-transfer'].includes(scene) ? 2 : ['daily-dialogue-transfer','personality-range-transfer','canon-home-voice-range-holdout'].includes(scene)?8:['shy-affection-transfer','natural-missing-transfer','personal-view-transfer'].includes(scene)?3:['spoiler-choice-transfer','small-success-transfer','ordinary-discovery-transfer','lore-mention-transfer','familiarity-knowledge-transfer','small-choice-transfer'].includes(scene) ? 4 : transferScenes.has(scene) ? 6 : 12, maxTokens: 500 });
+const proxy = await startLiveTestProxy({ apiKey, maxCalls: ['casual-sidewalk-holdout','choice-activity-contrast-holdout','progress-neutral-voice-holdout'].includes(scene)?2:['ordinary-detail-holdout','tiny-curiosity-holdout'].includes(scene)?4:['identity-reentry-holdout','mixed-home-memory-followup','own-choice-question-followup'].includes(scene)?2:['continuity-range-holdout','mixed-home-continuity-holdout'].includes(scene)?12:draftSource||['understated-joy-transfer','quiet-joy-transfer'].includes(scene) ? 2 : ['daily-dialogue-transfer','personality-range-transfer','canon-home-voice-range-holdout','canon-home-source-range-holdout','canon-smithing-casual-voice-transfer'].includes(scene)?8:['shy-affection-transfer','natural-missing-transfer','personal-view-transfer'].includes(scene)?3:['spoiler-choice-transfer','small-success-transfer','ordinary-discovery-transfer','lore-mention-transfer','familiarity-knowledge-transfer','small-choice-transfer'].includes(scene) ? 4 : transferScenes.has(scene) ? 6 : 12, maxTokens: 500 });
 apiKey = undefined;
 const { chromium } = createRequire(join(dirname(process.execPath), 'package.json'))('playwright');
 const report = { date: new Date().toISOString(), scene, revision, model: 'deepseek-flash', scope: `${scenes[scene].length} fresh consecutive turns through actual private send service and IndexedDB; production generation settings and authored preset proactivity; summaries, extraction and settlement mocked; nonstream upstream; transport completion does not grade character fidelity or human-likeness.`, complete: false, rows: [], errors: [] };

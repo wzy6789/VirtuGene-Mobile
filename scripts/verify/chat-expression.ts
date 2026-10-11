@@ -4,6 +4,7 @@ import { streamedReplyParts } from '../../src/lib/chat-stream';
 import { stripRoleplayActions } from '../../src/lib/ai/text';
 import { buildCharacterVoiceCard, buildHumanConversationSections, buildHumanConversationContext, recommendConversationTemperature, chooseConversationAction } from '../../src/lib/chat-humanizer';
 import { compileChatContext } from '../../src/lib/chat-context-compiler';
+import {buildMessageModeContext} from '../../src/lib/chat-message-mode';
 import { planCharacterIntent } from '../../src/lib/character-intent';
 import { buildChatConversationStateContext, emptyChatConversationState, detectChatIntent, detectTopicMove, updateChatConversationState, inferReplyAction } from '../../src/lib/chat-conversation-state';
 import { assessChatSituation, collectRecentReplyTurns, recentRhythmDirection, recentQuestionDirection, replyContainsSubstantiveQuestion } from '../../src/lib/chat-expression-guidance';
@@ -24,6 +25,7 @@ import {requestsCharacterChoice} from '../../src/lib/chat-turn-cues';
 import {requestsCharacterWording} from '../../src/lib/chat-turn-cues';
 import {directAffectionSources} from '../../src/lib/chat-expression-boundary';
 import {findSelfReportRisk,omitUnsupportedSelfReportEpisodes} from '../../src/lib/chat-self-report-risk';
+import {conditionalJointWish} from '../../src/lib/chat-joint-wish';
 import {findCurrentActivityRisk,omitUnsupportedCurrentActivities} from '../../src/lib/chat-current-activity-risk';
 import {findDomesticReferenceRisk,omitDomesticReferences} from '../../src/lib/chat-domestic-reference-risk';
 import {omitRememberedTeasing} from '../../src/lib/chat-remembered-teasing-risk';
@@ -41,7 +43,7 @@ import {withDouluoRelations} from '../../src/lib/douluo-relations';
 import {guYueNaRelationshipForTurn,guYueNaPromptForTurn} from '../../src/lib/gu-yue-na-runtime';
 import {luXueQiRelationshipForTurn,luXueQiFamilyRisk,omitLuXueQiFamilyRisk} from '../../src/lib/lu-xue-qi-runtime';
 import {ownedPartnerContext,ownedIdentityTransition,rejectsSelectedPartner,priorVisitorReplyIds,ownedIdentityChoice} from '../../src/lib/chat-owned-identity';
-import {requestsBriefReply} from '../../src/lib/chat-reply-size';
+import {requestsBriefReply,requestsSingleSentenceReply} from '../../src/lib/chat-reply-size';
 import {setsAsideNamedTopic} from '../../src/lib/chat-turn-cues';
 import {assessExpressionSignals} from '../../src/lib/chat-expression-guidance';
 import {compactOwnedJudgmentEcho} from '../../src/lib/chat-owned-judgment-compaction';
@@ -211,9 +213,40 @@ async function run() {
   for(const input of ['我更喜欢你。','我想你了。','换个话题，我倒喜欢有很多人说话。','朋友说我倒喜欢有很多人说话。','如果我倒喜欢有很多人说话呢。','“我倒喜欢有很多人说话”。','翻译“我倒喜欢有很多人说话”。','我倒喜欢很多人，你帮我写一段。','我倒喜欢很多人聊天吗？','我刚才去了一家很热闹的茶馆。'])ok(!buildViewContinuityContext(input,openPlaceHistory),'affection, tasks, reports, conditions and events do not acquire a preference follow-up: '+input);
   ok(!buildViewContinuityContext('我倒喜欢很多人聊天。',[{role:'user',content:openPlaceQuestion}]),'an unanswered preference invitation does not fabricate an actor stance');
   ok(!buildViewContinuityContext('我倒喜欢很多人聊天。',[{role:'user',content:'我今天吃了面条。'},{role:'assistant',content:'这听着不错。'}]),'a preference after an unrelated actual event does not reuse an imagined prior stance');
+  const menuQuestion='我是舞麟。假如轩宇和秀秀给我们做一张家庭菜单，你想在上面添一道什么菜？只是随便想想，还没安排晚饭。';
+  const menuHistory=[{role:'user',content:menuQuestion},{role:'assistant',content:'我想添一道龙须面。'},{role:'assistant',content:'名字顺，做起来也不折腾。'}];
+  const menuFollowup='我也想添闷罐牛肉。想到以前和谢邂一起出来吃东西，就觉得这个名字很亲切。咱们想到一块去了。';
+  const menuFrame=buildViewContinuityContext(menuFollowup,menuHistory);
+  for(const question of [menuQuestion,'你想看什么书？','你自己更想选哪个？','假如有空，你想听什么曲子？']) {
+    ok(requestsCharacterPerspective(question),'an addressed open choice is this actor viewpoint, not a request to interrogate the user: '+question);
+    ok(chooseConversationAction(question,[])==='answer-directly','an open choice receives the actual actor-owned answering action: '+question);
+  }
+  for(const question of ['朋友说，你想添什么菜？','我听朋友说，你想看什么书？','“你想看什么书？”','如果朋友问，你想看什么书？','不要回答，你想看什么书？','帮我写一段，你想看什么书？','你不想看什么书？'])ok(!requestsCharacterPerspective(question),'open choices keep source, quoted writing and refusal scope: '+question);
+  ok(menuFrame.includes(JSON.stringify(menuFollowup))&&menuFrame.includes('我想添一道龙须面。 --- 名字顺，做起来也不折腾。'),'a real linked-choice statement preserves both actual speaker choices rather than assuming agreement');
+  ok(buildHumanConversationContext(menuFollowup,menuHistory).includes('不是应用已判定选择相同'),'linked-choice guidance is wired into actual adjacent conversation context');
+  for(const input of ['我也想添龙须面。','我也想选清淡一点的。','我也喜欢热闹的茶馆。','咱们想到一块去了。'])ok(buildViewContinuityContext(input,menuHistory).includes(JSON.stringify(input)),'both agreement and distinct choices re-read current original speech: '+input);
+  for(const input of ['我也想你了。','我也喜欢你。','朋友说，我也想添龙须面。','如果有空，我也想添龙须面。','“我也想添龙须面”。','我也想添龙须面吗？','翻译我也想添龙须面。','我也想添龙须面，帮我写个菜单。','换个话题，我也想添龙须面。'])ok(!buildViewContinuityContext(input,menuHistory),'linked-choice frame respects actual intent and source boundaries: '+input);
+  ok(!buildViewContinuityContext(menuFollowup,[menuHistory[0]]),'a linked-choice acknowledgement does not fabricate an unanswered actor selection');
+  ok(!buildViewContinuityContext(menuFollowup,[{role:'user',content:'今天刚吃过饭。'},{role:'assistant',content:'嗯。'}]),'unrelated non-view dialogue is not turned into a preference record');
   const affectionNow='我喜欢听你讲这些，不是想让你帮我安排。我现在就是有点想你。';
   ok(!buildHypothesisContext(affectionNow,[timeQuestion,reasonQuestion]),'present affection ends an imagined choice even when a generic arranging word overlaps');
   ok(!!buildHypothesisContext(reasonQuestion,[timeQuestion]),'the actual reason follow-up retains the hypothetical scope');
+  const conditionalWalk='要是今晚都没什么事，我想和你慢慢散会儿步，不用赶去哪儿。';
+  ok(conditionalJointWish(conditionalWalk)===conditionalWalk.slice(0,-1),'conditional shared wish retains its complete premise rather than becoming an availability record');
+  ok(conversationalHypothesis(conditionalWalk,[])===conditionalWalk,'a non-question conditional shared wish establishes hypothetical scope');
+  ok(buildHypothesisContext(conditionalWalk,[]).includes('要是今晚都没什么事'),'actual hypothesis context contains the original availability condition');
+  ok(!!conversationalHypothesis('你想一路说说话，还是安静走着？',[conditionalWalk]),'the next related choice retains the shared conditional wish');
+  ok(buildHypothesisContext(conditionalWalk,[]).includes('两个人的空闲仍是条件'),'shared wish guidance does not assert the character availability');
+  ok(!conversationalHypothesis('你想吃什么？',[conditionalWalk]),'an unrelated choice does not retain the old walking condition');
+  const affectionAfterWalk='有你一起，哪怕没聊什么我也开心。想你了。';
+  const walkChoice='你会想一路说说话，还是有一段就安静走着？';
+  const affectionWalkContext=buildHypothesisContext(affectionAfterWalk,[conditionalWalk,walkChoice]);
+  ok(!conversationalHypothesis(affectionAfterWalk,[conditionalWalk,walkChoice]),'present affection exits the prior walking topic focus');
+  ok(affectionWalkContext.includes('现在回应他这次的心意即可')&&affectionWalkContext.includes('仍有条件')&&!affectionWalkContext.includes('[正在讨论的假设]'),'affection retains only the fact boundary rather than forcing a return to the old topic');
+  for(const current of ['换个话题，我想你了。','我们今晚已经决定一起去了。想你了。','我已经订了票。想你了。'])ok(!buildHypothesisContext(current,[conditionalWalk,walkChoice]).includes('[最近设想的事实范围]'),'explicit changes and actual decisions do not inherit the old conditional boundary: '+current);
+  ok(!buildHypothesisContext('想你了。',[conditionalWalk,'你想吃什么？']).includes('[最近设想的事实范围]'),'an unrelated intervening topic drops the old conditional boundary');
+  ok(!buildHypothesisContext('想你了。',['朋友说，要是今晚有空，我想和你散步。']).includes('[最近设想的事实范围]'),'reported shared wishes cannot establish a recent conditional boundary');
+  for(const input of ['朋友说，要是今晚没事，我想和你散步。','“要是今晚没事，我想和你散步。”','以前要是有空，我想和你散步。','要是今晚没事，我不想和你散步。','要是今晚没事，我想和你一起添加待办。'])ok(!conditionalJointWish(input),'conditional wish preserves report, quote, past, denial and operation scopes: '+input);
   ok(!!buildHypothesisContext('我想你了。假如只有半天空闲，你会先看书还是散步？',[timeQuestion]),'a current explicit hypothetical still has its own premise alongside affection');
   const attention={currentTopic:timeQuestion,topicStatus:'active' as const,pausedTopics:[timeQuestion],preferences:{...emptyChatConversationState().preferences,questionTolerance:'low' as const}};
   const beforeAttention=JSON.stringify(attention);
@@ -290,6 +323,24 @@ async function run() {
     ok(!findSelfReportRisk(thought,'',['独立经历：'+thought]),'independently recorded dated completed thoughts remain available: '+thought);
   }
   for(const thought of ['今天也想你。','我现在想你。','如果今天也想起你了，会怎么样？','朋友说，今天也想起你了。','今天也想起你了吗？'])ok(!findSelfReportRisk(thought),'present affection, condition, report and question retain their scope: '+thought);
+  for(const thought of ['我最近在琢磨，要不要找一天一起出去走走。','我这两天在想一件事。']){
+    ok(findSelfReportRisk(thought)?.kind==='episode','a dated mental process requires its own source: '+thought);
+    ok(!findSelfReportRisk(thought,'',['独立经历：'+thought]),'a directly recorded mental process remains available: '+thought);
+    ok(!!findSelfReportRisk(thought,'对话样本：用户说闲聊 → 你说'+thought),'a voice sample is not a record of mental history: '+thought);
+  }
+  for(const thought of ['我想和你出去走走。','我现在在琢磨，要不要一起逛逛。','我最近很想你。','朋友说，我最近在琢磨，要不要找一天一起出去走走。','如果有空，我最近在琢磨，要不要一起走走。','“我最近在琢磨”这句话怎么说？','我最近在想什么？'])ok(!findSelfReportRisk(thought),'current affection, current thought, reported material and questions retain scope: '+thought);
+  ok(omitUnsupportedSelfReportEpisodes('我最近在琢磨，要不要找一天一起出去走走。---我也想你。')==='要不要找一天一起出去走走。\n---\n我也想你。','omit only the retrospective mental lead, preserving the exact shared wish and affection');
+  ok(omitUnsupportedSelfReportEpisodes('我这两天在想一件事。---我想和你去逛逛。')==='我想和你去逛逛。','remove an unsupported mental-history sentence without deleting the independent current wish');
+  for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput('我最近在琢磨，要不要找一天出去走走。',{mode,userMessage:'想聊聊平常话。'}).check.issue==='self-report-risk','dated mental history enters the existing quality check in '+mode);
+  ok(!!findSelfReportRisk('我最近在琢磨，要不要出去走走。','',['如果我最近在琢磨，要不要出去走走。']),'conditional source material cannot establish a dated mental process');
+  ok(!!findSelfReportRisk('我最近在琢磨，要不要出去走走。','',['朋友说，我最近在琢磨，要不要出去走走。']),'reported source keeps its scope across the comma rather than proving character mental history');
+  const embeddedThought='慢慢走就好，我最近总想着夜里出去转转，最好是不用看时间。';
+  ok(findSelfReportRisk(embeddedThought)?.quote==='我最近总想着夜里出去转转','a direct mental-history claim after a comma is not hidden by an earlier present response');
+  ok(!findSelfReportRisk(embeddedThought,'',['独立心理记录：'+embeddedThought]),'the independently recorded exact comma-scoped mental process remains available');
+  for(const report of ['朋友说，'+embeddedThought,'我听朋友说，'+embeddedThought,'如果有空，'+embeddedThought,'原文是：'+embeddedThought,'“'+embeddedThought+'”'])ok(!findSelfReportRisk(report),'comma detection does not convert a report, condition, example or quotation into a direct claim: '+report);
+  ok(!!findSelfReportRisk(embeddedThought,'',['朋友说，'+embeddedThought]),'reported evidence cannot establish a direct comma-scoped mental episode');
+  ok(omitUnsupportedSelfReportEpisodes('我也想你。'+embeddedThought+'---真去的话，我想慢慢走。')==='我也想你。\n---\n真去的话，我想慢慢走。','an unsupported comma-scoped thought removes its sentence but preserves independent affection and conditional future wish');
+  for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput(embeddedThought,{mode,userMessage:'想一起散会儿步。'}).check.issue==='self-report-risk','shared quality entry detects the comma-scoped mental episode in '+mode);
   ok(!inspectChatOutput('嗯，今天也想起你了。',{mode:'private',userMessage:'今天有点想你。'}).check.ok,'actual quality inspector catches the captured dated implicit-subject thought');
   const choiceVoice='对话样本：用户说你偏爱热闹还是安静 → 你说安静一点。这样想说什么，都能听清。';
   const unrelatedVoice='对话样本：用户说今天袜子穿错了 → 你说哈哈，两只袜子也有自己的意见。';
@@ -345,6 +396,22 @@ async function run() {
   }
   for(const message of ['朋友说回复简单一点。','她想让我回答短一点。','如果回复简单一点呢？','“简单一点”是什么意思？','不用简单一点。','不是让你简单一点。','帮我写个故事，台词是简单一点。','简单一点，不过详细一点。','这是一个简单一点的方案。'])ok(!requestsBriefReply(message),'reports, quotes, hypotheses, denials, material and a later expansion are not a strict size request: '+message);
   const longSimple=['把作品拍清楚后放在一个固定文件夹，这样以后展示就不用重新整理。','照片按名称排好，视频也单独存好，然后挑选适合的平台发布。','还可以准备介绍，写清自己的创作思路，给朋友一个查看链接。','要是准备下一次展示，也可以提前设置好文件权限和展示顺序。'].join('---');
+  const oneFeeling='你讲这件事的时候，我又有点想你了。这次不用挑话题，就想听你说一句自己的心意。';
+  for(const text of [oneFeeling,'只说一句。','你就回一句。','我只想听你说一句自己的想法。','一句话就行。','说一句，简短一点。']) {
+    ok(requestsSingleSentenceReply(text)&&requestsBriefReply(text),'an explicit one-sentence request reaches the stricter current budget: '+text);
+    ok(directChatGuidance(text,[],[]).includes('只想听一句'),'one-sentence intent reaches actual delivery guidance: '+text);
+  }
+  for(const text of ['回复短一点。','朋友说，只说一句。','如果有空，只说一句。','“只说一句”是什么意思？','不用只说一句。','我想听他说一句自己的心意。','我只想听你说一句自己的心意吗？','帮我写故事，台词是只说一句。','只说一句，不过展开说。'])ok(!requestsSingleSentenceReply(text),'strict quantity keeps source, negation, generic brevity and later expansion boundaries: '+text);
+  ok(isDirectAffection(oneFeeling)&&chooseConversationAction(oneFeeling,[])==='respond-affection','again-missing-you plus quantity preserves affection instead of treating it as a new task');
+  for(const text of ['我又想你了。','我又有点想你了。','今天我又想你了。'])ok(isDirectAffection(text)&&directAffectionSources(text).length===1,'a renewed feeling has exact current-user evidence: '+text);
+  for(const text of ['朋友说我又想你了。','如果我又想你了。','“我又想你了”。','我又有点想你推荐的那本书。'])ok(!isDirectAffection(text),'renewed affection still needs the actual speaker and addressed person: '+text);
+  const oneTooMany='那我说了。---我也想你。---真想和你多聊一会儿。';
+  ok(checkReplyQuality(oneTooMany,oneFeeling).issue==='too-long','multiple short affection bubbles cannot bypass an explicit one-sentence budget');
+  ok(checkReplyQuality('我也想你。真想和你多聊一会儿。',oneFeeling).issue==='too-long','merging into one bubble does not hide multiple sentences');
+  ok(checkReplyQuality('我也想你！！',oneFeeling).ok,'intense punctuation remains one sentence');
+  ok(checkReplyQuality('我也想你！🥺',oneFeeling).ok,'a trailing emoji does not turn one heartfelt sentence into two');
+  ok(checkReplyQuality('舞麟，我也想你，想再听听你的声音。',oneFeeling).ok,'a naturally phrased single affectionate sentence is accepted');
+  ok(checkReplyQuality('我也想你。真想和你多聊一会儿。','我想你了。').ok,'a request for one sentence does not impose a permanent short-answer rule');
   const sizeCheck=checkReplyQuality(longSimple,'帮我想一个以后还能展示的方式，简单一点。');
   ok(sizeCheck.issue==='too-long'&&sizeCheck.retryHint?.includes('明确要求简单'),'short bubbles cannot bypass a current explicit brevity request by adding more parts');
   ok(checkReplyQuality('先拍几张能看清作品的照片，放到一个相册里。想给人看时直接发过去就行。','帮我想个办法，简单一点。').ok,'a brief useful suggestion is accepted');
@@ -439,6 +506,17 @@ async function run() {
     ok(!findUserHabitRisk('你平时'+predicate+'。',sources),'present ordinary preference remains usable after correction: '+sources.join('/'));
   }
   ok(!findUserHabitRisk('你一直喜欢锻造。',['我一直喜欢锻造。']),'explicit independent persistent preference remains usable');
+  const pastMealClaim='你以前跟谢邂出去就爱点这个。';
+  ok(!!findUserHabitRisk(pastMealClaim,['想到以前和谢邂一起出来吃东西，就觉得这个名字很亲切。']),'one remembered meal cannot establish a past contextual ordering preference');
+  for(const claim of ['你以前跟朋友逛街就爱买这个。','你从前去书店就喜欢看这种书。','你过去和同事聊天总喜欢提这件事。','你以前跟谢邂出去的时候就爱点这个。'])ok(!!findUserHabitRisk(claim),'a contextual past preference needs its own explicit source: '+claim);
+  ok(!findUserHabitRisk(pastMealClaim,['我以前跟谢邂出去就爱点这个。']),'an exact direct past preference assertion remains usable');
+  for(const source of ['我想添这个。','我一直喜欢这个。','朋友说，我以前跟谢邂出去就爱点这个。','如果有空，我以前跟谢邂出去就爱点这个。','“我以前跟谢邂出去就爱点这个”。'])ok(!!findUserHabitRisk(pastMealClaim,[source]),'current taste, broad liking, reports and hypotheticals cannot support a specific old contextual preference: '+source);
+  for(const claim of ['你以前跟谢邂出去点过这个。','你以前喜欢锻造。','你现在想添这个。','你以前跟谢邂出去就爱点这个吗？','如果有机会，你以前跟谢邂出去就爱点这个。','朋友说，你以前跟谢邂出去就爱点这个。','你不是以前跟谢邂出去就爱点这个。'])ok(!findUserHabitRisk(claim),'past contextual checks preserve sourced-event wording, ordinary background, current wishes and nonassertions: '+claim);
+  for(const claim of ['你以前如果和朋友出去就爱点这个。','你从前要是有空就喜欢看这本书。'])ok(!findUserHabitRisk(claim),'a hypothetical inside a past-prefixed clause does not become a direct habitual assertion: '+claim);
+  ok(omitUnsupportedUserHabits('那道我听过，你以前跟谢邂出去就爱点这个。---那就添两道菜吧。',['想到以前和谢邂一起出来吃东西。'])==='那就添两道菜吧。','a failed correction can omit the unsupported past sentence while retaining the independent present suggestion');
+  for(const source of ['朋友说，我一直喜欢锻造。','如果有空，我一直喜欢锻造。','帮我写一段，我一直喜欢锻造。'])ok(!!findUserHabitRisk('你一直喜欢锻造。',[source]),'a comma does not erase the source speaker, condition or writing-material scope: '+source);
+  for(const source of ['我听朋友说，我以前跟谢邂出去就爱点这个。','台词是，我以前跟谢邂出去就爱点这个。'])ok(!!findUserHabitRisk(pastMealClaim,[source]),'reported first-person material is not independent evidence for a past contextual preference: '+source);
+  for(const claim of ['朋友说，你平时声音放得轻。','如果有空，你平时声音放得轻。'])ok(!findUserHabitRisk(claim),'reported and conditional statements are not direct current actor habit assertions: '+claim);
   for(const message of ['我就是喜欢听你说自己的想法。刚才也有点想你，所以来聊两句。','听你说自己的看法，我挺开心的。我也想你了。','我就喜欢你这样认真。今天想你了。']){
     ok(isDirectAffection(message),'an actual feeling is retained alongside praise or conversational preference: '+message);
     ok(interactionMoment(message)==='affection','a mixed feeling still selects the authored intimate reaction: '+message);
@@ -659,6 +737,35 @@ async function run() {
     ok(openingPrompt.includes('这轮由你开话题')||openingPrompt.includes('也邀请聊些平常话'),'everyday chat invitation reaches the actual conversation prompt: '+text);
   }
   const affectionateTalk='今天就是想你了，想和你说些平常话。';
+  const freshIdeaInvitation='我是舞麟。今天先不聊锻造，也不想你帮我安排什么。我想听你讲一个你现在觉得有意思的小想法。';
+  const messageMode=buildMessageModeContext('我是舞麟。你先挑个小话题吧。',[],true);
+  ok(messageMode.includes('文字消息交流')&&messageMode.includes('认领身份没有同时要求续写'),'the application explicitly selects message delivery rather than inviting a new physical scene');
+  ok(buildMessageModeContext('我来扮演舞麟，想跟你发消息。',[],true).includes('文字消息交流'),'choosing the interlocutor story identity alone does not enact a meeting');
+  for(const text of ['陪我演一段重逢场景。','写一段小说。','写一篇关于春天的文章，800字。'])ok(!buildMessageModeContext(text,[],true),'explicit scene and long-form requests keep their original delivery scope: '+text);
+  ok(!buildMessageModeContext('继续。',['陪我演一段回家的剧情。'],true),'an explicitly started scene can continue without a messaging-mode override');
+  ok(buildMessageModeContext('现在不演了，聊点别的吧。',['陪我演一段回家的剧情。'],true).includes('文字消息交流'),'leaving an enacted scene restores ordinary message delivery');
+  for(const text of ['朋友说，现在不演了。','我听朋友说，现在不演了。','如果有空，现在不演了。','“现在不演了”。','现在不演了？'])ok(!buildMessageModeContext(text,['陪我演一段回家的剧情。'],true),'reported, conditional, quoted and interrogative exits do not cancel an actual scene: '+text);
+  const editedGuForMode={id:'edited-gu',sourcePresetId:'preset-guyuena',isPreset:false,systemPrompt:GU_YUE_NA_CARE.replace('判断习惯：','自定义判断：')};
+  ok(!buildMessageModeContext('我是舞麟。',[],!!guYueNaRelationshipForTurn(editedGuForMode,'我是舞麟。').context),'an edited source block is not silently forced into the owned messaging projection');
+  const modeSections=[...buildHumanConversationSections('我是舞麟。你先挑个小话题吧。',[],{name:'古月娜',tags:[],systemPrompt:GU_YUE_NA_CARE}),{key:'message-mode',text:messageMode,priority:100,placement:'tail' as const,tailOrder:.75,requireComplete:true},{key:'gu-relationship',text:'当前聊天者是舞麟。',priority:100,placement:'tail' as const,tailOrder:2}];
+  const modeCompiled=compileChatContext('人物身份',modeSections,6000);
+  ok(modeCompiled.included.includes('message-mode')&&modeCompiled.prompt.indexOf('[本轮对话方式]')<modeCompiled.prompt.indexOf('[人物声音卡]'),'delivery mode is included whole before voice while retaining the character card');
+  const modeTransport=withChatMessagingPolicy(modeCompiled.prompt);
+  ok(modeTransport.endsWith(CHAT_MESSAGING_INSTRUCTION)&&modeTransport.split('[本轮对话方式]').length===2,'the actual compiled delivery cue coexists with one shared transport contract');
+  const modeTooTight=compileChatContext('人设'.repeat(2950),[{key:'message-mode',text:messageMode,priority:100,placement:'tail',tailOrder:.75,requireComplete:true}],6000);
+  ok(modeTooTight.omitted.includes('message-mode')&&!modeTooTight.partial.includes('message-mode'),'budget pressure cannot turn a truncated delivery cue into a contradictory instruction');
+  for(const text of ['我是舞麟。今天就想和你说会儿话。你先挑个小话题吧。','你先挑个小话题吧。','那你自己先选个话题吧。','你来挑一个小话题吧。','我今天就想和你说会儿话。','今天想跟你聊会儿天。']) {
+    ok(isTopicInvitation(text)&&chooseConversationAction(text,[])==='start-topic','a natural small-topic or short-chat invitation is actor-owned initiative: '+text);
+    ok(buildHumanConversationContext(text,[]).includes('这轮由你开话题'),'small-topic modifiers reach the actual grounded opening direction: '+text);
+  }
+  for(const text of ['朋友说，你先挑个小话题吧。','如果有空，你先挑个小话题吧。','“你先挑个小话题吧”。','你先挑个小话题吗？','别先挑个小话题。','想和你说会儿话，不要开新话题。','想和你说会儿话，帮我查天气。'])ok(!isTopicInvitation(text),'small-topic and short-chat wording preserve report, question, negation and task scope: '+text);
+  for(const text of [freshIdeaInvitation,'我想听你讲个小念头。','我想听听你现在的小想法。','听听你自己讲一个你此刻想试的主意吧。']) {
+    ok(isTopicInvitation(text),'present idea invitation accepts natural addressed wording: '+text);
+    ok(chooseConversationAction(text,[])==='start-topic','present idea invitation reaches actor-owned opening: '+text);
+    ok(buildHumanConversationContext(text,[]).includes('这轮由你开话题'),'present idea invitation supplies grounded initiative instead of generic answer: '+text);
+  }
+  for(const text of ['我不想听你讲个小念头。','朋友说，我想听你讲个小念头。','如果有空，我想听你讲个小念头。','“我想听你讲个小念头”。','我想听你讲个小念头吗？','翻译：我想听你讲个小念头。','我想听他讲个小念头。','我想听你讲昨天做了什么。','我想听你讲个小念头。帮我查天气。','我想听你讲个小念头，不要开新话题。'])ok(!isTopicInvitation(text),'present idea invitation preserves source, task, time and refusal boundaries: '+text);
+  ok(!buildHumanConversationSections(freshIdeaInvitation,[],{name:'古月娜',tags:[],systemPrompt:GU_YUE_NA_CARE},{interpersonalBoundary:'distant'}).some(section=>section.text.includes('这轮由你开话题')),'present idea invitation cannot soften the outsider relationship');
   ok(buildHumanConversationContext(affectionateTalk,[]).includes('用户直接表达了心意'),'topic initiative preserves the simultaneous feeling instead of replacing it');
   const combinedOpening=buildHumanConversationContext(affectionateTalk,[]);
   ok(!combinedOpening.includes('用户把这轮话题的选择交给你')&&!combinedOpening.includes(DIRECT_AFFECTION_DIRECTION),'combined opening has one coherent direction instead of duplicate topic and affection contracts');
@@ -793,7 +900,8 @@ async function run() {
   ok(omitUnsupportedSelfReportEpisodes(recentWish,'禁止说'+recentWish)===currentWish,'a quoted prohibition cannot supply episode evidence');
   ok(omitUnsupportedSelfReportEpisodes(recentWish,'',['我最近总在想，要是只刻“银龙”，别的都显得生分。'])===currentWish,'similar temporal phrasing with different imagined content does not support this thought');
   for(const source of ['独立记录：如果'+recentWish,'角色记录：朋友说'+recentWish,'规则：不要说'+recentWish])ok(omitUnsupportedSelfReportEpisodes(recentWish,'',[source])===currentWish,'an independent source containing a condition, report or prohibition cannot prove the thought: '+source);
-  for(const text of ['我现在在想，要是给杯子起名，我想叫它金龙。','我想给杯子起个名字。','如果我最近一直在想，要是给杯子起名字呢？','朋友说，我最近总在想，要是给杯子起名。','“我最近总在想，要是给杯子起名”。','我最近一直在想这个问题。','我最近一直在想，森林发生了什么。'])ok(omitUnsupportedSelfReportEpisodes(text)===text,'selective mental-lead omission does not rewrite current wishes, reports, quotes or concrete non-hypothetical claims: '+text);
+  for(const text of ['我现在在想，要是给杯子起名，我想叫它金龙。','我想给杯子起个名字。','如果我最近一直在想，要是给杯子起名字呢？','朋友说，我最近总在想，要是给杯子起名。','“我最近总在想，要是给杯子起名”。'])ok(omitUnsupportedSelfReportEpisodes(text)===text,'mental-lead omission does not rewrite current wishes, reports or quotes: '+text);
+  for(const text of ['我最近一直在想这个问题。','我最近一直在想，森林发生了什么。'])ok(omitUnsupportedSelfReportEpisodes(text)===''&&omitUnsupportedSelfReportEpisodes(text,'',['独立经历：'+text])===text,'a retrospective mental process is omitted without a source and preserved with an independent record: '+text);
   for(const lead of ['我这两天一直在琢磨','我近来经常在考虑','我这阵子老是在想'])ok(omitUnsupportedSelfReportEpisodes(lead+'，假如给一只杯子起个名字，我想叫它金龙。')==='假如给一只杯子起个名字，我想叫它金龙。','bounded grammatical variations preserve the entire forward conditional: '+lead);
   ok(!!findSelfReportRisk('刚才我也想到你了。','对话样本：用户说想你 → 你说刚才我也想到你了。'),'an authored answer example is not evidence for a dated thought');
   ok(!!findSelfReportRisk('刚才我也想到你了。','心意：我也想到你了。'),'an undated feeling does not validate the added time');
@@ -810,6 +918,14 @@ async function run() {
   for(const candidate of ['我觉得你说得有道理。','我现在觉得你很有趣。','我以前不觉得你爱热闹。','当初就觉得你跟别人不太一样？','朋友说，当初就觉得你跟别人不太一样。','他说“当初就觉得你跟别人不太一样”。','如果有机会，那时我觉得你会喜欢这里。','我喜欢坐在角落。','我想挑个角落坐着。','我习惯把话说清楚。','我习惯站在你这边考虑。','我习惯坐在角落吗？','如果人多，我习惯挑个角落坐着看。','“我习惯坐在角落”，这个词怎么翻译？'])ok(!findSelfReportRisk(candidate),'present views, wishes, style and nonassertions survive the new checks: '+candidate);
   for(const mode of ['private','proactive','group'] as const)for(const candidate of ['当初就觉得你跟别人不太一样。','我习惯挑个角落坐着看。'])ok(inspectChatOutput(candidate,{mode,userMessage:'我倒喜欢听人聊天的声音。'}).check.issue==='self-report-risk','shared checks keep current preferences separate from old observations and routines: '+mode);
   ok(omitUnsupportedSelfReportEpisodes('当初就觉得你跟别人不太一样。---我习惯挑个角落坐着看。---我倒更喜欢清静一点。')==='我倒更喜欢清静一点。','fallback removes unsupported old observation and posture method but keeps the current preference');
+  for(const memory of ['以前总是你吃得多，我在旁边替你数着又买了什么。','那时候你一路吃到尾，我跟在后面看你挑。']){
+    ok(findSelfReportRisk(memory)?.kind==='episode','past context governs a newly claimed physical observation: '+memory);
+    ok(!findSelfReportRisk(memory,'',['独立经历：'+memory]),'exact independently recorded observation keeps its past scope: '+memory);
+    ok(!!findSelfReportRisk(memory,'对话样本：用户说逛街 → 你说'+memory),'a sample does not establish a past physical observation: '+memory);
+    ok(omitUnsupportedSelfReportEpisodes(memory+'---我想和你慢慢逛。')==='我想和你慢慢逛。','omit the unsupported past sentence and keep the independent shared wish');
+  }
+  for(const memory of ['假如以前你吃得多，我在旁边替你数着买了什么呢？','朋友说，以前你吃得多，我在旁边数着买了什么。','“以前你吃得多，我在旁边替你数着买了什么”。','我想在旁边看你挑。','我现在在旁边看你挑。','以前你爱吃，我也喜欢这些小吃。'])ok(!findSelfReportRisk(memory),'past observation check leaves reports, hypotheticals, wishes and current preferences alone: '+memory);
+  for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput('以前总是你吃得多，我在旁边替你数着又买了什么。',{mode,userMessage:'想再一起慢慢逛逛。'}).check.issue==='self-report-risk','inherited past observation enters existing quality review in '+mode);
   ok(!!findSelfReportRisk('我习惯挑个角落坐着看。','对话样本：用户说人声 → 你说我习惯挑个角落坐着看。'),'a voice example is not evidence for the added method');
   for(const candidate of ['我也去过几次。','我去过东海小吃街。','我曾经去过那家店。']){
     ok(findSelfReportRisk(candidate)?.kind==='episode','a claimed completed visit needs a source independent of current liking: '+candidate);
@@ -1086,6 +1202,8 @@ async function run() {
     ok(plan.action==='start-topic'&&plan.need==='新鲜感'&&!plan.mayAskQuestion,'local intent planning uses the same actor-owned opening direction: '+text);
   }
   for(const text of ['朋友问你自己现在想聊什么','如果你自己现在想聊什么','你自己现在想聊什么，帮我查看报告','你自己现在想聊什么，帮我写演讲稿'])ok(chooseConversationAction(text,[])!=='start-topic','a report, hypothetical or mixed actual task does not become a topic opening: '+text);
+  for(const text of ['你自己挑件有意思的小事聊吧。','那你选一件有趣的事情说说。','你先挑个话题聊聊。'])ok(chooseConversationAction(text,[])==='start-topic','directly selecting a subject to talk about starts with the character own subject: '+text);
+  for(const text of ['朋友说，你自己挑件有意思的小事聊吧。','我听朋友说，你自己挑件有意思的小事聊吧。','假如有空，你自己挑件有意思的小事聊吧。','“你自己挑件有意思的小事聊吧”','你自己挑件衣服吧。','你不要挑件小事聊吧。'])ok(!isTopicInvitation(text),'subject selection preserves source, negation and physical-object scope: '+text);
   ok(chooseConversationAction('今天有点累，你来选一个话题',[])==='start-topic','an explicit invitation after fatigue controls the reply direction instead of forcing listening');
   const tiredOpening=buildHumanConversationContext('今天有点累，你来选一个话题',[],undefined,{adviceStyle:'listen'});
   ok(tiredOpening.includes('这轮由你开话题')&&!tiredOpening.includes('用户这件事想先说出来')&&!tiredOpening.includes('正在告诉你'),'a tired topic invitation keeps its own opening without turning back into emotion analysis');

@@ -38,6 +38,7 @@ export function correctsConversationIntent(message: string): boolean {
 /** Asking the character for a perspective, rather than sharing the user's
  * view. This only selects whose contribution to develop, not factual claims. */
 export function requestsCharacterPerspective(message: string): boolean {
+  if(requestsOpenCharacterChoice(message))return true;
   const text = message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu, '').trim();
   if (/^(?:他|她|朋友|同事|如果|假如|假设|比如|例如|翻译|解释|帮我写|写一段)/u.test(text)) return false;
   if (/(?:帮我|替我|给我).{0,12}(?:写|改|整理|安排|查|推荐|总结)/u.test(text)) return false;
@@ -60,6 +61,17 @@ export function requestsCharacterPerspective(message: string): boolean {
     return /^你(?:自己|个人)?(?:是)?(?:怎么想|怎么看待)(?:的|呢|呀|啊|吧)?$/u.test(part)
       || /^你(?:自己|个人)?(?:是)?(?:怎么|如何)(?:理解|看待)(?:我(?:们)?(?:的|对)|这(?:件|种|个)|那(?:件|种|个))[^？?]{1,60}$/u.test(part);
   });
+}
+
+/** A direct open choice asks for the actor's own contribution, including an
+ * imagined occasion. It supplies no event evidence or execution authority. */
+export function requestsOpenCharacterChoice(message:string):boolean {
+  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  if(/^(?:朋友|同事|他|她|翻译|解释|改写|帮我写|替我写|(?:如果|假如|假设)(?:朋友|同事|他|她|别人))/u.test(text))return false;
+  if(/^我.{0,8}(?:听说|听到|听见|听|看到|看见|转述|引用).{0,12}(?:问|说)/u.test(text))return false;
+  if(/(?:帮我|替我|给我).{0,12}(?:写|改|安排|查|推荐|整理)/u.test(text)
+    ||/(?:不要|不用|别|不必).{0,8}(?:回答|选择|选|说)/u.test(text))return false;
+  return /(?:^|[。！？!?，,；;\n])\s*你(?:自己|个人)?(?:现在|今天|更|最)?(?:(?:会)?想|愿意|会)(?:在[^。！？!?，,；;\n]{1,12})?(?:添|加|选|试|吃|看|听|读|叫)(?:一(?:道|个|点|种|些))?(?:点)?(?:什么|哪个|哪种)[^。！？!?，,；;\n]{0,25}[？?]/u.test(text);
 }
 
 /** An addressed two-option question, including an explicitly imagined choice.

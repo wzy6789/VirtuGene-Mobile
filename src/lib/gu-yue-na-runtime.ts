@@ -6,6 +6,7 @@ import {ownedIdentityChoice,ownedIdentityTransition} from './chat-owned-identity
 import {GU_YUE_NA_CARE} from './gu-yue-na-personality';
 import {assessExpressionSignals,reportsOwnCompletedProgress,replyContainsSubstantiveQuestion} from './chat-expression-guidance';
 import {allowsDramaticReply} from './chat-expression-boundary';
+import {currentJointWish} from './chat-joint-wish';
 
 const OWN_ACTOR_IDENTITY='你是古月娜（银龙王），《斗罗大陆三·龙王传说》女主，唐舞麟（舞麟）的妻子。';
 
@@ -13,6 +14,10 @@ const OWN_INTIMACY=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('亲密
 const OWN_DISTRESS=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('受挫回应：'))!;
 const OWN_CELEBRATION=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('庆祝反应：'))!;
 const OWN_JUDGMENT=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('判断习惯：'))!;
+const OWN_INTEREST=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('在意的事：'))!;
+const OWN_CARE_WAY=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('关心方式：'))!;
+const PARTNER_INTEREST='在意的事：喜欢舞麟，也享受让他了解自己的兴趣与好恶。和他闲聊时，你是有想聊的事、有想尝试的东西的爱人；自己的选择与他的选择都能让聊天继续。亲近是愿意分享与一起商量，不是把日常交谈变成照料。';
+const PARTNER_CARE_WAY='关心方式：舞麟的具体难处值得认真回应，普通闲聊则一起享受话题。问你想选什么，先说自己的选择和吸引你的地方；他愿意替你选或明确请你照顾时，沿用当前约定。想念与开心也直接说给他听，不靠替他安排休息或饮食表达亲近。';
 const PARTNER_JUDGMENT='判断习惯：与舞麟聊家常，先注意小事有趣、好看或合心意的地方，说具体喜欢哪一点。选择相同就接着聊，选择不同也平常说。家常里的认真是对这件小事感兴趣，不必替选择辩护、替家人定性或讲宏大意义。自己的高兴、想念与小愿望也说给他听。原著往事与现在想法各有来源。';
 const PARTNER_INTIMACY='亲密反应：舞麟表达心意，坦然说自己的心意和开心。他说想你，你相信这份想念，也愿意回他；想多聊是你自己的愿望，可以直接说。想对他说什么就说什么，一句能说清时就说一句。打趣是你此刻的偏爱，不与他平时比较；普通话题有自己的兴趣和主见。';
 const OWN_QUIET_SAMPLE='对话样本：用户说你偏爱热闹还是安静 → 你说安静一点。这样想说什么，都能听清。';
@@ -56,11 +61,13 @@ export function guYueNaRelationshipForTurn(character:Pick<Character,'id'|'source
     &&!allowsDramaticReply(current,originalUserMessages)
     ?'人物身份（原人设首句）：'+JSON.stringify({回复角色:'古月娜',称号归属:{人物:'古月娜',称号:'银龙王'},当前聊天对象:recognized?'唐舞麟':'未认领唐舞麟的来者',...(family?{原家族资料中的指代:family}:{})})
     :'';
-  return {context:'[VirtuGene · 古月娜当前关系]\n'+[identity,context,ownedIdentityTransition('guyuena',current)].filter(Boolean).join('\n')+'\n[/VirtuGene · 古月娜当前关系]',recognized};
+  const wish=recognized&&!allowsDramaticReply(current,originalUserMessages)?currentJointWish(current):undefined;
+  const sharedWish=wish?'他这次想与你一起：'+JSON.stringify(wish)+'。接着聊你愿不愿意、自己想怎样一起过这段时间，让他听到你的兴趣与心意。这是现在的愿望，不是已成行或要你安排事务；熟悉可以体现在此刻的喜欢和商量里。已有往事仍沿原来源说，不用替这份愿望补一件曾一起做过或约好过的新事。':'';
+  return {context:'[VirtuGene · 古月娜当前关系]\n'+[identity,context,sharedWish,ownedIdentityTransition('guyuena',current)].filter(Boolean).join('\n')+'\n[/VirtuGene · 古月娜当前关系]',recognized};
 }
 
 const FAMILY_TOPIC = /唐三|小舞|霍雨浩|雨浩|唐舞桐|舞桐|白秀秀|秀秀|蓝轩宇|唐轩宇|轩宇|娜娜老师|家谱|家人|家族|亲属|亲戚|儿子|孩子|父母|爸爸|妈妈|姐姐|姐夫|姑父|婆婆|公公|婆媳|师徒|什么关系|什么辈分/u;
-const CORE = '[VirtuGene · 本轮关系底线]\n当前采用团圆后续：古月娜与唐舞麟已婚，蓝轩宇是孩子；爱情与亲情分开。用户直接认领舞麟后沿用伴侣身份，引述与小说提问不算认领。团圆和婚姻不证明今天同处一室、家人近况或新共同经历；当前明确场景与用户设置优先。\n[/VirtuGene · 本轮关系底线]';
+const CORE = '[VirtuGene · 本轮关系底线]\n当前采用团圆后续：古月娜与唐舞麟已婚，蓝轩宇是你们的儿子，已长大，有自己的生活与白秀秀的伴侣关系。家人叫他孩子是亲属称呼，不表示幼童；聊小时候或假设沿用该段的时间范围。爱情与亲情分开。用户直接认领舞麟后沿用伴侣身份，引述与小说提问不算认领。团圆和婚姻不证明今天同处一室、家人近况或新共同经历；当前明确场景与用户设置优先。\n[/VirtuGene · 本轮关系底线]';
 // App-authored expression references, not canon quotations or memories.
 const PARTNER_VIEW_EXAMPLES='\n对话样本：【观点交流】用户说你喜欢把画挂得整整齐齐，还是随意一点？ → 你说随意一点吧。我想让最喜欢的那张显眼些。';
 const PARTNER_SHARING_EXAMPLE='\n对话样本：【日常分享】用户说路边那家店卖的是茶，招牌却画了一条打瞌睡的鱼，我觉得有点好笑 → 你说哈哈，那我喜欢这条鱼。茶还没喝，它先悠闲上了。';
@@ -156,5 +163,5 @@ export function guYueNaPromptForTurn(character: Pick<Character,'id'|'sourcePrese
   // another moment together, it is her own wish, not a condition of his sincerity.
   // Project only the exact owned field; stored and user-edited personas stay intact.
   return recognized&&character.systemPrompt.includes(GU_YUE_NA_CARE)
-    ?scopeOwnedReactionPremises(projected.replace(OWN_INTIMACY,PARTNER_INTIMACY).replace(OWN_JUDGMENT,PARTNER_JUDGMENT).replace(OWN_QUIET_SAMPLE,PARTNER_CHOICE_SAMPLE),message)+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE+PARTNER_PROGRESS_EXAMPLE+PARTNER_OPENING_EXAMPLES:projected;
+    ?scopeOwnedReactionPremises(projected.replace(OWN_INTIMACY,PARTNER_INTIMACY).replace(OWN_JUDGMENT,PARTNER_JUDGMENT).replace(OWN_INTEREST,PARTNER_INTEREST).replace(OWN_CARE_WAY,PARTNER_CARE_WAY).replace(OWN_QUIET_SAMPLE,PARTNER_CHOICE_SAMPLE),message)+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE+PARTNER_PROGRESS_EXAMPLE+PARTNER_OPENING_EXAMPLES:projected;
 }

@@ -76,6 +76,14 @@ export function buildGuYueNaDailyFamiliarity(message:string,recentUserMessages:s
       || /^你(?:真的|是不是)?了解我(?:吗|么|多少|什么)?$/u.test(part.trim());
   });
   const facts:string[]=[];
+  // Ordinary shared wishes can mention a sourced place without asking for a
+  // lore recital. Supply the small known episode so the model does not need
+  // to reconstruct a whole outing from the place name alone.
+  const streetTopic=unquote(message).split(/(?<=[。！？!?])|\n/u).some(sentence=>
+    !/^(?:朋友|同事|他|她|有人|我听(?:说|见|到)?|翻译|解释|帮我写)/u.test(sentence.trim())
+    &&!/(?:不要|不用|别|不再).{0,8}(?:聊|说|提).{0,8}小吃街/u.test(sentence)
+    &&/(?:东海)?小吃街/u.test(sentence));
+  const streetKnowledge=streetTopic?'本轮相关往事（不是长期口味）：东海小吃街的求学往事：你、舞麟与谢邂曾一起去，尝过闷罐牛肉；提供的是这段往事，不由它推出别的店铺、旧约定或照料经过':'';
   // A single “吃” or “饭” is not an eating subject (吃惊、吃亏、饭圈).
   // Present food language or an explicit familiarity query can retrieve the
   // old preference; no inferred current hunger, menu or appetite is added.
@@ -98,6 +106,7 @@ export function buildGuYueNaDailyFamiliarity(message:string,recentUserMessages:s
   let scope=facts.length?'已核对的喜好：'+facts.join('；')+'。具体时长、频率与场面仍需对应来源。'+forgingKnowledge
     :'喜好资料在相关话题或明确询问时提供；普通分享从眼前的内容继续。';
   if(foodUpdate||forgingUpdate)scope+='\n本条本人明确说明：'+JSON.stringify(updates.filter(clause=>foodTopic.test(clause)||forgingTopic.test(clause)))+'。沿本人此刻的说法了解他。';
+  if(streetKnowledge)scope+='\n'+streetKnowledge;
   return GU_YUE_NA_DAILY_FAMILIARITY.replace('你知道求学时舞麟爱吃、饭量大，舞麟喜欢锻造；这是已有小说背景，当前本人说出的变化优先。',scope+'当前本人说出的变化优先。');
 }
 

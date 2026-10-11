@@ -3,13 +3,29 @@
  * user habit. This is deliberately literal, not a semantic memory verifier. */
 const FREQUENCY='(?:平时|经常|通常|总是|一向|向来|每次|一直)';
 const CLAIM=new RegExp(`你(?:自己)?(?:${FREQUENCY}|又(?=不爱|不喜欢))([^。！？!?，,；;\\n]{2,80})`,'u');
+// A contextual past "就爱..." is a generalization, not a dated single event.
+// Ordinary sourced background preferences are not swept into this pattern.
+const PAST_CONTEXT_PREFERENCE=/^你(?:自己)?(?:以前|从前|过去)[^。！？!?，,；;\n]{1,36}?(?:就|总)(?:不喜欢|不爱|喜欢|爱)[^。！？!?，,；;\n]{1,50}$/u;
 const SOURCE=new RegExp(`^我(?:自己)?(?:${FREQUENCY})?((?:不爱|不喜欢|喜欢|爱)[^。！？!?，,；;\\n]{1,75}|[^。！？!?，,；;\\n]{2,80})$`,'u');
 const CONDITIONAL=/(?:如果|假如|假设|要是|比如|例如|的话|的时候|时才|时就|才会)/u;
 const normalize=(value:string)=>value.trim().replace(/\s/gu,'').replace(/[的了呀啊呢吧]+$/u,'');
 const withoutQuotes=(value:string)=>value.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
 
+function directClauses(message:string):string[] {
+  return withoutQuotes(message).split(/[。！!\n]|-{3,}/u).flatMap(sentence=>
+    /^(?:朋友|同事|他|她|如果|假如|假设|比如|例如|翻译|解释|改写|(?:帮我|替我|给我)(?:写|编|翻译|改写))/u.test(sentence.trim())
+      ||/^我.{0,8}(?:听说|听到|听见|听|看到|看见|转述|引用).{0,12}(?:问|说)/u.test(sentence.trim())
+      ||/(?:原文是|台词是|内容是)/u.test(sentence)?[]:sentence.split(/[，,；;]/u));
+}
+
+function supportsPastContextPreference(claim:string,messages:string[]):boolean {
+  return messages.some(message=>directClauses(message).some(part=>!/[?？]/u.test(part)
+    &&/^我(?:自己)?(?:以前|从前|过去)/u.test(part.trim())
+    &&normalize(part.trim().replace(/^我/u,'你'))===normalize(claim)));
+}
+
 function userAssertions(messages:string[]):Array<{predicate:string;key:string;currentOnly:boolean}> {
-  return messages.flatMap(message=>withoutQuotes(message).split(/[。！!，,；;\n]/u).flatMap(clause=>{
+  return messages.flatMap(message=>directClauses(message).flatMap(clause=>{
     // A directly updated preference supersedes the earlier one. Do not turn
     // a dated action such as “我今天说话很轻” into a standing habit.
     const currentOnly=/^(?:我(?:现在|如今)|(?:现在|如今)我)(?=(?:不爱|不喜欢|喜欢|爱))/u.test(clause.trim());
@@ -28,9 +44,14 @@ function userAssertions(messages:string[]):Array<{predicate:string;key:string;cu
 
 export function findUserHabitRisk(content:string,actualUserMessages:string[]=[]):string|undefined {
   const sources=userAssertions(actualUserMessages);
-  for(const clause of withoutQuotes(content).split(/[。！!，,；;\n]|-{3,}/u)) {
+  for(const clause of directClauses(content)) {
     const part=clause.trim();
-    if(!part||/[?？]/u.test(part)||CONDITIONAL.test(part)||/^(?:他|她|朋友|同事)|(?:不是|并非|不觉得|不认为).{0,8}你/u.test(part))continue;
+    if(!part||/[?？]/u.test(part)||/(?:如果|假如|假设|要是|比如|例如|的话)/u.test(part)||/^(?:他|她|朋友|同事)|(?:不是|并非|不觉得|不认为).{0,8}你/u.test(part))continue;
+    if(PAST_CONTEXT_PREFERENCE.test(part)) {
+      if(!supportsPastContextPreference(part,actualUserMessages))return part.slice(0,120);
+      continue;
+    }
+    if(CONDITIONAL.test(part))continue;
     const match=part.match(CLAIM);
     if(!match)continue;
     const predicate=normalize(match[1]);

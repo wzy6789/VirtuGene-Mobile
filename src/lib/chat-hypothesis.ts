@@ -2,6 +2,7 @@ import {hasExplicitTopicShift,isStandaloneClosing,requestsCharacterPerspective,r
 import {isTopicRelated} from './chat-conversation-state';
 import {isDirectAffection,isTopicInvitation} from './chat-expression-boundary';
 import {replyContainsSubstantiveQuestion} from './chat-expression-guidance';
+import {conditionalJointWish} from './chat-joint-wish';
 
 /** Derive from recent user originals each turn, rather than storing a fictional
  * event or trusting the character's earlier scene invention as a new fact. */
@@ -12,7 +13,7 @@ export function conversationalHypothesis(message:string,recentUsers:string[]):st
     const text=raw.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
     if(isStandaloneClosing(text)){premise='';continue;}
     const clauses=text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim());
-    const explicit=clauses.some(part=>/^(?:那|我们|咱们)?(?:如果|假如|假设)(?!说这个词|这个词)/u.test(part))
+    const explicit=!!conditionalJointWish(text)||clauses.some(part=>/^(?:那|我们|咱们)?(?:如果|假如|假设)(?!说这个词|这个词)/u.test(part))
       && /[？?]|(?:会|要|想|该)(?:怎么|选|叫)|哪(?:个|种|一)|叫什么/u.test(text)
       && !/^(?:他|她|朋友|同事|翻译|解释|帮我写)/u.test(text);
     if(explicit){
@@ -32,7 +33,9 @@ export function conversationalHypothesis(message:string,recentUsers:string[]):st
     const actual=clauses.some(part=>/^(?:那|不过|其实)?我(?:现在|刚才|已经|今天)?(?:已经|真的|实际)?(?:买了|摆了|放了|去了|决定|准备|打算|要去|订了)/u.test(part)
       || /^(?:不是假设|不是假如|这是真的|实际(?:上)?(?:是|已经)|真的(?:要|会|已经))/u.test(part));
     if(actual||hasExplicitTopicShift(text)){premise='';continue;}
-    if(premise&&!isTopicRelated(text,premise.replace(/[“「『"][^”」』"]*[”」』"]/gu,''))
+    const walkContinuation=!!conditionalJointWish(premise)&&/(?:散.{0,3}步|走走|散步)/u.test(premise)
+      &&/^(?:那)?你(?:会|更)?想/u.test(text)&&/(?:一路|走着|散步|走走)/u.test(text);
+    if(premise&&!walkContinuation&&!isTopicRelated(text,premise.replace(/[“「『"][^”」』"]*[”」』"]/gu,''))
       && !/^(?:我(?:会|想|更|还是)?选|你(?:呢|为什么)|那|这个|这次|刚才|不是|不过)/u.test(text))premise='';
   }
   return premise;
@@ -40,12 +43,24 @@ export function conversationalHypothesis(message:string,recentUsers:string[]):st
 
 export function buildHypothesisContext(message:string,recentUsers:string[]):string {
   const premise=conversationalHypothesis(message,recentUsers);
+  // A present feeling ends the topic focus, not the truth boundary of a recent
+  // conditional wish. Retain only the constraint, without asking the model to
+  // resume the old activity. Derive it from user originals, never actor claims.
+  if(!premise&&isDirectAffection(message)&&!hasExplicitTopicShift(message)&&!isStandaloneClosing(message)) {
+    const previous=recentUsers[recentUsers.length-1];
+    const recent=previous?conversationalHypothesis(previous,recentUsers.slice(0,-1)):'';
+    const wish=conditionalJointWish(recent);
+    const updated=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').split(/[。！？!?，,；;\n]/u)
+      .some(clause=>/^(?:那|不过|其实)?(?:我|我们|咱们)(?:现在|今晚|今天)?(?:已经|真的|实际)?(?:决定|准备|打算|要去|订了|买了|去了|有空)/u.test(clause.trim()));
+    if(wish&&!updated)return '[最近设想的事实范围]\n现在回应他这次的心意即可，不需要继续聊前一项活动。刚才两人的共同愿望仍有条件：'+JSON.stringify(wish)+'；说想念不代表空闲已确认、已经见面或行程已约好。若顺带说想一起做什么，沿用条件或现在的愿望，不从设想推出一项已定安排。\n[/最近设想的事实范围]';
+  }
   const wording=requestsCharacterWording(message);
   // Interpret the quoted invitation inside the requested hypothetical answer;
   // it never becomes an actual command or a persisted topic preference.
   const invitedSpeech=wording&&premise===message.trim()&&[...message.matchAll(/[“「『"]([^”」』"]*)[”」』"]/gu)].some(match=>isTopicInvitation(match[1]));
   const response=invitedSpeech?'这句设想中的话是在邀请你开口，回应时说一点自己愿意聊的想法或好恶，给听者有内容可接的一句话。不是向你索要当天近况，也不是请你问他想听哪方面；假设中的交流仍不证明今天发生过什么。':wording?'本轮是在问设想中你会说的话，直接给出那句回应，改口沿用最新条件。':'本轮仍在这个假设里交换想法；可以给自己的选择、理由和玩笑，改口沿用最新条件。用设想中的例子说明你会怎样选择；';
-  return premise?`[正在讨论的假设]\n用户提出的条件：${JSON.stringify(premise)}。${response}已知背景照常保留，尚未提供的具体物品与活动仍属于设想。各自选一项不表示共同摆放、购买、见面或已经约定行动；真实计划另按用户明确说的内容。\n[/正在讨论的假设]`:'';
+  const joint=conditionalJointWish(premise)?'这是有条件的一起相处的愿望。可以亲近地说你也想怎样一起过，不把“如果有空”改成你已有空或已确定行程；两个人的空闲仍是条件。':'';
+  return premise?`[正在讨论的假设]\n用户提出的条件：${JSON.stringify(premise)}。${response}${joint}已知背景照常保留，尚未提供的具体物品与活动仍属于设想。各自选一项不表示共同摆放、购买、见面或已经约定行动；真实计划另按用户明确说的内容。\n[/正在讨论的假设]`:'';
 }
 
 /** A modal question about this speaker's preference does not put both people

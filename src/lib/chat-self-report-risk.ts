@@ -28,6 +28,39 @@ const PAST_PERSON_THOUGHT=/(?:^|[。！？!?，,；;\n]|-{3,})\s*((?:(?:刚才|�
 // An omitted first-person subject still asserts a dated completed thought.
 // Require the completed wording; today's present "想你" stays free expression.
 const DATED_COMPLETED_THOUGHT=/(?:^|[。！？!?，,；;\n]|-{3,})\s*((?:我)?(?:今天|今日|刚才|方才|昨晚|昨天)(?:我)?(?:也|就|还|已经)?(?:想起|想到)(?:你们|你|舞麟|小凡)(?:了|过))(?=$|[。！？!?，,；;\n\s]|-{3,})/gu;
+// A multi-day mental lead dates a process before this exchange. It is not
+// needed to express a current idea, wish or affection. Keep the whole sentence
+// source across commas; quoted/reported/conditional speech is not an assertion.
+const RECENT_IDEA=/^我(?:最近|近来|这阵子|这段时间|这(?:几|两)天)(?:也|还)?(?:一直|总是?|经常|老是)?(?:在想|在琢磨|在考虑|想着|琢磨着|考虑着)[^。！？!?\n]{0,160}$/u;
+
+function directRecentIdeas(text:string):string[] {
+  const plain=text.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  return [...plain.matchAll(/([^。！？!?\n]+)([。！？!?\n]|$)/gu)].flatMap(sentence=>{
+    const body=sentence[1].trim();
+    if(/[?？]/u.test(sentence[2])||/^(?:朋友|同事|他|她|如果|假如|假设|要是|比如|例如|翻译|解释|改写|(?:帮我|替我|给我)(?:写|编))/u.test(body)
+      ||/^我.{0,8}(?:听说|听到|听见|听|看到|看见|转述|引用).{0,12}(?:问|说)/u.test(body)
+      ||/(?:原文|台词|例子|内容|说法)是/u.test(body))return [];
+    return body.split(/[，,：:；;]/u).map(part=>part.trim()).filter(part=>RECENT_IDEA.test(part));
+  });
+}
+
+function recentIdeaEvidence(persona:string,records:string[]):string[] {
+  const authored=stripVoiceSampleBlock(persona).split(/\r?\n/u).filter(line=>!SAMPLE_LINE.test(line));
+  return [...authored,...records].flatMap(text=>directRecentIdeas(text.trim().replace(/^(?:独立心理记录|独立经历|角色经历|角色记录)[：:]\s*/u,'')));
+}
+
+function recentIdeaRisk(content:string,sources:string[]):SelfReportRisk|undefined {
+  for(const lead of directRecentIdeas(content)) {
+    // A separable mental lead before a forward conditional is already removed
+    // by the existing local excerpt path. Do not spend a quality retry merely
+    // because the same lead follows a conversational connective.
+    const at=content.indexOf(lead);
+    if(at>=0&&/^[，,：:]\s*(?:要是|如果|假如|假设)/u.test(content.slice(at+lead.length)))continue;
+    if(sources.some(source=>source.replace(/\s/gu,'').startsWith(lead.replace(/\s/gu,''))))continue;
+    return {quote:lead,action:lead,kind:'episode'};
+  }
+  return undefined;
+}
 // A dated recollection of listening to the other person's performance asserts
 // an event, unlike wanting to hear it now or discussing a reported achievement.
 const PAST_PERFORMANCE=/(?:^|[。！？!?，,；;\n]|-{3,})\s*((?:我(?:先前|此前|之前|上次|昨天|昨晚)|(?:先前|此前|之前|上次|昨天|昨晚)(?:我)?)(?:也|曾|还)?听(?:过|见|到)?你[^。！？!?，,；;\n]{0,12}(?:弹(?:琴|曲子)?|唱(?:歌)?|演奏)[^。！？!?，,；;\n]{0,60})/gu;
@@ -44,7 +77,11 @@ const FREQUENCY=/(?:一般|经常|通常|平时|每次|总是|每天|每日|每�
  * synthesized. Concrete events after the lead remain subject to other checks. */
 function omitHypotheticalThoughtHistoryLead(sentence:string,persona:string,records:string[]):string {
   const lead=sentence.match(/^(\s*(?:(?:正好|其实|说起来)[，,]\s*)?)(我(?:最近|近来|这阵子|这段时间|这(?:几|两)天|前阵子)(?:总是?|一直|经常|老是)(?:在想|想着|在琢磨|琢磨着|在考虑|考虑着)[，,：:]\s*)((?:要是|如果|假如|假设)[\s\S]+)/u);
-  if(!lead)return sentence;
+  if(!lead){
+    const idea=sentence.match(/^(我(?:最近|近来|这阵子|这段时间|这(?:几|两)天)(?:也|还)?(?:一直|总是?|经常|老是)?(?:在想|在琢磨|在考虑|想着|琢磨着|考虑着)[，,：:]\s*)((?:要不要|要是|如果|假如|假设)[\s\S]+)/u);
+    if(idea&&!recentIdeaEvidence(persona,records).some(source=>source.replace(/\s/gu,'').startsWith(idea[1].trim().replace(/[，,：:]\s*$/u,'').replace(/\s/gu,''))))return idea[2];
+    return sentence;
+  }
   const independent=[stripVoiceSampleBlock(persona).split(/\r?\n/u).filter(line=>!SAMPLE_LINE.test(line)),...records.map(record=>record.split(/\r?\n/u))].flat()
     .map(line=>line.trim().replace(/^[^：:\n]{1,20}[：:]\s*/u,''));
   const claim=sentence.trim().replace(/[。！？!?；;\n]+$/u,'').replace(/^(?:正好|其实|说起来)[，,]\s*/u,'');
@@ -95,7 +132,30 @@ function findPostureHabitRisk(content:string,sources:string[]):SelfReportRisk|un
   return undefined;
 }
 
-function findEpisodeRisk(content:string,sources:string[]):SelfReportRisk|undefined {
+/** A past-time clause can govern the following first-person observation.
+ * A familiar activity does not establish what the speaker physically watched,
+ * counted or heard beside it. Require that time scope and concrete position;
+ * ordinary present opinions and wishes are outside this check. */
+function pastLocatedObservationRisk(content:string,sources:string[]):SelfReportRisk|undefined {
+  const plain=content.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  for(const sentence of plain.matchAll(/([^。！？!?\n]+)([。！？!?\n]|$)/gu)) {
+    const text=sentence[1].trim();
+    if(!/^(?:以前|那时(?:候)?|当时|从前|过去)/u.test(text)||/[?？]/u.test(sentence[2])
+      ||HYPOTHETICAL.test(text))continue;
+    for(const part of text.split(/[，,；;]/u).map(clause=>clause.trim())) {
+      if(!/^我(?:也|还|就)?(?:在|跟在)[^。！？!?，,；;\n]{1,18}?(?:替你|给你|帮你)?(?:看(?:着|过|了)?|盯着|数(?:着|过|了)?|听(?:着|过|了)?)[^。！？!?，,；;\n]{1,65}$/u.test(part))continue;
+      if(sources.some(source=>source.trim().replace(/^(?:独立经历|角色经历|经历)[：:]\s*/u,'').replace(/\s/gu,'').startsWith(text.replace(/\s/gu,''))))continue;
+      return {quote:part,action:part,kind:'episode'};
+    }
+  }
+  return undefined;
+}
+
+function findEpisodeRisk(content:string,sources:string[],ideaSources:string[]=sources,observationSources:string[]=sources):SelfReportRisk|undefined {
+  const observation=pastLocatedObservationRisk(content,observationSources);
+  if(observation)return observation;
+  const recent=recentIdeaRisk(content,ideaSources);
+  if(recent)return recent;
   const text=content.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   for(const match of text.matchAll(PAST_PERFORMANCE)){
     const start=Math.max(...['。','！','？','!','?','\n'].map(mark=>text.lastIndexOf(mark,match.index!)))+1;
@@ -157,7 +217,7 @@ export function omitUnsupportedSelfReportEpisodes(content:string,persona='',reco
       // same bubble belong to that anecdote; dropping only its opening would
       // launder the dependent observation or promised trip.
       if(afterUnsupportedVisit){removed=true;return false;}
-      const risk=findEpisodeRisk(sentence,sources)??findPostureHabitRisk(sentence,sources);
+      const risk=findEpisodeRisk(sentence,sources,recentIdeaEvidence(persona,records),mannerHabitSources(persona,records))??findPostureHabitRisk(sentence,sources);
       if(risk){
         removed=true;
         const plain=sentence.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
@@ -197,5 +257,5 @@ export function findSelfReportRisk(content:string,persona='',independentCharacte
     if(sources.some(source=>FREQUENCY.test(source)&&source.replace(/\s/gu,'').includes(anchor)))continue;
     return {quote:match[0].replace(/^[。！？!?，,；;\n\s-]+/u,'').trim(),action,kind:'habit'};
   }
-  return findEpisodeRisk(content,sources);
+  return findEpisodeRisk(content,sources,recentIdeaEvidence(persona,independentCharacterRecords),mannerHabitSources(persona,independentCharacterRecords));
 }

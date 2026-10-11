@@ -26,6 +26,7 @@ import { guYueNaPromptForTurn, guYueNaRelationshipForTurn } from '../gu-yue-na-r
 import { luXueQiRelationshipForTurn, luXueQiFamilyRisk, omitLuXueQiFamilyRisk } from '../lu-xue-qi-runtime';
 import {buildChatHistoryWindow} from '../chat-history-window';
 import { buildHumanConversationSections, buildProactiveTopicSeeds, recommendConversationTemperature } from '../../lib/chat-humanizer';
+import {buildMessageModeContext} from '../../lib/chat-message-mode';
 import { collectRecentReplyTurns } from '../../lib/chat-expression-guidance';
 import { readVoiceSampleCharacter, refreshVoiceSamples } from './voice-sample-cache';
 import { recordChatQuality,recordQualityEvent } from '../../lib/chat-quality-metrics';
@@ -421,6 +422,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           { key: 'relationship', text: relationshipContext, priority: 100 },
           { key: 'luxueqi-relationship', text: luXueQiTurn.context, priority: 100, placement:'tail', tailOrder:2 },
           { key: 'guyuena-relationship', text: guYueNaTurn.context, priority:100, placement:'tail', tailOrder:2 },
+          { key: 'message-mode', text:buildMessageModeContext(text,history.filter(turn=>turn.role==='user').map(turn=>turn.content),!!guYueNaTurn.context),priority:100,placement:'tail',tailOrder:.75,requireComplete:true },
           { key: 'story-relationships', text: storyRelationContext, priority: 97 },
           { key: 'cross-channel-memory', text: crossChannelMemory.text, priority: recallIntent.explicit ? 97 : 92 },
           { key: 'life', text: freshTopic && !isTopicRelated(text, lifeContext) ? '' : lifeContext, priority: 92 },
@@ -639,7 +641,11 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         }
         const check = inspected.check;
         const usable=draftHasUsableContent(result.content);
-        if (!bestDraft || (usable&&!bestDraft.usable) || (usable===bestDraft.usable&&inspected.severity<bestDraft.severity)) {
+        // With equally severe usable drafts, prefer the requested correction.
+        // This is not a length reward: lower severity and a surviving safe
+        // excerpt still take precedence. Select one whole draft, never splice.
+        if (!bestDraft || (usable&&!bestDraft.usable) || (usable===bestDraft.usable&&inspected.severity<bestDraft.severity)
+          || (usable&&bestDraft.usable&&inspected.severity===bestDraft.severity)) {
           bestDraft = {result,raw:rawResponse,severity:inspected.severity,usable};
         }
         if (check.ok || retries >= MAX_RETRIES) {

@@ -1,0 +1,30 @@
+import {readFileSync as read,writeFileSync as write,appendFileSync as append} from 'node:fs';
+const date='2026-10-11',root='D:/月起云归/VirtuGene/手机版';
+const path=`docs/GUYUENA-LIVE-CANON-FAMILY-CASUAL-ONE-FEELING-HOLDOUT-R1-${date}.json`;
+const report=JSON.parse(read(path,'utf8'));
+if(!report.complete||report.generationMode!=='production'||report.rows.length!==4||report.usage.missingUsage||report.rows.some(row=>row.failed||row.calls.length!==1||row.calls[0].replayed||row.calls[0].finish!=='stop'))throw Error('Four fresh complete production turns required');
+if(report.rows[2].replies.length!==1||report.rows[2].replies[0]!=='我也想你，舞麟。'||report.rows[3].replies.length!==1||report.rows[3].replies[0]!=='不会。')throw Error('Inspect actual brevity and identity results');
+const checksPath=`release/chat-one-feeling-final-checks-${date}.json`,checks=JSON.parse(read(checksPath,'utf8'));
+if(!checks.pass||checks.rows.length!==5||checks.rows.some(row=>row.code!==0)||!read(`release/chat-one-feeling-final-expression-verified-${date}.log`,'utf8').includes('PASS chat-expression: 3388 checks')||!read(`release/chat-one-feeling-final-stream-verified-${date}.log`,'utf8').includes('PASS chat-stream: 214 checks'))throw Error('Final expression and DB verification required');
+if(JSON.parse(read('package.json','utf8')).version!=='6.0.22')throw Error('Do not change the released version');
+const evidence=`release/chat-one-feeling-evidence-${date}.json`;
+write(evidence,JSON.stringify({path,checksPath,paidUsage:report.usage,newPackages:0,newReleases:0,version:'6.0.22',qualityComplete:false,findings:[
+ 'The prior real six-turn report had a one-sentence feeling request but three delivered bubbles; the old brevity parser did not recognize its addressed wording.',
+ 'Current reply quantity parsing distinguishes brief vs one-sentence delivery and respects reports, hypotheses, quoted material, denials and later expansion. The again modifier has exact current-user affection evidence.',
+ 'The local one-sentence quality check covers multiple bubbles and multiple Chinese sentence units, preserves repeated punctuation and trailing emoji, and uses the existing single retry. No text is automatically truncated.',
+ 'Actual Gu production delivers one affectionate sentence to Wulin, then one cold sentence after identity exit, both with one model call.',
+ 'The new menu exchange still turns a single remembered meal into an unverified past preference with Xie Xie. The user also claimed matching tastes when the actor had chosen a different dish, and the actor did not correct that mismatch explicitly.',
+ 'The single fresh group is archived whole; it has not passed overall character quality acceptance. No new Lu actual-model claim is made from the substitute DB tests.',
+ 'The initial offline test process lost its handle and left an incomplete stream log without a result manifest. No matching live Node process remained. A fresh offline final run verified the latest emoji adjustment; no paid dialogue was restarted.',
+ 'Exact quantity is a current delivery cue with bounded retry, not a guarantee when both model drafts ignore it. The existing best-draft fallback was not redesigned in this change.',
+ 'Poetic overstatement, implicit past assumptions, example overfitting and long-term drift remain open.'
+ ]},null,2)+'\n');
+const chat=root+'/聊天验收/古月娜-'+date+'.md',chatHeading='## canon-family-casual-one-feeling-holdout / r1（完整四轮）';
+if(!read(chat,'utf8').includes(chatHeading))append(chat,'\n'+chatHeading+'\n\n'+report.rows.map(row=>'**chatgpt**：'+row.input+'\n\n'+row.replies.map(reply=>'**古月娜**：'+reply).join('\n\n')).join('\n\n')+'\n');
+const journal=root+'/开发日志/'+date+'.md',heading='## 只想听一句心意：数量要求与情感接续';
+if(!read(journal,'utf8').includes(heading))append(journal,`\n${heading}\n\n- 前一轮为实质进展：新的六轮对话提供开题、诗化和回复过多的实际证据，当前小想法的主动入口已修复。本轮继续原目标，已发布6.0.22不改，无打包或发布。新版AGENTS约定继续遵守，手机版日志与电脑版分开。\n- 上轮R2“就想听你说一句自己的心意”实际收到三条；旧requestsBriefReply只接简单一点等短指令，漏了自然的数量要求。“我又有点想你了”也缺又这个当下情绪修饰语。此次在chat-reply-size.ts共用数量解析，区分简短与明确一句，否定/引语/他人/假设/台词材料不当当前指令，后续要求展开可撤销当前限制。chat-expression-boundary.ts传入一句的表达方向，保留角色自己的心意；DIRECT_FEELING支持又，仍须实际说话人和被表达心意的对象。\n- reply-quality.ts把多气泡、多中文句子视为未遵守一句要求，沿既有至多一次纠正预算；合并到一条不绕过，不自动截断原稿。重复问叹号和句尾emoji不误当多句。简短要求只在当前消息生效，不冻结以后长短，也不改变亲疏、应用操作权限或用户人设。这个有限检查不保证两次模型都拒绝要求时仍达标；原best-draft兜底未改。\n- 新35项表达检查：数量语法、撤销、材料范围、实际方向、又的原话来源、多句/多气泡与emoji、后续不默认缩短；最新3388表达、321古月娜、123陆雪琪、类型退出0。${checks.rows.map(row=>row.log).join('、')}。\n- 两角色增加6项实际流式与IndexedDB替身检查：额外开场和多句草稿先不显示；纠正后恰好一条实际数据库消息；只使用原一次纠正预算。最终214流式检查退出0。Lu纠正内容为替身，不是Lu实际模型验收。初次离线长套件在新输入/继续后会话句柄丢失，未留下完整结果；核实没有对应活动Node进程后重新离线运行，初始不完整日志保留，最终验证包含句尾emoji调整。没有以丢失句柄为由重启实际模型。\n- 新四轮围绕假设家庭菜单、谢邂吃饭旧事、直接想念与来者退出。首轮角色主动选龙须面；第二轮chatgpt说也想闷罐牛肉和想到一块，实际两人选不同菜，模型没有明确纠正这个说法，转为菜单两道菜。更严重的是新增“你以前跟谢邂出去就爱点这个”，把一次旧事变为未核对的旧喜好；现有用户习惯规则只覆盖显式频率语法，这例仍漏，真实性不能判通过。第三轮真实回复“我也想你，舞麟。”；第四轮退出身份后“不会。”，均一句、每轮一次、无纠正，心意坦率与冷淡边界在这组有效。${path}保留完整请求和原稿。\n- 本轮实际模型${report.usage.calls}调用，input ${report.usage.input} / output ${report.usage.output} / total ${report.usage.total}token。DeepSeek V4.1 Flash生产思考low、最大500输出、全部finish stop，usage完整；没有额外语义审查或第二组付费重跑。原日志release/chat-family-one-feeling-r1-${date}.log（UTF16LE），终态complete与付费证据核实后不因PowerShell的esbuild警告exit1重复运行。汇总${evidence}。\n- 新场景仅跑这一完整版本，聊天记录原样归档，输入标chatgpt，不拼接其他场景的好句；优化方向单独简短记录。此组有真假与接续问题，不因为两句心意成功就宣称全部通过。\n- 尚未解决：旧事扩大为过去喜好、相同/不同选择的语义接续、日常诗化/郑重、样本粘连与长期漂移。古月娜整体未完成；陆雪琪真实全面优化仍未完成，局部替身检查不能代替。\n`);
+const direction=root+'/优化方向/'+date+'.md',title='## 一句心意就说一句';
+if(!read(direction,'utf8').includes(title))append(direction,`\n${title}\n\n- 接住一句的数量要求，别加开场和解释。\n- 又想你仍是当下心意，按原话回应。\n- 保留句尾表情和标点强度。\n- 一次吃饭别扩大成过去总爱点。\n- 先核对彼此实际选什么，再接相同或不同。\n`);
+const index=root+'/00-总览.md',entry='## 一句心意与原著家庭菜单验证（2026-10-11）';
+if(!read(index,'utf8').includes(entry))append(index,`\n${entry}\n\n- [[手机版/聊天验收/古月娜-2026-10-11|新场景完整四轮]]；[[手机版/优化方向/2026-10-11|简短方向]]。\n- [[手机版/开发日志/2026-10-11|3388表达、214流式落库、13554token及未解决问题]]。\n- 已发布仍为6.0.22；本轮无发布，整体目标未完成。\n`);
+console.log(JSON.stringify({paidUsage:report.usage,expressionChecks:3388,streamChecks:214,qualityComplete:false,newPackages:0,newReleases:0}));

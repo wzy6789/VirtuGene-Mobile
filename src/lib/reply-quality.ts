@@ -6,7 +6,7 @@
 import { collapseChatNewlines } from './ai/text';
 import { normalizeChatParagraphBoundaries } from './chat-pacing';
 import {requestsRepetition,isQuestionReaction} from './chat-turn-cues';
-import {requestsBriefReply} from './chat-reply-size';
+import {requestsBriefReply,requestsSingleSentenceReply} from './chat-reply-size';
 export {requestsRepetition} from './chat-turn-cues';
 
 export type ReplyIssue =
@@ -255,6 +255,11 @@ export function checkReplyQuality(
     .filter(Boolean);
   const longestBubble = bubbles.reduce((max, bubble) => Math.max(max, bubble.length), 0);
   const totalChars=bubbles.reduce((sum,bubble)=>sum+bubble.length,0);
+  if(requestsSingleSentenceReply(userMessage)&&!isLongFormRequest(userMessage)) {
+    // A trailing emoji is part of the same message, not an extra sentence.
+    const sentences=bubbles.flatMap(bubble=>bubble.split(/[。！？!?；;]+/u)).filter(sentence=>/[\p{L}\p{N}]/u.test(sentence));
+    if(bubbles.length>1||sentences.length>1||totalChars>140)return {ok:false,issue:'too-long',retryHint:'用户这次明确只想听一句，刚才加了开场、解释或多条。直接用你自己的口吻说出核心回答或心意，一句说完就停；不要把多句并成一个长段，也不需要解释改写过程。'};
+  }
   if(requestsBriefReply(userMessage)&&!isLongFormRequest(userMessage)
     &&(totalChars>140||totalChars>100&&bubbles.length>2)){
     return {ok:false,issue:'too-long',retryHint:'用户这次明确要求简单、简短，刚才展开太多。保留够用的核心回答和必要的关键说明，用人物自己的话说清；不再加教程、替代方案、总结或可有可无的追问。不截断事实或安全必需的信息，确实缺关键信息时简短问清。'};

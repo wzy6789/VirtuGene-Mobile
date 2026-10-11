@@ -1,6 +1,6 @@
 /** Delivery guidance, never permission for application operations. */
 import {requestsRepetition,isDirectTimeAnswer,isTopicClarification,isSelfViewRevision,hasExplicitTopicShift,conversationDeparture,declinesThirdPartyAnalysis,requestsCharacterChoice} from './chat-turn-cues';
-import {requestsBriefReply} from './chat-reply-size';
+import {requestsBriefReply,requestsSingleSentenceReply} from './chat-reply-size';
 const DIFFERENCE_PERMISSION=/^你(?:不用|不必|不需要)(?:跟|和)我(?:选|选择)(?:得)?(?:一样|相同)(?:的)?[呀啊啦吧呢\s]*$/u;
 export function isOpinionInvitation(message:string):boolean {
   const unquoted=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
@@ -18,6 +18,30 @@ function hasListeningInvitation(text:string):boolean {
     /^(?:我(?:今天|现在)?|今天|现在)?(?:就是|只是|就|只)?想(?:听听|听)你(?:说说话|说话|聊几句|讲两句|讲几句|说两句|说几句|聊聊)[呀啊啦呢嘛\s]*$/u.test(part));
 }
 
+/** Ask for a present idea, rather than a report of an unrecorded recent life.
+ * Keep the sentence's source across commas, and distinguish a declined task
+ * from an additional request that really needs doing. */
+function hasCurrentIdeaInvitation(text:string):boolean {
+  if(/(?:别|不要|不用|不必|不想).{0,6}(?:开|换|挑|选|起).{0,3}话题/u.test(text))return false;
+  const sentences=[...text.matchAll(/([^。！？!?\n]+)([。！？!?\n]|$)/gu)];
+  const own=sentences.filter(match=>! /^(?:朋友|同事|他|她|我听(?:说|见|到)?|如果|假如|假设|比如|例如)/u.test(match[1].trim()));
+  const clauses=own.flatMap(match=>match[1].split(/[，,；;]/u).map(part=>part.trim()));
+  if(clauses.some(part=>/(?:帮我|替我|给我).{0,8}(?:查|改|写|安排|记录|添加)/u.test(part)
+    &&! /^(?:(?:我(?:今天|现在)?|今天|现在)?(?:也|还|就)?)?(?:不想|不需要|不用|不要|别|不必)/u.test(part)))return false;
+  const invitation=/^(?:那|对了)?(?:我(?:今天|现在)?(?:就|只是|只)?想(?:听听|听)|(?:让我)?(?:听听|听))你(?:自己)?(?:(?:说说|说|讲讲|讲|聊聊|聊)(?:个|一个|一点|点)?(?:你(?:自己)?(?:现在|此刻|这会儿)?(?:(?:觉得)?(?:有意思|有趣|感兴趣|想聊|想试)的|的))?|(?:现在|此刻|这会儿)的)(?:小)?(?:想法|念头|主意)[呀啊吧呢啦呗\s]*$/u;
+  return own.some(match=>!/[?？]/u.test(match[2])&&match[1].split(/[，,；;]/u).some(part=>invitation.test(part.trim())));
+}
+
+/** A directly addressed choice of something to talk about. The final talk
+ * verb distinguishes selecting a subject from selecting a physical object;
+ * preserve reported and conditional sources across their commas. */
+function hasSmallTalkSubjectInvitation(text:string):boolean {
+  return text.split(/[。！？!?\n]/u).map(sentence=>sentence.trim())
+    .filter(sentence=>! /^(?:朋友|同事|他|她|我听(?:说|见|到)?|如果|假如|假设|比如|例如)/u.test(sentence))
+    .flatMap(sentence=>sentence.split(/[，,；;]/u)).some(part=>
+      /^(?:那|对了)?你(?:自己)?(?:先|来)?(?:选|挑)(?:件|一件|个|一个)(?:(?:有意思|有趣|想聊)的)?(?:小事|事情|事|话题)(?:来)?(?:聊聊|聊|说说)(?:吧|呀|啊|呢|呗)?$/u.test(part.trim()));
+}
+
 export function isTopicInvitation(message:string):boolean {
   const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   if(/(?:翻译|改写|解释|什么意思|怎么说|怎么回复|帮我写|替我写)/u.test(text))return false;
@@ -28,9 +52,9 @@ export function isTopicInvitation(message:string):boolean {
     &&text.split(/[。！？!?\n]/u).map(sentence=>sentence.trim())
       .filter(sentence=>!/^(?:朋友|同事|他|她|我听(?:说|见|到)?|如果|假如|假设|比如|例如)/u.test(sentence))
       .flatMap(sentence=>sentence.split(/[，,；;]/u)).some(part=>
-        /^(?:(?:我(?:今天|现在)?|今天|现在)?(?:就|只是|只|就是)?想(?:和你|跟你))(?:说|聊)(?:些|点|几句)?(?:平常话|闲话|家常)[呀啊吧呢啦\s]*(?:就好|就行)?[呀啊吧呢啦\s]*$/u.test(part.trim()));
-  return ordinaryTalk||hasListeningInvitation(text)||text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
-    /^(?:那|所以|对了)?\s*(?:你(?:自己)?(?:现在|这会儿|今天)?(?:最|更)?想(?:聊|谈)(?:点)?什么(?:话题)?|你(?:来|自己)(?:选|挑)(?:个|一个)?话题|(?:说|聊)(?:个|一个)你(?:自己)?想聊的话题)[呀啊吧呢\s]*$/u.test(part)
+        /^(?:(?:我(?:今天|现在)?|今天|现在)?(?:就|只是|只|就是)?想(?:和你|跟你))(?:(?:说|聊)(?:些|点|几句)?(?:平常话|闲话|家常)|说(?:会儿|一会儿|一会)话|聊(?:会儿|一会儿|一会)(?:天)?)[呀啊吧呢啦\s]*(?:就好|就行)?[呀啊吧呢啦\s]*$/u.test(part.trim()));
+  return ordinaryTalk||hasListeningInvitation(text)||hasCurrentIdeaInvitation(text)||hasSmallTalkSubjectInvitation(text)||text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
+    /^(?:那|所以|对了)?\s*(?:你(?:自己)?(?:现在|这会儿|今天)?(?:最|更)?想(?:聊|谈)(?:点)?什么(?:话题)?|你(?:自己)?(?:来|先)?(?:选|挑)(?:个|一个)?(?:小)?话题|(?:说|聊)(?:个|一个)你(?:自己)?想聊的话题)[呀啊吧呢\s]*$/u.test(part)
     || /^(?:(?:那|嗯|好|所以)\s*)?(?:(?:我们|咱们)(?:就|先)?|我(?:现在|今天)?(?:就|只是|只)?想(?:和你|跟你))?(?:随便|随意)(?:说|聊)(?:两句|几句|一会儿|一会|说话|聊)[呀啊吧呢啦\s]*(?:就好|就行|也好)?[呀啊吧呢啦\s]*$/u.test(part));
 }
 
@@ -81,7 +105,7 @@ const FEELING_TIME='(?:今天|现在|刚才|这会儿|最近|昨天)';
 // Optional subject/time and conversational modifiers, followed by the actual
 // addressee. The object and whole-clause boundary are required: liking a book
 // recommended by someone is not the same statement as liking that person.
-const DIRECT_FEELING=new RegExp(`^(?:(?:只是|就是|就)?(?:我(?:${FEELING_TIME})?|(?:${FEELING_TIME})?(?:我)?)(?:真的|好|很|也|还是|有点|有一点|有些|有一些|挺|只是|就是|就|忽然|突然){0,3}(?:(?:爱你|喜欢你)(?:了)?|想你(?:了|的)?|惦记(?:着)?你(?:了)?)|你对我很重要)[～~\\s]*(?:呀|啊|呢|啦|嘛)?[～~\\s]*$`,'u');
+const DIRECT_FEELING=new RegExp(`^(?:(?:只是|就是|就)?(?:我(?:${FEELING_TIME})?|(?:${FEELING_TIME})?(?:我)?)(?:真的|好|很|也|又|还是|有点|有一点|有些|有一些|挺|只是|就是|就|忽然|突然){0,3}(?:(?:爱你|喜欢你)(?:了)?|想你(?:了|的)?|惦记(?:着)?你(?:了)?)|你对我很重要)[～~\\s]*(?:呀|啊|呢|啦|嘛)?[～~\\s]*$`,'u');
 export function isDirectAffection(message: string): boolean {
   const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
   if(/^(?:如果|假如|假设|比如|例如|帮我写|写一段|写一个|他|她|朋友|同事|主角)/u.test(text))return false;
@@ -121,6 +145,11 @@ export function allowsDramaticReply(message: string, recentUserMessages: string[
   for (let i=0;i<turns.length;i++) {
     const raw=turns[i];
     const text=raw.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+    const stopsEnactedScene=[...text.matchAll(/([^。！？!?\n]+)([。！？!?\n]|$)/gu)].some(match=>
+      !/[?？]/u.test(match[2])&&!/^(?:朋友|同事|他|她|如果|假如|假设|比如|例如|翻译|解释)/u.test(match[1].trim())
+      &&!/^我.{0,8}(?:听说|听到|听见|听|看到|看见|转述|引用).{0,12}(?:问|说)/u.test(match[1].trim())
+      &&match[1].split(/[，,；;]/u).some(part=>/^(?:(?:我|我们|咱们)?(?:现在|这次|先)?)?不(?:再)?演(?:了|下去)?[吧呀啊\s]*$/u.test(part.trim())));
+    if(stopsEnactedScene)return false;
     if (/(?:别|不要|不用|停止|退出|不想|不是要).{0,6}(?:演|角色扮演|剧情|写(?:故事|小说|剧情|场景|台词|诗|情书)|诗意|文学)|正常(?:聊天|说话)|像发消息|别写动作|换个话题|说点别的|先不说这个|不聊这个了/u.test(text)) return false;
     if (/(?:陪我|我们|一起|继续|来).{0,6}(?:演一段|演一下|演个|角色扮演|接着演)|继续.{0,6}(?:扮演|剧情)/u.test(text)) return true;
     if (/(?:写|续写|改写|创作|继续).{0,8}(?:故事|小说|剧情|场景|台词|诗|情书|邀请词|文案)|(?:用|按).{0,6}(?:文学|诗意|小说|舞台).{0,4}(?:风格|方式|写法)/u.test(text)) return i===0;
@@ -210,7 +239,8 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
   if(declinesThirdPartyAnalysis(userMessage))lines.push('用户这轮不想分析第三人的心思。接已说出的事件与本人感受，可以表达你自己的心疼、失望或在意；少一句回应也不必解读成对方故意冷落、看不起或不重视。真正明确的言行可以谈，但未知原因留白，不替用户决定要不要理那个人，也不擅自转成劝断交。关心的重点是眼前与你说话的人；他说出的感受已经足够接话，不需要让他再精确拆分、证明或深入分析心情，确有新内容想了解再自然问。');
   if(conversationDeparture(userMessage)?.topicDeferred)lines.push('用户把话题暂时留到回来再聊：现在自然道别即可。保留的是讨论，不是已经约定共同活动；对方说回来聊天，也没有因此答应你之前提出的出游、见面或其他安排。后续具体约定仍以实际说清的内容为准。');
   const unquoted=userMessage.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
-  if(requestsBriefReply(userMessage))lines.push('用户这次要求简短：先说够用的核心内容，必要时补一个关键说明即可。保持人物自己的口吻，不追加其他方案、实施教程、总结或可有可无的补问；确实缺少关键信息时仍可简短问清。这是本轮长度要求，不改变以后交流的长短。');
+  if(requestsSingleSentenceReply(userMessage))lines.push('用户这次只想听一句：直接说出这句，用你自己的口吻表达核心态度或回答。不要另加“那我说了”等开场，再展开解释或补问；句子说完就停。这是本轮长度要求，不改变以后交流的长短。');
+  else if(requestsBriefReply(userMessage))lines.push('用户这次要求简短：先说够用的核心内容，必要时补一个关键说明即可。保持人物自己的口吻，不追加其他方案、实施教程、总结或可有可无的补问；确实缺少关键信息时仍可简短问清。这是本轮长度要求，不改变以后交流的长短。');
   const scopeClarification=unquoted.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
     /^我(?:刚才)?不是(?:让|要|要求|叫)你.{1,36}$/u.test(part))
     && !/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事|翻译|解释|帮我写)/u.test(unquoted.trim());
