@@ -158,7 +158,8 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         :luXueQiRelationshipForTurn(character,text).context?'luxueqi':undefined;
       const priorVisitorIds=currentOwnedRole?priorVisitorReplyIds(currentOwnedRole,text,sourceHistory):new Set<string>();
       const historyWindow=buildChatHistoryWindow(contextMessages.filter(message=>!priorVisitorIds.has(message.id)),userMsg.id,12,MAX_HISTORY_MESSAGE_CHARS);
-      const history = historyWindow.map(({role,content,image})=>({role,content,image}));
+      const authoredHistoryIds=new Set(contextMessages.filter(message=>message.role==='user'&&message.secretaryDispatch?.bodyOrigin!=='composed').map(message=>message.id));
+      const history = historyWindow.map(({role,content,image,sourceMessageIds})=>({role,content,image,userAuthored:role==='user'&&sourceMessageIds.every(id=>authoredHistoryIds.has(id))}));
       const previousUserText = [...history].reverse().find((item) => item.role === 'user')?.content ?? '';
       // 长期记忆（含"用户明确追问旧事时回查原文"）全部由 buildCharacterMemoryContext 取。
       // 这里不再自己写召回意图正则，也不再单独回查旧私聊原文：同一句话在不同入口

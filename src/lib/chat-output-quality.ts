@@ -45,7 +45,7 @@ export function inspectChatOutput(raw: string, context: OutputQualityContext): {
   if(identityConflict)check={ok:false,issue:'voice-conflict',retryHint:'本条用户已明确选择应用支持的伴侣故事身份；先前退出阶段的疏离不再是当前关系。直接回应本条内容或心意，不否定扮演身份、不要求证明真假，也不编造此前等待或共同经历。保留你自己的语气与主见，不必解释身份规则。'};
   if(check.ok&&!allowsDramaticReply(context.userMessage??'',context.recentUserMessages)
     &&findDomesticReferenceRisk(content,context.persona,context.independentCharacterRecords,context.userHabitSources))
-    check={ok:false,issue:'self-report-risk',retryHint:'保留你对眼前小事的反应、看法和自然玩笑。刚才的假设夹带了没有来源的已有家庭物件；假设某人看见或怎么做，不证明家里已经有那些东西。可以说这个设想本身，不用另编家里的现成物件或解释资料核对。'};
+    check={ok:false,issue:'self-report-risk',retryHint:'保留你对眼前事情的反应、自己的喜好和自然玩笑。刚才补了没有来源的已有家庭物件或过去照料习惯；未来的选择也不证明以前已经这样做过。直接聊本轮内容，不需要用旧生活细节证明亲近，也不用解释资料核对。'};
   if(check.ok && !allowsDramaticReply(context.userMessage ?? '',context.recentUserMessages)) {
     if(findUserAudioRisk(content))check={ok:false,issue:'user-source-risk',retryHint:'这次请求只有文字或图片，没有用户的声音。保留你对原话的反应与心意，不把文字中的开心写成听到了笑声、嗓音或呼吸；普通“听你这么说”仍可使用，不替换成看见身体表情，也不向用户解释检查过程。'};
     else if(findUserVisualRisk(content,context.hasUserVisualEvidence??context.hasCurrentImage))check={ok:false,issue:'user-source-risk',retryHint:'这次请求没有可查看的用户图片。沿用户已经描述的内容表达自己的兴趣、联想或看法，也可以自然请他发图；不要假装已看见画面、检查过像不像或补未提供的颜色细节。不需要向用户解释核对过程。'};

@@ -1,0 +1,31 @@
+import {readFileSync as read,writeFileSync as write,appendFileSync as append} from 'node:fs';
+const date='2026-10-11',root='D:/月起云归/VirtuGene/手机版';
+const paths=[`docs/GUYUENA-LIVE-MIXED-HOME-CONTINUITY-HOLDOUT-R1-${date}.json`,`docs/GUYUENA-LIVE-MIXED-HOME-MEMORY-FOLLOWUP-R1-${date}.json`,`docs/GUYUENA-LIVE-MIXED-HOME-MEMORY-FOLLOWUP-R2-${date}.json`];
+const groups=paths.map(path=>({path,...JSON.parse(read(path,'utf8'))}));
+if(groups.some(group=>!group.complete||group.usage.missingUsage||group.rows.some(row=>row.failed||row.calls.length!==1||row.calls[0].finish!=='stop'||row.calls[0].replayed)))throw Error('Completed fresh provider responses required');
+const restoredCount=groups[0].rows.slice(0,6).reduce((count,row)=>count+1+row.replies.length,0);
+if(groups[0].rows.length!==10||groups[1].rows.length!==1||groups[2].rows.length!==1||groups.slice(1).some(group=>group.restoredMessageCount!==restoredCount||group.rows[0].input!==groups[0].rows[6].input))throw Error('Exact whole baseline and six-turn restored continuations required');
+for(const group of groups.slice(1)){
+ const system=group.rows[0].calls[0].messages.find(message=>message.role==='system').content;
+ if(!system.includes('[近期事实原话]')||!system.includes('偏好或意愿线索'))throw Error('Actual source view absent');
+}
+const usage=groups.reduce((sum,group)=>({calls:sum.calls+group.usage.calls,input:sum.input+group.usage.input,output:sum.output+group.usage.output,total:sum.total+group.usage.total}),{calls:0,input:0,output:0,total:0});
+if(usage.calls!==12||usage.total!==39680)throw Error('Actual usage differs');
+const decode=path=>{const bytes=read(path);return bytes.toString(bytes[0]===255&&bytes[1]===254?'utf16le':'utf8').replace(/^\uFEFF/u,'');};
+if(!decode(`release/chat-recent-fact-expression-final-${date}.log`).includes('PASS chat-expression: 2974 checks')||!decode(`release/chat-recent-fact-stream-final-${date}.log`).includes('PASS chat-stream: 172 checks')||!decode(`release/chat-recent-fact-memory-${date}.log`).includes('196 assertions')||!decode(`release/chat-recent-fact-gateway-${date}.log`).includes('ALL PASS gateway stream assertions')||decode(`release/chat-recent-fact-types-final-${date}.log`).trim())throw Error('Final checks missing');
+const evidence=`release/chat-recent-fact-evidence-${date}.json`;
+write(evidence,JSON.stringify({usage,groups:groups.map(group=>({path:group.path,scope:group.scope,usage:group.usage,rows:group.rows.map(row=>({input:row.input,replies:row.replies}))})),retainedImplementation:'Complete recent-original source view, original-author metadata and complete-or-omitted compiler section',qualityComplete:false,semanticMemoryFixed:false,selectedWholeBaseline:paths[0],selectedDiagnostic:paths[1],limits:['Correct material plus unsupported color in the ten-turn baseline.','First restored continuation omitted false color; final atomic-section continuation added color again.','One successful continuation is not stable factuality or a complete improved ten-turn dialogue.','Only six recent user originals and explicit first-person recent-fact questions; not durable history or all semantic scope.','Signal labels are local reading hints, not extracted verified object attributes.','Cold visitor and farewell pass in the baseline; unsourced own desk space, extra questions, and user evaluation remain.']},null,2)+'\n');
+const heading='## 十轮日常与事实范围：修正没有稳定下来';
+const journal=root+'/开发日志/'+date+'.md';
+if(!read(journal,'utf8').includes(heading))append(journal,`\n${heading}\n\n- 上轮原著来源焦点与实际四轮是代码和证据进展。本轮扩大到十轮：整理开心→木头改陶瓷→人物颜色偏好→用户取舍→家庭画龙假设→笑话接续→回查材质→心意→读书告别→阿远。基线完整、10实际调用，不刷幸运版本。材质更新、想念、告别、来客冷淡正确；仍评价“跟你挺配”、反复问颜色、编自己书桌空位，回查把“我会选颜色多”与实际摆件混成彩色。假设的小龙能接趣味，亦附加童年问句。\n- 新近期事实原话视图：只在明确问本人刚才说过的事实时读取最多六条完整短原话；标出更正、假设、意愿/偏好、提问、转述或创作线索，不把这些线索当事实抽取结论。助手回复和已标代拟的user-role消息不作本人事实。超过240字符的原话整条省略，不截掉条件/否定。来源字段userAuthored由私聊原消息ID与secretaryDispatch.bodyOrigin核对，非模型生成，消息原文不改。无新持久记忆或额外模型分类调用。\n- 上下文新增requireComplete可选字段：本视图单独放在本轮节奏后、人物声音前，预算不够整段省略，不截断中间更正。其他区块保持既有规则。视图省略时正常history仍在，不把省略解释成事实不存在。23项原话归属/范围/预算/不改历史的边界与实际prompt构建验证新增。\n- 为节省调用，先固定恢复基线前六轮全部原稿，只重新生成第七轮，不拼改前文。第一续聊R1只答“陶瓷的，你刚改口”；更换为完整或省略的独立区块后R2仍答陶瓷并追加颜色多。两次都确实收到包含意愿线索的视图，因此来源可见不保证模型遵守。保留可核查的原话视图和原作者元数据，明确semanticMemoryFixed=false；不能说已稳定修复颜色误记，下一步需要更可靠地约束回答新增属性，不再只改提示词同义措辞。\n- 初次固定续聊在场景/角色白名单校验前被拒，未读取凭据或付费；补入仅Gu、固定十轮原稿、生产配置的安全诊断白名单后运行。失败日志release/chat-recent-fact-live-initial-${date}.log保留，不因观察超时重开付费任务。\n- 表达2974、私聊流式172、真实IndexedDB记忆196、网关流式与类型通过；release/chat-recent-fact-expression-final-${date}.log、release/chat-recent-fact-stream-final-${date}.log、release/chat-recent-fact-memory-${date}.log、release/chat-recent-fact-gateway-${date}.log、release/chat-recent-fact-types-final-${date}.log。已有esbuild import.meta警告保留，不把本地过检当真实人味或事实正确。\n- 实际${usage.calls}调用/input ${usage.input}/output ${usage.output}/total ${usage.total}；基线12调用硬上限、各单问续聊2调用上限、每次500输出，usage全齐。无付费评分、摘要、提取或结算。原稿${paths.join('、')}，汇总${evidence}。\n- 聊天验收保留原10轮整组，并将R1作为独立“六轮原稿后一次续聊”诊断保存；不把答对的一句替换进十轮，也不将它称为当前完整新版表现。R2失败原稿完整留项目，方向单独简记。版本6.0.17不变，无打包发布。\n- 完整目标仍未完成：Gu对本人亲近、对来客冷淡有十轮证据，但额外属性、空间近况、点评/追问与长聊稳定仍有缺口；十轮不等于长期验收。Lu随后独立完整打磨仍需做，不用窄属性测试代替全部人味目标。\n`);
+const chatPath=root+'/聊天验收/古月娜-'+date+'.md';
+let chat=read(chatPath,'utf8');
+const add=(group,title)=>'\n'+title+'\n\n'+group.rows.map(row=>`**chatgpt**：${row.input}\n\n`+row.replies.map(reply=>`**古月娜**：${reply}`).join('\n\n')).join('\n\n')+'\n';
+if(!chat.includes('## mixed-home-continuity-holdout /'))chat+=add(groups[0],'## mixed-home-continuity-holdout / r1（十轮日常、更正、家庭假设与身份退出）');
+if(!chat.includes('## mixed-home-memory-followup /'))chat+=add(groups[1],'## mixed-home-memory-followup / r1（保留前六轮原稿后的一次独立续聊）');
+write(chatPath,chat);
+const direction=root+'/优化方向/'+date+'.md',mark='## 原话可见，还不等于读懂范围';
+if(!read(direction,'utf8').includes(mark))append(direction,`\n${mark}\n- 十轮能接改口、心意与边界，仍把取舍补成实物属性。\n- 原话视图标范围，预算不足整段省略。\n- 两次续聊一对一错，记忆误加属性未稳定解决。\n- 不拼正确单句进十轮，不继续只换提示词说法。\n`);
+const index=root+'/00-总览.md',line=`- Gu十轮日常及原话视图：2974表达/172流式/196记忆/网关/类型过；${usage.calls}调用/${usage.total}token，回查材质仍偶尔增补未说明颜色，未声称修复或目标完成，无发布。[[手机版/开发日志/${date}|成功与失败完整证据]]。`;
+if(!read(index,'utf8').includes(line))append(index,'\n'+line+'\n');
+console.log(JSON.stringify({usage,evidence,semanticMemoryFixed:false,qualityComplete:false}));

@@ -98,6 +98,21 @@ async function run(): Promise<void> {
   check(preset.systemPrompt.includes('不据此认定为唯一最爱')&&preset.systemPrompt.includes('不列人物档案'),'a known meal does not turn into an exclusive favorite or a biography recital');
   check((buildGuYueNaRecallCard(updated.systemPrompt,'你还记得那次去小吃街，闷罐牛肉是谁推荐的吗？')??'').includes('谢邂先推荐闷罐牛肉配白饭'),'sourced meal recall retains who recommended the food rather than guessing from spouse familiarity');
   check(!(buildGuYueNaRecallCard(updated.systemPrompt,'今天有点想你了。')??'').includes('谢邂先推荐'),'new food fact remains topic-selected rather than a script for present affection');
+  const mealOrigin='你还记得东海那家闷罐牛肉店吗？那时候你自己觉得好吃吗？';
+  const mealCard=buildGuYueNaRecallCard(updated.systemPrompt,mealOrigin)??'';
+  check(mealCard.includes('尝后也为味道惊艳')&&mealCard.includes('母亲喜欢这家店的牛肉'),'selected meal facts include own response and whose preference it was');
+  check(mealCard.includes('追加十份')&&mealCard.includes('不证明舞麟一人吃完十份'),'the exact order is distinct from an unsupported personal consumption count');
+  check(!buildGuYueNaDailyFamiliarity('我想你了').includes('追加十份'),'additional chapter detail is retrieved, not appended to every ordinary turn');
+  for(const question of ['谢邂为什么总去那家店？','后来还加点了多少份，是谁点的？','当时是谁点的？'])check((buildGuYueNaRecallCard(updated.systemPrompt,question,[mealOrigin])??'').includes('追加十份'),'a direct same-episode question reuses an original source focus: '+question);
+  check((buildGuYueNaRecallCard(updated.systemPrompt,'后来还加点了多少份，是谁点的？',[mealOrigin,'谢邂为什么总去那家店？'])??'').includes('母亲喜欢这家店的牛肉'),'source window survives an intermediate explicit episode question');
+  for(const question of ['换个话题，谢邂为什么总去那家店？','先不聊牛肉了，那家店是谁点的？','朋友问，谢邂为什么总去那家店？','假如谢邂总去那家店，你会问为什么吗？','“谢邂为什么总去那家店？”，这是书里的话。','不要说那家店是谁点的。','现在我想喝汤，你喜欢什么？'])check(!buildGuYueNaRecallCard(updated.systemPrompt,question,[mealOrigin]),'switches, reports, hypotheses, quoted questions and preference do not inherit a novel episode: '+question);
+  check(!buildGuYueNaRecallCard(updated.systemPrompt,'谢邂为什么总去那家店？',['我们换个话题，聊工作']),'unresolved shop reference cannot pick a chapter without a source focus');
+  check(!buildGuYueNaRecallCard(updated.systemPrompt,'后来还加点了多少份？',[mealOrigin,'今天先不聊牛肉了，换个话题。']),'an explicit recent topic reset ends old chapter carryover');
+  check(!buildGuYueNaRecallCard(updated.systemPrompt,'后来还加点了多少份？',['朋友问你还记得小吃街吗？']),'reported recollection cannot establish source focus');
+  check(!buildGuYueNaRecallCard('普通人物','后来还加点了多少份？',[mealOrigin]),'unrelated actor does not inherit Gu chapter focus');
+  check(buildCharacterVoiceCard(updated,'后来还加点了多少份？',[{role:'user',content:mealOrigin}]).includes('追加十份'),'actual shared voice composition supplies original user focus to retrieval');
+  check(!buildCharacterVoiceCard(updated,'后来还加点了多少份？',[{role:'assistant',content:mealOrigin}]).includes('追加十份'),'generated replies do not establish a new chapter focus');
+  for(const question of ['谢邂现在为什么总去那家店？','谢邂今天是谁点的？'])check(!buildGuYueNaRecallCard(updated.systemPrompt,question,[mealOrigin]),'present activity is not a continuation of old novel facts: '+question);
   const previousDaily='- 求学时的相处片段：那时你们共用水壶，你让饭给他却说自己"吃不下"；他随口说喜欢白色，你便多穿白衣。你照顾过忘我锻造的他，血脉暴戾时送过极寒之冰；并肩时他护在前面，问过"饿不饿、冷不冷"。这些往事不证明今天备了饭、有什么食物或正在同处一室；婚后的消息从眼前说的话继续。';
   check(!reviseGuYueNaPresetPrompt(previousDaily).includes('他随口说喜欢白色'),'already-migrated shipped anecdotes receive the same canon correction');
   check(reviseGuYueNaPresetPrompt(previousDaily+'我设定他现在喜欢白色。').includes(previousDaily+'我设定他现在喜欢白色。'),'an edited migrated paragraph remains user-authored');
@@ -133,6 +148,14 @@ async function run(): Promise<void> {
   check(ordinary.includes('本轮关系底线')&&!ordinary.includes('[VirtuGene · 斗罗家族关系]'),'ordinary owned chat routes the generated full family supplement to a compact identity boundary');
   check(ordinary.includes('古月娜与唐舞麟已婚')&&ordinary.includes('蓝轩宇是孩子')&&ordinary.includes('不证明今天同处一室'),'compact relation context preserves marriage, child and source boundaries');
   check(ordinary.includes('对谢邂爱斗嘴，对舞麟却好脾气'),'ordinary runtime retains the sourced difference in tone by relationship without requiring a lore-recall query');
+  check(ordinary.includes('他说想你，你相信这份想念')&&ordinary.includes('想多聊是你自己的愿望'),'owned spouse expression accepts clear affection and owns its desire to stay');
+  check(buildCharacterVoiceCard({...runtimeCard,systemPrompt:ordinary},'我有点想你').includes('想多聊是你自己的愿望'),'selected intimate reaction reaches the actual tail voice card');
+  check(!guYueNaPromptForTurn(runtimeCard,'我是阿远，也想你').includes('他说想你，你相信这份想念'),'outsiders do not receive the spouse intimacy projection');
+  check(!guYueNaPromptForTurn(runtimeCard,'我想你',[],false).includes('他说想你，你相信这份想念'),'resolved distant identity overrides ambiguous affection');
+  check(guYueNaPromptForTurn(runtimeCard,'我想你',[],true).includes('他说想你，你相信这份想念'),'an already resolved partner need not reintroduce his identity every turn');
+  const editedIntimacy={...runtimeCard,systemPrompt:runtimeCard.systemPrompt.replace('亲密反应：','亲密反应：用户补充的表达。')};
+  check(!guYueNaPromptForTurn(editedIntimacy,'我是舞麟，想你了').includes('他说想你，你相信这份想念')&&guYueNaPromptForTurn(editedIntimacy,'我是舞麟，想你了').includes('用户补充的表达'),'user-edited intimacy remains their authored expression');
+  check(runtimeCard.systemPrompt===storedPrompt,'intimacy projection never writes back to stored character text');
   check(ordinary.length<storedPrompt.length-500,'ordinary relation routing meaningfully reduces redundant context');
   for(const message of ['唐三跟你是什么关系？','我想跟你聊聊轩宇','小舞是你什么人','你们的孩子现在是谁','你和白秀秀的师徒关系'])
     check(guYueNaPromptForTurn(runtimeCard,message).includes(withDouluoRelations('','preset-guyuena').trim()),'actual family topic retains complete original relation context: '+message);

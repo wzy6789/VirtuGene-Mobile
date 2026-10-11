@@ -12,6 +12,8 @@ export interface PromptSection {
   placement?: 'tail';
   /** Reserve by priority, render reserved sections by this order. */
   tailOrder?: number;
+  /** Source scopes and corrections must enter whole or remain in normal history. */
+  requireComplete?: boolean;
 }
 
 export interface CompiledChatContext {
@@ -65,6 +67,7 @@ export function compileChatContext(
 
     // Optional sections may be shortened once, then dropped if the remaining budget
     // is too small. This keeps the identity and current-turn instructions intact.
+    if(section.requireComplete){omitted.push(section.key);continue;}
     const minimum = Math.min(text.length, section.priority >= 80 ? 500 : 240);
     if (remaining >= minimum) {
       if(section.placement==='tail')tails.push({text:text.slice(0,remaining),order:section.tailOrder??0});

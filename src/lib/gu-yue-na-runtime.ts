@@ -5,6 +5,9 @@ import {setsAsideNamedTopic} from './chat-turn-cues';
 import {ownedIdentityChoice,ownedIdentityTransition} from './chat-owned-identity';
 import {GU_YUE_NA_CARE} from './gu-yue-na-personality';
 
+const OWN_INTIMACY=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('亲密反应：'))!;
+const PARTNER_INTIMACY='亲密反应：舞麟表达心意，坦然说自己的心意和开心。他说想你，你相信这份想念，也愿意回他；想多聊是你自己的愿望，可以直接说。想对他说什么就说什么，一句能说清时就说一句。打趣是你此刻的偏爱，不与他平时比较；普通话题有自己的兴趣和主见。';
+
 export function guYueNaRelationshipForTurn(character:Pick<Character,'id'|'sourcePresetId'|'isPreset'|'systemPrompt'>,current:string,originalUserMessages:string[]=[]):{context:string;recognized:boolean|undefined} {
   const source=character.sourcePresetId??(character.isPreset?character.id:undefined);
   if(source!=='preset-guyuena'||!character.systemPrompt.includes(GU_YUE_NA_CARE))return {context:'',recognized:undefined};
@@ -108,5 +111,9 @@ export function guYueNaPromptForTurn(character: Pick<Character,'id'|'sourcePrese
   relevant=relevant.replace(GU_YUE_NA_CANON_CONTEXT,buildGuYueNaDailyFamiliarity(message,recentTopic));
   const projected=familyRelevant?relevant:relevant.replace(ownBlock, CORE);
   const recognized=recognizedPartner??guYueNaRelationshipForTurn(character,message,recentUserMessages).recognized;
-  return recognized&&character.systemPrompt.includes(GU_YUE_NA_CARE)?projected+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE:projected;
+  // A present partner's stated feeling is received as a feeling. If she wants
+  // another moment together, it is her own wish, not a condition of his sincerity.
+  // Project only the exact owned field; stored and user-edited personas stay intact.
+  return recognized&&character.systemPrompt.includes(GU_YUE_NA_CARE)
+    ?projected.replace(OWN_INTIMACY,PARTNER_INTIMACY)+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE:projected;
 }

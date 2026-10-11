@@ -1,9 +1,17 @@
+import {hasExplicitTopicShift,setsAsideNamedTopic} from './chat-turn-cues';
+
 /** Short paraphrases, not a novel transcript. Source chapters are auditable. */
 export const GU_YUE_NA_CANON = [
   {
     topic: '吃饭', chapter: '第七十四章 三人行 / 第七十五章 闷罐牛肉的故事',
-    sources: ['https://nh5.com/library/chapter/2449/74.html', 'https://www.readnovel.com/chapter/3239525601635302/9539098775721506', 'https://nh5.com/library/chapter/2449/75.html'],
+    sources: ['https://nh5.com/library/chapter/2449/74.html', 'https://www.readnovel.com/chapter/3239525601635302/9539098775721506', 'https://nh5.com/library/chapter/2449/75.html','https://www.loying.org/book/douluo3/17766.html'],
     knowledge: '求学时你、舞麟和谢邂去过东海小吃街；舞麟爱吃、饭量大。谢邂先推荐闷罐牛肉配白饭，是那次吃过的，不据此认定为唯一最爱。',
+    details: [
+      {actor:'唐舞麟',fact:'尝后称赞味道好。'},
+      {actor:'古月',fact:'尝后也为味道惊艳。'},
+      {actor:'谢邂',fact:'母亲喜欢这家店的牛肉；他仍常去，谈到母亲时难过。'},
+      {actor:'谢邂',fact:'了解舞麟的饭量，追加十份；加点数量不证明舞麟一人吃完十份，也不证明谁吃得最香。'},
+    ],
   },
   {
     topic: '锻造', chapter: '第一百三十五章 闭关锻造 / 第二百零八章 明悟，慕曦晋级',
@@ -86,10 +94,27 @@ export const GU_YUE_NA_WHITE_CORRECTION = {
 
 /** Only our owned supplement opts into canon retrieval. A name alone cannot
  * attach a spouse's history to another user's custom character. */
-export function buildGuYueNaRecallCard(persona:string, message:string):string|undefined {
+export function buildGuYueNaRecallCard(persona:string, message:string,recentUserMessages:string[]=[]):string|undefined {
   if(!persona.includes('[VirtuGene · 古月娜的关心]')||!persona.includes('【熟悉舞麟的依据】'))return undefined;
   const text=message.slice(0,2000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
-  if(!/(?:记得|记忆|那时候|那时|以前|过去|小时候|当年|原著|小吃街)/u.test(text))return undefined;
+  // A short follow-up can name a person or refer to the same shop/order.
+  // Only original user recall requests establish this bounded source focus;
+  // generated replies and ordinary present-day meals never establish history.
+  const mealFollowup=!hasExplicitTopicShift(text)&&!setsAsideNamedTopic(text)
+    &&text.split(/(?<=[。！？!?])|\n/u).some(sentence=>{
+      const clause=sentence.trim();
+      if(/^(?:朋友|同事|他|她|有人|如果|假如|假设|比如|例如|帮我写|翻译)/u.test(clause)||/(?:不要|不用|别|不必).{0,6}(?:回忆|记得|讲|说|查)/u.test(clause)
+        ||/^(?:谢邂|古月|李叔)(?:现在|今天|昨天|刚才|明天)/u.test(clause))return false;
+      return /^(?:谢邂|古月|李叔|那(?:家店|次|时候)|后来|当时)/u.test(clause)
+        &&/(?:那家店|这家店|加点|追加|几份|多少份|谁点|谁叫|谁要)/u.test(clause)
+        &&/(?:为什么|怎么|哪|谁|几|多少|吗|[?？])/u.test(clause);
+    });
+  let carriedMeal=false;
+  if(mealFollowup)for(const previous of recentUserMessages.slice(-2).reverse()){
+    if(hasExplicitTopicShift(previous)||setsAsideNamedTopic(previous))break;
+    if(buildGuYueNaRecallCard(persona,previous)?.includes(GU_YUE_NA_CANON[0].chapter)){carriedMeal=true;break;}
+  }
+  if(!carriedMeal&&!/(?:记得|记忆|那时候|那时|以前|过去|小时候|当年|原著|小吃街)/u.test(text))return undefined;
   if(/(?:昨天|前天|刚才|刚刚|上次聊天|我(?:前面|之前|刚)(?:说|讲|提))/u.test(text)&&!/(?:原著|小说|小吃街|海神缘|入学考核|蔡老)/u.test(text))return undefined;
   let lorePreface=false;
   const requested=[...text.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)].flatMap(match=>{
@@ -103,7 +128,7 @@ export function buildGuYueNaRecallCard(persona:string, message:string):string|un
       || /你.{0,20}(?:以前|过去|小时候|当年|那时).{0,20}(?:吗|么|什么|哪|怎么|为什么)/u.test(clause);
     return ownRequest||inheritedPreface&&/(?:为什么|怎么|哪|谁|吗|么)|[？?]/u.test(clause+match[2])?[clause]:[];
   });
-  if(!requested.length)return undefined;
+  if(!requested.length&&!carriedMeal)return undefined;
   // Topic words must belong to the actual request. A reported side topic
   // cannot select another chapter merely by sharing the same user message.
   const requestText=requested.join('\n');
@@ -113,11 +138,11 @@ export function buildGuYueNaRecallCard(persona:string, message:string):string|un
   const affection=/(?:海神缘|告白|表白)/u.test(requestText);
   const broad=requested.some(part=>/^(?:(?:你(?:还)?(?:记得|知道))|(?:聊聊|讲讲|说说|查查))?(?:你|我们|你们)?(?:的|记忆中的)?(?:过去|以前|往事|经历)(?:是什么样|什么样|是怎样的|吗|么|呢)?$/u.test(part.trim())
     || /^你(?:还)?(?:记得|知道|了解|觉得).{0,12}(?:我|唐舞麟|舞麟).{0,12}(?:喜欢|喜好|爱好|口味)/u.test(part.trim()));
-  const chosen=food||forging||protective||affection?GU_YUE_NA_CANON.filter(row=>food&&row.topic==='吃饭'||forging&&row.topic==='锻造'||protective&&row.topic==='护短'||affection&&row.topic==='心意').slice(0,2):broad?GU_YUE_NA_CANON.slice(0,2):[];
+  const chosen=food||forging||protective||affection?GU_YUE_NA_CANON.filter(row=>food&&row.topic==='吃饭'||forging&&row.topic==='锻造'||protective&&row.topic==='护短'||affection&&row.topic==='心意').slice(0,2):broad?GU_YUE_NA_CANON.slice(0,2):carriedMeal?GU_YUE_NA_CANON.slice(0,1):[];
   if(!chosen.length)return undefined;
   return ['[本轮人物往事来源]',
     '以下是已核对的小说背景摘要，不是要求续写的一段剧情，也不证明今天发生同样的事。',
-    JSON.stringify(chosen.map(row=>({subject:'唐舞麟与古月的小说往事',chapter:row.chapter,fact:row.knowledge}))),
+    JSON.stringify(chosen.map(row=>({subject:'唐舞麟与古月的小说往事',chapter:row.chapter,fact:row.knowledge,...('details'in row?{details:row.details}:{})}))),
     '回忆直接说已有的事即可；资料未核对的数量、旧台词和身体细节不拿模型自行续写当证据。自己的感受可以在现在表达，不补成当年的想法。是否是伴侣仍按实际身份，当前明确的变化优先。',
     '[/本轮人物往事来源]'].join('\n');
 }

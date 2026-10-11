@@ -19,6 +19,7 @@ import { buildSceneTimeContext, buildRelationshipContext, buildRelationshipToneC
 import {findCurrentSceneRisk} from '../../src/lib/chat-current-scene-risk';
 import {buildPreferenceProposalContext} from '../../src/lib/chat-hypothesis';
 import {buildViewContinuityContext} from '../../src/lib/chat-view-continuity';
+import {buildRecentFactRecallContext} from '../../src/lib/chat-recent-fact-recall';
 import {requestsCharacterChoice} from '../../src/lib/chat-turn-cues';
 import {directAffectionSources} from '../../src/lib/chat-expression-boundary';
 import {findSelfReportRisk,omitUnsupportedSelfReportEpisodes} from '../../src/lib/chat-self-report-risk';
@@ -49,6 +50,35 @@ async function run() {
   // Local risk and routing checks do not grade the model's personality.
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
+  {
+    const originals=[{role:'user',content:'今天放上了一个木头的摆件。'},{role:'assistant',content:'我看见了，它是红色的。'},{role:'user',content:'其实是陶瓷的，我刚才说错了。不是木头。'},{role:'user',content:'你自己会选颜色多的，还是简单的？'},{role:'user',content:'我会选颜色多的，热热闹闹的。'},{role:'user',content:'假如孩子画了一只小龙，你会怎么说？'}];
+    const query='我们刚才聊的摆件是什么材质来着？';
+    const source=buildRecentFactRecallContext(query,originals);
+    ok(source.includes('其实是陶瓷的')&&source.includes('更正线索'),'fact recall re-reads the explicit correction in original order');
+    ok(source.includes('偏好或意愿线索')&&source.includes('假设线索'),'proposals and imagined episodes keep their own scope');
+    ok(!source.includes('我看见了')&&!source.includes('红色的'),'generated actor observation cannot establish the user object attribute');
+    ok(source.includes('不把其他未说明属性一起补齐'),'fact recall cannot promote an unrelated preference into a described object');
+    ok(buildHumanConversationContext(query,originals).includes('[近期事实原话]'),'actual chat prompt builder includes scoped originals only for the recall question');
+    for(const question of ['我刚才说的时间是几点来着？','刚才我提的地点是哪儿？','我一开始说了什么？'])ok(!!buildRecentFactRecallContext(question,originals),'other explicit original-fact questions use the same bounded source view: '+question);
+    for(const question of ['我有点想你。','你自己喜欢哪种？','朋友问我们刚才聊的摆件是什么材质来着？','如果我们刚才聊过，摆件是什么材质呢？','“我们刚才聊的摆件是什么材质来着？”，这是朋友问的。','翻译我刚才说的时间是几点。','不用回忆我刚才说的时间是什么。'])ok(!buildRecentFactRecallContext(question,originals),'ordinary, reported, quoted, hypothetical and declined recall do not add a fact frame: '+question);
+    const composed=buildRecentFactRecallContext(query,[...originals,{role:'user',content:'摆件实际是金色的。',userAuthored:false}]);
+    ok(!composed.includes('金色的'),'assistant-composed user-role messages never count as personal statements');
+    const large='更正一下，'+ '甲'.repeat(250)+'不是红色而是蓝色。';
+    ok(!buildRecentFactRecallContext(query,[{role:'user',content:large}]),'oversized originals are omitted rather than cutting off their correction');
+    ok(!buildRecentFactRecallContext(query,[]),'no originals means no invented recall source');
+    const snapshot=JSON.stringify(originals);
+    buildRecentFactRecallContext(query,originals);
+    ok(snapshot===JSON.stringify(originals),'source view does not mutate message history or save new facts');
+    const limited=buildRecentFactRecallContext(query,[{role:'user',content:'很久以前说的独立句。'},...Array.from({length:6},(_,i)=>({role:'user',content:'近期句'+i}))]);
+    ok(!limited.includes('很久以前说的独立句'),'recent fact view does not claim to read beyond its six-user window');
+    const sections=buildHumanConversationSections(query,originals);
+    const sourceSection=sections.find(section=>section.key==='recent-fact-recall')!;
+    ok(sourceSection.requireComplete===true&&sourceSection.tailOrder===.5,'recent original sources enter as a complete section before the actor voice');
+    const partialBudget=compileChatContext('人设'.repeat(2900),[{key:'source',text:source.repeat(2),priority:98,placement:'tail',requireComplete:true}],6000);
+    ok(partialBudget.omitted.includes('source')&&!partialBudget.partial.includes('source')&&!partialBudget.prompt.includes('[近期事实原话]'),'a source view too large for the remaining budget is omitted, not clipped through a condition or correction');
+    const fullBudget=compileChatContext('人物身份',sections,6000);
+    ok(fullBudget.included.includes('recent-fact-recall')&&fullBudget.prompt.includes(source),'adequate budget delivers the exact complete original scope view');
+  }
   {
     const mixed='刚才那句喜欢是说书签。我也很喜欢你，这句是说给你的。';
     ok(JSON.stringify(directAffectionSources(mixed))===JSON.stringify(['我也很喜欢你']),'current feeling source belongs to the addressee rather than the previous bookmark preference');
@@ -116,6 +146,17 @@ async function run() {
   ok(!!findDomesticReferenceRisk(householdDraft,'对话样本：用户说那几盆葱 → 你说咱家那几盆葱还在。'),'voice samples never establish current possessions');
   ok(!!findDomesticReferenceRisk(householdDraft,'',[],['假如你家那几盆葱还在呢？']),'user hypothetical question cannot establish current possessions');
   ok(!!findDomesticReferenceRisk(householdDraft,'',[],['朋友说你家那几盆葱还在。']),'a third-party report cannot establish the actor own definite possessions');
+  const repeatedCareDraft='我更喜欢清淡的汤。你要是也改清淡了，以后我做汤就不用再单独给你留一碗重口的。';
+  ok(!!findDomesticReferenceRisk(repeatedCareDraft),'a future meal choice does not prove past separate portions');
+  ok(inspectChatOutput(repeatedCareDraft,{mode:'private',userMessage:'我现在喜欢清淡的汤了。你自己呢？'}).check.issue==='self-report-risk','all-mode quality checks also catch past care hidden inside a future condition');
+  ok(omitDomesticReferences(repeatedCareDraft)==='我更喜欢清淡的汤。','after the existing retry, preserve an independent preference without a fabricated cooking history');
+  for(const text of ['以后我不用再给你准备两份早餐了。','下回我们不必再特意替你做晚饭了。','我以后不再为你留一盏灯了。'])ok(!!findDomesticReferenceRisk(text),'concrete repeated care remains a sourced history claim: '+text);
+  for(const text of ['以后我想给你做清淡的汤。','我喜欢清淡的汤。','我不用再解释为什么喜欢清淡了。','以后我不用再给你留一碗汤了吗？','假如以前我给你留过汤，以后我不用再给你留一碗汤了。','朋友说，以后我不用再给你留一碗汤了。','“以后我不用再给你留一碗汤了”，这句话有点怪。'])ok(!findDomesticReferenceRisk(text),'new choices, preferences, conversation and nonassertive care stay allowed: '+text);
+  ok(!findDomesticReferenceRisk(repeatedCareDraft,'关系记录：我之前给你留一碗重口的。'),'explicit authored prior care supports its concrete recurrence premise');
+  ok(!findDomesticReferenceRisk(repeatedCareDraft,'',['之前我给你留一碗重口的。']),'independent actor record supports prior care');
+  ok(!findDomesticReferenceRisk(repeatedCareDraft,'',[],['你以前给我留一碗重口的。']),'direct user statement about the actor can support prior care');
+  for(const source of ['我以前给你留一碗重口的。','朋友说你以前给我留一碗重口的。','你以前没有给我留一碗重口的。','假如你以前给我留一碗重口的呢？'])ok(!!findDomesticReferenceRisk(repeatedCareDraft,'',[],[source]),'user own care, reports, negation and hypotheses cannot establish actor care: '+source);
+  ok(!!findDomesticReferenceRisk(repeatedCareDraft,'对话样本：用户说汤 → 你说我以前给你留一碗重口的。'),'voice example cannot establish past cooking');
   for(const message of ['今天先不聊锻造了。刚才看到的云有点像猫。','现在不说海神缘了。说说那本书吧。','咱们先不提考试了，聊会儿电影。','我这次不聊工作了。','暂时不聊刚才的安排吧。']){
     ok(setsAsideNamedTopic(message),'a declared pause can name its subject: '+message);
     const state=updateChatConversationState({currentTopic:'之前的锻造安排',topicStatus:'active'},message);

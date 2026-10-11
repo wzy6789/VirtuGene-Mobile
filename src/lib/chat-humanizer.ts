@@ -9,6 +9,7 @@ import {authoredVoiceFields,JUDGMENT_FIELDS,ADDRESS_FIELDS} from './character-vo
 import type {PromptSection} from './chat-context-compiler';
 import {isLongFormRequest} from './reply-quality';
 import {buildGuYueNaRecallCard} from './gu-yue-na-canon';
+import {buildRecentFactRecallContext} from './chat-recent-fact-recall';
 import {buildHypothesisContext,buildPreferenceProposalContext} from './chat-hypothesis';
 import {buildViewContinuityContext} from './chat-view-continuity';
 
@@ -272,7 +273,7 @@ function characterVoiceLines(character?: HumanCharacter | null, userText?:string
   if (address.length) lines.push(`称呼习惯：${address.map(line => line.slice(0, 100)).join(' / ')}`);
   const values = authoredJudgments.slice(0,2).map(row=>row.line);
   if (values.length) lines.push(`人物判断依据（具体设定优先于通用标签）：${values.map(line => line.slice(0, 150)).join(' / ')}`);
-  const recall=buildGuYueNaRecallCard(character.systemPrompt??'',userText??'');
+  const recall=buildGuYueNaRecallCard(character.systemPrompt??'',userText??'',history.filter(turn=>turn.role==='user').slice(-2).map(turn=>turn.content));
   if(recall)lines.push(recall);
   lines.push('称呼、立场与边界继续依据这张卡和当前人设；历史回复只用于接续内容，不能因为聊久了就改成通用助理，也不把历史措辞当作新的人设要求。');
   return lines;
@@ -438,8 +439,10 @@ export function buildHumanConversationSections(
   if (!selfChosenPlan && action === 'share-life' && hints.length) lines.push(`角色确实有这些生活线索：${hints.map(t => t.slice(0, 80)).join(' / ')}。只基于已知资料，不编造新经历。`);
   const motifs = repeatedMotifs(recentReplies, character?.catchphrase).filter(t => !isTopicRelated(userText, t));
   if (motifs.length) lines.push(`最近这些完整长句反复出现：${motifs.join(' / ')}。别照搬整句；口头禅和惯用开头继续保持。用户主动重提时仍可回应。`);
+  const factRecall=buildRecentFactRecallContext(userText,history);
   return [
     {key:'human-conversation',text:lines.join('\n'),priority:99,placement:'tail',tailOrder:0},
+    ...(factRecall?[{key:'recent-fact-recall',text:factRecall,priority:98,placement:'tail' as const,tailOrder:.5,requireComplete:true}]:[]),
     {key:'character-voice',text:['[人物声音卡]',...characterVoiceLines(character,userText,history),'[/人物声音卡]'].join('\n'),priority:100,placement:'tail',tailOrder:1},
   ];
 }
