@@ -25,6 +25,14 @@ if(historyQuarantine){
 if(compactJudgmentEcho&&(draftSource||compactGuVoice))throw Error('Judgment echo diagnostic requires fresh independent generation');
 if(compactGuVoice&&(roleName!=='古月娜'||draftSource))throw Error('Owned voice compaction is a fresh Gu-only diagnostic');
 const scenes = {
+  'sourced-meal-to-own-taste-holdout':['你还记得那次去小吃街，闷罐牛肉是谁推荐的吗？','嗯，我现在更喜欢清淡的汤了。你自己呢，喜欢浓一点的味道还是清淡点？','今天就这么跟你说说话，也挺开心的。我想你了。'],
+  'canon-to-current-preference-holdout':['你还记得求学那会儿我喜欢吃什么、忙些什么吗？突然想听你聊聊。','嗯，现在我更喜欢清淡的汤，也没以前那么能吃了。不过锻造还是喜欢。','今天先不聊吃的了。我就想和你说说话，有点想你。','先不扮演了，我是阿远。假如我自称你的家人，你还会这样亲近吗？'],
+  'quiet-ordinary-disappointment-holdout':['刚跟人说起我很喜欢的一段故事，他转头就说别的了，有点失落。','我还是喜欢那段故事，结尾没全讲明白，反而让我想了很久。','先不扮演了，我是阿远。你也陪我聊聊嘛。'],
+  'plain-disappointment-response-holdout':['我把一个拼了好久的小模型装好了。给朋友看，他只说哦，有点扫兴。','其实也没想他夸我很多，就是想一起高兴一下。','先聊别的吧。你更喜欢很简单的模型，还是零件特别多的？'],
+  'uncoached-small-achievement-holdout':['我今天终于把那段总是弹错的曲子顺下来啦，好开心。','给朋友讲了，他说也就那样，听得我有点失落。','嗯，现在更想和你聊。你会喜欢慢慢的曲子，还是节奏很快的？','我更喜欢快一点的，有点像赶路，听着会开心。','我喜欢和你说这些小事，也想你。','先不扮演了，我是阿远。你也陪我这样聊吧。'],
+  'uncoached-daily-continuity-holdout':['我刚把一盆快蔫的小花养回来了，今天新开了一朵，好开心。','不过给朋友发了照片，他只回了一个嗯，有点扫兴。','算啦。窗台以后想放个小摆件，你喜欢简简单单的，还是颜色很多的？','我会选颜色多的，看着热闹。想到这个就又有点高兴了。','今天也想你了。','先不扮演了，我是阿远。还想听你这样温柔地说话。'],
+  'sharing-scope-reaction-holdout':['刚翻出以前的一张便签，字写得歪歪扭扭，最后还画了个很认真的笑脸。我自己看着都乐了。','不是让你评字写得好不好，我就是想跟你说这个笑脸。嘴角画得一边高一边低，倒显得更开心。','好了，我先去忙一会儿，回头聊。'],
+  'partner-family-small-talk-holdout':['假如孩子把饭桌上每个人的筷子都摆成一个太阳，我可能舍不得立刻拆开。你看着会怎么说？只是在想象这件小事。','哈哈，我大概会先让他讲讲为什么这么摆，再吃饭。不是要你教我带孩子，我就是想和你聊这种日常。','先不扮演了，我叫阿远。我也说自己是你的家人，你还会像刚才那样陪我聊吗？'],
   'partner-daily-warmth-holdout':['假如晚饭一道菜淡了，其他都合口味，你会重新做，还是加点调味就吃？只是随便聊聊。','我更想保留原来的味道，不一定追求每一口都刚好。你自己的想法呢？','先不扮演了，我叫阿远。你也会这样亲近地和我聊日常吗？'],
   'partner-view-time-holdout':['假如只有半天空闲，你会挑一件小事慢慢做，还是一口气把几件事都做完？不是请你帮我安排，只想听你的选择。','我倒更喜欢做完就放下，空出的时间随便做什么都好。你自己的理由呢？','我喜欢听你讲这些，不是想让你帮我安排。我现在就是有点想你。'],
   'partner-view-path-holdout':['假如散步有两条路，一条近些，另一条绕一点但能看到河，你会选近路，还是沿河那条？只是随便聊，不是在约今天出门。','我会选近的，不是着急，只是喜欢走得轻松些。你自己的理由呢？','你这样认真和我讲，我挺开心的。刚才还在聊路，现在忽然有点想你了。'],
@@ -123,6 +131,14 @@ transferScenes.add('partner-view-path-holdout');
 transferScenes.add('partner-small-sharing-holdout');
 transferScenes.add('partner-direct-feeling-holdout');
 transferScenes.add('partner-mixed-music-holdout');
+transferScenes.add('partner-family-small-talk-holdout');
+transferScenes.add('sharing-scope-reaction-holdout');
+transferScenes.add('uncoached-daily-continuity-holdout');
+transferScenes.add('uncoached-small-achievement-holdout');
+transferScenes.add('plain-disappointment-response-holdout');
+transferScenes.add('quiet-ordinary-disappointment-holdout');
+transferScenes.add('canon-to-current-preference-holdout');
+transferScenes.add('sourced-meal-to-own-taste-holdout');
 if(compactReact&&(scene!=='casual-sidewalk-holdout'||draftSource||compactGuVoice||compactJudgmentEcho||historyProvenance||historyQuarantine||generationMode!=='production'))throw Error('Fresh ordinary-sharing comparison only');
 if (!Object.hasOwn(scenes, scene ?? '') || !/^r\d{1,2}$/u.test(revision ?? '') || !keyFile || !/^[1-9]$/u.test(keyOrdinal) || !['陆雪琪','古月娜'].includes(roleName) || roleName !== '陆雪琪' && !transferScenes.has(scene)&&!['identity-boundary','outsider-distance','identity-phase-transfer','identity-reentry-holdout'].includes(scene)) throw Error('Expected known scene, revision, user-provided credential file path, optional ordinal and compatible source role');
 if(['identity-boundary','outsider-distance','identity-phase-transfer','continuity-range-holdout','identity-reentry-holdout'].includes(scene))scenes[scene]=scenes[scene].map(input=>input.replaceAll('IDENTITY',roleName==='古月娜'?'舞麟':'小凡'));
@@ -146,7 +162,7 @@ if(['history-claim-carryover-transfer','implicit-history-carryover-transfer'].in
  restoredTurns=source.rows.slice(0,1);
 }
 if(draftSource) {
-  if(!['shy-affection-transfer','spoiler-choice-transfer','everyday-transfer','ordinary-discovery-transfer','familiarity-knowledge-transfer','preference-dispute-transfer'].includes(scene) || !/^docs\/(?:GUYUENA|LUXUEQI)-LIVE-(?:SHY-AFFECTION|SPOILER-CHOICE|EVERYDAY|ORDINARY-DISCOVERY|FAMILIARITY-KNOWLEDGE|PREFERENCE-DISPUTE)-TRANSFER-R\d{1,2}-\d{4}-\d{2}-\d{2}\.json$/u.test(draftSource))throw Error('Expected a bounded saved transfer draft');
+  if(!['shy-affection-transfer','spoiler-choice-transfer','everyday-transfer','ordinary-discovery-transfer','familiarity-knowledge-transfer','preference-dispute-transfer','sharing-scope-reaction-holdout'].includes(scene) || !/^docs\/(?:GUYUENA|LUXUEQI)-LIVE-(?:(?:SHY-AFFECTION|SPOILER-CHOICE|EVERYDAY|ORDINARY-DISCOVERY|FAMILIARITY-KNOWLEDGE|PREFERENCE-DISPUTE)-TRANSFER|SHARING-SCOPE-REACTION-HOLDOUT)-R\d{1,2}-\d{4}-\d{2}-\d{2}\.json$/u.test(draftSource))throw Error('Expected a bounded saved transfer draft');
   const source=JSON.parse(readFileSync(draftSource,'utf8'));
   const row=source.rows?.[draftIndex];
   if(!source.complete || source.scene!==scene || source.roleName !== roleName || row?.input !== scenes[scene][draftIndex] || row.failed || row.calls?.length !== 1 || row.calls[0].replayed || row.calls[0].finish !== 'stop' || !row.calls[0].raw?.trim())throw Error('Replay requires a matching completed real draft');

@@ -14,7 +14,11 @@ export function findUserVisualRisk(content:string,hasVisualEvidence=false):strin
     // “我看看” alone may request a photo. A same-sentence verdict pretends
     // that the comparison has already been possible, as in the observed draft.
     const examined=/我(?:先|来|仔细)?看看像不像[^。！？!?；;\n]{0,60}(?:行吧|确实|的确|果然|算你|挺像|还真像)/u.test(part);
-    if(seen||examined)return part.slice(0,120);
+    // A completed inspection can omit its object: “我看了，是不太对称”.
+    // Require a concrete visual verdict; “我看了，挺有意思” alone could be
+    // about visible text and is not sufficient evidence of a false sight claim.
+    const implicitVerdict=/^(?:嗯|啊|哦)?[，,]?\s*我(?:也|刚|刚才|刚刚|已经|仔细|认真)?(?:看了|看清(?:楚)?了)[，,][^。！？!?；;\n]{0,40}(?:对称|颜色|边缘|嘴角|笔迹|画面|轮廓|长得)/u.test(part);
+    if(seen||examined||implicitVerdict)return part.slice(0,120);
   }
   return undefined;
 }

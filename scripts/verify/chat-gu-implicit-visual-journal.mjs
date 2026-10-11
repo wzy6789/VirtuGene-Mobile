@@ -1,0 +1,18 @@
+import {readFileSync as read,writeFileSync as write,appendFileSync as append} from 'node:fs';
+const date='2026-10-11',root='D:/月起云归/VirtuGene/手机版';
+const paths=[`docs/GUYUENA-LIVE-SHARING-SCOPE-REACTION-HOLDOUT-R2-${date}.json`,`docs/GUYUENA-LIVE-SHARING-SCOPE-REACTION-HOLDOUT-R3-${date}.json`];
+const groups=paths.map(path=>({path,...JSON.parse(read(path,'utf8'))}));
+if(groups.some(g=>!g.complete||g.rows.some(r=>r.failed)))throw Error('Completed evidence required');
+if(!groups[0].rows[0].calls[0].messages.find(m=>m.role==='system').content.includes('笑意里带着偏爱'))throw Error('Humor candidate was not wired');
+if(!groups[1].draftSource||groups[1].rows.length!==1||groups[1].rows[0].calls.length!==2||groups[1].usage.calls!==1)throw Error('Expected one recorded draft plus one actual repair');
+if(read('src/lib/gu-yue-na-runtime.ts','utf8').includes('PARTNER_JUDGMENT'))throw Error('Unproven candidate still active');
+const usage=groups.reduce((a,g)=>{for(const k of ['calls','input','output','total'])a[k]+=g.usage[k];return a},{calls:0,input:0,output:0,total:0});
+const evidence=`release/chat-gu-implicit-visual-evaluation-${date}.json`;
+write(evidence,JSON.stringify({usage,groups:paths,withdrawn:'partner humor judgment projection',repairScope:'one recorded draft replay with one actual production retry; not fresh generation or a complete conversation',humanQualityComplete:false},null,2)+'\n');
+const journal=root+'/开发日志/'+date+'.md',mark='## 打趣判断候选撤回与隐含看图声明修复';
+if(!read(journal,'utf8').includes(mark))append(journal,`\n${mark}\n\n- 上轮是进展：澄清范围改成接事情减少家庭防御，新便签题证实刻薄/补年龄和心理未解决。本轮读取实际完整prompt与声音卡，现有暖关系在请求中，问题不是未注入身份。尝试仅原始Gu且已认领舞麟时，将自有判断行投影为共享事物趣味、偏爱和未知留白，不落库、未覆盖用户修改；本地2887项通过。\n- 候选便签R2三次真实调用8449token：首轮“你那字我见过/看看你还记不记得”仍编共同经历并考查，第二轮“我看了”假看图。刻薄词减少不等于好效果，撤回PARTNER_JUDGMENT常量与投影，保留原判断；候选全稿只作证据，未替换聊天验收中的整组R1，不拼接修正稿。保留自有判断与编辑不覆盖的两项回归。\n- 修复复现的检查漏口：原findUserVisualRisk需要“我看了”后紧跟你/这张等对象，漏掉“我看了，是不太对称”。新增省略对象的已检查声明+具体视觉判定（对称/颜色/边缘等），依旧只在没有用户图片时成立。纯阅读文字/代码、意见、否定、疑问、设想、真实图片与明确创作不误拦；只删除未上屏稿中的不支持句，不编替代回应。三场域统一inspect入口和原有重试预算不变。\n- 新增全模式无图拦截/有图放行、语境对抗与耗尽删单句检查，最终表达2901项与类型通过。实际私聊流式172项复跑通过，验证检查、重试、未上屏失败与安全句保留。证据release/chat-gu-humor-expression-final-${date}.log、chat-gu-humor-types-${date}.log、chat-gu-humor-stream-${date}.log；候选早期通过日志release/chat-gu-humor-expression-${date}.log保留。\n- 为节省用量，允许现有严格校验的保存稿回放工具接sharing-scope-reaction-holdout：仍须角色/场景/输入完全匹配、来源完整首稿、历史匹配，禁止覆盖证据。R3只回放R2第二轮未上屏原稿，当前生产检查触发一次实际修正（两个模型边界记录中只有一次付费，usage清楚区分）。修正不再假称看过，但“当时心情挺好”等心理猜测仍不合格。这是故障修复验证，不是自然完整新对话。未混入聊天验收最好整组。\n- 本轮${usage.calls}次实际调用/input ${usage.input}/output ${usage.output}/total ${usage.total}，usage齐全，输出上限500；包含失败候选3次和回放修正1次，不把回放当收费。原稿${paths.join('、')}；汇总${evidence}；日志release/chat-gu-humor-scope-live-${date}.log、chat-gu-implicit-visual-repair-live-${date}.log。\n- 没有证明打趣普遍变好；Gu仍有无来源共同经历、考查、心理猜测，Lu未在本轮真实生成。下一步应区分伴侣熟悉与凭空声称亲历，改善情境理解，而不是只堆更多禁词。版本6.0.16保持，未打包未发布，目标未完成。\n`);
+const direction=root+'/优化方向/'+date+'.md',markDirection='## 打趣候选与看图归属';
+if(!read(direction,'utf8').includes(markDirection))append(direction,`\n${markDirection}\n- 打趣判断候选无收益，撤回。\n- 拦住无图“我看了＋视觉判断”。\n- 熟悉不等于见过物品；仍有考查与心理猜测。\n- 回放修正不替代完整自然聊天验收。\n`);
+const index=root+'/00-总览.md',line=`- 打趣候选撤回、隐含看图声明修复：${usage.calls}实际调用/${usage.total}token，含一次保存稿修正；完整限制见[[手机版/开发日志/${date}|日志]]。`;
+if(!read(index,'utf8').includes(line))append(index,'\n'+line+'\n');
+console.log(JSON.stringify({usage,evidence,humanQualityComplete:false}));

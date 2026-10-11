@@ -1,0 +1,18 @@
+import {readFileSync as read,writeFileSync as write,appendFileSync as append} from 'node:fs';
+const date='2026-10-11',root='D:/月起云归/VirtuGene/手机版';
+const path=`docs/GUYUENA-TURN-DIRECTION-ABLATION-R1-${date}.json`;
+const report=JSON.parse(read(path,'utf8')),usage=JSON.parse(read(path.replace('.json','-USAGE.json'),'utf8')).totals;
+if(!report.complete||report.rows.length!==4||usage.calls!==4||usage.missingUsage)throw Error('Complete paired provider evidence required');
+const evidence=`release/chat-turn-direction-evaluation-${date}.json`;
+write(evidence,JSON.stringify({path,usage,adopted:false,scope:'frozen provider comparison, not consecutive production delivery',humanQualityComplete:false},null,2)+'\n');
+const journal=root+'/开发日志/'+date+'.md',heading='## 完整上下文冻结对照：不采用删本轮通用指导';
+if(!read(journal,'utf8').includes(heading))append(journal,`\n${heading}\n\n- 上轮替换受挫行并异题对照已证明无稳定收益、撤回，是证据进展。本轮阅读完整提示、已有compaction生产接线和旧focused-reactions对照，确认相同精简方法10月10日已失败，未重复当新方案。\n- 新有界变体turn-direction-omitted仅删除隐藏节奏首行，不删人设/关系/来源/情绪线索/声音卡/共享契约。只有诊断脚本修改，生产不变。13项精确字符串核对通过：两份真实请求移除恰好一行、头与各tail全文原样、缺失/重复/不完整标记拒绝。scripts/verify/chat-turn-direction-checks.mjs，无模型调用。\n- 固定小模型R1第一二轮完整历史和用户原话，各原条件与去首行一次，4实际生成，无生产送达/落库，不把两道冻结题当新连续对话。第一题原条件说自己的不舒服并邀请看，去首行则猜朋友不懂心思并要求拿来看；第二题原条件愿意接高兴但猜轩宇眼睛亮，去首行仍“补上高兴”并要求描述或照片。两条件都未达标，没有采用证据。候选未进入生产。\n- 四次${usage.input}输入/${usage.output}输出/${usage.total}总token，usage齐全、stop、每次输出500，桥上限4，无额外评分/恢复。固定条件先后、未重复采样，不能证明删一行导致变坏，仅说明不能据此推广。原稿${path}与-USAGE.json；日志release/chat-turn-direction-live-${date}.log；汇总${evidence}。\n- 聊天验收仅保留原条件整组（两题冻结场景标识，非连续送达），没有拼接不同条件好句。候选和原条件全部原稿项目保留；优化方向单独简短。版本6.0.16未改、未打包未发布。\n- 仍开放：补第三方内心/家人反应、把分享变成展示要求。后续需更直接分析人物关系叙述与实际内容推理，不继续无依据减规则或加同义关心句。Gu未完成，Lu尚待后续完整验证，目标保持进行中。\n`);
+const chatPath=root+'/聊天验收/古月娜-'+date+'.md',mark='## turn-direction-ablation / r1（冻结原条件，两题独立，非连续送达）';
+let chat=read(chatPath,'utf8');
+if(!chat.includes(mark))chat+='\n'+mark+'\n\n'+report.rows.filter(r=>r.arm==='original').map(r=>`### 冻结场景 ${r.index}\n\n**chatgpt**：${r.input}\n\n**古月娜**：${r.raw}`).join('\n\n')+'\n';
+write(chatPath,chat);
+const direction=root+'/优化方向/'+date+'.md',directionMark='## 通用接话指导冻结对照';
+if(!read(direction,'utf8').includes(directionMark))append(direction,`\n${directionMark}\n- 去首行未改善，生产保持。\n- 猜第三方/家人反应与索图仍开放。\n- 不重复已失败的精简策略。\n`);
+const index=root+'/00-总览.md',line=`- 通用指导精简对照未采用：${usage.calls}调用/${usage.total}token，两题冻结条件，不冒充连续软件对话；见[[手机版/开发日志/${date}|日志]]。`;
+if(!read(index,'utf8').includes(line))append(index,'\n'+line+'\n');
+console.log(JSON.stringify({usage,evidence,adopted:false}));

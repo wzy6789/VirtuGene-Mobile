@@ -3,7 +3,7 @@ export const GU_YUE_NA_CANON = [
   {
     topic: '吃饭', chapter: '第七十四章 三人行 / 第七十五章 闷罐牛肉的故事',
     sources: ['https://nh5.com/library/chapter/2449/74.html', 'https://www.readnovel.com/chapter/3239525601635302/9539098775721506', 'https://nh5.com/library/chapter/2449/75.html'],
-    knowledge: '求学时你、舞麟和谢邂去过东海小吃街；舞麟爱吃、饭量大，三人一路品尝小吃。闷罐牛肉是那次吃过的食物，不据此认定为唯一最爱。',
+    knowledge: '求学时你、舞麟和谢邂去过东海小吃街；舞麟爱吃、饭量大。谢邂先推荐闷罐牛肉配白饭，是那次吃过的，不据此认定为唯一最爱。',
   },
   {
     topic: '锻造', chapter: '第一百三十五章 闭关锻造 / 第二百零八章 明悟，慕曦晋级',

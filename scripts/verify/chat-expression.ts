@@ -100,7 +100,7 @@ async function run() {
     ok(!replyContainsSubstantiveQuestion([input]),'interrogative words inside a declined request are not questions: '+input);
     ok(chooseConversationAction(input,[])==='respond-clarification','embedded declined planning does not turn a share into a question or request: '+input);
     const guidance=buildHumanConversationContext(input,[]);
-    ok(guidance.includes('预先说明分享范围')&&guidance.includes('确有误解才简短更正'),'a preemptive sharing boundary does not imply the actor already misunderstood: '+input);
+    ok(guidance.includes('本轮明确的交流范围')&&guidance.includes('接话本身体现听懂了')&&!guidance.includes('用户正在更正这次交流的用意'),'a preemptive sharing boundary guides the concrete response without asserting a prior misunderstanding: '+input);
   }
   for(const input of ['朋友说，不是让你安排吃什么，只是告诉你。','如果我不是要你解释怎么做，只是分享，你会怎么回？','“不是让你安排吃什么，只是告诉你”，这是他说的。'])ok(!correctsConversationIntent(input),'reported or hypothetical purpose correction does not redirect the speaker: '+input);
   ok(replyContainsSubstantiveQuestion(['不是让你给我安排吃什么。我想问你自己喜欢什么？']),'a separate actual question remains a question after a declined request');
@@ -232,6 +232,11 @@ async function run() {
     ok(assessExpressionSignals(message).situation==='neutral','events, reports, conditions, questions, denial, object loss and recovery do not establish current distress: '+message);
   }
   ok(assessExpressionSignals('今天有件小事有点失落。算了，我们聊椅子吧。').situation==='distress','an explicit feeling is still evidence, not a diagnosis that changing topic erases it');
+  for(const input of ['有点扫兴。','我有点扫兴。','不过给朋友发了照片，他只回了一个嗯，有点扫兴。']){
+    ok(assessExpressionSignals(input).situation==='distress'&&assessExpressionSignals(input).emotionConfidence>=.8,'a plain stated disappointment is owned feeling rather than neutral banter: '+input);
+    ok(authoredReactionLines(GU_YUE_NA_CARE,input).some(line=>line.startsWith('受挫回应：')),'actual Gu voice card receives its existing disappointment reaction: '+input);
+  }
+  for(const input of ['朋友有点扫兴。','朋友说他有点扫兴。','如果我有点扫兴呢？','我有点扫兴吗？','我不太扫兴。','有点扫兴是什么意思？'])ok(assessExpressionSignals(input).emotionConfidence<.8,'reports, questions, hypotheses and negation do not become a current owned feeling: '+input);
   for(const message of ['你这样说我有点不赞同。','你这么说我不太认同。','这个看法我并不赞成。','这句话我不完全同意。']){
     ok(interactionMoment(message)==='disagreement','a speaker locates their actual difference in the previous wording: '+message);
     ok(authoredReactionLines(GU_YUE_NA_CARE,message).some(line=>line.startsWith('分歧反应：')),'the actual Gu voice receives its disagreement reaction: '+message);
@@ -318,7 +323,7 @@ async function run() {
   for(const text of ['倒也没什么大事，不用安慰我了。我只是喜欢把这些小事告诉你。','别再哄我了，我只是想跟你说一下。','你不必鼓励我。我就喜欢和你分享这些。','倒也不用鼓励我了。我只是喜欢把这些小事告诉你。','其实你不必安慰我。我只是想和你说一下。','真的别再哄我了。我只是喜欢跟你分享。']) {
     ok(correctsConversationIntent(text),'declining comfort with an explicit sharing intention is a conversational correction: '+text);
     ok(chooseConversationAction(text,[])==='respond-clarification','sharing correction does not continue generic emotion commentary: '+text);
-    ok(buildHumanConversationContext(text,[]).includes('仍保留你自己的感受和看法'),'sharing correction leaves the character free to react personally: '+text);
+    ok(buildHumanConversationContext(text,[]).includes('自己的看法或感受')&&buildHumanConversationContext(text,[]).includes('自己的不同好恶仍然保留'),'sharing correction leaves the character free to react personally: '+text);
   }
   for(const text of ['不用安慰我了。','朋友说不用安慰我了，我只是想告诉你这句话。','如果不用安慰我了，我只是想告诉你呢？','“不用安慰我了，我只是喜欢把小事告诉你”','不用安慰我了，我只是想让你帮我改稿。','不用安慰我了。我不喜欢把这些事告诉你。'])ok(!correctsConversationIntent(text),'missing, reported, hypothetical, quoted or different replacement intention is not sharing clarification: '+text);
   ok(!correctsConversationIntent('不用安慰我了。我只是想把稿子改完。'),'an unrelated desired action after 把 is not a sharing intention');
@@ -507,6 +512,17 @@ async function run() {
     const relation=role==='guyuena'?guYueNaRelationshipForTurn:luXueQiRelationshipForTurn;
     const owned={...character,systemPrompt:role==='guyuena'?withDouluoRelations(persona,'preset-guyuena'):persona,name,tags:[]};
     const viewQuestion='假如晚饭一道菜淡了，其他都合口味，你会重新做，还是加点调味就吃？只是随便聊聊。';
+    if(role==='guyuena'){
+      const stored=owned.systemPrompt;
+      const warm=guYueNaPromptForTurn(owned,'我找到一张旧便签',[],true);
+      const judgment=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('判断习惯：'))!;
+      const edited={...owned,systemPrompt:stored.replace(judgment,'判断习惯：用户自写的不同表达。')};
+      ok(guYueNaPromptForTurn(edited,'我是舞麟',[],true).includes('判断习惯：用户自写的不同表达。'),'edited Gu judgment is preserved in the request projection');
+      ok(owned.systemPrompt===stored&&warm.includes(judgment),'Gu request projection preserves the stored authored judgment');
+      const authoredDistress=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('受挫回应：'))!;
+      const customDistress={...owned,systemPrompt:stored.replace(authoredDistress,'受挫回应：用户修改的回应。')};
+      ok(guYueNaPromptForTurn(customDistress,'我是舞麟',[],true).includes('受挫回应：用户修改的回应。'),'user edited distress style remains authoritative');
+    }
     const selectedPersona=role==='guyuena'?guYueNaPromptForTurn(owned,viewQuestion,[],true):luXueQiRelationshipForTurn(owned,viewQuestion,['我是'+alias]).character.systemPrompt;
     const viewCharacter={...owned,systemPrompt:selectedPersona};
     const viewCard=buildCharacterVoiceCard(viewCharacter,viewQuestion);
@@ -652,6 +668,15 @@ async function run() {
   ok(omitUnsupportedUserVisual('我想看看。 --- 这个比喻我喜欢。')==='我想看看。 --- 这个比喻我喜欢。','safe visual curiosity remains byte-identical');
   ok(omitUnsupportedUserVisual(visual,true)===visual,'actual visual evidence preserves the comparison draft');
   ok(inspectChatOutput(visual,{mode:'private',userMessage:'陪我演一段看云的剧情。'}).check.ok,'explicit visual fiction remains available');
+  const implicitVisual='我看了，是不太对称。';
+  for(const mode of ['private','proactive','group'] as const){
+    ok(inspectChatOutput(implicitVisual,{mode,userMessage:'嘴角画得一边高一边低。'}).check.issue==='user-source-risk','completed inspection with omitted object still needs a supplied image: '+mode);
+    ok(inspectChatOutput(implicitVisual,{mode,userMessage:'看这张图。',hasCurrentImage:true}).check.ok,'supplied image permits the same implicit visual verdict: '+mode);
+  }
+  for(const text of ['我看了，是不太对称。','嗯，我认真看了，嘴角画得很清楚。','我看清楚了，颜色有点暗。'])ok(!!findUserVisualRisk(text),'a concrete image verdict exposes a completed implicit inspection: '+text);
+  for(const text of ['我看了代码，这里不对称。','我看了，是挺有意思。','我看过你写的描述，嘴角不对称倒挺有趣。','如果我看了，颜色就能确定吗？','我没看清，颜色还不知道。','你说嘴角不对称，我反而觉得可爱。'])ok(!findUserVisualRisk(text),'reading, opinion, curiosity, negation and textual inference remain allowed: '+text);
+  ok(omitUnsupportedUserVisual(implicitVisual+' --- 我喜欢这个笑脸。')==='我喜欢这个笑脸。','unpublished exhausted fallback removes only the unsupported inspection');
+  ok(inspectChatOutput(implicitVisual,{mode:'private',userMessage:'陪我演一段看画的剧情。'}).check.ok,'explicit authored fiction still permits the visual sentence');
   for(const mode of ['private','proactive','group'] as const) {
     ok(inspectChatOutput(childhood,{mode,userMessage:'今天听见了小时候的歌。'}).check.issue==='self-report-risk','a shared mode cannot borrow the user childhood as the character memory: '+mode);
     ok(inspectChatOutput(childhood,{mode,userMessage:'今天听见了小时候的歌。',persona:'往事：小时候有些歌就是这样。'}).check.ok,'exactly sourced childhood remains available: '+mode);
@@ -667,6 +692,9 @@ async function run() {
   ok(inspectChatOutput(childhood,{mode:'private',userMessage:'给这个新角色写一段童年听歌的剧情。'}).check.ok,'the existing explicit creative-writing route still permits fictional childhood');
   const identityExamples = ['对话样本：用户说我是舞麟，今天就是想你了 → 你说嗯，我也想你。','对话样本：用户说我是舞麟，想听你说说话 → 你说我愿意聊。'];
   const rankingOptions = {allowUnrelatedNeutral:false,identityNames:['唐舞麟','舞麟']};
+  const shareExample='对话样本：【日常分享】用户说路边招牌画了一条打瞌睡的鱼 → 你说哈哈，这条鱼倒悠闲。';
+  ok(selectVoiceExamples([shareExample],'刚翻出一张旧便签，画了个歪嘴笑脸，我自己看着都乐了。',rankingOptions)[0]===shareExample,'explicit ordinary sharing sample demonstrates actor reaction on an unseen topic');
+  for(const input of ['我想你了。','帮我写一封邮件。','你会喜欢规整还是歪一点？','今天很难过。','陪我演一段剧情。','你好。'])ok(selectVoiceExamples([shareExample],input,rankingOptions).length===0,'ordinary sharing example does not override another turn intent: '+input);
   ok(selectVoiceExamples(identityExamples,'我是舞麟。刚拿着手机找手机，找了半天。',rankingOptions).length===0,'opening identity alone cannot make unrelated affection or invitation samples relevant to a mishap');
   ok(selectVoiceExamples(identityExamples,'我是舞麟',rankingOptions).length===0,'a bare recognition is not an exact match to a longer emotional script');
   ok(selectVoiceExamples(identityExamples,'我是舞麟，今天就是想你了',rankingOptions)[0]===identityExamples[0],'removing the shared identity for ranking preserves a real topical affectionate match');
@@ -733,11 +761,11 @@ async function run() {
     const correction='不是要你评水平，就是画出来了，想让你知道。';
     const history=[{role:'user',content:'今天画完了一张图。'},{role:'assistant',content:'给我看看水平如何。'}];
     ok(chooseConversationAction(correction,history,{name,tags:[],systemPrompt:'',proactivity:.5} as never)==='respond-clarification','both roles retain the current matter when its intent is corrected: '+name);
-    ok(buildHumanConversationContext(correction,history).includes('用户正在更正这次交流的用意'),'the actual guidance responds to correction instead of inferred topic shift: '+name);
+    ok(buildHumanConversationContext(correction,history).includes('继续聊他提到的具体事情'),'the actual guidance continues the clarified matter instead of inferred topic shift: '+name);
   }
   for(const input of ['不是要你安慰，我只是想让你帮我写封邮件。','不是让你分析，只是想陪我演一段剧情。','不是要你同意，只是想说清楚。换个话题，聊聊旅行吧。'])
     ok(chooseConversationAction(input,[])!=='respond-clarification','clarification does not override a new task, fictional scene or explicit topic change: '+input);
-  ok(buildHumanConversationContext('不是想让你解决问题，只是想说说今天的事。',[],undefined,{adviceStyle:'listen'}).includes('用户正在更正这次交流的用意'),'the listening preference preserves explicit clarification rather than adding a competing generic instruction');
+  ok(buildHumanConversationContext('不是想让你解决问题，只是想说说今天的事。',[],undefined,{adviceStyle:'listen'}).includes('本轮明确的交流范围'),'the listening preference preserves explicit scope rather than adding a competing generic instruction');
   for(const input of ['他说我不累','朋友说，我没有生气','如果我不累会怎样','解释“我不累”','我不是不累','我不累吗？','不是累了就是难过了'])
     ok(!correctsOwnFeeling(input),'reported, hypothetical, quoted, questioned and alternative feelings are not asserted corrections: '+input);
   ok(buildHumanConversationContext('不是累了，就是一下没反应过来。',[]).includes('被否认的感受不再作为关心或玩笑的前提'),'the actual current-turn guidance respects a neutral correction rather than only recognising distress');
@@ -1008,6 +1036,11 @@ async function run() {
   }
   for(const text of ['我喜欢热闹吗？你不必跟我一样。','我是不是选红色？你不用改。','我想选热闹，不过不是要你跟着选吗？','解释“我选红色，你不必跟我一样”。'])ok(!independentPreference(text),'questioned choice or separation and quoted instructions do not establish a parallel preference: '+text);
   for(const text of ['朋友说我喜欢酸的，你不用跟我一样','“我喜欢酸的，你不用跟我一样”怎么翻译','我喜欢酸的，帮我改菜单','我选红色，你不用改我的文件','我选红色，你不喜欢吗？','我喜欢酸的，不过现在更想吃甜的','如果我选红色，你不用改','我没选红色，你不用改'])ok(!independentPreference(text),'parallel preference hint excludes reports, tasks, questions and an actual change: '+text);
+  const adjacentChoice='你喜欢简简单单的，还是颜色很多的？';
+  ok(independentPreference('我会选颜色多的，看着热闹。想到这个就又有点高兴了。',adjacentChoice)==='我会选颜色多的','a current preference after an actual choice question needs no explicit permission for the actor to differ');
+  ok(directChatGuidance('我会选颜色多的，看着热闹。',[adjacentChoice],['简简单单的。']).includes('两人的好恶已经说清'),'adjacent original question and actual reply reach preference delivery guidance');
+  for(const input of ['换个话题，我选红色。','朋友说我选红色。','我选红色吗？','我没选红色。','我选红色，帮我改菜单。','我喜欢你。'])ok(!independentPreference(input,adjacentChoice),'adjacent choice never authorizes reports, tasks, questions or unrelated changes: '+input);
+  ok(!independentPreference('我会选颜色多的。','朋友问你喜欢简单还是颜色多的？'),'reported earlier choice is not an actor choice exchange');
   const mannerHabit='我看书也有这习惯，先知道结局，再看人怎么一步步走成那样。';
   for(const mode of ['private','proactive','group'] as const){
     ok(inspectChatOutput(mannerHabit,{mode,userMessage:'我是碰巧知道了故事结局。'}).check.issue==='self-report-risk','postposed habitual method requires its own independent source: '+mode);

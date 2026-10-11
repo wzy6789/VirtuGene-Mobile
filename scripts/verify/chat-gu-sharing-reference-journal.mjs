@@ -1,0 +1,20 @@
+import {readFileSync as read,writeFileSync as write,appendFileSync as append} from 'node:fs';
+const date='2026-10-11',root='D:/月起云归/VirtuGene/手机版';
+const paths=[`docs/GUYUENA-LIVE-SHARING-SCOPE-REACTION-HOLDOUT-R4-${date}.json`,`docs/GUYUENA-LIVE-CASUAL-SIDEWALK-HOLDOUT-R6-${date}.json`];
+const groups=paths.map(path=>({path,...JSON.parse(read(path,'utf8'))}));
+if(groups.some(g=>!g.complete||g.rows.some(r=>r.failed)))throw Error('Complete original groups required');
+for(const g of groups)if(!g.rows[0].calls[0].messages.find(m=>m.role==='system').content.includes('【日常分享】'))throw Error('Sharing reference not wired');
+const usage=groups.reduce((a,g)=>{for(const k of ['calls','input','output','total'])a[k]+=g.usage[k];return a},{calls:0,input:0,output:0,total:0});
+const evidence=`release/chat-gu-sharing-reference-evaluation-${date}.json`;
+write(evidence,JSON.stringify({usage,groups:paths,humanQualityComplete:false},null,2)+'\n');
+const journal=root+'/开发日志/'+date+'.md',mark='## 日常分享声音参考：陌生主题也可学表达';
+if(!read(journal,'utf8').includes(mark))append(journal,`\n${mark}\n\n- 上轮修复隐含无图看图声明并撤回打趣判断候选，是有效进展。本轮继续从代码和真实请求发现：具体人设对陌生普通分享常没有可用样本，只有判断指导。此前观点交流已有跨主题样本许可，普通分享尚未有对应标签。\n- 新增【日常分享】自有声音样本分类，普通、非求助、无实质问句、非剧情、非开场或告别才参加排序；仍优先真实主题匹配，不当经历。Gu仅原自有关心段且认领舞麟时附一个茶店招牌鱼的表达参考，展示兴趣与反差，不改存储人设或用户编辑。无新增模型调用步骤。既有亲近/陌生路由和来源规则保留。\n- 初次本地失败：裸“你好”被作为普通分享，增加最小内容长度与开场/告别排除，重跑表达2908项通过；类型检查通过。初始失败日志release/chat-gu-sharing-reference-local-${date}.log保留，最终release/chat-gu-sharing-reference-local-final-${date}.log与types对应。\n- 同题便签R4三调用8570token：首轮说字与笑脸搭配可爱、好奇写什么，没有童年猜测、刻薄或见过字的声明；澄清轮仍“把刚才那句收回来”多余认错，重复索问写者。“重新看”仍可能让人感觉已看到，联想“像憋不住笑”是比喻而非肯定心理。末轮自然收尾。整组比R1刻薄和R2假看好，采用完整R4，不能把首轮改善宣称普遍稳定。\n- 不同题路牌R6一调用2803token：自然吐槽牌子的矛盾，没有挖苦舞麟或补亲历；“看了就得立刻买”是夸张玩笑，未复述样本鱼/茶店或带出共同经历。只有一轮，不证明长聊。新样本真实进入两组实际system声音卡，最大输出500，首稿通过质检。\n- 本轮${usage.calls}实际调用/input ${usage.input}/output ${usage.output}/total ${usage.total}，usage齐全；无额外付费评审/摘要。原稿${paths.join('、')}；汇总${evidence}；日志release/chat-gu-sharing-reference-live-${date}.log、chat-gu-sharing-reference-sidewalk-live-${date}.log。原话单独保存，输入chatgpt，按整组替换不拼接。\n- 未解决：澄清轮多余认错与反复索问、无来源心理与共同经历风险、人物长聊稳定性；Lu尚未在本轮真实验证。仍需继续，不将新增规则或单题顺畅当达标。版本6.0.16保持，未打包未发布。\n`);
+let chat=read(root+'/聊天验收/古月娜-'+date+'.md','utf8');
+for(const [g,scene,rev,title] of [[groups[0],'sharing-scope-reaction-holdout','r4','便签分享与告别'],[groups[1],'casual-sidewalk-holdout','r6','路牌上的矛盾']]){
+chat=chat.split(/\n(?=## )/u).filter(block=>!block.startsWith('## '+scene+' /')).join('\n').trimEnd()+`\n\n## ${scene} / ${rev}（${title}）\n\n`+g.rows.map(r=>`**chatgpt**：${r.input}\n\n`+r.replies.map(s=>`**古月娜**：${s}`).join('\n\n')).join('\n\n')+'\n';
+}write(root+'/聊天验收/古月娜-'+date+'.md',chat);
+const direction=root+'/优化方向/'+date+'.md',directionMark='## 陌生日常主题的声音参考';
+if(!read(direction,'utf8').includes(directionMark))append(direction,`\n${directionMark}\n- 日常分享参考只学表达，不补经历。\n- 首轮少刻薄，异题能自然打趣。\n- 澄清仍多余认错、重复追问，待改善。\n`);
+const index=root+'/00-总览.md',line=`- 日常分享声音参考：${usage.calls}实际调用/${usage.total}token，便签整组R4与路牌R6原话已分开保存；仍未达标，见[[手机版/开发日志/${date}|日志]]。`;
+if(!read(index,'utf8').includes(line))append(index,'\n'+line+'\n');
+console.log(JSON.stringify({usage,evidence,humanQualityComplete:false}));

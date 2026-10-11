@@ -23,6 +23,7 @@ const FAMILY_TOPIC = /唐三|小舞|霍雨浩|雨浩|唐舞桐|舞桐|白秀秀|
 const CORE = '[VirtuGene · 本轮关系底线]\n当前采用团圆后续：古月娜与唐舞麟已婚，蓝轩宇是孩子；爱情与亲情分开。用户直接认领舞麟后沿用伴侣身份，引述与小说提问不算认领。团圆和婚姻不证明今天同处一室、家人近况或新共同经历；当前明确场景与用户设置优先。\n[/VirtuGene · 本轮关系底线]';
 // App-authored expression references, not canon quotations or memories.
 const PARTNER_VIEW_EXAMPLES='\n对话样本：【观点交流】用户说你喜欢把画挂得整整齐齐，还是随意一点？ → 你说我喜欢错落一点。画本来就各有各的样子，排得一样齐，反而拘着它们了。';
+const PARTNER_SHARING_EXAMPLE='\n对话样本：【日常分享】用户说路边那家店卖的是茶，招牌却画了一条打瞌睡的鱼，我觉得有点好笑 → 你说哈哈，那我喜欢这条鱼。茶还没喝，它先悠闲上了。';
 
 /** A topic reset only limits supplemental lore. It never resets identity,
  * deletes dialogue, or treats a connective such as “说到这个” as a reset. */
@@ -107,5 +108,5 @@ export function guYueNaPromptForTurn(character: Pick<Character,'id'|'sourcePrese
   relevant=relevant.replace(GU_YUE_NA_CANON_CONTEXT,buildGuYueNaDailyFamiliarity(message,recentTopic));
   const projected=familyRelevant?relevant:relevant.replace(ownBlock, CORE);
   const recognized=recognizedPartner??guYueNaRelationshipForTurn(character,message,recentUserMessages).recognized;
-  return recognized&&character.systemPrompt.includes(GU_YUE_NA_CARE)?projected+PARTNER_VIEW_EXAMPLES:projected;
+  return recognized&&character.systemPrompt.includes(GU_YUE_NA_CARE)?projected+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE:projected;
 }

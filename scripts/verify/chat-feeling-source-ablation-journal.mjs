@@ -1,0 +1,22 @@
+import {readFileSync as read,writeFileSync as write,appendFileSync as append} from 'node:fs';
+const date='2026-10-11',root='D:/月起云归/VirtuGene/手机版';
+const paths=[`docs/GUYUENA-LIVE-PARTNER-MIXED-MUSIC-HOLDOUT-R2-${date}.json`,`docs/GUYUENA-LIVE-PARTNER-MIXED-MUSIC-HOLDOUT-R3-${date}.json`,`docs/GUYUENA-LIVE-PARTNER-FAMILY-SMALL-TALK-HOLDOUT-R1-${date}.json`];
+const groups=paths.map(path=>({path,...JSON.parse(read(path,'utf8'))}));
+if(groups.some(g=>!g.complete||g.rows.length!==3||g.rows.some(r=>r.failed)))throw Error('Complete original groups required');
+const prompt=(g,i)=>g.rows[i].calls[0].messages.find(m=>m.role==='system').content;
+if(!prompt(groups[0],2).includes('[本轮直接心意原句]')||prompt(groups[1],2).includes('[本轮直接心意原句]'))throw Error('Source annotation ablation was not wired');
+if(!read('src/lib/chat-expression-boundary.ts','utf8').includes('用户本轮原句：${JSON.stringify(sources)}'))throw Error('Expected restored production annotation');
+const usage=groups.reduce((a,g)=>{for(const k of ['calls','input','output','total'])a[k]+=g.usage[k];return a},{calls:0,input:0,output:0,total:0});
+const evidence=`release/chat-feeling-source-ablation-${date}.json`;
+write(evidence,JSON.stringify({groups:paths,usage,restored:'data-only current feeling source annotation',musicBestWholeGroup:paths[0],humanQualityComplete:false},null,2)+'\n');
+const journal=root+'/开发日志/'+date+'.md',heading='## 心意原句消融与家庭新题对照';
+if(!read(journal,'utf8').includes(heading))append(journal,`\n${heading}\n\n- 上轮实际完成6.0.16发布；本轮恢复聊天质量目标，不再打包、改版本或发布。先读取当前代码与AGENTS，再验证最终数据型来源标注。\n- 音乐R2实际第三轮带本轮直接心意原句，前两轮没有。回应“我也想你”后仍解释“你喜欢音乐的那种喜欢，和我这份，我分得清”；较旧R1少了“应得想念”和批准喜欢，仍不自然。不能以归属准确代替人物表达合格。\n- 为排除额外标注引发分类说明，删除仅提示渲染三行做同题R3，未变模型或人格。R3末轮“两种喜欢我都收下了”，误收音乐好恶；首轮添加对用户性格和哼歌的猜测。没有证据支持撤除，已完整恢复数据型标注与对应接线检查，不恢复旧解释式指导。两组均三次实际调用、首稿通过规则质检，模型语义质量仍有缺口。\n- 新增家庭小事完整三轮控制：假设孩子摆筷子→单纯分享日常→退出舞麟并自称家人。首轮“留着不吃饭就成摆件”补出用户未说的不吃饭倾向；第二轮“我没教你”防御、“你问得对”评判，继续给拍照步骤。第三轮“不会”保持陌生身份极冷正确。该新题尚不合格，下一步应改善家庭闲聊的实际情境理解与非教学表达，而不是对筷子补专门规则。\n- 本轮${usage.calls}次实际调用/input ${usage.input}/output ${usage.output}/total ${usage.total}，usage齐全，最大输出500/每组调用上限6，无额外模型评分与记忆结算。原稿${paths.join('、')}；汇总${evidence}；日志release/chat-feeling-object-music-r2-live-${date}.log、chat-feeling-object-music-r3-live-${date}.log、chat-gu-family-small-talk-live-${date}.log。首次读取JSON的node内联命令引号被PowerShell吞掉而失败，未重跑付费请求；改用保存报告读取，原稿未覆盖。\n- 保留音乐完整R2；家庭只有R1整组原稿，均不拼接好句。表达与类型复跑证据release/chat-source-ablation-expression-${date}.log与types对应。Gu仍有评判/解释倾向，Lu本轮未实际生成，目标保持未完成。\n`);
+let chat=read(root+'/聊天验收/古月娜-'+date+'.md','utf8');
+for(const [g,scene,revision,title] of [[groups[0],'partner-mixed-music-holdout','r2','音乐口味与想念'],[groups[2],'partner-family-small-talk-holdout','r1','家庭小事与退出身份']]){
+ chat=chat.split(/\n(?=## )/u).filter(block=>!block.startsWith('## '+scene+' /')).join('\n').trimEnd()+`\n\n## ${scene} / ${revision}（${title}）\n\n`+g.rows.map(r=>`**chatgpt**：${r.input}\n\n`+r.replies.map(s=>`**古月娜**：${s}`).join('\n\n')).join('\n\n')+'\n';
+}write(root+'/聊天验收/古月娜-'+date+'.md',chat);
+const direction=root+'/优化方向/'+date+'.md',mark='## 心意原句对照与家庭闲聊';
+if(!read(direction,'utf8').includes(mark))append(direction,`\n${mark}\n- 删除原句标注会误收器物好恶，恢复数据标注。\n- 说自己的想念，减少分类说明。\n- 家庭闲聊少教学、少防御与评判。\n- 陌生自称家人仍保持冷淡；未达标。\n`);
+const index=root+'/00-总览.md',line=`- 心意消融与家庭新题：${usage.calls}调用/${usage.total}token；标注恢复，家庭闲聊仍待改进，见[[手机版/开发日志/${date}|日志]]。`;
+if(!read(index,'utf8').includes(line))append(index,'\n'+line+'\n');
+console.log(JSON.stringify({usage,evidence,humanQualityComplete:false}));

@@ -6,7 +6,7 @@ export type ChatSituation = 'neutral' | 'distress' | 'tired' | 'celebration' | '
 function statesSetbackFeeling(text:string):boolean {
   return text.split(/[。！!，,；;\n]/u).some(clause=>{
     const value=clause.trim();
-    if(/^(?:(?:但是|不过|可是|但)\s*)?(?:我(?:自己)?\s*)?(?:(?:今天|现在|最近|刚才)(?:我)?\s*)?(?:(?:确实|真的|还是|也|还|感觉|觉得)\s*)?(?:挺|很|有点|有一点|有些|有一些|特别|好|真|太)\s*(?:失落|沮丧)(?:的|了|啊|呀|呢|极了)?\s*$/u.test(value))return true;
+    if(/^(?:(?:但是|不过|可是|但)\s*)?(?:我(?:自己)?\s*)?(?:(?:今天|现在|最近|刚才)(?:我)?\s*)?(?:(?:确实|真的|还是|也|还|感觉|觉得)\s*)?(?:挺|很|有点|有一点|有些|有一些|特别|好|真|太)\s*(?:失落|沮丧|扫兴)(?:的|了|啊|呀|呢|极了)?\s*$/u.test(value))return true;
     // Everyday event frames can omit "我". Require an explicit feeling;
     // the event alone, a lost object, a report or a question is not evidence.
     return /^(?:(?:但是|不过|可是|但)\s*)?(?:我(?:自己)?\s*)?(?:(?:今天|现在|最近|刚才)(?:我)?\s*)?(?:有(?:一|几)?件(?:小)?事(?:让我)?|(?:这|那)(?:件|次)(?:小)?事让我)(?:确实|真的|还是|也|还|感觉|觉得)?(?:挺|很|有点|有一点|有些|有一些|特别|好|真|太)(?:失落|沮丧)(?:的|了|啊|呀|呢|极了)?$/u.test(value);
@@ -16,7 +16,7 @@ function statesSetbackFeeling(text:string):boolean {
 /** A plain degree + feeling is a first-person utterance even when "我" is
  * omitted. Keep the surrounding sentence's reported/hypothetical speaker;
  * don't transfer someone else's trailing feeling clause to this user. */
-const DIRECT_FEELING=/^(?:(?:但是|不过|可是|但)\s*)?(?:我(?:自己)?\s*)?(?:确实|真的|还是|也|还|感觉|觉得){0,2}(?:挺|很|有点|有一点|有些|有一些|特别|好|真|太)(?:难过|难受|委屈|失落|沮丧|疲惫|累|开心|高兴|兴奋|焦虑|紧张|担心|烦躁)(?:的|了|啊|呀|呢|极了)?$/u;
+const DIRECT_FEELING=/^(?:(?:但是|不过|可是|但)\s*)?(?:我(?:自己)?\s*)?(?:确实|真的|还是|也|还|感觉|觉得){0,2}(?:挺|很|有点|有一点|有些|有一些|特别|好|真|太)(?:难过|难受|委屈|失落|沮丧|扫兴|疲惫|累|开心|高兴|兴奋|焦虑|紧张|担心|烦躁)(?:的|了|啊|呀|呢|极了)?$/u;
 function ownFeelingSentences(text:string):string[] {
   return text.split(/[。！!\n]|(?<=[？?])/u).flatMap(sentence=>{
     const value=sentence.trim().replace(/^(?:但是|不过|可是|但)\s*/u,'');

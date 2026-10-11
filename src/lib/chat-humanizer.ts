@@ -357,7 +357,7 @@ export function buildHumanConversationSections(
   const authoredReactionIncluded=authoredReactionLines(character?.systemPrompt??'',userText,history).length>0;
   const ownPerspective = requestsCharacterPerspective(userText)||isViewExchange(userText);
   const directions: Record<ConversationAction, string> = {
-    'respond-clarification': '用户正在更正这次交流的用意，也可能是在预先说明分享范围。沿他现在要说的具体内容接话，说自己的真实反应；确有误解才简短更正，不把预先说明当作刚刚发生了误会。意图理解留在接话里，不必再向他解释分享的作用或自己如何倾听。仍保留你自己的感受和看法，也允许不同意见。',
+    'respond-clarification': '按本轮明确的交流范围，继续聊他提到的具体事情。说一处你感兴趣的细节、自己的看法或感受，接话本身体现听懂了。若有需要纠正的事实，简短纠正后接上；自己的不同好恶仍然保留。',
     'respond-affection': isAffectionQuestion(userText)?AFFECTION_QUESTION_DIRECTION:DIRECT_AFFECTION_DIRECTION,
     'start-topic': '这轮由你开话题：先说你此刻愿意聊的一个判断、偏好、疑问或设想，再展开一点自己的想法，让对方有东西可接。话题依你的性格与兴趣选择，不固定抽同一类问题。直接说现在怎么看，不从“前几天发生了什么、我忽然想起”开一段新故事；确有已提供的独立经历记录才可沿用其时间与经过，家庭背景和兴趣不算近事记录。对方已经愿意聊，不必再宣布陪着、听着或让他先挑话题；普通闲聊也不自动转成吃饭、睡觉等生活检查，确有相关原话才顺着聊。不需要先发生一件新近况，也不需要先向对方收集资料。',
     'follow-topic': '用户正在换话题，跟随新话题，旧线索暂时放下。不因为前面聊过情绪就继续安慰，也不必先解决旧事；普通分享可以先说你自己的反应，不必把新话题又接成一个问题。同感可以是一句当下的态度或玩笑，不必用“我以前也这样”“我有次”开一段无来源的亲身故事。本轮明确问你的问题或求助仍直接回答。',

@@ -5,7 +5,15 @@ import { pathToFileURL } from 'node:url';
 /** Diagnostic only. No production prompt, chat history or persona is updated. */
 export function ablateOwnedGuidance(system, roleName, variant) {
   if (!['古月娜', '陆雪琪'].includes(roleName)) throw Error('Unsupported owned role');
-  if (!['body-guidance-reduced', 'duplicate-fields-only', 'interaction-state-neutral', 'agency-framing', 'clarification-framing', 'reaction-brief','voice-style-tail','shared-joy-framing','focused-reactions'].includes(variant)) throw Error('Unknown ablation');
+  if (!['body-guidance-reduced', 'duplicate-fields-only', 'interaction-state-neutral', 'agency-framing', 'clarification-framing', 'reaction-brief','voice-style-tail','shared-joy-framing','focused-reactions','turn-direction-omitted'].includes(variant)) throw Error('Unknown ablation');
+  if(variant==='turn-direction-omitted'){
+    const marker='[本轮交流的隐藏节奏]\n';
+    const start=system.indexOf(marker);
+    if(start<0||system.indexOf(marker,start+marker.length)>=0)throw Error('One hidden turn section required');
+    const from=start+marker.length,to=system.indexOf('\n',from);
+    if(to<0||!system.slice(from,to).trim()||/^\[/u.test(system.slice(from,to)))throw Error('A complete leading direction line required');
+    return system.slice(0,from)+system.slice(to+1);
+  }
   if (variant === 'interaction-state-neutral') {
     if (!system.includes('[当前灵魂状态]')) throw Error('Missing interaction state');
     return system.split('\n').filter(line => !line.startsWith('本应用互动累计等阶：') && !line.startsWith('本应用互动好感指标：')).join('\n');

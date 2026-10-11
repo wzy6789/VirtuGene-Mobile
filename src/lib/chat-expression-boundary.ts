@@ -1,5 +1,5 @@
 /** Delivery guidance, never permission for application operations. */
-import {requestsRepetition,isDirectTimeAnswer,isTopicClarification,isSelfViewRevision,hasExplicitTopicShift,conversationDeparture,declinesThirdPartyAnalysis} from './chat-turn-cues';
+import {requestsRepetition,isDirectTimeAnswer,isTopicClarification,isSelfViewRevision,hasExplicitTopicShift,conversationDeparture,declinesThirdPartyAnalysis,requestsCharacterChoice} from './chat-turn-cues';
 import {requestsBriefReply} from './chat-reply-size';
 const DIFFERENCE_PERMISSION=/^你(?:不用|不必|不需要)(?:跟|和)我(?:选|选择)(?:得)?(?:一样|相同)(?:的)?[呀啊啦吧呢\s]*$/u;
 export function isOpinionInvitation(message:string):boolean {
@@ -174,7 +174,7 @@ export function isAffectionReaction(message:string,previousUser:string,hasReply:
 
 /** A local rhythm hint for an explicitly stated difference in taste. Sentence
  * boundaries and an added reason do not turn it into a demand to agree. */
-export function independentPreference(message:string):string|undefined {
+export function independentPreference(message:string,adjacentChoiceQuestion=''):string|undefined {
   const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,(quote:string,offset:number,source:string)=>{
     const preceding=source.slice(0,offset).split(/[。！？!?，,；;\n]/u);
     const prefix=preceding[preceding.length-1]?.trim()??'';
@@ -189,7 +189,8 @@ export function independentPreference(message:string):string|undefined {
   if(clauses.some(part=>/^(?:不过|但|还有|顺便)?\s*(?:帮我|替我|请你)/u.test(part)))return undefined;
   const choice=clauses.find(part=>/^我(?:其实)?(?:(?:更|比较|也|倒|偏|还挺|还是)?(?:喜欢|不喜欢|想吃|想看)|(?:会|更想|还是|想|倒想|更想要)?选)[^。！？!?，,；;\n]{1,40}$/u.test(part)&&!/(?:吗|么|是不是|是否|不确定)$/u.test(part));
   const separate=clauses.some(part=>DIFFERENCE_PERMISSION.test(part)||/^(?:但|不过)?\s*(?:你(?:不用|不必|不需要)(?:改|改变|跟我一样|和我一样|一样)|不是(?:要|让)你(?:跟着选|跟我选|跟我一样|和我一样)|(?:跟|和)你(?:选的|喜欢的)?不一样(?:也|就)?(?:挺好|很好|没关系|可以|正常))[呀啊吧呢\s]*$/u.test(part));
-  return choice&&separate?choice:undefined;
+  const followsChoice=!!adjacentChoiceQuestion&&requestsCharacterChoice(adjacentChoiceQuestion)&&!hasExplicitTopicShift(message)&&!isDirectAffection(message);
+  return choice&&(separate||followsChoice)?choice:undefined;
 }
 
 export function directChatGuidance(userMessage:string, recentUserMessages:string[], recentReplies:string[],options:{includeAffection?:boolean}={}):string {
@@ -210,7 +211,7 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
   if(talkInvitation&&!/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事|帮我|替我|写)/u.test(unquoted.trim()))lines.push('用户想听你说话，是在邀请你主动聊一点，不是在索要今天的行程或近况报告。可以说一个你现在感兴趣的想法、自己的好恶，或有来源的生活线索；无需先让他选听什么，也不用编一件今天或前几天发生的事来填满空白。');
   const affectionReaction=isAffectionReaction(userMessage,previousUser,recentReplies.length>0);
   if(affectionReaction)lines.push('上一轮用户直接表达心意，这轮是在回应你刚才的态度，说自己有点不好意思或害羞。沿着刚才真实的态度轻轻接话即可，包括你已经说清的界限；不用为了缓和气氛收回自己的认真，也不把他的反应改成撤回心意。语气可以轻一点，有分寸地逗一句或坦然说自己的感受，不替他解释心理、不另找心情变好的原因。');
-  const preference=independentPreference(userMessage);
+  const preference=independentPreference(userMessage,recentReplies.length?recentUserMessages[recentUserMessages.length-1]??'':'');
   if(preference)lines.push(`用户这轮明确说「${preference}」，同时保留了你的不同选择，不是在改口。两人的好恶已经说清，接着聊所选东西的具体特点或自己的兴趣就好。你之前表达的偏好仍是你自己的看法；愿意陪他选另一种，是陪伴意愿，不等于你更喜欢那一种。确实有了新的理由也可以自然改主意，不为迎合自动换选项。表达完可以自然停顿；不必证明自己没有被改变，也不替对方的喜好作许可或评分。这只是本轮选择，不拿这一个选择判断他平时的性格，不概括成永久习惯，不转成安排。本轮问你具体喜欢哪一点，就回应自己的理由。`);
   if(isChoiceInvitation(previousUser)&&/^(?:我(?:还是|更|偏)?(?:想|选|决定)|那就|就选).{1,50}(?:就这么定了|就它了|就这样吧|吧|了)[。！!\s]*$/u.test(unquoted.trim()))lines.push('用户已选定一项。话题从选哪个好转到选中的内容本身：你可以保留自己的偏好，也自然接受不同选择。说一点对这个内容的兴趣或具体反应就好，不需要认可、解释或评价用户的决定；真正想知道内容里的某一点才问，不为接话额外补日期和安排。');
   if(isSelfViewRevision(unquoted)&&!hasExplicitTopicShift(unquoted))lines.push('用户在调整刚才的观点，还在聊同一件事。顺着这个新看法，说你自己的具体态度即可；对方的感受和原因以其已经讲明的内容为准。把注意力放在新的观点或事情上，让这次改口自然过去，双方可以继续各有看法。');

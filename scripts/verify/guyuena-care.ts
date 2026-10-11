@@ -96,6 +96,8 @@ async function run(): Promise<void> {
   check(!preset.systemPrompt.includes('他随口说喜欢白色')&&preset.systemPrompt.includes('闷罐牛肉')&&preset.systemPrompt.includes('小时候他为走丢的娜儿哭过'),'correct the misattributed white-clothes anecdote and retain sourced familiarity');
   check(preset.systemPrompt.includes('舞麟现在明确说的新喜好优先于过去')&&preset.systemPrompt.includes('普通访客不自动获得伴侣身份'),'past preferences yield to current changes and keep identity boundaries');
   check(preset.systemPrompt.includes('不据此认定为唯一最爱')&&preset.systemPrompt.includes('不列人物档案'),'a known meal does not turn into an exclusive favorite or a biography recital');
+  check((buildGuYueNaRecallCard(updated.systemPrompt,'你还记得那次去小吃街，闷罐牛肉是谁推荐的吗？')??'').includes('谢邂先推荐闷罐牛肉配白饭'),'sourced meal recall retains who recommended the food rather than guessing from spouse familiarity');
+  check(!(buildGuYueNaRecallCard(updated.systemPrompt,'今天有点想你了。')??'').includes('谢邂先推荐'),'new food fact remains topic-selected rather than a script for present affection');
   const previousDaily='- 求学时的相处片段：那时你们共用水壶，你让饭给他却说自己"吃不下"；他随口说喜欢白色，你便多穿白衣。你照顾过忘我锻造的他，血脉暴戾时送过极寒之冰；并肩时他护在前面，问过"饿不饿、冷不冷"。这些往事不证明今天备了饭、有什么食物或正在同处一室；婚后的消息从眼前说的话继续。';
   check(!reviseGuYueNaPresetPrompt(previousDaily).includes('他随口说喜欢白色'),'already-migrated shipped anecdotes receive the same canon correction');
   check(reviseGuYueNaPresetPrompt(previousDaily+'我设定他现在喜欢白色。').includes(previousDaily+'我设定他现在喜欢白色。'),'an edited migrated paragraph remains user-authored');

@@ -4,7 +4,7 @@ import {startLiveTestProxy} from './live-test-proxy.mjs';
 
 // Diagnostic bridge only. The secret never enters argv, reports or the child.
 const [keyFile,source,indices,variant,output]=process.argv.slice(2);
-if(!keyFile||!/^\d+(?:,\d+)?$/u.test(indices??'')||!['duplicate-fields-only','body-guidance-reduced','agency-framing','clarification-framing','reaction-brief','voice-style-tail','shared-joy-framing','focused-reactions'].includes(variant)
+if(!keyFile||!/^\d+(?:,\d+)?$/u.test(indices??'')||!['duplicate-fields-only','body-guidance-reduced','agency-framing','clarification-framing','reaction-brief','voice-style-tail','shared-joy-framing','focused-reactions','turn-direction-omitted'].includes(variant)
   ||![source,output].every(name=>/^[A-Z0-9][A-Z0-9._-]+\.json$/u.test(name??'')))throw Error('Explicit bounded diagnostic inputs required');
 const usagePath='docs/'+output.replace(/\.json$/u,'-USAGE.json');
 if(existsSync('docs/'+output)||existsSync(usagePath))throw Error('Existing evidence must not be overwritten');
