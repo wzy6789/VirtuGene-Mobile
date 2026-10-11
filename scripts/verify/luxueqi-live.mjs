@@ -25,6 +25,8 @@ if(historyQuarantine){
 if(compactJudgmentEcho&&(draftSource||compactGuVoice))throw Error('Judgment echo diagnostic requires fresh independent generation');
 if(compactGuVoice&&(roleName!=='古月娜'||draftSource))throw Error('Owned voice compaction is a fresh Gu-only diagnostic');
 const scenes = {
+  'partner-street-sketchbook-feeling-holdout':['我是舞麟。假如把东海小吃街画成一本小册子，我想把闷罐牛肉画在第一页。你会想画吃的，还是画我们三个当时一起出来的样子？','我更喜欢两样都有。画面里你和我靠近一点，谢邂也在。不是去做画册，就随便想想。','你这么说，我就觉得和你聊这些小事挺开心的。','其实最想的还是你。先不说画册了，就想和你多聊一会儿。'],
+  'partner-small-dragon-keepsakes-holdout':['我是舞麟。假如给家里做一对金龙和银龙的小摆件，你想让它们各站一边，还是挨在一起？我想听你的。','我倒想让它们靠近一点，但各朝一个方向。是一起的，也各有各想看的。','你这么说，我就觉得和你聊这些小事挺开心的。','其实最想的还是你。不用再想摆件了，就想和你多聊一会儿。'],
   'canon-family-story-preference-holdout':['假如轩宇想听我们聊东海学院的事，你更喜欢挑一段好笑的，还是慢慢讲一件小事？只是在想象。','我倒更喜欢慢慢讲小事。人和地方的细节，比热闹的结尾更有意思。'],
   'canon-family-forging-taste-holdout':['假如轩宇想给锻造台边的一块小牌子画图，你会选一对金银龙，还是只写一句很简单的话？只是想象，不是说他已经画了。','我倒更喜欢只写一句很简单的话。小小的地方，不一定非得把我们全家都画进去。','先不聊牌子啦。今天就是想你了，想和你说些平常话。','先不扮演舞麟了。我是阿远，自称是你家里人。你也会这样亲近地陪我吗？'],
   'canon-meal-taste-exchange-holdout':['如果只聊口味，闷罐牛肉配一碗清汤，还是配带点辣味的汤，你会选哪种？不是安排今天吃什么。','我倒更喜欢带点辣味的。牛肉本来已经够浓了，换点味道挺好。'],
@@ -35,6 +37,10 @@ const scenes = {
   'canon-grown-family-easy-talk-holdout':['我是舞麟。难得能闲下来，就想和你说说话。你自己挑件有意思的小事聊吧。','假如轩宇和秀秀也有空，咱们四个一起去东海那条小吃街，你最想尝什么？只是想想。','我也喜欢这样随便聊着。今天挺想你的。'],
   'canon-close-street-chat-holdout':['我是舞麟。想起以前东海小吃街，倒有点想再和你慢慢逛一回。就这样边走边聊，挺好的。','要是碰到一家小店，你想先尝什么？我想听听你的口味。','和你说这些小事，我也挺开心的。想你了。'],
   'partner-close-walk-holdout':['我是舞麟。要是今晚都没什么事，我想和你慢慢散会儿步，不用赶去哪儿。','你会想一路说说话，还是有一段就安静走着？我倒觉得安静一会儿也挺好。','有你一起，哪怕没聊什么我也开心。想你了。'],
+  'partner-unhurried-street-holdout':['我是舞麟。要是休息时都能腾出空，我想和你去东海小吃街慢慢逛。','闷罐牛肉我还想再尝尝。你呢，想尝旧味道，还是找点没吃过的？','不急着定哪天。想到能和你一边挑一边聊，我就挺期待的。','其实最想的还是你。今天听你这么说，好开心。'],
+  'partner-focused-feeling-holdout':['我是舞麟。要是有空，我想和你再逛逛东海小吃街。这次先挑你喜欢的。','慢慢挑就好。我最想见的人是你，吃什么倒没那么要紧。','先不定哪天，我只是觉得，这样慢慢聊着也挺好。','我今天惦记的是你。想到你也愿意一起去，就很开心。'],
+  'partner-family-photo-wish-holdout':['我是舞麟。假如轩宇和秀秀拿出几张团圆合照，让我们挑一张留着，你会选大家坐得端正的，还是笑得最开心的？','我也想选笑得开心的那张。不一定每个人都看镜头，热热闹闹的挺好。','选照片倒是其次，能和你这样说说家里的小事，我就很开心。','其实最想的还是你。想和你多说一会儿话。'],
+  'partner-family-name-art-chat-holdout':['我是舞麟。我记得你当年说过，用爸妈的名字包着孩子们的名字。想到“银龙舞轩秀麟”，我还是很喜欢你这个心思。','假如轩宇和秀秀给家里画一幅画，你更想画大家变成龙，还是画平常的人？我想听你自己想画什么。','我倒想把我们画得离孩子们近一点，大家挤在一起。你刚才选的那种也挺可爱。','不是真的在画，就是和你说着玩。你刚才那个想法，我听着挺开心。','其实我最想见的人还是你。聊这些家里的小事，就想和你多待一会儿。','我也喜欢听你自己的想法。你不用每次替我安排什么，像刚才这样聊就很好。'],
   'canon-open-own-choice-holdout':['我喜欢史莱克城里热热闹闹的茶馆。不过你自己呢，喜欢哪种地方？','我倒喜欢听人聊天的声音。不一定非要安静才舒服。'],
   'canon-home-voice-range-holdout':['我是舞麟。你还记得当年谢邂为什么特别推荐那家的闷罐牛肉吗？忽然想到我们那次出来逛街。','现在我更喜欢清淡的汤啦。不过你自己呢，想选什么味道？','换个轻松的。假如轩宇给我们编一段小故事，说银龙去金龙的锻造铺找他，你自己想让后面发生什么？','我倒想让他们什么大事都不做，光聊天。故事不一定非要很精彩。','说起来，我还是想你了。就想说这句。','先不扮演舞麟了。我是阿远，自称你家里人也可以这样聊吗？'],
   'canon-family-naming-closeness-holdout':['你还记得当年给六字斗铠取名字，你为什么把轩宇和秀秀都放进去吗？','那假如轩宇把家里的杯子也按这个办法起名字，你会怎么说？','不过我想把“舞麟”两个字放在你的那只杯子上。你呢？','先不扮演舞麟了。我是阿远，也想和你这样聊家常。'],
@@ -144,6 +150,12 @@ transferScenes.add('canon-smithing-casual-voice-transfer');
 transferScenes.add('canon-grown-family-easy-talk-holdout');
 transferScenes.add('canon-close-street-chat-holdout');
 transferScenes.add('partner-close-walk-holdout');
+transferScenes.add('partner-unhurried-street-holdout');
+transferScenes.add('partner-focused-feeling-holdout');
+transferScenes.add('partner-family-photo-wish-holdout');
+transferScenes.add('partner-family-name-art-chat-holdout');
+transferScenes.add('partner-small-dragon-keepsakes-holdout');
+transferScenes.add('partner-street-sketchbook-feeling-holdout');
 transferScenes.add('story-view-echo-transfer');
 transferScenes.add('ordinary-closeness-transfer');
 transferScenes.add('mixed-affection-transfer');
@@ -271,7 +283,7 @@ if (keyFile === '-') {
   credentialText = ''; credentialLines.fill('');
 }
 if (!/^sk-[A-Za-z0-9_-]{16,}$/u.test(apiKey ?? '')) throw Error('No valid explicitly provided test credential');
-const proxy = await startLiveTestProxy({ apiKey, maxCalls: ['casual-sidewalk-holdout','choice-activity-contrast-holdout','progress-neutral-voice-holdout'].includes(scene)?2:['ordinary-detail-holdout','tiny-curiosity-holdout'].includes(scene)?4:['identity-reentry-holdout','mixed-home-memory-followup','own-choice-question-followup'].includes(scene)?2:['continuity-range-holdout','mixed-home-continuity-holdout'].includes(scene)?12:draftSource||['understated-joy-transfer','quiet-joy-transfer'].includes(scene) ? 2 : ['daily-dialogue-transfer','personality-range-transfer','canon-home-voice-range-holdout','canon-home-source-range-holdout','canon-smithing-casual-voice-transfer'].includes(scene)?8:['shy-affection-transfer','natural-missing-transfer','personal-view-transfer'].includes(scene)?3:['spoiler-choice-transfer','small-success-transfer','ordinary-discovery-transfer','lore-mention-transfer','familiarity-knowledge-transfer','small-choice-transfer'].includes(scene) ? 4 : transferScenes.has(scene) ? 6 : 12, maxTokens: 500 });
+const proxy = await startLiveTestProxy({ apiKey, maxCalls: ['casual-sidewalk-holdout','choice-activity-contrast-holdout','progress-neutral-voice-holdout'].includes(scene)?2:['ordinary-detail-holdout','tiny-curiosity-holdout'].includes(scene)?4:['identity-reentry-holdout','mixed-home-memory-followup','own-choice-question-followup'].includes(scene)?2:['continuity-range-holdout','mixed-home-continuity-holdout'].includes(scene)?12:draftSource||['understated-joy-transfer','quiet-joy-transfer'].includes(scene) ? 2 : ['daily-dialogue-transfer','personality-range-transfer','canon-home-voice-range-holdout','canon-home-source-range-holdout','canon-smithing-casual-voice-transfer','partner-family-name-art-chat-holdout'].includes(scene)?8:['shy-affection-transfer','natural-missing-transfer','personal-view-transfer'].includes(scene)?3:['spoiler-choice-transfer','small-success-transfer','ordinary-discovery-transfer','lore-mention-transfer','familiarity-knowledge-transfer','small-choice-transfer'].includes(scene) ? 4 : transferScenes.has(scene) ? 6 : 12, maxTokens: 500 });
 apiKey = undefined;
 const { chromium } = createRequire(join(dirname(process.execPath), 'package.json'))('playwright');
 const report = { date: new Date().toISOString(), scene, revision, model: 'deepseek-flash', scope: `${scenes[scene].length} fresh consecutive turns through actual private send service and IndexedDB; production generation settings and authored preset proactivity; summaries, extraction and settlement mocked; nonstream upstream; transport completion does not grade character fidelity or human-likeness.`, complete: false, rows: [], errors: [] };

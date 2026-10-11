@@ -391,6 +391,11 @@ try {
   check((await test('requests')).length===1&&(await test('records')).some(m=>m.role==='assistant'&&m.content==='第一段。'),`${sourcePresetId}: long answer persists once`);
   }
   for(const sourcePresetId of ['preset-guyuena','preset-luxueqi']) {
+    await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',['我也想见你。']);
+    await test('submit','我最想见的人是你。');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length>=1);await done();
+    const focusedRequests=await test('completeRequests');
+    check(focusedRequests.length===1&&focusedRequests[0].messages.find(m=>m.role==='system').content.includes('用户直接表达了心意'),`${sourcePresetId}: actual send routes focused addressed feeling to affection with no extra generation`);
+    check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='我也想见你。',`${sourcePresetId}: current reciprocal feeling reaches the actual DB unchanged`);
     const original=JSON.parse(readFileSync('docs/GUYUENA-LIVE-CANON-OPEN-OWN-CHOICE-HOLDOUT-R1-2026-10-11.json','utf8'));
     const corrected=JSON.parse(readFileSync('docs/GUYUENA-LIVE-CANON-OPEN-OWN-CHOICE-HOLDOUT-R2-2026-10-11.json','utf8'));
     const realCorrection=corrected.rows[0].calls.find(call=>!call.replayed);
@@ -480,6 +485,19 @@ try {
     await test('submit',sourcePresetId==='preset-guyuena'?'我是舞麟，想和你说说话。':'我是小凡，想和你说说话。');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
     const priorSafeSaved=(await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('');
     check(priorSafeSaved.includes('我也想你')&&!priorSafeSaved.includes('最近'),`${sourcePresetId}: a wholly unsupported correction does not replace the earlier usable affection`);
+    const availabilitySource=JSON.parse(readFileSync('docs/GUYUENA-LIVE-PARTNER-SMALL-DRAGON-KEEPSAKES-HOLDOUT-R1-2026-10-11.json','utf8'));
+    if(!availabilitySource.complete||availabilitySource.rows[3].calls[0].finish!=='stop')throw Error('Complete real availability draft required');
+    const availabilityRaw=availabilitySource.rows[3].calls[0].raw;
+    const availabilityInput=sourcePresetId==='preset-guyuena'?'我是舞麟，想和你多聊一会儿。':'我是小凡，想和你多聊一会儿。';
+    await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',[availabilityRaw,'我也想和你多聊一会儿。']);
+    await test('submit',availabilityInput);await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+    const availabilitySaved=(await test('records')).filter(m=>m.role==='assistant');
+    check(availabilitySaved.length===1&&availabilitySaved[0].content==='我也想和你多聊一会儿。',`${sourcePresetId}: replayed real free-schedule claim is replaced with the actual repair in DB`);
+    check((await test('completeRequests')).length===2,`${sourcePresetId}: repairing availability uses only the existing retry`);
+    await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',['我也想你。---我也没别的事，你愿意陪我聊，我很高兴。','我现在有空。---我也想和你多聊一会儿。']);
+    await test('submit',availabilityInput);await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+    const exhaustedAvailability=(await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('');
+    check(exhaustedAvailability==='我也想和你多聊一会儿。',`${sourcePresetId}: two ungrounded schedules preserve only the independent desired companionship, without a third generation`);
   }
   check(await test('extraNetwork') === 0 && errors.length === 0, 'no real network or uncaught page errors');
   mkdirSync('.tmp-preview/chat-delivery-pacing',{recursive:true});

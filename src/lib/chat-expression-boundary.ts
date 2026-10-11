@@ -106,11 +106,16 @@ const FEELING_TIME='(?:今天|现在|刚才|这会儿|最近|昨天)';
 // addressee. The object and whole-clause boundary are required: liking a book
 // recommended by someone is not the same statement as liking that person.
 const DIRECT_FEELING=new RegExp(`^(?:(?:只是|就是|就)?(?:我(?:${FEELING_TIME})?|(?:${FEELING_TIME})?(?:我)?)(?:真的|好|很|也|又|还是|有点|有一点|有些|有一些|挺|只是|就是|就|忽然|突然){0,3}(?:(?:爱你|喜欢你)(?:了)?|想你(?:了|的)?|惦记(?:着)?你(?:了)?)|你对我很重要)[～~\\s]*(?:呀|啊|呢|啦|嘛)?[～~\\s]*$`,'u');
+// Chinese focus constructions keep the addressed person at the end:
+// “最想的还是你”. Match the whole clause, not “你” inside a liked object,
+// and retain the same source/quotation and question guards as direct order.
+const FOCUSED_FEELING=/^(?:其实|说到底)?(?:我(?:今天|现在|这会儿)?(?:也|还是|最|更|一直)?|(?:最|更|一直)?)(?:想(?:见)?|惦记|喜欢|爱)(?:着)?的(?:人)?(?:还是|就是|是)你[～~\s]*(?:呀|啊|呢|啦|嘛)?[～~\s]*$/u;
+function isAddressedFeelingClause(clause:string):boolean{return DIRECT_FEELING.test(clause)||FOCUSED_FEELING.test(clause);}
 export function isDirectAffection(message: string): boolean {
   const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
   if(/^(?:如果|假如|假设|比如|例如|帮我写|写一段|写一个|他|她|朋友|同事|主角)/u.test(text))return false;
   return [...text.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)]
-    .some(match=>!/[?？]/u.test(match[2])&&DIRECT_FEELING.test(match[1].trim()));
+    .some(match=>!/[?？]/u.test(match[2])&&isAddressedFeelingClause(match[1].trim()));
 }
 
 /** Quote an exact, plain current-user clause addressed to the interlocutor.
@@ -122,7 +127,7 @@ export function directAffectionSources(message:string):string[] {
   return [...masked.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)].flatMap(match=>{
     const plain=match[1].trim();
     const original=message.slice(match.index,match.index+match[1].length).trim();
-    return !/[?？]/u.test(match[2])&&plain===original&&DIRECT_FEELING.test(plain)?[original]:[];
+    return !/[?？]/u.test(match[2])&&plain===original&&isAddressedFeelingClause(plain)?[original]:[];
   });
 }
 

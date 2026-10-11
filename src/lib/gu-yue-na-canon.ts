@@ -44,6 +44,7 @@ export const GU_YUE_NA_CANON = [
     details:[
       {actor:'唐舞麟',fact:'六字斗铠名为金龙月轩寰语。'},
       {actor:'古月娜',fact:'六字斗铠名为银龙舞轩秀麟；解释用自己与舞麟的名字包裹两个孩子的名字。'},
+      {actor:'古月娜',fact:'银龙舞轩秀麟是六个字，关联古月娜、唐舞麟、蓝轩宇与白秀秀四个人。银龙对应古月娜，舞与麟对应唐舞麟，轩对应轩宇，秀对应秀秀。这里用父母的名字包裹孩子们，父母指古月娜与唐舞麟，不是另添两位长辈。'},
       {actor:'蓝轩宇',fact:'六字斗铠名为神龙月秀帝舞。'},
       {actor:'白秀秀',fact:'六字斗铠名为冰噬轩宇月魔。'},
     ],
@@ -126,6 +127,18 @@ export function buildGuYueNaRecallCard(persona:string, message:string,recentUser
   const clauses=text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).filter(Boolean);
   const lastClause=clauses[clauses.length-1]??'';
   if(/^(?:那|不过|但是|但|现在|这次)?(?:先)?(?:不用|不要|别|不必)(?:再)?(?:回忆|讲|说|查)(?:这个|这些|这件事|那件事)(?:了|吧)?$/u.test(lastClause))return undefined;
+  // An artifact name quoted inside the speaker's own reminiscence remains a
+  // relevant named entity. A whole quoted request, a report, a writing task,
+  // or a declined topic still cannot turn into current recall. Supply sources,
+  // not an obligation to explain the lore when the user is sharing affection.
+  const namedReminiscence=message.split(/(?<=[。！？!?])|\n/u).some(sentence=>{
+    const body=sentence.trim();
+    if(!/^(?:想到|我(?:还|还是|很|真的)?(?:记得|喜欢)|你(?:当年|那时)|记得你)/u.test(body))return false;
+    const own=body.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+    return /银龙舞轩秀麟|金龙月轩寰语/u.test(body)
+      &&!/(?:不要|不用|别|不必|不再).{0,8}(?:聊|说|提|讲|回忆)/u.test(own);
+  });
+  if(namedReminiscence)return renderGuYueNaRecallRows(GU_YUE_NA_CANON.filter(row=>row.topic==='家人命名'));
   // A quoted question inside an explicitly requested hypothetical reply can
   // query existing canon without becoming a real event or a spouse identity.
   // Ordinary reports/quoted tasks and present-day meals still do not recall lore.

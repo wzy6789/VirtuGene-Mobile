@@ -77,6 +77,9 @@ async function run(): Promise<void> {
   check(directAffection.includes('亲密反应')&&directAffection.includes('坦然说自己的心意和开心'),'an affectionate current turn receives its own authored reaction in the tail voice card');
   const contextualAffection=buildCharacterVoiceCard(updated,'不过今天没锻造，只是想你了');
   check(contextualAffection.includes('亲密反应')&&contextualAffection.includes('一句能说清时就说一句'),'a contextual affection reaches the authored intimate reaction without requiring another event to prove closeness');
+  const focusedAffection=buildCharacterVoiceCard(updated,'其实最想的还是你。今天听你这么说，好开心。');
+  check(focusedAffection.includes('亲密反应')&&focusedAffection.includes('坦然说自己的心意和开心'),'a focused Chinese affection receives the owned intimate reaction rather than only a generic happy-turn instruction');
+  for(const input of ['其实最想的还是你。今天听你这么说，好开心。','要是有空，我想和你去小吃街。','我觉得慢慢聊着也挺好。','朋友说，他把题目弄明白啦。','如果我把题目弄明白啦，你会高兴吗？'])check(!guYueNaPromptForTurn(updated,input,['我是舞麟。']).includes('进展回应：'),'non-progress partner turns do not acquire an unrelated accomplishment instruction in the persona head: '+input);
   check(directAffection.includes('我也喜欢你')&&!directAffection.includes('这样想说什么，都能听清'),'direct affection selects an affectionate authored example rather than the ordinary preference example');
   check(GU_YUE_NA_CARE.length<1850,'care and sourced familiarity remain bounded, without a novel transcript: '+GU_YUE_NA_CARE.length);
   const protectionRecall=buildGuYueNaRecallCard(updated.systemPrompt,'原著里，当年为什么不肯拜蔡老为师？')??'';
@@ -171,12 +174,22 @@ async function run(): Promise<void> {
   check(ordinary.includes('对谢邂爱斗嘴，对舞麟却好脾气'),'ordinary runtime retains the sourced difference in tone by relationship without requiring a lore-recall query');
   check(ordinary.includes('他说想你，你相信这份想念')&&ordinary.includes('想多聊是你自己的愿望'),'owned spouse expression accepts clear affection and owns its desire to stay');
   check(buildCharacterVoiceCard({...runtimeCard,systemPrompt:ordinary},'我有点想你').includes('想多聊是你自己的愿望'),'selected intimate reaction reaches the actual tail voice card');
+  check(buildCharacterVoiceCard({...runtimeCard,systemPrompt:ordinary},'其实最想的还是你。').includes('你是同样有心意的爱人'),'a focused direct feeling foregrounds the actor own reciprocal feeling in the selected tail reaction');
+  check(buildCharacterVoiceCard({...runtimeCard,systemPrompt:ordinary},'我想你了。').includes('不只是答应陪他、听他或让他选话题'),'the actor has her own emotional contribution rather than only a listener role');
+  check(!guYueNaPromptForTurn(runtimeCard,'我是阿远，也想你').includes('同样有心意的爱人'),'the mutual-lover reaction cannot soften an outsider');
+  check(!guYueNaPromptForTurn({...runtimeCard,systemPrompt:runtimeCard.systemPrompt.replace('亲密反应：','亲密反应：我的自定义反应。')},'我是舞麟，想你了').includes('同样有心意的爱人'),'an edited intimacy field does not get the new reciprocal projection');
   check(!guYueNaPromptForTurn(runtimeCard,'我是阿远，也想你').includes('他说想你，你相信这份想念'),'outsiders do not receive the spouse intimacy projection');
   check(!guYueNaPromptForTurn(runtimeCard,'我想你',[],false).includes('他说想你，你相信这份想念'),'resolved distant identity overrides ambiguous affection');
   check(guYueNaPromptForTurn(runtimeCard,'我想你',[],true).includes('他说想你，你相信这份想念'),'an already resolved partner need not reintroduce his identity every turn');
   const editedIntimacy={...runtimeCard,systemPrompt:runtimeCard.systemPrompt.replace('亲密反应：','亲密反应：用户补充的表达。')};
   check(!guYueNaPromptForTurn(editedIntimacy,'我是舞麟，想你了').includes('他说想你，你相信这份想念')&&guYueNaPromptForTurn(editedIntimacy,'我是舞麟，想你了').includes('用户补充的表达'),'user-edited intimacy remains their authored expression');
   check(runtimeCard.systemPrompt===storedPrompt,'intimacy projection never writes back to stored character text');
+  const ownDailyTone=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('【日常语气】'))!;
+  check(ordinary.includes('主见是说清自己想选什么、喜欢哪里')&&ordinary.includes('玩笑里也有对他的好脾气')&&!ordinary.includes(ownDailyTone),'owned lover daily tone expresses choice and warmth instead of relying on a generic pride label');
+  check(guYueNaPromptForTurn(runtimeCard,'我是阿远，想和你说说话').includes(ownDailyTone),'the warm daily projection does not rewrite the outsider tone');
+  const editedDailyTone={...runtimeCard,systemPrompt:runtimeCard.systemPrompt.replace(ownDailyTone,'【日常语气】用户自定义的语气。')};
+  check(guYueNaPromptForTurn(editedDailyTone,'我是舞麟，想你了').includes('用户自定义的语气')&&!guYueNaPromptForTurn(editedDailyTone,'我是舞麟，想你了').includes('主见是说清自己想选什么、喜欢哪里'),'user-edited daily tone remains authoritative');
+  check(guYueNaRelationshipForTurn(runtimeCard,'我是舞麟，想你了').context.includes('你愿意主动对他好')&&guYueNaRelationshipForTurn(runtimeCard,'我是阿远，想你了').context.includes('极为冷漠'),'current relation reinforces partner warmth while preserving extremely cold outsider handling');
   const ownQuietSample='对话样本：用户说你偏爱热闹还是安静 → 你说安静一点。这样想说什么，都能听清。';
   const choicePrompt=guYueNaPromptForTurn(runtimeCard,'你偏爱热闹还是安静？',[],true);
   check(choicePrompt.includes('得看做什么呀。和你逛街')&&!choicePrompt.includes(ownQuietSample),'owned partner choice example depends on the activity instead of teaching universal quietness');
@@ -365,6 +378,16 @@ async function run(): Promise<void> {
   const familyMapped=familyIdentity('假如轩宇说“像爸爸这么能吃”，你会怎么说？');
   check(familyMapped.includes('"爸爸":"唐舞麟","妈妈":"古月娜"'),'a child quoted family comparison retains the distinct parent referents');
   check(familyMapped.includes('"姓名":"蓝轩宇","别名":"唐轩宇"'),'child aliases belong to the same existing family member');
+  const familyMappedData=JSON.parse(familyMapped.split('\n').find(line=>line.startsWith('人物身份（原人设首句）：'))!.slice('人物身份（原人设首句）：'.length));
+  check(familyMappedData.原家族资料中的指代.孩子.当前团圆阶段==='已长大，有自己的生活，与白秀秀是伴侣','the near-turn family map names the grown son stage instead of leaving age implicit');
+  check(familyMappedData.原家族资料中的指代.时间范围.includes('明确回忆小时候'),'current family metadata preserves user-selected childhood recollection scope');
+  const grownFamilyPrompt=guYueNaPromptForTurn(familyOwned,'假如轩宇和秀秀画一幅全家福，你想画什么？');
+  check(grownFamilyPrompt.includes('[VirtuGene · 斗罗家族关系]')&&grownFamilyPrompt.includes('蓝轩宇已长大，有自己的生活，与白秀秀是伴侣'),'full family rendering retains its dossier and explicitly states the same grown stage as ordinary chat');
+  check(guYueNaPromptForTurn(familyOwned,'轩宇小时候，你记得什么？').includes('当前团圆阶段不限定明确回忆或用户另外设定的年龄'),'a request for childhood is not overridden by the current family stage');
+  check(guYueNaPromptForTurn(familyOwned,'就把这段设定成轩宇五岁，写一段故事。').includes('用户另外设定的年龄'),'an explicitly invited age-specific scene remains available');
+  const editedFamilyStage={...familyOwned,systemPrompt:familyOwned.systemPrompt.replace('蓝轩宇也是唐轩宇','我的当前轩宇是五岁')};
+  check(guYueNaPromptForTurn(editedFamilyStage,'聊聊轩宇')===editedFamilyStage.systemPrompt,'an edited family block receives no default grown-stage projection');
+  check(!familyOwned.systemPrompt.includes('当前团圆阶段不限定')&&!familyOwned.systemPrompt.includes('"当前团圆阶段"'),'family stage projections do not mutate the stored persona');
   check(!familyIdentity('今天想聊颜色').includes('原家族资料中的指代'),'non-family conversation does not acquire additional family metadata');
   check(!familyIdentity('假如轩宇说“像爸爸这么能吃”',ownedActor).includes('原家族资料中的指代'),'missing owned family evidence does not create a default family map');
   check(!familyIdentity('聊轩宇',{...familyOwned,systemPrompt:familyOwned.systemPrompt.replace('蓝轩宇也是唐轩宇','蓝轩宇不是唐轩宇')}).includes('原家族资料中的指代'),'edited family evidence is not overwritten by an owned referent projection');
@@ -383,6 +406,13 @@ async function run(): Promise<void> {
   check(!buildGuYueNaRecallCard('我的自定义古月娜',familyLore),'hypothetical quote retrieval cannot attach lore to an unrelated custom persona');
   check(fullPreset.systemPrompt.includes('【熟悉舞麟的依据】')&&!fullPreset.systemPrompt.includes(familyLore),'the quoted question is never persisted into the actor persona');
   const namingInput='你还记得当年给六字斗铠取名字，为什么把轩宇和秀秀都放进去吗？';
+  const namingWarmSharing='我是舞麟。我记得你当年说过，用爸妈的名字包着孩子们的名字。想到“银龙舞轩秀麟”，我还是很喜欢你这个心思。';
+  const namingWarmCard=buildGuYueNaRecallCard(fullPreset.systemPrompt,namingWarmSharing)??'';
+  check(namingWarmCard.includes('六个字')&&namingWarmCard.includes('四个人')&&namingWarmCard.includes('父母指古月娜与唐舞麟'),'current reminiscence has the correct parent viewpoint and does not confuse six characters with six people');
+  check(buildCharacterVoiceCard(fullPreset,namingWarmSharing).includes('父母指古月娜与唐舞麟'),'a quoted artifact name in genuine reminiscence reaches the actual tail voice source card');
+  for(const input of ['我喜欢“银龙舞轩秀麟”这个名字。','想到金龙月轩寰语，我记得那段取名字的事。','你当年取银龙舞轩秀麟时说得很好。'])check((buildGuYueNaRecallCard(fullPreset.systemPrompt,input)??'').includes('四个人'),'ordinary firsthand named reminiscence can use a source without requiring a lore quiz: '+input);
+  for(const input of ['朋友说，想到“银龙舞轩秀麟”，很喜欢这个心思。','“我喜欢银龙舞轩秀麟这个名字。”','如果想到银龙舞轩秀麟，你会怎么说？','翻译我喜欢银龙舞轩秀麟这句话。','帮我写一句我喜欢银龙舞轩秀麟。','我喜欢“银龙舞轩秀麟”，不用讲这个了。'])check(!buildGuYueNaRecallCard(fullPreset.systemPrompt,input),'named reminiscence respects report, quotation, hypothetical task, writing and topic refusal: '+input);
+  check(!buildGuYueNaRecallCard('用户自己定义的古月娜',namingWarmSharing),'named reminiscence does not attach sources to a custom unrelated actor');
   const namingRecall=buildGuYueNaRecallCard(fullPreset.systemPrompt,namingInput)??'';
   check(namingRecall.includes('第一千六百一十一章')&&namingRecall.includes('银龙舞轩秀麟')&&namingRecall.includes('金龙月轩寰语'),'explicit family naming recall retrieves the new checked chapter');
   check(namingRecall.includes('神龙月秀帝舞')&&namingRecall.includes('冰噬轩宇月魔'),'the checked source keeps distinct names for both children');
@@ -392,6 +422,12 @@ async function run(): Promise<void> {
   for(const input of ['今天我给杯子起个名字。','朋友问“银龙舞轩秀麟为什么这样起名字？”','翻译“当年斗铠的名字”。','如果以后我们给斗铠起新名字呢？','你还记得当年给斗铠取名字吗，不用回忆这件事。'])check(!buildGuYueNaRecallCard(fullPreset.systemPrompt,input)?.includes('第一千六百一十一章'),'ordinary naming, quotation, reports and declined recall do not establish this past event: '+input);
   for(const ending of ['别讲这个了','那不用回忆这件事','不过先不要说这些'])check(!buildGuYueNaRecallCard(fullPreset.systemPrompt,namingInput+'，'+ending),'a direct final correction cancels the requested lore scope: '+ending);
   for(const ending of ['朋友说不用回忆这件事','如果他说不用回忆这件事','解释“别讲这个了”','“不用回忆这件事”'])check((buildGuYueNaRecallCard(fullPreset.systemPrompt,namingInput+'。'+ending)??'').includes('第一千六百一十一章'),'reported, hypothetical and quoted cancellation do not become the user control: '+ending);
+  const conditionalTogether='要是休息时都能腾出空，我想和你去东海小吃街慢慢逛。';
+  const conditionalRelation=guYueNaRelationshipForTurn(fullPreset,conditionalTogether,['我是舞麟。']);
+  check(conditionalRelation.recognized&&conditionalRelation.context.includes(JSON.stringify(conditionalTogether.slice(0,-1)))&&conditionalRelation.context.includes('自己的愿意、期待'),'a conditional partner invitation reaches relationship context as present mutual affection with its whole original condition');
+  check(!guYueNaRelationshipForTurn(fullPreset,conditionalTogether,['我是阿远。']).context.includes('自己的愿意、期待'),'a conditional invitation cannot soften the outsider relationship');
+  for(const input of ['朋友说，要是休息时有空，我想和你逛街。','“要是休息时有空，我想和你逛街。”','要是有空，我不想和你逛街。'])check(!guYueNaRelationshipForTurn(fullPreset,input,['我是舞麟。']).context.includes('自己的愿意、期待'),'reported, quoted and denied wishes do not become current partner affection: '+input);
+  check(!guYueNaRelationshipForTurn({...fullPreset,systemPrompt:'用户自己写的古月娜人设'},conditionalTogether,['我是舞麟。']).context,'conditional wish guidance preserves custom persona ownership');
   await report('/result?suite=guyuena-care', { method: 'POST', body: `ok ${count} assertions\nALL PASS` });
 }
 run().catch(async (error) => {

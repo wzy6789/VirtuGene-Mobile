@@ -2,6 +2,26 @@ import {hasExplicitTopicShift,requestsCharacterPerspective,requestsCharacterChoi
 import {isViewExchange,isDirectAffection} from './chat-expression-boundary';
 import {isTopicRelated} from './chat-conversation-state';
 
+/** An immediately adjacent choice is a conversational contribution, not a
+ * stable preference or an executed arrangement. Reports and questions do not
+ * establish the user's own choice. Keep the original for compound details. */
+function sharesOwnChoice(message:string):boolean {
+  const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  if(/^(?:朋友|同事|他|她|如果|假如|假设|比如|例如|翻译|解释|改写)/u.test(text)
+    ||/[?？]|(?:帮我|替我|给我).{0,10}(?:写|改|查|安排|推荐)/u.test(text))return false;
+  return /^我(?:倒|反而|更|也|还)?(?:更)?(?:想(?:让|把|选|要|添|加|试)|喜欢|偏爱|倾向|选)[^。！？!?，,；;\n]{1,60}/u.test(text)
+    &&!isDirectAffection(text);
+}
+
+function acknowledgesChoiceConversation(message:string):boolean {
+  const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  if(isDirectAffection(message)||/[?？]/u.test(text)
+    ||/^(?:朋友|同事|他|她|如果|假如|假设|翻译|解释|改写)/u.test(text)
+    ||/(?:帮我|替我|给我).{0,10}(?:写|改|查|安排|推荐)/u.test(text))return false;
+  return /^(?:你(?:这么|这样)说|(?:刚才|你刚才)(?:那个|这个)?(?:想法|说法))(?=$|[，,。！!])/u.test(text)
+    &&/(?:开心|高兴|有意思|喜欢|挺好|很好)/u.test(text);
+}
+
 /** Re-read adjacent dialogue, not stored inferred preferences. These quotes
  * establish who just said what, never that an invented event really occurred. */
 export function buildViewContinuityContext(message:string,history:Array<{role:string;content:string}>):string {
@@ -17,7 +37,8 @@ export function buildViewContinuityContext(message:string,history:Array<{role:st
     &&plain.split(/[。！!，,；;\n]/u).some(part=>
       /^我(?:也|还|同样)(?:想(?:添|加|选|要|试)|喜欢|不喜欢|偏爱)[^。！？!?，,；;\n]{1,60}$/u.test(part.trim())
       ||/^(?:那|看来)?(?:我们|咱们)(?:这次|刚才)?(?:想到一块(?:儿)?(?:去)?了|想到一起了|想得一样|选得一样|选了一样的)[呀啊吧呢啦\s]*$/u.test(part.trim()));
-  if(!requestsCharacterPerspective(message)&&!sharingAlternative&&!sharingLinkedChoice)return '';
+  const acknowledgesChoice=acknowledgesChoiceConversation(message);
+  if(!requestsCharacterPerspective(message)&&!sharingAlternative&&!sharingLinkedChoice&&!acknowledgesChoice)return '';
   const replies:string[]=[];
   let previous='';
   for(let index=history.length-1;index>=0;index--){
@@ -26,6 +47,8 @@ export function buildViewContinuityContext(message:string,history:Array<{role:st
     else if(turn.role==='user'){previous=turn.content;break;}
   }
   const answer=replies.join(' --- ');
+  if(acknowledgesChoice&&previous&&answer&&previous.length<=260&&answer.length<=320&&sharesOwnChoice(previous)&&!hasExplicitTopicShift(previous))
+    return `[接续刚才的选择]\n对方刚才的原话：${JSON.stringify(previous)}\n你刚才的回应：${JSON.stringify(answer)}\n他这次分享的是与你聊天的开心。你也可以享受这次来回，说自己的开心或喜欢怎样与你说话；回应本身就让交流继续，不需要马上确定细节。原话里的选择照常保留；上一条你问过而他未说明的细节可以先留白，不催他想好了没。你仍可说新的不同想法、回应改口，真正的新问题照常交流。这只是相邻交流原话，不是永久喜好、已执行安排或共同现场；当前明确换话题和事实范围仍优先。\n[/接续刚才的选择]`;
   if(!previous||!answer||previous.length>260||answer.length>320
     ||(!requestsCharacterChoice(previous)&&!isViewExchange(previous)&&!requestsCharacterPerspective(previous)))return '';
   const adjacentQuestion=message.split(/[。！？!?，,；;\n]/u).some(part=>/^你(?:自己|个人)?的(?:看法|想法|观点|理由)(?:是什么|呢)?$/u.test(part.trim()));

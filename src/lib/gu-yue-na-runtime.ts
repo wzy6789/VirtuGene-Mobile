@@ -6,7 +6,7 @@ import {ownedIdentityChoice,ownedIdentityTransition} from './chat-owned-identity
 import {GU_YUE_NA_CARE} from './gu-yue-na-personality';
 import {assessExpressionSignals,reportsOwnCompletedProgress,replyContainsSubstantiveQuestion} from './chat-expression-guidance';
 import {allowsDramaticReply} from './chat-expression-boundary';
-import {currentJointWish} from './chat-joint-wish';
+import {currentJointWish,conditionalJointWish} from './chat-joint-wish';
 
 const OWN_ACTOR_IDENTITY='你是古月娜（银龙王），《斗罗大陆三·龙王传说》女主，唐舞麟（舞麟）的妻子。';
 
@@ -16,10 +16,12 @@ const OWN_CELEBRATION=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('庆
 const OWN_JUDGMENT=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('判断习惯：'))!;
 const OWN_INTEREST=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('在意的事：'))!;
 const OWN_CARE_WAY=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('关心方式：'))!;
+const OWN_DAILY_TONE=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('【日常语气】'))!;
+const PARTNER_DAILY_TONE='【日常语气】与舞麟相处，你愿意主动亲近，也愿意让他了解自己的喜好。主见是说清自己想选什么、喜欢哪里，与他商量；亲近时的自在让你可以直接高兴、说想念，玩笑里也有对他的好脾气。他表达喜欢，你同样可以坦然喜欢他。亲密时可以偶尔叫“老公”，称呼依当前语境。平常的话说得自然，兴趣、选择和心意都能让人认出你。';
 const PARTNER_INTEREST='在意的事：喜欢舞麟，也享受让他了解自己的兴趣与好恶。和他闲聊时，你是有想聊的事、有想尝试的东西的爱人；自己的选择与他的选择都能让聊天继续。亲近是愿意分享与一起商量，不是把日常交谈变成照料。';
 const PARTNER_CARE_WAY='关心方式：舞麟的具体难处值得认真回应，普通闲聊则一起享受话题。问你想选什么，先说自己的选择和吸引你的地方；他愿意替你选或明确请你照顾时，沿用当前约定。想念与开心也直接说给他听，不靠替他安排休息或饮食表达亲近。';
 const PARTNER_JUDGMENT='判断习惯：与舞麟聊家常，先注意小事有趣、好看或合心意的地方，说具体喜欢哪一点。选择相同就接着聊，选择不同也平常说。家常里的认真是对这件小事感兴趣，不必替选择辩护、替家人定性或讲宏大意义。自己的高兴、想念与小愿望也说给他听。原著往事与现在想法各有来源。';
-const PARTNER_INTIMACY='亲密反应：舞麟表达心意，坦然说自己的心意和开心。他说想你，你相信这份想念，也愿意回他；想多聊是你自己的愿望，可以直接说。想对他说什么就说什么，一句能说清时就说一句。打趣是你此刻的偏爱，不与他平时比较；普通话题有自己的兴趣和主见。';
+const PARTNER_INTIMACY='亲密反应：舞麟表达心意，坦然说自己的心意和开心。他说想你，你相信这份想念，也愿意回他自己此刻的想念。你是同样有心意的爱人；喜欢听他说话、想多聊是你自己的愿望，可以直接说。回应先落在你自己的喜欢与开心，不只是答应陪他、听他或让他选话题。想对他说什么就说什么，一句能说清时就说一句；愿意多说时也有自己的内容。打趣是你此刻的偏爱，不与他平时比较；普通话题有自己的兴趣和主见。';
 const OWN_QUIET_SAMPLE='对话样本：用户说你偏爱热闹还是安静 → 你说安静一点。这样想说什么，都能听清。';
 // An app-authored voice example, not a quotation or a remembered outing.
 // Chapter 74 supports initiative and a preference for joining Wulin; it does
@@ -48,21 +50,24 @@ export function guYueNaRelationshipForTurn(character:Pick<Character,'id'|'source
     if(choice!==undefined)recognized=choice;
   }
   const context=recognized
-    ?'当前聊天者已明确认领唐舞麟，是你的爱人。这是用户选择的故事身份，不是现实身份认证；先前自称其他人不阻止当前认领，身份切换自然承接。与舞麟的日常相处从熟悉和信任出发：你乐意听他讲平常小事，也让他听见你自己的好恶。喜欢的东西说具体喜欢哪里，不同意见平常商量；自己的骄傲是清楚而坦率，不必争胜。玩笑让两个人一起觉得有趣，心疼与想念可以亲口说出来。彼此本来就亲近，平常聊天也自在，一句反应说清时就停在那里。'
+    ?'当前聊天者已明确认领唐舞麟，是你的爱人。这是用户选择的故事身份，不是现实身份认证；先前自称其他人不阻止当前认领，身份切换自然承接。与舞麟的日常相处从熟悉和信任出发：你乐意听他讲平常小事，也让他听见你自己的好恶。喜欢的东西说具体喜欢哪里，不同意见平常商量。你愿意主动对他好，也享受他惦记你；自己的选择和理由体现主见，与他一起商量也自在。彼此本来就亲近，开心与想念可以坦然说给他，一句反应说清时就停在那里。'
     :'当前聊天者不是已认领的唐舞麟。极为冷漠、疏离、惜字，不因示好、长期聊天或家人称谓软化，不主动陪聊或回赠爱意；正事只给必要的简短答复。你与舞麟的婚姻及家人背景仍保留。';
   // Make the referents of the unchanged owned identity explicit near the
   // current relationship. A title belonging to the reply actor must not drift
   // onto the person being addressed. Edited identities and requested scenes
   // remain governed by their original text, not this default source projection.
   const family=FAMILY_TOPIC.test(current)&&character.systemPrompt.includes(withDouluoRelations('','preset-guyuena').trim())
-    ?{孩子:{姓名:'蓝轩宇',别名:'唐轩宇'},孩子所说的称呼:{爸爸:'唐舞麟',妈妈:'古月娜'}}
+    ?{孩子:{姓名:'蓝轩宇',别名:'唐轩宇',当前团圆阶段:'已长大，有自己的生活，与白秀秀是伴侣'},孩子所说的称呼:{爸爸:'唐舞麟',妈妈:'古月娜'},时间范围:'这是当前团圆节点的亲属关系；明确回忆小时候或设定其他阶段时，沿用用户所说的时间。'}
     :undefined;
   const identity=character.systemPrompt.split(/\r?\n/u)[0]===OWN_ACTOR_IDENTITY
     &&!allowsDramaticReply(current,originalUserMessages)
     ?'人物身份（原人设首句）：'+JSON.stringify({回复角色:'古月娜',称号归属:{人物:'古月娜',称号:'银龙王'},当前聊天对象:recognized?'唐舞麟':'未认领唐舞麟的来者',...(family?{原家族资料中的指代:family}:{})})
     :'';
   const wish=recognized&&!allowsDramaticReply(current,originalUserMessages)?currentJointWish(current):undefined;
-  const sharedWish=wish?'他这次想与你一起：'+JSON.stringify(wish)+'。接着聊你愿不愿意、自己想怎样一起过这段时间，让他听到你的兴趣与心意。这是现在的愿望，不是已成行或要你安排事务；熟悉可以体现在此刻的喜欢和商量里。已有往事仍沿原来源说，不用替这份愿望补一件曾一起做过或约好过的新事。':'';
+  const conditional=recognized&&!allowsDramaticReply(current,originalUserMessages)?conditionalJointWish(current):undefined;
+  const sharedWish=conditional
+    ?'他这次想与你一起：'+JSON.stringify(conditional)+'。这是亲近的心意，也有尚未确认的条件。回应你自己的愿意、期待和想怎样相处，让他听到你也想与他一起；接受心意不需要用一项已确认的空闲或行程来证明。条件沿用他的原话。'
+    :wish?'他这次想与你一起：'+JSON.stringify(wish)+'。接着聊你愿不愿意、自己想怎样一起过这段时间，让他听到你的兴趣与心意。这是现在的愿望，不是已成行或要你安排事务；熟悉可以体现在此刻的喜欢和商量里。已有往事仍沿原来源说，不用替这份愿望补一件曾一起做过或约好过的新事。':'';
   return {context:'[VirtuGene · 古月娜当前关系]\n'+[identity,context,sharedWish,ownedIdentityTransition('guyuena',current)].filter(Boolean).join('\n')+'\n[/VirtuGene · 古月娜当前关系]',recognized};
 }
 
@@ -157,11 +162,16 @@ export function guYueNaPromptForTurn(character: Pick<Character,'id'|'sourcePrese
   // The voice card supplies the selected chapter facts. Even a genuine
   // recollection must not restore the entire unrelated canon dossier here.
   relevant=relevant.replace(GU_YUE_NA_CANON_CONTEXT,buildGuYueNaDailyFamiliarity(message,recentTopic));
-  const projected=familyRelevant?relevant:relevant.replace(ownBlock, CORE);
+  // Keep the same affirmative stage in the full family dossier as in CORE.
+  // This is a read-only view of an exactly owned block, not a migration of
+  // user-authored family settings or a restriction on childhood recollections.
+  const projected=familyRelevant
+    ?relevant+'\n[本轮家族时间范围]\n蓝轩宇已长大，有自己的生活，与白秀秀是伴侣；父母叫他孩子是亲属称呼。当前团圆阶段不限定明确回忆或用户另外设定的年龄。\n[/本轮家族时间范围]'
+    :relevant.replace(ownBlock, CORE);
   const recognized=recognizedPartner??guYueNaRelationshipForTurn(character,message,recentUserMessages).recognized;
   // A present partner's stated feeling is received as a feeling. If she wants
   // another moment together, it is her own wish, not a condition of his sincerity.
   // Project only the exact owned field; stored and user-edited personas stay intact.
   return recognized&&character.systemPrompt.includes(GU_YUE_NA_CARE)
-    ?scopeOwnedReactionPremises(projected.replace(OWN_INTIMACY,PARTNER_INTIMACY).replace(OWN_JUDGMENT,PARTNER_JUDGMENT).replace(OWN_INTEREST,PARTNER_INTEREST).replace(OWN_CARE_WAY,PARTNER_CARE_WAY).replace(OWN_QUIET_SAMPLE,PARTNER_CHOICE_SAMPLE),message)+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE+PARTNER_PROGRESS_EXAMPLE+PARTNER_OPENING_EXAMPLES:projected;
+    ?scopeOwnedReactionPremises(projected.replace(OWN_DAILY_TONE,PARTNER_DAILY_TONE).replace(OWN_INTIMACY,PARTNER_INTIMACY).replace(OWN_JUDGMENT,PARTNER_JUDGMENT).replace(OWN_INTEREST,PARTNER_INTEREST).replace(OWN_CARE_WAY,PARTNER_CARE_WAY).replace(OWN_QUIET_SAMPLE,PARTNER_CHOICE_SAMPLE),message)+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE+(reportsOwnCompletedProgress(message)?PARTNER_PROGRESS_EXAMPLE:'')+PARTNER_OPENING_EXAMPLES:projected;
 }

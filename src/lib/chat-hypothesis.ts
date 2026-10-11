@@ -6,7 +6,7 @@ import {conditionalJointWish} from './chat-joint-wish';
 
 /** Derive from recent user originals each turn, rather than storing a fictional
  * event or trusting the character's earlier scene invention as a new fact. */
-export function conversationalHypothesis(message:string,recentUsers:string[]):string {
+function traceHypothesis(message:string,recentUsers:string[],preserveAffectionFacts:boolean):string {
   const turns=[...recentUsers.slice(-6),message];
   let premise='';
   for(const raw of turns) {
@@ -24,15 +24,14 @@ export function conversationalHypothesis(message:string,recentUsers:string[]):st
       premise=raw.trim().length<=240?raw.trim():'';
       continue;
     }
-    // Sharing affection after a hypothetical discussion is a new present
-    // contribution. A shared word such as “安排” must not keep the imagined
-    // event active. A current question still retains its own actual scope.
-    if(isDirectAffection(text)&&!replyContainsSubstantiveQuestion([text])){premise='';continue;}
     // Real plans and changes are read from the user, not manufactured from
     // "我会选…" in an imagined choice. This guard is deliberately explicit.
-    const actual=clauses.some(part=>/^(?:那|不过|其实)?我(?:现在|刚才|已经|今天)?(?:已经|真的|实际)?(?:买了|摆了|放了|去了|决定|准备|打算|要去|订了)/u.test(part)
+    const actual=clauses.some(part=>/^(?:那|不过|其实)?(?:我|我们|咱们)(?:现在|刚才|已经|今天)?(?:已经|真的|实际)?(?:买了|摆了|放了|去了|决定|准备|打算|要去|订了|拍了|拍好了|拍完了|拿出了)/u.test(part)
       || /^(?:不是假设|不是假如|这是真的|实际(?:上)?(?:是|已经)|真的(?:要|会|已经))/u.test(part));
     if(actual||hasExplicitTopicShift(text)){premise='';continue;}
+    // Affection changes the active topic, not whether the preceding imagined
+    // event actually happened. Keep that distinction across consecutive turns.
+    if(isDirectAffection(text)&&!replyContainsSubstantiveQuestion([text])){if(!preserveAffectionFacts)premise='';continue;}
     const walkContinuation=!!conditionalJointWish(premise)&&/(?:散.{0,3}步|走走|散步)/u.test(premise)
       &&/^(?:那)?你(?:会|更)?想/u.test(text)&&/(?:一路|走着|散步|走走)/u.test(text);
     if(premise&&!walkContinuation&&!isTopicRelated(text,premise.replace(/[“「『"][^”」』"]*[”」』"]/gu,''))
@@ -41,18 +40,25 @@ export function conversationalHypothesis(message:string,recentUsers:string[]):st
   return premise;
 }
 
+export function conversationalHypothesis(message:string,recentUsers:string[]):string {
+  return traceHypothesis(message,recentUsers,false);
+}
+
 export function buildHypothesisContext(message:string,recentUsers:string[]):string {
   const premise=conversationalHypothesis(message,recentUsers);
   // A present feeling ends the topic focus, not the truth boundary of a recent
   // conditional wish. Retain only the constraint, without asking the model to
   // resume the old activity. Derive it from user originals, never actor claims.
   if(!premise&&isDirectAffection(message)&&!hasExplicitTopicShift(message)&&!isStandaloneClosing(message)) {
-    const previous=recentUsers[recentUsers.length-1];
-    const recent=previous?conversationalHypothesis(previous,recentUsers.slice(0,-1)):'';
+    // Trace original user conditions independently of the active topic. Several
+    // affectionate turns can move focus without converting an imagined event
+    // into evidence. A genuine topic change or actual update still ends it.
+    const recent=traceHypothesis(message,recentUsers,true);
     const wish=conditionalJointWish(recent);
     const updated=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').split(/[。！？!?，,；;\n]/u)
       .some(clause=>/^(?:那|不过|其实)?(?:我|我们|咱们)(?:现在|今晚|今天)?(?:已经|真的|实际)?(?:决定|准备|打算|要去|订了|买了|去了|有空)/u.test(clause.trim()));
     if(wish&&!updated)return '[最近设想的事实范围]\n现在回应他这次的心意即可，不需要继续聊前一项活动。刚才两人的共同愿望仍有条件：'+JSON.stringify(wish)+'；说想念不代表空闲已确认、已经见面或行程已约好。若顺带说想一起做什么，沿用条件或现在的愿望，不从设想推出一项已定安排。\n[/最近设想的事实范围]';
+    if(recent&&!updated)return '[最近设想的事实范围]\n现在回应他这次的心意即可，不需要继续聊前一项活动。此前讨论的条件原话：'+JSON.stringify(recent)+'。它是设想，不是已经发生的事件；先前讨论中的选择和人物回应不证明物品、共同活动或同处一室已经存在。若顺带提及，仍沿用设想的范围；当前明确讲出的真实变化照常以当前原话为准。\n[/最近设想的事实范围]';
   }
   const wording=requestsCharacterWording(message);
   // Interpret the quoted invitation inside the requested hypothetical answer;

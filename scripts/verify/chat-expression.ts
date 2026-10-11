@@ -164,6 +164,24 @@ async function run() {
     ok(fullBudget.included.includes('recent-fact-recall')&&fullBudget.prompt.includes(source),'adequate budget delivers the exact complete original scope view');
   }
   {
+    const focusedFeelings=['其实最想的还是你','我最想的还是你','最想见的人是你','我现在想见的是你','我惦记的是你','最喜欢的人就是你','我更喜欢的是你','其实我最爱的人是你','说到底想的还是你','我今天想见的是你呀'];
+    for(const input of focusedFeelings){
+      ok(isDirectAffection(input),'focused Chinese feeling retains its directly addressed object: '+input);
+      ok(JSON.stringify(directAffectionSources(input))===JSON.stringify([input]),'focused feeling retains exact source words without converting it to another statement: '+input);
+      ok(chooseConversationAction(input,[])==='respond-affection','focused feeling uses the same response path as direct word order: '+input);
+    }
+    for(const input of ['我最想的是你做的牛肉','最喜欢的是你推荐的书','我最爱的人不是你','最想的不是你','你最想的人是你','他最想的是你','朋友说，最想的还是你','如果最想的还是你','“最想的还是你”','最想的还是你？','解释最想的还是你','帮我写一句，最想的还是你','我想到的是你','我不喜欢的是你']){
+      ok(!isDirectAffection(input),'focused feeling preserves object, source, negation, query and writing scopes: '+input);
+      ok(!directAffectionSources(input).length,'excluded focused feeling never becomes current addressed evidence: '+input);
+    }
+    const focusedLast='其实最想的还是你。今天听你这么说，好开心。';
+    const focusedHistory=[{role:'user',content:'我是舞麟。要是休息时都能腾出空，我想和你去东海小吃街慢慢逛。'},{role:'assistant',content:'嗯，我也想。'},{role:'user',content:'不急着定哪天。想到能和你一边挑一边聊，我就挺期待的。'},{role:'assistant',content:'我也期待。'}];
+    ok(chooseConversationAction(focusedLast,focusedHistory)==='respond-affection','recorded warm ending is not diverted into a topic-shift response');
+    const focusedContext=buildHumanConversationSections(focusedLast,focusedHistory).find(s=>s.key==='human-conversation')!.text;
+    ok(focusedContext.includes('用户直接表达了心意')&&!focusedContext.includes('用户正在换话题'),'production turn guidance responds to actual focused affection rather than injecting a topic reset');
+    ok(chooseConversationAction('最想的还是你。帮我添加一个待办。',[])==='finish-request','addressed affection does not suppress an explicit application request');
+  }
+  {
     const mixed='刚才那句喜欢是说书签。我也很喜欢你，这句是说给你的。';
     ok(JSON.stringify(directAffectionSources(mixed))===JSON.stringify(['我也很喜欢你']),'current feeling source belongs to the addressee rather than the previous bookmark preference');
     const sourceCard=buildHumanConversationContext(mixed,[]);
@@ -228,8 +246,22 @@ async function run() {
   for(const input of ['我也想你了。','我也喜欢你。','朋友说，我也想添龙须面。','如果有空，我也想添龙须面。','“我也想添龙须面”。','我也想添龙须面吗？','翻译我也想添龙须面。','我也想添龙须面，帮我写个菜单。','换个话题，我也想添龙须面。'])ok(!buildViewContinuityContext(input,menuHistory),'linked-choice frame respects actual intent and source boundaries: '+input);
   ok(!buildViewContinuityContext(menuFollowup,[menuHistory[0]]),'a linked-choice acknowledgement does not fabricate an unanswered actor selection');
   ok(!buildViewContinuityContext(menuFollowup,[{role:'user',content:'今天刚吃过饭。'},{role:'assistant',content:'嗯。'}]),'unrelated non-view dialogue is not turned into a preference record');
+  const adjacentChoice='我倒想让它们靠近一点，但各朝一个方向。是一起的，也各有各想看的。';
+  const adjacentChoiceAnswer='你这个说法，我更喜欢。挨着就行，不必非得头碰头。';
+  const adjacentChoiceHistory=[{role:'user',content:adjacentChoice},{role:'assistant',content:adjacentChoiceAnswer}];
+  const adjacentHappy='你这么说，我就觉得和你聊这些小事挺开心的。';
+  const adjacentFrame=buildViewContinuityContext(adjacentHappy,adjacentChoiceHistory);
+  ok(adjacentFrame.includes('[接续刚才的选择]')&&adjacentFrame.includes(JSON.stringify(adjacentChoice)),'acknowledging the conversation re-reads the whole compound choice instead of dropping its second field');
+  ok(adjacentFrame.includes(JSON.stringify(adjacentChoiceAnswer))&&adjacentFrame.includes('不是永久喜好、已执行安排或共同现场'),'the actor response remains a quoted stance, not independent event evidence');
+  ok(adjacentFrame.includes('新的不同想法')&&adjacentFrame.includes('未说明'),'continuity does not freeze agreement or prohibit genuine new questions');
+  ok(buildHumanConversationContext(adjacentHappy,adjacentChoiceHistory).includes(JSON.stringify(adjacentChoice)),'the compound choice reaches actual human conversation prompt construction');
+  for(const message of ['我想你了。','换个话题，你这么说我挺开心。','朋友说，你这么说我挺开心。','如果你这么说，我会很开心。','“你这么说，我挺开心”。','翻译：你这么说，我挺开心。','你这么说，我挺开心，帮我写个待办。','你这么说，你觉得哪个好？'])ok(!buildViewContinuityContext(message,adjacentChoiceHistory).includes('[接续刚才的选择]'),'a changed topic, affection, quote, report, task or new question does not get the acknowledgement focus: '+message);
+  for(const previous of ['朋友说，我倒想让它们靠近一点。','如果我想选第一个。','我倒想选这个吗？','今天我买了两个摆件。','我倒想你了。'])ok(!buildViewContinuityContext(adjacentHappy,[{role:'user',content:previous},{role:'assistant',content:'嗯。'}]).includes('[接续刚才的选择]'),'non-choice original does not establish an adjacent user preference: '+previous);
+  ok(!buildViewContinuityContext(adjacentHappy,[adjacentChoiceHistory[0]]),'an unanswered original does not fabricate a preceding actor view');
+  const correctedChoice='我更喜欢各放一边。不是刚才说的靠在一起。';
+  ok(buildViewContinuityContext(adjacentHappy,[...adjacentChoiceHistory,{role:'user',content:correctedChoice},{role:'assistant',content:'那就各放一边。'}]).includes(JSON.stringify(correctedChoice))&&!buildViewContinuityContext(adjacentHappy,[...adjacentChoiceHistory,{role:'user',content:correctedChoice},{role:'assistant',content:'那就各放一边。'}]).includes(JSON.stringify(adjacentChoice)),'the latest direct correction replaces the old adjacent choice rather than merging contradictory versions');
   const affectionNow='我喜欢听你讲这些，不是想让你帮我安排。我现在就是有点想你。';
-  ok(!buildHypothesisContext(affectionNow,[timeQuestion,reasonQuestion]),'present affection ends an imagined choice even when a generic arranging word overlaps');
+  ok(conversationalHypothesis(affectionNow,[timeQuestion,reasonQuestion])===''&&!buildHypothesisContext(affectionNow,[timeQuestion,reasonQuestion]).includes('[正在讨论的假设]'),'present affection ends imagined choice focus even when a generic arranging word overlaps; fact boundaries are independent');
   ok(!!buildHypothesisContext(reasonQuestion,[timeQuestion]),'the actual reason follow-up retains the hypothetical scope');
   const conditionalWalk='要是今晚都没什么事，我想和你慢慢散会儿步，不用赶去哪儿。';
   ok(conditionalJointWish(conditionalWalk)===conditionalWalk.slice(0,-1),'conditional shared wish retains its complete premise rather than becoming an availability record');
@@ -246,6 +278,17 @@ async function run() {
   for(const current of ['换个话题，我想你了。','我们今晚已经决定一起去了。想你了。','我已经订了票。想你了。'])ok(!buildHypothesisContext(current,[conditionalWalk,walkChoice]).includes('[最近设想的事实范围]'),'explicit changes and actual decisions do not inherit the old conditional boundary: '+current);
   ok(!buildHypothesisContext('想你了。',[conditionalWalk,'你想吃什么？']).includes('[最近设想的事实范围]'),'an unrelated intervening topic drops the old conditional boundary');
   ok(!buildHypothesisContext('想你了。',['朋友说，要是今晚有空，我想和你散步。']).includes('[最近设想的事实范围]'),'reported shared wishes cannot establish a recent conditional boundary');
+  const imaginedPhoto='我是舞麟。假如轩宇和秀秀拿出几张团圆合照，让我们挑一张，你会选端正的还是笑得开心的？';
+  const imaginaryPhotoChoice='我也想选笑得开心的那张。';
+  const presentPhotoFeeling='其实最想的还是你。想和你多说一会儿话。';
+  const photoFactBoundary=buildHypothesisContext(presentPhotoFeeling,[imaginedPhoto,imaginaryPhotoChoice]);
+  ok(conversationalHypothesis(presentPhotoFeeling,[imaginedPhoto,imaginaryPhotoChoice])===''&&photoFactBoundary.includes('[最近设想的事实范围]')&&!photoFactBoundary.includes('[正在讨论的假设]'),'present affection drops hypothetical photo focus while retaining its factual scope');
+  ok(photoFactBoundary.includes(JSON.stringify(imaginedPhoto))&&photoFactBoundary.includes('不是已经发生的事件'),'photo fact boundary quotes the whole original condition rather than promoting generated scenes');
+  ok(buildHypothesisContext('我也很喜欢你。',[imaginedPhoto,imaginaryPhotoChoice,presentPhotoFeeling]).includes(JSON.stringify(imaginedPhoto)),'several affectionate turns do not make earlier hypothetical photos into actual events');
+  ok(buildHypothesisContext('我喜欢你。',[conditionalWalk,walkChoice,'想你了。']).includes('仍有条件'),'conditional availability survives a second affectionate turn without reviving the walking topic');
+  for(const update of ['我们今天拍好了合照。想你了。','我刚才拍了照片。想你了。','不是假设，我们已经拍了。想你了。','我们今天已经决定去拍照。想你了。'])ok(!buildHypothesisContext(update,[imaginedPhoto,imaginaryPhotoChoice]).includes('[最近设想的事实范围]'),'explicit real photo or plan update is not contradicted by an expired imagined boundary: '+update);
+  for(const history of [[imaginedPhoto,'换个话题，聊聊锻造。'],[imaginedPhoto,'你喜欢哪种音乐？'],['朋友说，假如我们拍合照，你会选哪张？'],['“假如我们拍合照，你会选哪张？”'],[imaginedPhoto,'我今天拍好了合照。']])ok(!buildHypothesisContext('我想你了。',history).includes('[最近设想的事实范围]'),'source controls and intervening unrelated or real events expire imagined-photo scope: '+JSON.stringify(history));
+  ok(buildHumanConversationContext(presentPhotoFeeling,[{role:'user',content:imaginedPhoto},{role:'assistant',content:'我们刚才已经一起拍好了合照。'},{role:'user',content:imaginaryPhotoChoice},{role:'assistant',content:'坐在一起看着照片。'}]).includes(JSON.stringify(imaginedPhoto)),'actual prompt assembly uses the original hypothetical source instead of actor-invented photos or co-location');
   for(const input of ['朋友说，要是今晚没事，我想和你散步。','“要是今晚没事，我想和你散步。”','以前要是有空，我想和你散步。','要是今晚没事，我不想和你散步。','要是今晚没事，我想和你一起添加待办。'])ok(!conditionalJointWish(input),'conditional wish preserves report, quote, past, denial and operation scopes: '+input);
   ok(!!buildHypothesisContext('我想你了。假如只有半天空闲，你会先看书还是散步？',[timeQuestion]),'a current explicit hypothetical still has its own premise alongside affection');
   const attention={currentTopic:timeQuestion,topicStatus:'active' as const,pausedTopics:[timeQuestion],preferences:{...emptyChatConversationState().preferences,questionTolerance:'low' as const}};
@@ -964,6 +1007,24 @@ async function run() {
   ok(omitUnsupportedCurrentActivities('嗯，我也想你。---'+inventedPosition)==='嗯，我也想你。','exhausted correction retains present affection without an invented window posture');
   for(const text of ['我想坐在窗边。','如果我现在正坐在窗边，应该会想起你。','我现在站在你的立场想问题。','现在坐在椅子上，先休息吧。','刚才正坐在窗边的是你。'])ok(!findCurrentActivityRisk(text),'desire, conditional, metaphor, instruction and explicit other subject are not a claimed own posture: '+text);
   ok(!findCurrentActivityRisk('刚才正坐在窗边发呆。','你刚才正坐在窗边发呆'),'explicit user-defined actor posture remains available');
+  for(const text of ['我也没别的事。','其实我也没别的事，你愿意这样陪我说话，我很高兴。','我今晚没什么事。','我这边没什么要忙的。','我现在有空。','我不忙。','我这会儿闲着。','我也没别的事情要处理。']){
+    ok(!!findCurrentActivityRisk(text),'an explicit current free schedule needs current actor evidence: '+text);
+    for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput(text,{mode,userMessage:'我想你，想和你聊一会儿',persona:'你愿意与爱人分享心意。'}).check.issue==='self-report-risk','willingness is not availability evidence in '+mode+': '+text);
+  }
+  for(const text of ['我也想和你多聊一会儿。','我没事，你不用担心。','我想有空时和你逛街。','如果我今晚没什么事，就一起去吧。','要是我现在有空就好了。','我希望今天有空。','我现在有空吗？','朋友说，我也没别的事。','“我也没别的事”，是他说的。','我也没别的事要你帮忙。','我没有要忙的事吗？','我很高兴你愿意和我聊。'])ok(!findCurrentActivityRisk(text),'present feeling, reassurance, conditional and nonassertion remain free: '+text);
+  ok(!findCurrentActivityRisk('我现在有空。','你现在有空'),'an explicitly supplied actor current schedule can support the exact statement');
+  ok(!findCurrentActivityRisk('我现在有空。','','当前场景：我现在有空'),'an explicitly authored current actor schedule can support the exact statement');
+  ok(!!findCurrentActivityRisk('我现在有空。','','昨天我现在有空。\n对话样本：用户说想聊天 → 你说我现在有空。'),'old records and voice examples cannot prove current availability');
+  ok(omitUnsupportedCurrentActivities('我也想你。---我也没别的事，你愿意陪我聊，我很高兴。---你说的那对金银龙，我也喜欢。')==='我也想你。\n---\n你说的那对金银龙，我也喜欢。','after retry remove the unsupported schedule sentence and preserve independent reactions verbatim');
+  ok(inspectChatOutput('我现在有空。',{mode:'private',userMessage:'写个短篇故事，你今天有空，我们一起去玩。',persona:'古月娜'}).check.issue!=='self-report-risk','an explicitly invited fictional schedule is exempt from ordinary current-state checks');
+  for(const text of ['我也想你。今天没什么事，你想聊到多晚我就陪你。','今晚有空，我可以陪你聊聊。','这会儿没什么要忙的，我和你多说一会儿。']){
+    ok(!!findCurrentActivityRisk(text),'a same-sentence first-person chat continuation scopes an omitted schedule subject: '+text);
+    for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput(text,{mode,userMessage:'我想你。'}).check.issue==='self-report-risk','implicit own availability is checked in '+mode);
+  }
+  for(const text of ['今天没什么事。','如果今晚有空，我就陪你聊聊。','今晚有空的话，我就陪你聊聊。','朋友说，今天没什么事，我就陪你聊聊。','“今天没什么事，我就陪你聊聊”。','今天没什么事吗？我陪你聊。','今天没什么事，他说我陪你。'])ok(!findCurrentActivityRisk(text),'daily-news, scoped conditions, reports, quotations and questions do not invent an own schedule subject: '+text);
+  ok(omitUnsupportedCurrentActivities('我也想你。今天没什么事，你想聊到多晚我就陪你。')==='我也想你。','omit the unsupported implicit schedule while preserving reciprocal affection verbatim');
+  ok(!findCurrentActivityRisk('今天没什么事，我就陪你聊聊。','你今天没什么事'),'explicitly authored user scene supports the same implicit actor schedule');
+  ok(!findCurrentActivityRisk('今天没什么事，我就陪你聊聊。','','当前场景：今天没什么事'),'an explicitly authored current scene supports the implicit actor schedule');
   ok(omitUnsupportedAffectionHistory('嗯，我也想你。---难得你主动说这种话，我记下了。','我想你。')==='嗯，我也想你。','exhausted drafts preserve independent warmth without fabricated user frequency');
   ok(omitUnsupportedAffectionHistory('难得你主动说这种话。','我以前很少主动说喜欢。')==='难得你主动说这种话。','source-backed frequency is not erased by fallback');
   ok(omitUnsupportedAffectionHistory('我也想你，难得你主动说这种话。','我想你。')==='','a dependent unsupported sentence is removed whole instead of rewriting its meaning');

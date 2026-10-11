@@ -1,0 +1,30 @@
+import {readFileSync as read,writeFileSync as write,appendFileSync as append} from 'node:fs';
+const day='2026-10-11',root='D:/月起云归/VirtuGene/手机版';
+const baseline=`docs/GUYUENA-LIVE-PARTNER-FAMILY-PHOTO-WISH-HOLDOUT-R2-${day}.json`,current=`docs/GUYUENA-LIVE-PARTNER-FAMILY-PHOTO-WISH-HOLDOUT-R3-${day}.json`;
+const before=JSON.parse(read(baseline,'utf8')),now=JSON.parse(read(current,'utf8'));
+if(!before.complete||!now.complete||now.errors.length||now.rows.length!==4||now.rows.some((r,n)=>r.input!==before.rows[n].input||r.failed||r.calls.length!==1||r.calls[0].finish!=='stop'||r.calls[0].replayed))throw Error('Unmodified completed actual group required');
+const system=now.rows[3].calls[0].messages.find(m=>m.role==='system').content;
+const original=now.rows[0].input;
+if(!system.includes('[最近设想的事实范围]')||!system.includes(JSON.stringify(original))||system.includes('[正在讨论的假设]'))throw Error('Last actual payload must separate factual boundary from the old discussion focus');
+const decode=p=>{const b=read(p);return b.toString(b[0]===255&&b[1]===254?'utf16le':'utf8').replace(/^\uFEFF/,'');};
+const logs={expression:`release/chat-imagined-fact-boundary-expression-final-${day}.log`,types:`release/chat-imagined-fact-boundary-types-${day}.log`,gu:`release/chat-imagined-fact-boundary-gu-${day}.log`,initialFailure:`release/chat-imagined-fact-boundary-expression-${day}.log`};
+if(!decode(logs.expression).includes('PASS chat-expression: 3634')||decode(logs.types).trim()||!decode(logs.gu).includes('ok 366 assertions'))throw Error('Local verification incomplete');
+const evidence=`release/chat-imagined-fact-boundary-${day}.json`;
+const review={selected:current,priorSelected:baseline,reason:'R3 whole group remains on the imagined photo choice, then ends with a present reciprocal wish to chat without R2 retrospective mental history and explicit sitting claim. It is not flawless: requesting that a hypothetical photograph be handed over can sound demanding, and the warmth is still somewhat elaborated.',limits:['The new factual boundary is proven in the real last request; a single repeated group is not causal or generalization proof.','The third turn still speaks of standing and arguing over a photograph; in its active hypothetical context this is modal, but the wording can blur a desired scene with present co-location.','Second-turn photograph handover demand and nonessential emotional explanation remain; the group does not prove full near-human expression.','The original-user scan remains bounded to six prior user messages plus current, not an unlimited persistent task-state store.','Private send and isolated IndexedDB are real; summaries, extraction and settlement are mocked. No new real Lu/outsider, UI or Android verification.']};
+write(evidence,JSON.stringify({day,baseline,newEvidence:current,newActualUsage:now.usage,alreadyLoggedBaselineUsage:before.usage,logs,actualLastFactBoundary:true,originalSource:original,review,qualityComplete:false},null,2)+'\n');
+const chat=root+`/聊天验收/古月娜-${day}.md`,oldHeading='## partner-family-photo-wish-holdout / r2（家庭合照设想与相处心意）',newHeading='## partner-family-photo-wish-holdout / r3（家庭合照设想与相处心意）';
+let text=read(chat,'utf8');
+if(!text.includes(newHeading)){
+ const start=text.indexOf(oldHeading);if(start<0)throw Error('Whole previous selected group required');
+ const next=text.indexOf('\n## ',start+oldHeading.length),end=next<0?text.length:next;
+ const block=newHeading+'\n\n'+now.rows.map(r=>`**唐舞麟**：${r.input}\n\n${r.replies.map(t=>`**古月娜**：${t}`).join('\n\n')}`).join('\n\n')+'\n';
+ write(evidence,JSON.stringify({...JSON.parse(read(evidence,'utf8')),priorDisplay:text.slice(start,end)},null,2)+'\n');
+ write(chat,text.slice(0,start)+block+text.slice(end));
+}
+const journal=root+`/开发日志/${day}.md`,title='## 话题焦点可以换，设想的事实范围不能跟着丢';
+if(!read(journal,'utf8').includes(title))append(journal,`\n${title}\n\n- 上轮为进展：伴侣日常投影及家庭对照已完成，R2整组更好但仍有坐着聊与未核实旧心理。本轮检查hypothesis实现，发现心意变化后事实补充只保留conditionalJointWish，普通照片／故事设想没有；再表达一轮心意也会因上一轮已清掉焦点而丢失条件。因此把来源追踪与活跃话题分开，而不是继续补上屏话术禁词。\n- traceHypothesis只读取最近6条本人原话和当前，增加只保留心意事实范围的内部模式；公开conversationalHypothesis仍返回活跃焦点。明确实际变更与换题先处理，心意可以清掉焦点、保留原条件到后续心意，普通无关问题会结束原范围。原条件完整引用，不读角色的“已经拍好”等自述当证据。不写库、不授权安排，不增加生产模型调用。补普通设想事实提示，当前已明确的真实变化以当前原话为准；照片真实拍摄／拿出和我们／咱们的实际安排也能结束旧设想。\n- 初检失败来自旧断言要求心意后整个hypothesis文本为空；原要求是放下旧活动，不能与保留事实边界混为一谈。改断言为活跃焦点为空、没有“正在讨论的假设”，新增14项覆盖完整照片条件、两轮心意、条件空闲连续、实际照片与安排、转题、无关问题、转述／引用和实际组装不读角色伪造。失败日志${logs.initialFailure}保留；最终3634项表达、366项Gu及类型通过：${Object.values(logs).slice(0,3).join('、')}。没有声称复跑UI或Android。\n- 同一已存家庭合照四输入仅新增R3完整4轮，真实第四请求有完整原条件的“最近设想事实范围”，没有继续讨论假设的旧话题指导；亲密反应与当前关系仍在。R3最后“我也想多和你说一会儿”“本来也没打算这么快就停”，没有第四轮已坐一起／已经拍照；此前两轮仍在原设想里选开心笑容，第三轮“能和你站在那儿…争两句”是情境里的愿望，但措辞仍容易模糊现场。第二轮“把…那张交出来”仍偏要求，最后“不轻飘飘那种高兴”多了修饰。不能以最后请求带了约束或一轮没出现错误认定泛化和满分。\n- 全组R3比R2少明确的以前总想心理背景和当前坐着陈述，选整组R3替换聊天展示中唯一的家庭合照R2；不混两版好句，旧原稿和旧展示片段保留${evidence}。R2已记过的用量不重复累计。实际新增DeepSeek V4.1 Flash/deepseek-flash ${now.usage.calls}次，输入${now.usage.input}、输出${now.usage.output}、总${now.usage.total} token，低思考、每次500上限，全部stop，无重试。原始${current}，旧基线${baseline}。模型传输完成不等于人味达标。\n- 仍是隔离DB真实私聊、摘要／抽取／结算替身；扫描有窗口，尚不能证明长聊条件永久保持、多日状态或所有真实变更语序。未新增陌生人／陆雪琪真实测试。继续做自然与来源范围的完整体验，不把本次状态追踪当作目标缩小。6.0.23不变，未打包发布。\n`);
+const direction=root+`/优化方向/${day}.md`,dt='## 换心意，不把设想说成已发生';
+if(!read(direction,'utf8').includes(dt))append(direction,'\n'+dt+'\n\n- 转到想念时放下旧问题，原条件仍有效。\n- 连续心意不确认照片、日程或同处一室。\n- 真实变化与换题及时接；命令感、修饰过多仍要改善。\n');
+const index=root+'/00-总览.md',it='- 2026-10-11：分开假设焦点与事实范围，普通设想及连续心意有完整原话边界；3634/366项与类型通过，新增4次真实调用15475 token。';
+if(!read(index,'utf8').includes(it))append(index,'\n'+it+'家庭合照整组改选R3，仍非满分，[[手机版/开发日志/2026-10-11|证据与限制]]。未打包发布。\n');
+console.log(JSON.stringify({newActualUsage:now.usage,selected:current,qualityComplete:false}));
