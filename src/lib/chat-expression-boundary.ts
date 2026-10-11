@@ -13,13 +13,17 @@ export function isOpinionInvitation(message:string):boolean {
 }
 
 /** An invitation to choose a subject, not to invent a day or an old conversation. */
+function hasListeningInvitation(text:string):boolean {
+  return text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
+    /^(?:我(?:今天|现在)?|今天|现在)?(?:就是|只是|就|只)?想(?:听听|听)你(?:说说话|说话|聊几句|讲两句|讲几句|说两句|说几句|聊聊)[呀啊啦呢嘛\s]*$/u.test(part));
+}
+
 export function isTopicInvitation(message:string):boolean {
   const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   if(/(?:翻译|改写|解释|什么意思|怎么说|怎么回复|帮我写|替我写)/u.test(text))return false;
   if(/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事)/u.test(text.trim()))return false;
-  return text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
+  return hasListeningInvitation(text)||text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
     /^(?:那|所以|对了)?\s*(?:你(?:自己)?(?:现在|这会儿|今天)?(?:最|更)?想(?:聊|谈)(?:点)?什么(?:话题)?|你(?:来|自己)(?:选|挑)(?:个|一个)?话题|(?:说|聊)(?:个|一个)你(?:自己)?想聊的话题)[呀啊吧呢\s]*$/u.test(part)
-    || /^(?:我(?:今天|现在)?|今天|现在)?(?:就|只是|只)?想(?:听听|听)你(?:说说话|说话|聊几句)[呀啊啦呢嘛\s]*$/u.test(part)
     || /^(?:(?:那|嗯|好|所以)\s*)?(?:(?:我们|咱们)(?:就|先)?|我(?:现在|今天)?(?:就|只是|只)?想(?:和你|跟你))?(?:随便|随意)(?:说|聊)(?:两句|几句|一会儿|一会|说话|聊)[呀啊吧呢啦\s]*(?:就好|就行|也好)?[呀啊吧呢啦\s]*$/u.test(part));
 }
 
@@ -206,8 +210,7 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
   if(scopeClarification)lines.push('用户在澄清刚才说话的用途或要求，采用他说明的范围，再自然接内容。不同偏好本身不是对你立场的否定，也不是要你授予许可；你可以继续喜欢自己的选择。若刚才理解偏了，直接更正即可，不把澄清当作争输赢，不用反过来证明自己早就知道。');
   if(isTopicInvitation(userMessage))lines.push('用户把这轮话题的选择交给你。挑一个你此刻感兴趣的具体话题，直接聊其中一点或说自己的看法，兴趣本身就可以是开场理由，不需要先编一件生活近况或声称用户上次提过。已有真实记录仍可使用；没有记录时从你现在的兴趣开始，不把决定退回，也不把主动聊天变成要求用户汇报近况。');
   const previousUser=recentUserMessages[recentUserMessages.length-1]??'';
-  const talkInvitation=unquoted.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
-    /^(?:我(?:今天|现在)?|今天|现在)?(?:就|只是|只)?想(?:听听|听)你(?:说说话|说话|聊几句)[呀啊啦呢嘛\s]*$/u.test(part));
+  const talkInvitation=hasListeningInvitation(unquoted);
   if(talkInvitation&&!/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事|帮我|替我|写)/u.test(unquoted.trim()))lines.push('用户想听你说话，是在邀请你主动聊一点，不是在索要今天的行程或近况报告。可以说一个你现在感兴趣的想法、自己的好恶，或有来源的生活线索；无需先让他选听什么，也不用编一件今天或前几天发生的事来填满空白。');
   const affectionReaction=isAffectionReaction(userMessage,previousUser,recentReplies.length>0);
   if(affectionReaction)lines.push('上一轮用户直接表达心意，这轮是在回应你刚才的态度，说自己有点不好意思或害羞。沿着刚才真实的态度轻轻接话即可，包括你已经说清的界限；不用为了缓和气氛收回自己的认真，也不把他的反应改成撤回心意。语气可以轻一点，有分寸地逗一句或坦然说自己的感受，不替他解释心理、不另找心情变好的原因。');

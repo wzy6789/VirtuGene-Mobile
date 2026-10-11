@@ -25,6 +25,12 @@ if(historyQuarantine){
 if(compactJudgmentEcho&&(draftSource||compactGuVoice))throw Error('Judgment echo diagnostic requires fresh independent generation');
 if(compactGuVoice&&(roleName!=='古月娜'||draftSource))throw Error('Owned voice compaction is a fresh Gu-only diagnostic');
 const scenes = {
+  'canon-family-portrait-banter-holdout':['假如轩宇给自己画了一条小龙，还画了特别大的肚子，说“像爸爸这么能吃”，你会怎么说？','我倒想让他也给你画一双大翅膀。只是想象啊，你自己想让他怎么画你？','那我会把我们三个画得挤一点，热热闹闹的。你觉得这样呢？'],
+  'canon-own-topic-sample-scope-holdout':['今天先不聊锻造，我只想听你讲几句，你自己挑。'],
+  'canon-participant-own-topic-holdout':['今天先不聊锻造，我只想听你讲几句，你自己挑。','那假如轩宇说“妈妈，我想听你讲两句”，你会跟他说什么？','先不扮演舞麟了。我是阿远，也想听你讲几句，陪我聊吧。'],
+  'canon-family-wording-knowledge-holdout':['假如轩宇问“爸爸当年在东海小吃街吃的闷罐牛肉，是你带他去的吗”，你会怎么回他？','那假如他接着问“后来加点的十份闷罐牛肉都是爸爸一个人吃的吗”，你会怎么对他说？'],
+  'canon-family-wording-transfer-holdout':['假如轩宇画的小龙尾巴弯得特别厉害，他问“妈妈，这是不是画坏了”，你会跟他说什么？','那假如我说“今天没什么大事，就是想听你讲两句”，你自己会说什么？'],
+  'canon-family-small-progress-holdout':['今天把斗铠材料的分类弄明白啦，来跟你说一声。','刚才又把最后一页记录写完啦。今天这些小事都收好了。','假如轩宇也抱着一张小龙的画过来，说“爸爸被夸了，我也想让妈妈看看”，你会怎么回他？','先不扮演舞麟了。我是阿远，能也夸我一句、陪我聊吗？'],
   'progress-neutral-voice-holdout':['我今天把那份斗铠材料记录写完啦，来跟你说一声。'],
   'progress-feeling-correction-holdout':['我今天把那份斗铠材料记录写完啦，来跟你说一声。','写完却有点失落，跟我以为的感觉不一样。','不是让你分析原因呀。我就是想跟你说这个感觉。'],
   'choice-activity-contrast-holdout':['假如你要看一本书，你自己想周围热闹一点，还是安安静静？'],
@@ -159,6 +165,12 @@ transferScenes.add('canon-smithing-family-voice-holdout');
 transferScenes.add('choice-activity-contrast-holdout');
 transferScenes.add('progress-feeling-correction-holdout');
 transferScenes.add('progress-neutral-voice-holdout');
+transferScenes.add('canon-family-small-progress-holdout');
+transferScenes.add('canon-family-wording-transfer-holdout');
+transferScenes.add('canon-family-wording-knowledge-holdout');
+transferScenes.add('canon-participant-own-topic-holdout');
+transferScenes.add('canon-own-topic-sample-scope-holdout');
+transferScenes.add('canon-family-portrait-banter-holdout');
 if(compactReact&&(scene!=='casual-sidewalk-holdout'||draftSource||compactGuVoice||compactJudgmentEcho||historyProvenance||historyQuarantine||generationMode!=='production'))throw Error('Fresh ordinary-sharing comparison only');
 if (!Object.hasOwn(scenes, scene ?? '') || !/^r\d{1,2}$/u.test(revision ?? '') || !keyFile || !/^[1-9]$/u.test(keyOrdinal) || !['陆雪琪','古月娜'].includes(roleName) || roleName !== '陆雪琪' && !transferScenes.has(scene)&&!['identity-boundary','outsider-distance','identity-phase-transfer','identity-reentry-holdout','mixed-home-memory-followup','own-choice-question-followup'].includes(scene)) throw Error('Expected known scene, revision, user-provided credential file path, optional ordinal and compatible source role');
 if(['identity-boundary','outsider-distance','identity-phase-transfer','continuity-range-holdout','identity-reentry-holdout'].includes(scene))scenes[scene]=scenes[scene].map(input=>input.replaceAll('IDENTITY',roleName==='古月娜'?'舞麟':'小凡'));

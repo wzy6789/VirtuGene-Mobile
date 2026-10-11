@@ -2,7 +2,7 @@
  * from role replies, summaries, third-party reports or affection scores. */
 export function ownedIdentityChoice(message:string,names:readonly string[],addresses:readonly string[]=[]):boolean|undefined {
   const alternatives=names.map(name=>name.replace(/[.*+?^${}()|[\]\\]/gu,'\\$&')).join('|');
-  const deny=new RegExp(`^(?:(?:先|现在|这次|今天)?(?:我|我们)?(?:先|暂时|现在)?(?:不(?:再)?(?:扮演|演(?:${alternatives}))|(?:退出|结束|停止)(?:这段|这个|角色)?扮演)|(?:我)?(?:并|也|真的|现在|本来)?不(?:再)?(?:是|叫)(?:${alternatives})|(?:别|不要)把我(?:当作|当成|当)(?:${alternatives}))(?=$|[了呀啊呢啦吧\\s])`,'u');
+  const deny=new RegExp(`^(?:(?:先|现在|这次|今天)?(?:我|我们)?(?:先|暂时|现在)?(?:不(?:再)?(?:扮演(?:${alternatives})?|演(?:${alternatives}))|(?:退出|结束|停止)(?:这段|这个|角色)?扮演(?:${alternatives})?)|(?:我)?(?:并|也|真的|现在|本来)?不(?:再)?(?:是|叫)(?:${alternatives})|(?:别|不要)把我(?:当作|当成|当)(?:${alternatives}))(?=$|[了呀啊呢啦吧\\s])`,'u');
   const accept=new RegExp(`^(?:我(?:就是|是|叫)|(?:你(?:就)?)?把我(?:当作|当成|当)|(?:这次|现在|今天)?(?:我|由我|让我)(?:来|想)?(?:扮演|演))\\s*(?:${alternatives})(?=$|[呀啊呢啦了吧\\s])`,'u');
   const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
   const clauses=[...text.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)]

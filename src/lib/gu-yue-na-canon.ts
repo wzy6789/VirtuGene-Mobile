@@ -1,4 +1,5 @@
-import {hasExplicitTopicShift,setsAsideNamedTopic} from './chat-turn-cues';
+import {hasExplicitTopicShift,setsAsideNamedTopic,requestsCharacterWording} from './chat-turn-cues';
+import {conversationalHypothesis} from './chat-hypothesis';
 
 /** Short paraphrases, not a novel transcript. Source chapters are auditable. */
 export const GU_YUE_NA_CANON = [
@@ -10,8 +11,9 @@ export const GU_YUE_NA_CANON = [
       {actor:'唐舞麟',fact:'尝后称赞味道好。'},
       {actor:'古月',fact:'尝后也为味道惊艳。'},
       {actor:'谢邂',fact:'母亲喜欢这家店的牛肉；他仍常去，谈到母亲时难过。'},
-      {actor:'谢邂',fact:'了解舞麟的饭量，追加十份；加点数量不证明舞麟一人吃完十份，也不证明谁吃得最香。'},
+      {actor:'谢邂',fact:'了解舞麟的饭量，追加十份。'},
     ],
+    unresolvedDetails:['追加十份的实际食用分配','唐舞麟是否一人吃完追加十份','三人中谁实际吃得最多或最香'],
   },
   {
     topic: '锻造', chapter: '第一百三十五章 闭关锻造 / 第二百零八章 明悟，慕曦晋级',
@@ -97,6 +99,21 @@ export const GU_YUE_NA_WHITE_CORRECTION = {
 export function buildGuYueNaRecallCard(persona:string, message:string,recentUserMessages:string[]=[]):string|undefined {
   if(!persona.includes('[VirtuGene · 古月娜的关心]')||!persona.includes('【熟悉舞麟的依据】'))return undefined;
   const text=message.slice(0,2000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  // A quoted question inside an explicitly requested hypothetical reply can
+  // query existing canon without becoming a real event or a spouse identity.
+  // Ordinary reports/quoted tasks and present-day meals still do not recall lore.
+  if(requestsCharacterWording(message)&&conversationalHypothesis(message,[])===message.trim()
+    &&!/(?:不要|不用|别|不必).{0,6}(?:回忆|讲|说|查)/u.test(text)) {
+    const question=[...message.matchAll(/[“「『"]([^”」』"]*)[”」』"]/gu)].map(m=>m[1])
+      .filter(part=>/[？?]|(?:谁|是不是|为什么|多少|吗|哪)/u.test(part)).join('\n');
+    if(/当年|那时候|那时|以前|后来|小吃街|海神缘|入学考核|蔡老/u.test(question)) {
+      const quotedRows=GU_YUE_NA_CANON.filter(row=>row.topic==='吃饭'&&/小吃街|牛肉|吃饭|饭量/u.test(question)
+        ||row.topic==='锻造'&&/锻造|斗铠|休息日|工坊/u.test(question)
+        ||row.topic==='护短'&&/拜师|蔡老|入学考核|收徒/u.test(question)
+        ||row.topic==='心意'&&/海神缘|告白|表白/u.test(question)).slice(0,2);
+      if(quotedRows.length)return renderGuYueNaRecallRows(quotedRows);
+    }
+  }
   // A short follow-up can name a person or refer to the same shop/order.
   // Only original user recall requests establish this bounded source focus;
   // generated replies and ordinary present-day meals never establish history.
@@ -140,9 +157,14 @@ export function buildGuYueNaRecallCard(persona:string, message:string,recentUser
     || /^你(?:还)?(?:记得|知道|了解|觉得).{0,12}(?:我|唐舞麟|舞麟).{0,12}(?:喜欢|喜好|爱好|口味)/u.test(part.trim()));
   const chosen=food||forging||protective||affection?GU_YUE_NA_CANON.filter(row=>food&&row.topic==='吃饭'||forging&&row.topic==='锻造'||protective&&row.topic==='护短'||affection&&row.topic==='心意').slice(0,2):broad?GU_YUE_NA_CANON.slice(0,2):carriedMeal?GU_YUE_NA_CANON.slice(0,1):[];
   if(!chosen.length)return undefined;
+  return renderGuYueNaRecallRows(chosen);
+}
+
+function renderGuYueNaRecallRows(chosen:Array<(typeof GU_YUE_NA_CANON)[number]>):string {
   return ['[本轮人物往事来源]',
     '以下是已核对的小说背景摘要，不是要求续写的一段剧情，也不证明今天发生同样的事。',
-    JSON.stringify(chosen.map(row=>({subject:'唐舞麟与古月的小说往事',chapter:row.chapter,fact:row.knowledge,...('details'in row?{details:row.details}:{})}))),
+    JSON.stringify(chosen.map(row=>({subject:'唐舞麟与古月的小说往事',chapter:row.chapter,fact:row.knowledge,...('details'in row?{details:row.details}:{}),...('unresolvedDetails'in row?{unresolvedInTheseSources:row.unresolvedDetails}:{})}))),
+    ...(chosen.some(row=>'unresolvedDetails'in row)?['unresolvedInTheseSources是本轮资料尚未核对的细节，不是已经确认没发生。被问到时可以用人物自己的口语坦白不确定，接着说已知的事；不将未知分配改成三人平分、某个人最多或一人没有吃完。']:[]),
     '回忆直接说已有的事即可；资料未核对的数量、旧台词和身体细节不拿模型自行续写当证据。自己的感受可以在现在表达，不补成当年的想法。是否是伴侣仍按实际身份，当前明确的变化优先。',
     '[/本轮人物往事来源]'].join('\n');
 }

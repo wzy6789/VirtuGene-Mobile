@@ -1,0 +1,31 @@
+import {readFileSync as read,writeFileSync as write,appendFileSync as append} from 'node:fs';
+const date='2026-10-11',root='D:/月起云归/VirtuGene/手机版';
+const paths=[`docs/GUYUENA-LIVE-CANON-FAMILY-WORDING-TRANSFER-HOLDOUT-R2-${date}.json`,...['R1','R2'].map(r=>`docs/GUYUENA-LIVE-CANON-FAMILY-WORDING-KNOWLEDGE-HOLDOUT-${r}-${date}.json`)];
+const groups=paths.map(path=>({path,...JSON.parse(read(path,'utf8'))}));
+if(groups.some(g=>!g.complete||g.usage.missingUsage||g.rows.length!==2||g.rows.some(r=>r.failed||r.calls.some(c=>c.replayed))))throw Error('Complete actual source groups required');
+const usage=groups.reduce((s,g)=>({calls:s.calls+g.usage.calls,input:s.input+g.usage.input,output:s.output+g.usage.output,total:s.total+g.usage.total}),{calls:0,input:0,output:0,total:0});
+if(usage.calls!==7||usage.total!==25887)throw Error('Usage mismatch');
+const chosen=groups[2],system=r=>r.calls[0].messages.find(m=>m.role==='system').content;
+for(const row of chosen.rows){
+ if(!system(row).includes(JSON.stringify(row.input))||!system(row).includes('unresolvedInTheseSources')||!system(row).includes('追加十份的实际食用分配'))throw Error('Actual intact source/unknown card missing');
+}
+const checks=JSON.parse(read(`release/chat-hypothesis-source-checks-${date}.json`,'utf8'));
+if(!checks.pass||checks.rows.length!==4||checks.rows.some(r=>r.code!==0))throw Error('Final actual checks required');
+const logs=Object.fromEntries(checks.rows.map(r=>[r.name,read(r.log,'utf8')]));
+if(!logs.expression.includes('PASS chat-expression: 3104 checks')||!logs.gu.includes('278 assertions')||!logs.lu.includes('PASS luxueqi-preset: 123')||logs.types.trim())throw Error('Check outputs differ');
+if(JSON.parse(read('package.json','utf8')).version!=='6.0.19')throw Error('No development version change');
+const evidence=`release/chat-hypothesis-source-evidence-${date}.json`;
+write(evidence,JSON.stringify({usage,checks,groups:groups.map(g=>({path:g.path,usage:g.usage,rows:g.rows.map(r=>({input:r.input,replies:r.replies,finishes:r.calls.map(c=>c.finish)}))})),selectedWholeGroup:chosen.path,sourceVisibilityVerified:true,quoteControlBoundariesVerified:true,unknownVersusFalseCorrectInLatestExample:true,transferAccepted:false,qualityComplete:false,limits:['The first transfer still mistakes the spouse for Silver Dragon King and shifts the invitation back to the user.','The first knowledge run invents who ate most and changes unknown distribution into a definite negative.','The final knowledge run accepts uncertainty but appends an unverified recollection of not counting and a guessed reaction.','No broad causal naturalness, long-chat stability or Lu real-model completion proof.'],versionUnchanged:'6.0.19',newPackages:0,newReleases:0},null,2)+'\n');
+const heading='## 引文也是对话内容：保留条件与未核对细节';
+const journal=root+'/开发日志/'+date+'.md';
+if(!read(journal,'utf8').includes(heading))append(journal,`\n${heading}\n\n- 上轮人物措辞与假设呈现改动、全链路真实请求及失败原稿属于进展。本轮从无来源天气样本的实际请求继续检查，没有通过反复改禁词替代源信息修复。\n- 发现conversationalHypothesis在控制意图检测后把排除引文的短文本作为模型条件。这样“假如我说『今天没什么大事，就是想听你讲两句』，你自己会说什么”变成“那假如我说，你自己会说什么”。现在检测仍用去引文文本，呈现保存完整原话，按完整原话240字预算，超长替换清空旧假设而不是回退或截成不完整的条件。连续话题匹配仍排除引文，引用中的改口、身份、实际购买等不变成当前控制意图或事实。新增20条表达正反检查，实际sections和身份边界覆盖。\n- 两轮转移R2确实保留完整引用并未再编天气，但第二轮把唐舞麟说成“你在银龙王时候”并让想听话的用户反过来讲。不能将源保留正确等同人物事实与人味正确；此组不放精选，完整原稿${groups[0].path}。\n- 继续发现，孩子假设中问原著往事时，引用被剥离使已有小说来源卡不被选中。只对明确、当前、长度有界的假设措辞邀请，按引文中的历史问题读取已有主题摘要，最多两项；不从普通报告、翻译、当前饭菜、拒绝回忆或无关自定义人设加载往事。不新写共同经历、操作授权或身份。沿用先前核对的第74/75章及其他已存章节摘要，本轮没有新声称阅读全文或官网原著访问成功。\n- 首次知识组R1的实际卡片已包含谢邂推荐和追加十份，但模型说爸爸吃得最多、十份是三个人一起吃，把未知分配认成已证实的否定。第二轮首次调用500token全用于推理导致空正文/length，自动直接生成恢复的回复仍错；不能称为质检通过后的事实正确。\n- 将吃饭来源中的已知“谢邂追加十份”与unresolvedInTheseSources独立字段分开，未核对具体分配、舞麟是否吃完追加十份、谁最多或最香。不把不知道当没发生；来源说明只在选中有未知字段的条目时出现，不每个往事卡都重复。新增Gu11条整合检查覆盖实际声音卡、人物归属、直接假设引用查询、未知字段解析、边界与不写回。\n- 最新知识R2第一轮正确沿用谢邂推荐、三人同行及追加十份；第二轮坦白不确定十份怎么分，没有再断言三人分食或舞麟没有吃完。但仍加“好像没认真数过”这一未核对的过去自述和猜舞麟会在旁边笑，表达仍有“我会跟他说”的解释层。此完整两轮是同组当前较好版本，整组保存，不拼其它轮或其它版本。\n- 最终3104表达、278Gu、123Lu与类型检查通过，4套实际子进程退出0；${evidence}与release/chat-hypothesis-source-checks-${date}.json、对应verified日志。保留早期日志与全部模型原稿，未通过降低断言掩盖错误。\n- DeepSeek V4.1 Flash实际${usage.calls}调用，输入${usage.input}、输出${usage.output}、共${usage.total}token；${groups.map(g=>`${g.scene}/${g.revision}:${g.usage.calls}调用/${g.usage.total}token`).join('；')}。500输出上限与既有重试预算不变，未额外付费跑总结或评分；已核对PowerShell stderr警告退出1与模型报告complete/finish/usage，不因此重复启动。\n- 尚未解决：模型可能混淆书中角色身份、将倾听邀请回推给用户、编当时细节与无来源天气；人物内容一致性和长期漂移仍无全面生产闭环。只有本次两个食物来源问题较准确，不证明全书、全话题、完整Gu或后续Lu目标达标。本轮未打包发布，6.0.19保持。\n`);
+const direction=root+'/优化方向/'+date+'.md';
+if(!read(direction,'utf8').includes('## 引文保留，未知留白'))append(direction,'\n## 引文保留，未知留白\n\n- 检测指令不听引文命令，理解对话保留引文内容。\n- 假设中问往事，也按问题读已有原著资料。\n- 已知事实和未核对细节分开，不知道不等于没有。\n- 继续核对角色身份与自己开口的内容，不拿资料接线代替人味验收。\n');
+const chat=root+'/聊天验收/古月娜-'+date+'.md',prefix='## canon-family-wording-knowledge-holdout / ';
+const sections=read(chat,'utf8').split(/(?=^## )/mu).filter(s=>!s.startsWith(prefix));
+write(chat,sections.join('')+`\n## ${chosen.scene} / ${chosen.revision}（完整两轮假设对话）\n\n`+chosen.rows.map(r=>`**chatgpt**：${r.input}\n\n${r.replies.map(s=>'**古月娜**：'+s).join('\n\n')}`).join('\n\n')+'\n');
+const index=root+'/00-总览.md';
+if(!read(index,'utf8').includes('## 引文内容与未知细节范围'))append(index,'\n## 引文内容与未知细节范围（2026-10-11）\n\n- [[手机版/聊天验收/古月娜-2026-10-11|完整小吃街假设两轮]]；[[手机版/优化方向/2026-10-11|简短方向]]。\n- [[手机版/开发日志/2026-10-11|引文缺失、角色混淆、未知分配与25887token实测]]。整体目标未完成，无新增发布。\n');
+const audit=`docs/CHAT-QUALITY-CURRENT-AUDIT-${date}.md`;
+if(!read(audit,'utf8').includes('## 引文条件与未知事实'))append(audit,`\n## 引文条件与未知事实\n\n- 假设原话完整保留；控制与话题匹配仍排除引文；完整源240字上限，不保留截断条件。明确假设中原著问题可读取既有主题卡，未核对分配独立字段，不等同未发生。\n- 实际请求证明完整引用和原著卡接线；最新两轮能坦白未知，但仍加未核对自述。另一转移组出现角色身份错位，整体未通过，不能宣称Gu自然聊天完成。\n- ${evidence}：${usage.calls}实际调用/${usage.total}token，3104表达、278Gu、123Lu与类型检查通过。所有原稿保留，精选仅用完整知识组R2。本轮无发布或打包，6.0.19不变。\n`);
+console.log(JSON.stringify({usage,evidence,qualityComplete:false}));

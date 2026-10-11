@@ -12,6 +12,7 @@ import {buildGuYueNaRecallCard} from './gu-yue-na-canon';
 import {buildRecentFactRecallContext} from './chat-recent-fact-recall';
 import {buildHypothesisContext,buildPreferenceProposalContext} from './chat-hypothesis';
 import {buildViewContinuityContext} from './chat-view-continuity';
+import {requestsCharacterWording} from './chat-turn-cues';
 
 /**
  * 只在本地判断这一轮对话的气质，不调用模型，也不写入数据库。
@@ -355,6 +356,7 @@ export function buildHumanConversationSections(
     {key:'character-voice',text:['[人物声音卡]',...characterVoiceLines(character,userText,history,true),'[/人物声音卡]'].join('\n'),priority:100,placement:'tail',tailOrder:1},
   ];
   const action = chooseConversationAction(userText, history, character, options);
+  const wording=requestsCharacterWording(userText)&&!allowsDramaticReply(userText,recentUsers);
   const authoredReactionIncluded=authoredReactionLines(character?.systemPrompt??'',userText,history).length>0;
   const ownPerspective = requestsCharacterPerspective(userText)||requestsCharacterChoice(userText)||isViewExchange(userText);
   const directions: Record<ConversationAction, string> = {
@@ -374,7 +376,7 @@ export function buildHumanConversationSections(
   const selfChosenPlan=action!=='respond-affection'&&hasSelfChosenPlan(userText)&&!['question','request'].includes(signals.mode)&&!isClosing(userText)&&!allowsDramaticReply(userText,recentUsers);
   const lines = ['[本轮交流的隐藏节奏]', selfChosenPlan
     ?'用户正在告诉你自己的打算，沿用他讲明的时间、内容和范围。按人物口吻接这个打算，可以表达自己的兴趣或轻松反应，留个自然停顿；不需要替他批准、解释决定，也不把计划说成已执行，不补身体姿势、行程或另安排一项。用户希望少分析、少建议时也沿用这个节奏。明确问题和求助照常回应。'
-    :directions[action]];
+    :wording?'对方想听你会亲口说什么。先给出你会说的那句话，让措辞、亲疏与此刻的态度体现你这个人。需要解释时再接一句，不先报告准备怎样回应。假设中的对话仍是假设，沿用已经给出的内容。':directions[action]];
   if(ownPerspective&&!selfChosenPlan&&['react','answer-directly','follow-topic'].includes(action))lines.push('说自己的选择时，理由可以落在眼前事物的特点与此刻想要的体验上，不需要补一套平时怎么做的生活习惯来证明有主见。讨论中的选择仍是这个情境里的选择，不自动变成一贯如此、改不了的性格事实；已有的人设与独立经历可以照常使用。');
   // The terminal intent already settles this turn. Emotional and cadence hints
   // would otherwise invite another discussion after the user has said goodbye.

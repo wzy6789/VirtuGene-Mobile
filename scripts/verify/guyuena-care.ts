@@ -5,7 +5,7 @@ import {withDouluoRelations} from '../../src/lib/douluo-relations';
 import {DOULUO_REUNION_TIMELINE} from '../../src/lib/douluo-timeline';
 import {buildCharacterVoiceCard,buildHumanConversationSections} from '../../src/lib/chat-humanizer';
 import {buildGuYueNaRecallCard,buildGuYueNaDailyFamiliarity} from '../../src/lib/gu-yue-na-canon';
-import {guYueNaPromptForTurn} from '../../src/lib/gu-yue-na-runtime';
+import {guYueNaPromptForTurn,guYueNaRelationshipForTurn} from '../../src/lib/gu-yue-na-runtime';
 
 const report = window.fetch.bind(window);
 let count = 0;
@@ -101,7 +101,7 @@ async function run(): Promise<void> {
   const mealOrigin='你还记得东海那家闷罐牛肉店吗？那时候你自己觉得好吃吗？';
   const mealCard=buildGuYueNaRecallCard(updated.systemPrompt,mealOrigin)??'';
   check(mealCard.includes('尝后也为味道惊艳')&&mealCard.includes('母亲喜欢这家店的牛肉'),'selected meal facts include own response and whose preference it was');
-  check(mealCard.includes('追加十份')&&mealCard.includes('不证明舞麟一人吃完十份'),'the exact order is distinct from an unsupported personal consumption count');
+  check(mealCard.includes('追加十份')&&mealCard.includes('unresolvedInTheseSources')&&mealCard.includes('唐舞麟是否一人吃完追加十份'),'the exact order is distinct from an explicitly unresolved personal consumption count');
   check(!buildGuYueNaDailyFamiliarity('我想你了').includes('追加十份'),'additional chapter detail is retrieved, not appended to every ordinary turn');
   for(const question of ['谢邂为什么总去那家店？','后来还加点了多少份，是谁点的？','当时是谁点的？'])check((buildGuYueNaRecallCard(updated.systemPrompt,question,[mealOrigin])??'').includes('追加十份'),'a direct same-episode question reuses an original source focus: '+question);
   check((buildGuYueNaRecallCard(updated.systemPrompt,'后来还加点了多少份，是谁点的？',[mealOrigin,'谢邂为什么总去那家店？'])??'').includes('母亲喜欢这家店的牛肉'),'source window survives an intermediate explicit episode question');
@@ -307,6 +307,34 @@ async function run(): Promise<void> {
   const customStory={...fullPreset,systemPrompt:fullPreset.systemPrompt.replace('- 天海大比：','- 天海大比：这是我的改编。')};
   check(guYueNaPromptForTurn(customStory,'聊点轻松的').includes('- 天海大比：这是我的改编。'),'edited story text is never condensed as an app-owned paragraph');
   check(fullPreset.systemPrompt.includes('- 分离与守护：')&&dailyPreset.length<fullPreset.systemPrompt.length-700,'runtime routing reduces ordinary context without modifying stored biography');
+  const ownedActor={...fullPreset,systemPrompt:'你是古月娜（银龙王），《斗罗大陆三·龙王传说》女主，唐舞麟（舞麟）的妻子。\n'+GU_YUE_NA_CARE};
+  const actorContext=guYueNaRelationshipForTurn(ownedActor,'今天想听你讲两句',['我是舞麟。']);
+  const actorData=JSON.parse(actorContext.context.split('\n').find(line=>line.startsWith('人物身份（原人设首句）：'))!.split('：').slice(1).join('：'));
+  check(actorData.回复角色==='古月娜'&&actorData.称号归属.人物==='古月娜'&&actorData.称号归属.称号==='银龙王','the unchanged owned title remains attached to the reply actor');
+  check(actorData.当前聊天对象==='唐舞麟'&&actorContext.recognized,'the actual selected spouse is a separate participant rather than inheriting the actor title');
+  const visitorContext=guYueNaRelationshipForTurn(ownedActor,'我是阿远，陪我聊吧');
+  check(visitorContext.context.includes('未认领唐舞麟的来者')&&visitorContext.context.includes('极为冷漠')&&!visitorContext.recognized,'an actor identity projection never grants a visitor the spouse identity');
+  check(!guYueNaRelationshipForTurn({...ownedActor,systemPrompt:ownedActor.systemPrompt.replace('你是古月娜（银龙王）','你是我自定义的古月娜')},'我是舞麟。').context.includes('人物身份（原人设首句）'),'edited actor identity is never replaced by the default canonical title');
+  check(!guYueNaRelationshipForTurn({...ownedActor,sourcePresetId:'my-role',isPreset:false},'我是舞麟。').context,'unrelated characters do not inherit the Gu role table');
+  check(!guYueNaRelationshipForTurn(ownedActor,'写一段故事，我们交换角色。',['我是舞麟。']).context.includes('人物身份（原人设首句）'),'explicit creative scenes retain their presentation without the default actor table');
+  check(!guYueNaRelationshipForTurn(ownedActor,'假如有人说“我是舞麟”，你会怎么回他？').recognized,'quoted hypothetical recognition remains outside actual participant selection');
+  check(ownedActor.systemPrompt.startsWith('你是古月娜（银龙王）')&&!ownedActor.systemPrompt.includes('称号归属'),'identity rendering never writes projected fields into the persona');
+  const namedExit=guYueNaRelationshipForTurn(ownedActor,'先不扮演舞麟了。我是阿远，也想听你讲几句，陪我聊吧。',['我是舞麟。']);
+  check(namedExit.recognized===false&&namedExit.context.includes('未认领唐舞麟的来者')&&namedExit.context.includes('极为冷漠'),'a named exit updates actual private-chat participant selection rather than preserving the old spouse');
+  check(namedExit.context.includes('明确结束伴侣扮演')&&!namedExit.context.includes('当前聊天者已明确认领唐舞麟'),'named exit emits only the new visitor relationship and transition');
+  const familyLore='假如轩宇问“爸爸当年在小吃街吃的闷罐牛肉，是你带他去的吗”，你会怎么回他？';
+  const familyCard=buildGuYueNaRecallCard(fullPreset.systemPrompt,familyLore)??'';
+  check(familyCard.includes('谢邂先推荐闷罐牛肉')&&familyCard.includes('不证明今天发生同样的事'),'an explicit hypothetical quoted historical question loads factual canon without making a current episode');
+  check(familyCard.includes('谢邂')&&familyCard.includes('追加十份'),'the selected source preserves actor attribution and quantity rather than trusting a child quoted premise');
+  const familyData=JSON.parse(familyCard.split('\n').find(line=>line.startsWith('[{"subject"'))!);
+  check(familyData[0].details.find((row:{actor:string;fact:string})=>row.actor==='谢邂'&&row.fact.includes('追加十份')).fact==='了解舞麟的饭量，追加十份。','known ordering facts are not mixed with an unresolved consumption assertion');
+  check(familyData[0].unresolvedInTheseSources.includes('追加十份的实际食用分配')&&familyCard.includes('不是已经确认没发生'),'unknown distribution remains explicitly unknown rather than becoming a false negative');
+  const familyVoice=buildCharacterVoiceCard(fullPreset,familyLore);
+  check(familyVoice.includes('[本轮人物往事来源]')&&familyVoice.includes('谢邂先推荐闷罐牛肉'),'quoted hypothetical lore reaches the actual actor voice card');
+  for(const input of ['朋友问“爸爸当年在小吃街吃的牛肉是谁推荐的？”','“当年牛肉是谁推荐的？”怎么翻译？','假如轩宇问“今天牛肉是不是好吃”，你会怎么回他？','假如轩宇问“当年牛肉是谁推荐的”，不用讲往事，你会怎么回他？'])
+    check(!buildGuYueNaRecallCard(fullPreset.systemPrompt,input),'reports, quoted tasks, current meals and declined recall do not load old canon: '+input);
+  check(!buildGuYueNaRecallCard('我的自定义古月娜',familyLore),'hypothetical quote retrieval cannot attach lore to an unrelated custom persona');
+  check(fullPreset.systemPrompt.includes('【熟悉舞麟的依据】')&&!fullPreset.systemPrompt.includes(familyLore),'the quoted question is never persisted into the actor persona');
   await report('/result?suite=guyuena-care', { method: 'POST', body: `ok ${count} assertions\nALL PASS` });
 }
 run().catch(async (error) => {

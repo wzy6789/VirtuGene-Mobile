@@ -184,7 +184,7 @@ export function selectVoiceExamples(lines:string[],message?:string,options:{allo
   // it does not establish that the event actually happened.
   const viewInvitation=moment==='ordinary'&&(isViewExchange(current)||requestsCharacterPerspective(current)||requestsCharacterChoice(current));
   const progressInvitation=moment==='ordinary'&&!assessExpressionSignals(current).request&&reportsOwnCompletedProgress(current);
-  const sharingInvitation=moment==='ordinary'&&currentTopic.length>6&&!assessExpressionSignals(current).request&&!replyContainsSubstantiveQuestion([current])&&!allowsDramaticReply(current)&&!plainConversationOpening(currentTopic)&&!conversationDeparture(currentTopic);
+  const sharingInvitation=moment==='ordinary'&&currentTopic.length>6&&!assessExpressionSignals(current).request&&!replyContainsSubstantiveQuestion([current])&&!allowsDramaticReply(current)&&!isTopicInvitation(current)&&!plainConversationOpening(currentTopic)&&!conversationDeparture(currentTopic);
   const ranked=lines.map((line,index)=>{
     const example=voiceExampleUserText(line);
     const exampleContent = example.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');

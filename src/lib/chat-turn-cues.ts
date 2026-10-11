@@ -1,4 +1,16 @@
 /** Shared local hints. These never override the original message or authorize actions. */
+/** An addressed invitation to hear the actor's actual words, including an
+ * imagined conversation. This changes presentation only, not scene reality,
+ * character knowledge, relationships or application permissions. */
+export function requestsCharacterWording(message:string):boolean {
+  if(message.length>4000)return false;
+  const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  const recipient='(?:我|他|她|他们|她们|孩子|对方|小鼎|轩宇)';
+  const answer=new RegExp(`^(?:那|那么)?你(?:自己)?(?:会|想|愿意)?(?:怎么|怎样)(?:回(?:复)?(?:${recipient}|这句话)?|(?:跟|对)${recipient}说|说(?:这句话|这件事)?)(?:呢|呀|啊|吧)?$`,'u');
+  const words=new RegExp(`^(?:那|那么)?你(?:自己)?(?:会|想|愿意)(?:跟|对)?(?:${recipient})?说(?:什么|哪一句|哪几句)(?:呢|呀|啊)?$`,'u');
+  return text.split(/[。！？!?，,；;\n]/u).some(clause=>answer.test(clause.trim())||words.test(clause.trim()));
+}
+
 /** A current request to leave another person's motives unanalysed, rather
  * than a ban on the actor's own feelings or on discussing what happened. */
 export function declinesThirdPartyAnalysis(message:string):boolean {

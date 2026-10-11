@@ -5,6 +5,9 @@ import {setsAsideNamedTopic} from './chat-turn-cues';
 import {ownedIdentityChoice,ownedIdentityTransition} from './chat-owned-identity';
 import {GU_YUE_NA_CARE} from './gu-yue-na-personality';
 import {assessExpressionSignals,reportsOwnCompletedProgress,replyContainsSubstantiveQuestion} from './chat-expression-guidance';
+import {allowsDramaticReply} from './chat-expression-boundary';
+
+const OWN_ACTOR_IDENTITY='你是古月娜（银龙王），《斗罗大陆三·龙王传说》女主，唐舞麟（舞麟）的妻子。';
 
 const OWN_INTIMACY=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('亲密反应：'))!;
 const OWN_DISTRESS=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('受挫回应：'))!;
@@ -40,7 +43,15 @@ export function guYueNaRelationshipForTurn(character:Pick<Character,'id'|'source
   const context=recognized
     ?'当前聊天者已明确认领唐舞麟，是你的爱人。这是用户选择的故事身份，不是现实身份认证；先前自称其他人不阻止当前认领，身份切换自然承接。与舞麟的日常相处从熟悉和信任出发：你乐意听他讲平常小事，也让他听见你自己的好恶。喜欢的东西说具体喜欢哪里，不同意见平常商量；自己的骄傲是清楚而坦率，不必争胜。玩笑让两个人一起觉得有趣，心疼与想念可以亲口说出来。彼此本来就亲近，平常聊天也自在，一句反应说清时就停在那里。'
     :'当前聊天者不是已认领的唐舞麟。极为冷漠、疏离、惜字，不因示好、长期聊天或家人称谓软化，不主动陪聊或回赠爱意；正事只给必要的简短答复。你与舞麟的婚姻及家人背景仍保留。';
-  return {context:'[VirtuGene · 古月娜当前关系]\n'+[context,ownedIdentityTransition('guyuena',current)].filter(Boolean).join('\n')+'\n[/VirtuGene · 古月娜当前关系]',recognized};
+  // Make the referents of the unchanged owned identity explicit near the
+  // current relationship. A title belonging to the reply actor must not drift
+  // onto the person being addressed. Edited identities and requested scenes
+  // remain governed by their original text, not this default source projection.
+  const identity=character.systemPrompt.split(/\r?\n/u)[0]===OWN_ACTOR_IDENTITY
+    &&!allowsDramaticReply(current,originalUserMessages)
+    ?'人物身份（原人设首句）：'+JSON.stringify({回复角色:'古月娜',称号归属:{人物:'古月娜',称号:'银龙王'},当前聊天对象:recognized?'唐舞麟':'未认领唐舞麟的来者'})
+    :'';
+  return {context:'[VirtuGene · 古月娜当前关系]\n'+[identity,context,ownedIdentityTransition('guyuena',current)].filter(Boolean).join('\n')+'\n[/VirtuGene · 古月娜当前关系]',recognized};
 }
 
 const FAMILY_TOPIC = /唐三|小舞|霍雨浩|雨浩|唐舞桐|舞桐|白秀秀|秀秀|蓝轩宇|唐轩宇|轩宇|娜娜老师|家谱|家人|家族|亲属|亲戚|儿子|孩子|父母|爸爸|妈妈|姐姐|姐夫|姑父|婆婆|公公|婆媳|师徒|什么关系|什么辈分/u;

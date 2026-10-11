@@ -21,6 +21,7 @@ import {buildPreferenceProposalContext} from '../../src/lib/chat-hypothesis';
 import {buildViewContinuityContext} from '../../src/lib/chat-view-continuity';
 import {buildRecentFactRecallContext} from '../../src/lib/chat-recent-fact-recall';
 import {requestsCharacterChoice} from '../../src/lib/chat-turn-cues';
+import {requestsCharacterWording} from '../../src/lib/chat-turn-cues';
 import {directAffectionSources} from '../../src/lib/chat-expression-boundary';
 import {findSelfReportRisk,omitUnsupportedSelfReportEpisodes} from '../../src/lib/chat-self-report-risk';
 import {findCurrentActivityRisk,omitUnsupportedCurrentActivities} from '../../src/lib/chat-current-activity-risk';
@@ -39,7 +40,7 @@ import {GU_YUE_NA_CARE} from '../../src/lib/gu-yue-na-personality';
 import {withDouluoRelations} from '../../src/lib/douluo-relations';
 import {guYueNaRelationshipForTurn,guYueNaPromptForTurn} from '../../src/lib/gu-yue-na-runtime';
 import {luXueQiRelationshipForTurn,luXueQiFamilyRisk,omitLuXueQiFamilyRisk} from '../../src/lib/lu-xue-qi-runtime';
-import {ownedPartnerContext,ownedIdentityTransition,rejectsSelectedPartner,priorVisitorReplyIds} from '../../src/lib/chat-owned-identity';
+import {ownedPartnerContext,ownedIdentityTransition,rejectsSelectedPartner,priorVisitorReplyIds,ownedIdentityChoice} from '../../src/lib/chat-owned-identity';
 import {requestsBriefReply} from '../../src/lib/chat-reply-size';
 import {setsAsideNamedTopic} from '../../src/lib/chat-turn-cues';
 import {assessExpressionSignals} from '../../src/lib/chat-expression-guidance';
@@ -51,6 +52,69 @@ import {conversationalHypothesis,buildHypothesisContext} from '../../src/lib/cha
 async function run() {
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
+  for(const names of [['唐舞麟','舞麟'],['张小凡','小凡','鬼厉']]) {
+    for(const name of names) {
+      for(const message of ['先不扮演'+name+'了。我是阿远。','我不再扮演'+name+'了。','现在停止扮演'+name+'了。'])
+        ok(ownedIdentityChoice(message,names)===false,'an explicit exit may name the selected role: '+message);
+      for(const message of ['朋友说先不扮演'+name+'了。','“先不扮演'+name+'了”是什么意思？','如果先不扮演'+name+'了会怎样？','先不扮演'+name+'了吗？'])
+        ok(ownedIdentityChoice(message,names)===undefined,'reports, quoted exits, conditions and questions never revoke the speaker role: '+message);
+    }
+    ok(ownedIdentityChoice('先不扮演了。',names)===false,'unnamed explicit exits remain compatible');
+    ok(ownedIdentityChoice('先不扮演老师了。',names)===undefined,'exiting an unrelated named role does not revoke this partner identity');
+  }
+  for(const name of ['张小凡','鬼厉']) {
+    const namedLuExit=luXueQiRelationshipForTurn({...LU_XUE_QI_PRESET,sourcePresetId:LU_XUE_QI_PRESET.id},'先不扮演'+name+'了。我是阿远。',['我是小凡。']);
+    ok(namedLuExit.recognized===false&&namedLuExit.context.includes('极为冷漠'),'the actual Lu private relation drops the spouse after a named alias exit: '+name);
+  }
+  const sourceSharingExample='对话样本：【日常分享】用户说路边一家茶店画着打瞌睡的鱼 → 你说哈哈，茶还没喝，鱼先悠闲上了。';
+  for(const current of ['今天先不聊锻造，我只想听你讲几句，你自己挑。','我是舞麟。今天没什么大事，就是想听你说几句。'])
+    ok(!selectVoiceExamples([sourceSharingExample],current).length,'an actor opening invitation never borrows a user-anecdote response sample: '+current);
+  ok(selectVoiceExamples([sourceSharingExample],'刚才看到一把伞，伞面有几座小山，挺有意思。').includes(sourceSharingExample),'actual user sharing still has its authored response example');
+  const openVoice=buildCharacterVoiceCard({name:'古月娜',tags:[],systemPrompt:GU_YUE_NA_CARE+'\n'+sourceSharingExample},'今天先不聊锻造，我只想听你讲几句，你自己挑。');
+  ok(!openVoice.includes('鱼先悠闲上了'),'the actual opening voice card cannot expose the unrelated anecdote sample as an actor story seed');
+  for(const text of ['今天没什么大事，就是想听你讲两句。','想听你说几句。','我只想听你讲几句。','我现在想听你聊聊。','我想听听你说两句。','今天想听你说说话。']) {
+    ok(isTopicInvitation(text)&&chooseConversationAction(text,[])==='start-topic','ordinary listening invitations ask the actor to contribute rather than interview: '+text);
+    ok(directChatGuidance(text,[],[]).includes('不是在索要今天的行程或近况报告'),'listening variants share the source-aware opening guidance: '+text);
+  }
+  for(const text of ['“我只想听你讲几句”是什么意思？','朋友说想听你聊聊。','假如我想听你讲两句，你会怎么回？','翻译我想听你讲两句。','我想听你讲两句解题步骤。','我不想听你讲两句。'])
+    ok(!isTopicInvitation(text),'quoted, reported, hypothetical, technical and declined invitations retain their actual intent: '+text);
+  const quotedListening='假如轩宇说“妈妈，我想听你讲两句”，你会跟他说什么？';
+  ok(buildHypothesisContext(quotedListening,[]).includes('这句设想中的话是在邀请你开口'),'a quoted hypothetical invitation guides the imagined answer, not the current listener identity');
+  ok(!isTopicInvitation(quotedListening)&&!updateChatConversationState(undefined,quotedListening).topicAdvice,'interpreting an imagined invitation does not install a real topic command or advice preference');
+  ok(!buildHypothesisContext('朋友说“妈妈，我想听你讲两句”，你会跟他说什么？',[]).includes('这句设想中的话是在邀请你开口'),'reported dialogue does not create a hypothetical opening directive');
+  for(const input of ['假如轩宇说“不是要挨夸，我想让你看看”，你会怎么回他？','如果孩子说「这条龙是不是画坏了」，你会跟他说什么？','假设我说"没什么大事，想听你讲两句"，你会说什么？','假如小鼎说『换个话题吧』，你会怎么回他？']) {
+    ok(conversationalHypothesis(input,[])===input,'a hypothetical dialogue preserves its full quoted utterance as source content: '+input);
+    const frame=buildHypothesisContext(input,[]);
+    ok(frame.includes(JSON.stringify(input)),'the actual hypothesis frame contains the intact, JSON-quoted condition: '+input);
+    ok(frame.includes('仍属于设想'),'retaining quoted words does not turn their scene into an actual event: '+input);
+  }
+  const quotedCondition='假如孩子说“我已经买了小龙摆件”，你会怎么回他？';
+  ok(conversationalHypothesis('那你会怎么说？',[quotedCondition])===quotedCondition,'quoted purchase in a hypothesis never resets it to an executed real plan');
+  ok(!conversationalHypothesis('蓝色画板有什么好看？',['假如孩子说“蓝色画板”，你会怎么回他？']),'a term inside a quote does not keep a hypothetical scene alive on an unrelated current topic');
+  const longCondition='假如孩子说“'+ '小龙'.repeat(150)+'”，你会怎么回他？';
+  ok(!conversationalHypothesis(longCondition,[]),'the full raw condition has a bounded length, not a small quote-stripped length');
+  ok(!conversationalHypothesis(longCondition,['假如只有半天空闲，你选什么？']),'an oversized replacement never falls back to a stale earlier premise');
+  for(const source of ['朋友说“假如孩子说一句话，你会怎么回他？”','“假如孩子说一句话，你会怎么回他？”是什么意思？','翻译“假如孩子说一句话，你会怎么回他？”'])
+    ok(!conversationalHypothesis(source,[]),'quoted conditions without an unquoted present invitation do not install a scenario: '+source);
+  const identityCondition='假如孩子说“我是唐舞麟”，你会怎么回他？';
+  ok(!guYueNaRelationshipForTurn({id:'preset-guyuena',isPreset:true,sourcePresetId:'preset-guyuena',systemPrompt:GU_YUE_NA_CARE},identityCondition,[]).recognized,'a preserved hypothetical identity quotation never recognises the current visitor as the spouse');
+  for(const input of ['假如轩宇拿来一张画，你会怎么回他？','假如小鼎说“我也想让妈妈看看”，你会怎么对他说？','你自己会跟我说什么呢？','那么你想说哪一句？','你会怎么回复她们？','那你愿意对孩子说什么？','你会怎样说这句话？','你会说什么？']) {
+    ok(requestsCharacterWording(input),'an addressed wording invitation is recognised without assigning an actual event: '+input);
+    const section=buildHumanConversationSections(input,[],{name:'测试',tags:[],systemPrompt:'判断习惯：坦率地说自己的想法。'}).map(row=>row.text).join('\n');
+    ok(section.includes('对方想听你会亲口说什么')&&section.includes('假设中的对话仍是假设'),'wording guidance enters actual conversation sections: '+input);
+  }
+  for(const input of ['我该怎么回他？','轩宇会怎么说？','朋友问你会怎么回他。','“你会怎么回他？”是什么意思？','如果我问你会怎么回他呢？','不用告诉我你会怎么回他。','你会怎么回复接口请求？','你会怎么解释这句诗？','你会怎么分析他？','我会跟他说什么？']) {
+    ok(!requestsCharacterWording(input),'reports, quotations, tasks and other speakers do not become an actor wording invitation: '+input);
+  }
+  const storyWording=buildHumanConversationSections('写一段故事，描写见面后的动作。你会怎么回他？',[],{name:'测试',tags:[],systemPrompt:'判断习惯：坦率地说自己的想法。'}).map(row=>row.text).join('\n');
+  ok(!storyWording.includes('对方想听你会亲口说什么'),'an explicit creative scene keeps its requested narrative presentation');
+  const wordingHypothesis=buildHypothesisContext('假如孩子拿来一张画，你会怎么回他？',[]);
+  ok(wordingHypothesis.includes('直接给出那句回应')&&!wordingHypothesis.includes('用设想中的例子说明'),'a wording hypothesis does not reintroduce generic choice narration after the direct delivery clue');
+  ok(buildHypothesisContext('假如要挑一张画，你更喜欢整齐还是错落？',[]).includes('用设想中的例子说明'),'ordinary hypothetical choices retain their existing explanatory freedom');
+  for(const [name,systemPrompt] of [['古月娜',GU_YUE_NA_CARE],['陆雪琪',LU_XUE_QI_PRESET.systemPrompt]]) {
+    const text=buildHumanConversationSections('假如孩子拿来一张画，你会怎么回他？',[],{name,systemPrompt,tags:[]},{interpersonalBoundary:'distant'}).map(row=>row.text).join('\n');
+    ok(!text.includes('对方想听你会亲口说什么')&&text.includes('极为冷漠'),'a wording invitation never opens intimate family roleplay to a visitor: '+name);
+  }
   for(const message of ['今天把锻造练习里一直卡住的一点弄明白啦，想先跟你说。','我终于把总弹错的那一段练顺了。','我刚才把一直没拼好的小模型拼好啦。','今天把那份材料交上了。']) {
     ok(reportsOwnCompletedProgress(message)&&interactionMoment(message)==='ordinary','completed personal progress remains ordinary without manufacturing a celebration mood: '+message);
     ok(assessExpressionSignals(message).emotionConfidence===0,'a progress clue does not fabricate a happy emotion: '+message);
