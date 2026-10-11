@@ -116,7 +116,25 @@ const fixture = `
     await page.keyboard.press('Escape'); await page.waitForTimeout(260);
     check(await page.getByRole('dialog').count() === 1 && await page.getByRole('dialog').getAttribute('aria-labelledby') !== null, 'Escape returns only from the top page');
     check(await page.getByRole('dialog').locator('input[name="testName"]').inputValue() === '保留的草稿' && await page.getByRole('dialog').locator('[data-modal-scroll]').evaluate(el => el.scrollTop) === 330, 'returning preserves parent draft and scroll position');
-    await show(['scroll','confirm']); await page.waitForTimeout(300);
+    await show(['scroll','confirm']);
+    const dialogMotion = await page.getByRole('dialog',{name:'confirm',exact:true}).evaluate(el => el.getAnimations().flatMap(a => a.effect.getKeyframes()).filter(f => f.transform).map(f => {
+      const m = new DOMMatrixReadOnly(f.transform); return { scale:m.m11, x:m.m41, y:m.m42 };
+    }));
+    check(dialogMotion.length > 1 && dialogMotion[0].scale < 1 && dialogMotion.at(-1).scale === 1
+      && dialogMotion.every(f => f.x === 0 && f.y === 0), 'centered dialogs settle in scale without any edge travel');
+    const interruptedDialog = await page.evaluate(() => {
+      const panel = document.querySelector('.vg-mobile-dialog');
+      const animation = panel.getAnimations()[0]; animation.pause(); animation.currentTime = 65;
+      const before = new DOMMatrixReadOnly(getComputedStyle(panel).transform).m11;
+      const opacity = +getComputedStyle(panel).opacity;
+      window.motionTest.show(['scroll']);
+      const frozen = document.querySelector('.vg-modal-exit .vg-mobile-dialog');
+      return { before, after:new DOMMatrixReadOnly(getComputedStyle(frozen).transform).m11,
+        opacity, afterOpacity:+getComputedStyle(frozen).opacity };
+    });
+    check(Math.abs(interruptedDialog.before - interruptedDialog.after) < .00001
+      && Math.abs(interruptedDialog.opacity - interruptedDialog.afterOpacity) < .00001, 'closing mid-entry preserves dialog scale and opacity continuously');
+    await page.waitForTimeout(260); await show(['scroll','confirm']); await page.waitForTimeout(300);
     const confirmation = page.getByRole('dialog',{name:'confirm',exact:true});
     const confirmBox = await confirmation.boundingBox();
     check(confirmBox.x > 0 && confirmBox.y > 0 && confirmBox.width < 320 && await confirmation.locator('.vg-page-header').count() === 0, 'brief confirmation is centered rather than a bottom drawer or another page');

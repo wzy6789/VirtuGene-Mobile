@@ -133,7 +133,7 @@ export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
         action={<button onClick={() => { if (search || selectedTags.length) { setSearch(''); setSelectedTags([]); } else setEditor({}); }}>{search || selectedTags.length ? '清除筛选' : '添加角色'}</button>} /> : <div className="space-y-2">{visible.map(c => <CharacterRow key={c.id} character={c} onOpen={() => setProfile(c)} onManage={isOwn(c) ? () => setManage(c) : undefined} />)}</div>}
     </div>
     <Modal presentation="dialog" open={!!manage} onClose={() => setManage(null)} title={manage?.name} width="max-w-sm">
-      <div className="p-4 space-y-2">
+      <div className="vg-dialog-actions p-4 space-y-2">
         {manage?.agentProfile === 'secretary' ? <button className="w-full min-h-12 rounded-xl bg-surface text-sm text-ink" onClick={() => { setManage(null); window.dispatchEvent(new Event('virtugene:open-secretary')); }}>助理管理 · 解雇与聘用</button> : <>
           <button className="w-full min-h-12 rounded-xl bg-surface text-sm text-ink" onClick={() => { if (manage) setEditor({ character: manage }); setManage(null); }}>编辑角色</button>
           <button className="w-full min-h-12 rounded-xl bg-red-500/10 text-sm text-red-400" onClick={() => { setError(''); setDeleting(manage); setManage(null); }}>删除角色</button>

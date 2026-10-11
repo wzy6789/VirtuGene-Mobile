@@ -14,7 +14,7 @@ const server = createServer((req, res) => {
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
-const output = '.tmp-preview/compact-dialogs-20261011'; mkdirSync(output, { recursive: true });
+const output = process.env.VG_DIALOG_EVIDENCE || '.tmp-preview/compact-dialogs-20261011'; mkdirSync(output, { recursive: true });
 let checks = 0; const evidence = [], errors = [];
 const check = (ok, label) => { if (!ok) throw Error(label); checks++; console.log('ok ' + label); };
 try {
@@ -37,10 +37,38 @@ try {
       && geometry.x >= 20 && geometry.y >= 20 && !geometry.verticalMotion, label + ' stays compact and never drops or rises');
     evidence.push({ label, geometry });
   };
+  const composer = async name => {
+    await setup('composer');
+    const field = page.getByRole('textbox', { name: '消息内容' });
+    const send = page.getByRole('button', { name: '发送消息', exact: true });
+    await field.waitFor();
+    check(await send.isDisabled(), 'empty composer keeps send unavailable ' + name);
+    await field.fill('这是一句准备发送的中文消息。');
+    await field.focus();
+    await page.waitForTimeout(220);
+    const geometry = await field.evaluate(el => {
+      const r = el.getBoundingClientRect(); const style = getComputedStyle(el);
+      const button = document.querySelector('.chat-composer-send').getBoundingClientRect();
+      const shell = document.querySelector('.chat-composer');
+      return { fieldWidth: r.width, buttonWidth: button.width, buttonHeight: button.height,
+        font: parseFloat(style.fontSize), overflow: shell.scrollWidth > shell.clientWidth + 1,
+        focusShadow: style.boxShadow, inputOutline: style.outlineStyle };
+    });
+    check(geometry.fieldWidth >= 120 && geometry.buttonWidth >= 44 && geometry.buttonHeight >= 44
+      && geometry.font >= 14 && !geometry.overflow && geometry.inputOutline === 'none' && geometry.focusShadow !== 'none', 'composer fits and has subtle focus plus touch targets ' + name);
+    await page.screenshot({ path: `${output}/composer-${name}.png` });
+    await send.click();
+    check((await page.evaluate(() => window.compactDialogs.sent())).length === 1 && await field.inputValue() === '', 'send commits once and clears draft ' + name);
+    await page.evaluate(() => window.compactDialogs.generating(true));
+    const stop = page.getByRole('button', { name: '停止生成', exact: true });
+    await stop.waitFor(); check(await stop.isEnabled(), 'streaming stop remains available ' + name);
+    await stop.click(); await send.waitFor();
+  };
   for (const theme of ['dark', 'light']) for (const width of [320, 390, 430]) {
     await page.setViewportSize({ width, height: 844 });
     await page.evaluate(theme => document.documentElement.classList.toggle('dark', theme === 'dark'), theme);
     const name = `${theme}-${width}`;
+    await composer(name);
     await setup('chats'); await row().click({ button: 'right' }); await compact('conversation ' + name);
     await page.waitForTimeout(320); await page.screenshot({ path: `${output}/conversation-${name}.png` });
     await page.keyboard.press('Escape'); await page.getByRole('dialog').waitFor({ state: 'hidden' });

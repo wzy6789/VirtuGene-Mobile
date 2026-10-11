@@ -1,0 +1,23 @@
+import {readFileSync as read,writeFileSync as write,appendFileSync as append,existsSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+const root='D:/月起云归/VirtuGene/手机版';
+const files=[1,2].map(n=>`docs/CHAT-IMPLICIT-HABIT-AUDIT-R${n}-2026-10-11.json`);
+const reports=files.map(p=>JSON.parse(read(p,'utf8')));
+const usages=files.map(p=>JSON.parse(read(p.replace('.json','-USAGE.json'),'utf8')));
+if(reports.some(r=>!r.complete||r.rows.length!==4||r.rows.some(row=>row.finish!=='stop'))||usages.some(u=>u.totals.calls!==4||u.totals.missingUsage))throw Error('Complete bounded reviews and usage required');
+for(let i=0;i<4;i++)if(JSON.stringify(reports[0].rows[i].input)!==JSON.stringify(reports[1].rows[i].input)||reports[0].rows[i].expected!==reports[1].rows[i].expected)throw Error('No case or expected verdict may change between revisions');
+for(const report of reports)for(const row of report.rows){const original=JSON.parse(read(row.source,'utf8')).rows[row.row];if(row.input.candidate!==original.replies.join('---')||row.input.userMessage!==original.input)throw Error('Full original candidate required');}
+if(JSON.parse(read('package.json','utf8')).version!=='6.0.21')throw Error('Unexpected version change');
+const totals=usages.reduce((s,u)=>Object.fromEntries(Object.keys(s).map(k=>[k,s[k]+u.totals[k]])),{calls:0,input:0,output:0,total:0,missingUsage:0});
+const chats=['聊天验收/古月娜-2026-10-11.md','聊天验收/陆雪琪-2026-10-11.md'].filter(p=>existsSync(root+'/'+p)).map(p=>({path:p,sha256:createHash('sha256').update(read(root+'/'+p)).digest('hex')}));
+const proof={files,totals,pairedInputsUnchanged:true,fullCandidates:true,newDialogueTurns:0,productionReviewEnabled:false,qualityComplete:false,localVerification:{factAuditChecks:22,typecheckExit:0,evidence:'Actual commands completed with exit 0 in this turn; these checks verify source/location constraints, not semantic accuracy.'},chatSelectionUnchanged:chats,interpretation:'Both revisions have 2/4 valid expected verdicts. This does not establish 50% semantic accuracy: the valid own-habit finding also falsely flags a subjective impression, and present cup wishes are incorrectly turned into factual claims. R2 locates both implicit histories but still mishandles the two benign candidates. No third paid revision and no per-turn deployment.'};
+const evidence='release/chat-implicit-habit-audit-evidence-2026-10-11.json';
+write(evidence,JSON.stringify(proof,null,2)+'\n');
+const journal=root+'/开发日志/2026-10-11.md',heading='## 隐含旧习惯的语义审查：会查错，也会误伤感情';
+if(!read(journal,'utf8').includes(heading))append(journal,`\n${heading}\n\n- 上一轮为进展：用户授权的6.0.21打包、发布与官网核验均已完成。本轮恢复聊天目标，未再次打包、发布或改版本。当前目标仍未达到。\n- 检查真实完整旧稿：“我安静惯了…”、“我记得你以前也是这样…”两组隐含历史，以及完整银龙翅膀条件意愿、杯子刻字亲近表达两组正常回应。采用实际原输入与独立背景/用户原话，不用旧assistant或声音样本证明经历，不改预先期望。这里评审的是既有完整候选，不是新增角色对话，也不是人工人味打分。\n- 原FactAudit R1：2/4可解析且期望吻合；自述旧习惯虽被检出，主观“热闹里带着松快”也被错误要求提供证据。故事习惯候选因分条符定位与时域混用整体无效；想象的翅膀被列为当前事实并引用背景，严格解析拒绝；刻字虽pass，仍把接受提议与对等意愿列成事实。不能只记2/4而忽略误伤。\n- 诊断协议改进：先解析气泡再分句，避免---残留在精确引文；事实定位改为fragmentId，程序返回完整原句，未知ID、缩短/冲突引文、重复项均拒绝。保留旧整句quote解析，新增说明先分清事实与表达，不要求当前情感有过去证据。文件src/lib/chat-fact-audit.ts、scripts/verify/chat-fact-audit.mjs。它仍仅供诊断，不接生产三条聊天链路。\n- 完全相同候选与来源的R2：两处旧习惯均可定位为revise，但主观感受仍被误判；条件想象与当前刻字意愿仍被列为事实，后者还出现pass与unsupported冲突，严格解析拒绝。R2仍仅2/4有效期望吻合，不能宣布审查有效、人味提高或隐含历史漏洞已关闭。没有付费第三次尝试，也不放宽时域校验去凑通过。\n- 本地22项来源、时域、定位检查和类型检查退出0。它们证明协议约束，不证明模型理解。证据${files.join('、')}及对应-USAGE.json，汇总${evidence}；运行器scripts/verify/chat-implicit-habit-audit{,-r2}.mjs。\n- 新增实际模型审查${totals.calls}次，input ${totals.input} / output ${totals.output} / total ${totals.total} token；R1 3944、R2 4264，均deepseek-flash、thinking disabled、最大500输出、finish stop、用量齐全。没有新角色回复、没有重放冒充生成，聊天精选文件不改，原较好整组继续保留；对话与优化方向不混写。\n- 下一步：不在每轮生产额外加付费“事实审查”。优先检验生成阶段能否把亲近放在当下反应、共同行为意愿和有来源往事上；语义审核需要更广的未见材料、误伤率与修正语气一起验，不能只用查出坏稿作为上线依据。古月娜尚未结束，陆雪琪完整闭环与长期漂移仍开放。\n`);
+const direction=root+'/优化方向/2026-10-11.md',title='## 查假旧习惯，不审掉真心意';
+if(!read(direction,'utf8').includes(title))append(direction,`\n${title}\n\n- 旧习惯需要来源，当下感受不需要旧记录。\n- 有限诊断不变成每轮额外调用。\n- 查错与误伤一起看，不靠放宽验证凑通过。\n- 先让生成更自然，再验证审查与修正。\n`);
+const index=root+'/00-总览.md',entry='## 隐含旧习惯与正常心意对照（2026-10-11）';
+if(!read(index,'utf8').includes(entry))append(index,`\n${entry}\n\n- [[手机版/开发日志/2026-10-11|8次有限语义审查、误伤与8208token实际用量]]；[[手机版/优化方向/2026-10-11|简短方向]]。\n- 审查仍会把想象和心意当事实，不启用每轮审查；聊天精选保留原整组，目标未完成，无新发布。\n`);
+for(const chat of chats)if(createHash('sha256').update(read(root+'/'+chat.path)).digest('hex')!==chat.sha256)throw Error('Diagnostic work must not rewrite selected dialogue');
+console.log(JSON.stringify({totals,localFactAuditChecks:22,newDialogueTurns:0,productionReviewEnabled:false,qualityComplete:false}));

@@ -359,6 +359,7 @@ export function buildHumanConversationSections(
   const wording=requestsCharacterWording(userText)&&!allowsDramaticReply(userText,recentUsers);
   const authoredReactionIncluded=authoredReactionLines(character?.systemPrompt??'',userText,history).length>0;
   const ownPerspective = requestsCharacterPerspective(userText)||requestsCharacterChoice(userText)||isViewExchange(userText);
+  const affectionateOpening=action==='start-topic'&&isDirectAffection(userText);
   const directions: Record<ConversationAction, string> = {
     'respond-clarification': '按本轮明确的交流范围，继续聊他提到的具体事情。说一处你感兴趣的细节、自己的看法或感受，接话本身体现听懂了。若有需要纠正的事实，简短纠正后接上；自己的不同好恶仍然保留。',
     'respond-affection': isAffectionQuestion(userText)?AFFECTION_QUESTION_DIRECTION:DIRECT_AFFECTION_DIRECTION,
@@ -373,6 +374,7 @@ export function buildHumanConversationSections(
     'short-close': '用户正在收尾，按这个人的方式回应告别，不硬开新话题；下次聊天的时间与安排沿用对方讲明的内容，未约定时不替他定明天或要求按时回来。你先前提出的邀请不是对方已经答应的约定，告别不再催他落实。问候可以依照用户的作息，不用根据当前时钟纠正一句晚安。前面的普通闲聊不自动变成用户仍然挂心的事，不为显得记得细节追加「别惦记、别担心」等未经表达的安抚；有真正共同的笑点仍可以简短呼应。',
     react: options.compactOrdinaryReaction?'接这件小事，说出你自己此刻的反应。':'轻松交流，从这件事里你真正在意的细节接话，说自己的趣味、好恶或感受。熟悉的人分享小事，就当作已经聊起来了，不必先解释他为什么来分享或衡量这事值不值得。好奇时问你确实想知道的一点，反应说完也可以停。普通分享不是让你检查生活是否正确，不自动补处理办法。用户只说当下感受时，回应这一刻就够了，不需要给出它从哪里来的解释；用户自己讲明的原因照常使用。同感可以是一句当下的态度或玩笑；经历与现场仍按共享契约。',
   };
+  if(affectionateOpening)directions['start-topic']='用户直接表达了心意，也邀请聊些平常话。先说你自己的心意，再接着聊一点你此刻感兴趣的具体想法、好恶或设想；让他有内容可接，不把话题交还给他。已有关系决定亲疏，内容依你这个人的兴趣，不规定一定聊家庭或哪种题目。真实往事沿用独立来源；没有近况记录也可以说现在的想法，不编今天做过什么，也不转成生活检查。保持自然长短，不要求每次固定两条。';
   const selfChosenPlan=action!=='respond-affection'&&hasSelfChosenPlan(userText)&&!['question','request'].includes(signals.mode)&&!isClosing(userText)&&!allowsDramaticReply(userText,recentUsers);
   const lines = ['[本轮交流的隐藏节奏]', selfChosenPlan
     ?'用户正在告诉你自己的打算，沿用他讲明的时间、内容和范围。按人物口吻接这个打算，可以表达自己的兴趣或轻松反应，留个自然停顿；不需要替他批准、解释决定，也不把计划说成已执行，不补身体姿势、行程或另安排一项。用户希望少分析、少建议时也沿用这个节奏。明确问题和求助照常回应。'
@@ -396,7 +398,7 @@ export function buildHumanConversationSections(
     lines.push(expressionDirection(signals.expression));
   else if (signals.expression.situation==='neutral' && action!=='start-topic' && !isDirectAffection(userText) && action !== 'follow-topic' && recentUsers.slice(-2).some(text=>assessExpressionSignals(text).situation!=='neutral'))
     lines.push('不因为前面聊过情绪就继续安慰；本轮以用户现在说的内容为准。');
-  const direct = directChatGuidance(userText,recentUsers,recentReplies,{includeAffection:action!=='respond-affection'});
+  const direct = directChatGuidance(userText,recentUsers,recentReplies,{includeAffection:action!=='respond-affection'&&!affectionateOpening,includeTopicInvitation:action!=='start-topic'});
   if (direct) lines.push(direct);
   if (correctsOwnFeeling(userText) && !allowsDramaticReply(userText,recentUsers)) {
     lines.push('用户明确更正了对自己感受的判断，按本人此刻的解释接话。被否认的感受不再作为关心或玩笑的前提，也不换成“如果真是这样”的建议继续同一方向；新的感受、原因和明确求助仍以这条原话为准。');

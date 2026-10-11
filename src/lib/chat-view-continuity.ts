@@ -24,6 +24,7 @@ export function buildViewContinuityContext(message:string,history:Array<{role:st
     ||(!requestsCharacterChoice(previous)&&!isViewExchange(previous)&&!requestsCharacterPerspective(previous)))return '';
   const adjacentQuestion=message.split(/[。！？!?，,；;\n]/u).some(part=>/^你(?:自己|个人)?的(?:看法|想法|观点|理由)(?:是什么|呢)?$/u.test(part.trim()));
   if(!sharingAlternative&&!adjacentQuestion&&!isTopicRelated(message,previous))return '';
-  if(sharingAlternative)return `[相邻观点原话]\n对方上轮问：${JSON.stringify(previous)}\n你上轮答：${JSON.stringify(answer)}\n这只是刚才一次交流的原话，不是生活事实或永久喜好。对方现在接着说自己喜欢的地方，分清你刚才的选择与他这句的选择，再继续聊具体喜欢的内容。你可以保留自己的选择，把自己的理由说得让他听懂，不需要让他选一样，也不用替他解释为什么喜欢。真正好奇的内容仍可问；这句话本身不要求他证明自己的趣味。\n[/相邻观点原话]`;
-  return `[相邻观点原话]\n对方上轮问：${JSON.stringify(previous)}\n你上轮答：${JSON.stringify(answer)}\n这只是刚才一次交流的原话，不是生活事实或永久喜好。现在追问的是你的理由，先分清你选的与对方选的；解释自己的原意，若改主意就说具体的新理由，不把对方的选择说成自己刚才的选择。\n[/相邻观点原话]`;
+  const sourceFrame=`[相邻观点原话]\n对方上轮问：${JSON.stringify(previous)}\n你上轮答：${JSON.stringify(answer)}\n这只是刚才一次交流的原话，不是生活事实或永久喜好。自己的理由落在正在聊的事物有什么特点、你此刻想要怎样的体验。合得来或意见不同，就从双方这几句实际说的话接；熟悉与亲近也可以是现在的心意、好奇或一起做某事的意愿，不需要补成双方从前一向如此。独立的人设与作品往事仍按其原有来源使用。`;
+  if(sharingAlternative)return `${sourceFrame}\n对方接着讲对这件事的喜好，分清你刚才的选择与他这句的选择，再聊具体喜欢哪里。保留自己的选择，不需要让他选一样，也不用替他解释为什么喜欢。真正好奇的内容仍可问；这句话本身不要求他证明自己的趣味。\n[/相邻观点原话]`;
+  return `${sourceFrame}\n现在追问的是你的理由，分清你选的与对方选的；解释自己的原意，若改主意就说具体的新理由，不把对方的选择说成自己刚才的选择。\n[/相邻观点原话]`;
 }

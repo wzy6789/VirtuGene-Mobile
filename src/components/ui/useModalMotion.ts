@@ -1,8 +1,8 @@
 ﻿import { useCallback, useEffect, useRef } from 'react';
 import { IS_MOBILE } from '../../lib/platform';
-import { prefersReducedMotion, restoreSnapshotScroll, settleFrames, subscribeReducedMotion, visualSnapshot } from '../../lib/mobile-motion';
+import { prefersReducedMotion, restoreSnapshotScroll, settleFrames, settleProgress, subscribeReducedMotion, visualSnapshot } from '../../lib/mobile-motion';
 
-interface Handoff { left: number; opacity: number; panelOpacity: number }
+interface Handoff { left: number; opacity: number; panelOpacity: number; dialogScale?: number }
 interface ClosingFrame {
   depth: number;
   remove: () => void;
@@ -14,6 +14,12 @@ const closingFrames = new Map<HTMLElement, ClosingFrame>();
 // Track committed refs so that a replacement is not mistaken for a nested page.
 const liveOverlays = new Set<HTMLElement>();
 const translateX = (style: CSSStyleDeclaration) => style.transform === 'none' ? 0 : new DOMMatrixReadOnly(style.transform).m41;
+const scaleOf = (style: CSSStyleDeclaration) => style.transform === 'none' ? 1 : new DOMMatrixReadOnly(style.transform).m11;
+// Centered dialogs breathe into place; never travel from a screen edge.
+const dialogFrames = (from: number, to: number, opacityFrom: number, opacityTo: number): Keyframe[] =>
+  settleProgress(3).map(({ offset, progress }) => ({ offset,
+    transform: `scale(${from + (to - from) * progress})`,
+    opacity: opacityFrom + (opacityTo - opacityFrom) * progress }));
 
 /** A closing frame can finish even when the caller immediately unmounts the Modal. */
 export function useModalMotion(canSnapshotOnExit?: () => boolean) {
@@ -44,6 +50,7 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
       const panelX = translateX(panelStyle);
       const panelLeft = panel.getBoundingClientRect().left;
       const page = panel.classList.contains('vg-mobile-page');
+      const panelScale = scaleOf(panelStyle);
       const backgroundColor = rootStyle.backgroundColor;
       const depth = live.depth;
       const snapshot = visualSnapshot(live.node);
@@ -53,7 +60,7 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
       snapshot.style.backgroundColor = backgroundColor;
       snapshot.style.opacity = String(rootOpacity);
       const frozenPanel = snapshot.querySelector<HTMLElement>(':scope > .vg-modal-panel')!;
-      frozenPanel.style.transform = `translate3d(${panelX}px,0,0)`;
+      frozenPanel.style.transform = page ? `translate3d(${panelX}px,0,0)` : `scale(${panelScale})`;
       frozenPanel.style.opacity = String(panelOpacity);
       frozenPanel.style.willChange = 'transform,opacity';
       document.body.append(snapshot);
@@ -84,7 +91,7 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
       // allocation/cancellation. Hold the captured pose until that decision is known.
       startFrame = requestAnimationFrame(() => {
         if (!allowed()) { remove(); return; }
-        leave = frozenPanel.animate(settleFrames(panelX, page ? panelX + 48 : panelX, panelOpacity, .74, 'x', 3), { duration: 180, easing: 'linear' });
+        leave = frozenPanel.animate(page ? settleFrames(panelX, panelX + 48, panelOpacity, .74, 'x', 3) : dialogFrames(panelScale, .985, panelOpacity, 0), { duration: 180, easing: 'linear' });
         shade = snapshot.animate([{ opacity: rootOpacity }, { opacity: 0 }], { duration: 180, easing: 'cubic-bezier(.4,0,1,1)' });
         shade.onfinish = remove;
       });
@@ -95,15 +102,16 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
         const style = getComputedStyle(frozenPanel);
         const x = translateX(style);
         const ownOpacity = Number(style.opacity);
+        const scale = scaleOf(style);
         const left = panelLeft + x - panelX;
         cancelAnimationFrame(startFrame); leave?.cancel(); shade?.cancel();
         // The incoming overlay owns one continuous scrim. Its predecessor is an
         // inert visual under the new panel, including when replacing a nested page.
         snapshot.style.backgroundColor = 'transparent'; snapshot.style.opacity = '1'; snapshot.style.zIndex = '0';
         overlay.prepend(snapshot);
-        leave = frozenPanel.animate(settleFrames(x, page ? x - 8 : x, ownOpacity, 0, 'x', 3), { duration: 140, easing: 'linear' });
+        leave = frozenPanel.animate(page ? settleFrames(x, x - 8, ownOpacity, 0, 'x', 3) : dialogFrames(scale, .985, ownOpacity, 0), { duration: 140, easing: 'linear' });
         leave.onfinish = remove;
-        return { left, opacity, panelOpacity: ownOpacity };
+        return { left, opacity, panelOpacity: ownOpacity, dialogScale: page ? undefined : scale };
       } });
       const unsubscribe = subscribeReducedMotion(remove);
       document.addEventListener('visibilitychange', hidden);
@@ -130,7 +138,10 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
         animations.push(shade);
       }
       panel.style.willChange = 'transform,opacity';
-      const enter = panel.animate(settleFrames(distance, 0, source ? Math.min(.94, source.panelOpacity) : .92, 1, 'x', 3), { duration: source ? 220 : 240, easing: 'linear' });
+      const enter = panel.animate(page
+        ? settleFrames(distance, 0, source ? Math.min(.94, source.panelOpacity) : .92, 1, 'x', 3)
+        : dialogFrames(source?.dialogScale ?? .975, 1, source ? Math.min(.94, source.panelOpacity) : 0, 1),
+        { duration: page ? source ? 220 : 240 : 200, easing: 'linear' });
       enter.onfinish = () => { panel.style.willChange = ''; };
       animations.push(enter);
     }

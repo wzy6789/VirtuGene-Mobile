@@ -307,7 +307,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
       <Modal presentation="dialog" open={!!menuCharacter} title={menuCharacter?.name} width="max-w-sm"
         onClose={() => { if (!menuLock.current) setMenu(null); }}
         canSnapshotOnExit={() => useAuthStore.getState().userId === snapshotOwner}>
-        <div className="p-4 space-y-2" aria-busy={menuBusy}>
+        <div className="vg-dialog-actions p-4 space-y-2" aria-busy={menuBusy}>
           <button type="button" disabled={menuBusy} onClick={() => void runMenuAction(togglePin)} className="w-full min-h-12 flex items-center gap-3 px-4 rounded-xl bg-surface text-sm text-ink disabled:opacity-50"><Icon name="flag" />{menuCharacter?.pinned ? '取消置顶' : '置顶聊天'}</button>
           <button type="button" disabled={menuBusy} onClick={() => void runMenuAction(markCharacterRead)} className="w-full min-h-12 flex items-center gap-3 px-4 rounded-xl bg-surface text-sm text-ink disabled:opacity-50"><Icon name="check" />标为已读</button>
           <button type="button" disabled={menuBusy} onClick={() => void runMenuAction(hideFromChatList, '已从列表移除，角色与聊天记录保留')} className="w-full min-h-12 flex items-center gap-3 px-4 rounded-xl bg-red-500/10 text-sm text-red-400 disabled:opacity-50"><Icon name="trash" />从聊天列表移除</button>

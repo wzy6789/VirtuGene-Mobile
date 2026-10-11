@@ -113,6 +113,7 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', clos
             {(onBack || mobilePage) && <button type="button" aria-label={onBack ? '返回设置' : '返回'} onClick={onBack ?? onClose} className="vg-settings-back vg-page-back"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m15 5-7 7 7 7" /></svg></button>}
             <h2 id={titleId} className="text-base font-semibold text-ink">{title}</h2>
             {!mobilePage && <button
+              type="button"
               onClick={onClose}
               aria-label="关闭"
               className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-ink hover:bg-surface transition-colors"

@@ -409,6 +409,28 @@ try {
     check((await test('completeRequests')).length===2,`${sourcePresetId}: routine fallback spends no third generation`);
     await ready(0);await test('useReviewedCharacter',sourcePresetId,'生活习惯：我习惯挑个角落坐着看。');await test('useCompleteResponses',['我习惯挑个角落坐着看。']);await test('submit','你喜欢坐哪里？');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===1);await done();
     check((await test('completeRequests')).length===1&&(await test('records')).some(m=>m.role==='assistant'&&m.content==='我习惯挑个角落坐着看。'),`${sourcePresetId}: the independently authored routine remains intact without a retry`);
+    const datedDraft=JSON.parse(readFileSync('docs/GUYUENA-LIVE-CANON-AFFECTION-OPEN-HOME-HOLDOUT-R1-2026-10-11.json','utf8'));
+    if(!datedDraft.complete||datedDraft.rows[0].calls[0].finish!=='stop')throw Error('Complete original dated-location evidence required');
+    const forestRaw=datedDraft.rows[0].calls[0].raw;
+    await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit',datedDraft.rows[0].input);await waitRequests(1);
+    await test('push',0,forestRaw);await page.waitForTimeout(100);
+    check(await page.locator('[data-streaming-reply]').count()===0,`${sourcePresetId}: the saved real dated forest episode never flashes before review`);
+    await test('finish',0);await waitRequests(2);await test('push',1,'我也想你。我们随便聊几句吧。');await test('finish',1);await done();
+    check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='我也想你。我们随便聊几句吧。',`${sourcePresetId}: actual DB writes the substitute correction instead of the dated forest episode`);
+    check((await test('requests')).length===2,`${sourcePresetId}: dated-location correction retains the existing single retry`);
+    await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',[forestRaw,forestRaw]);await test('submit',datedDraft.rows[0].input);await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+    const datedSaved=(await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('');
+    check(datedSaved.includes('我也想你')&&!/星斗大森林|前两天|感应到|带你去看/u.test(datedSaved),`${sourcePresetId}: two bad drafts keep present affection but remove the invented episode and dependent trip`);
+    check((await test('completeRequests')).length===2,`${sourcePresetId}: safe salvage does not issue a third generation`);
+    const mentalSource=JSON.parse(readFileSync('docs/GUYUENA-LIVE-CANON-AFFECTION-OPEN-HOME-HOLDOUT-R4-2026-10-11.json','utf8'));
+    if(!mentalSource.complete||mentalSource.generationMode!=='direct'||mentalSource.rows[0].calls[0].finish!=='stop')throw Error('Complete original direct mental-lead evidence required');
+    await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit',mentalSource.rows[0].input);await waitRequests(1);
+    await test('push',0,mentalSource.rows[0].calls[0].raw);await page.waitForTimeout(100);
+    check(await page.locator('[data-streaming-reply]').count()===0,`${sourcePresetId}: a saved recurring past thought lead does not flash during an unpublished reviewed reply`);
+    await test('finish',0);await done();
+    const mentalSaved=(await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('');
+    check(mentalSaved==='我也想你。正好，要是把我们俩的名字刻在什么东西上，还是“金龙”和“银龙”好，别的都显得生分。',`${sourcePresetId}: actual DB retains the full original present affection and forward hypothetical while omitting only the unsupported thought history`);
+    check((await test('requests')).length===1,`${sourcePresetId}: selective mental-lead excerpting needs no paid correction or third generation`);
   }
   check(await test('extraNetwork') === 0 && errors.length === 0, 'no real network or uncaught page errors');
   mkdirSync('.tmp-preview/chat-delivery-pacing',{recursive:true});

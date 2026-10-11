@@ -55,10 +55,36 @@
   transition:border-color 180ms var(--vg-ease),box-shadow 180ms var(--vg-ease),opacity 150ms var(--vg-ease);
 }
 
+/* Keep the conversation's reading surface quiet; controls carry the accent. */
+.mobile-layout .chat-composer {
+  background:var(--bg-panel); border-color:var(--vg-elev-edge);
+  box-shadow:0 -4px 16px var(--vg-shadow);
+}
+.mobile-layout .chat-composer::before { opacity:.28; left:24%; right:24%; }
+.mobile-layout .chat-composer:focus-within::after { animation:none; opacity:0; }
+.mobile-layout .chat-composer-inner:not(.is-voice-active) { gap:8px; }
+.mobile-layout .chat-composer-inner:not(.is-voice-active) .chat-composer-send {
+  min-width:48px; height:48px; border-radius:var(--vg-radius-3);
+  background:linear-gradient(145deg,color-mix(in srgb,var(--vg-action) 85%,white),var(--vg-action));
+  color:var(--vg-on-action); border-color:var(--vg-elev-highlight);
+  box-shadow:inset 0 1px 0 var(--vg-elev-highlight),var(--vg-elev-shadow-1);
+  transition:transform var(--vg-motion-fast) var(--vg-motion-standard),opacity var(--vg-motion-fast) var(--vg-motion-standard);
+}
+.mobile-layout .chat-composer-inner:not(.is-voice-active) .chat-composer-send:disabled {
+  background:var(--vg-panel-light); color:var(--text-secondary); border-color:var(--vg-elev-edge); box-shadow:none; filter:none;
+}
+.mobile-layout .chat-composer-send:active:not(:disabled) { transform:scale(.96); }
+.mobile-layout .chat-composer .vg-voice-tools {
+  background:var(--vg-inset); box-shadow:inset 0 1px 0 var(--vg-panel-shine);
+}
+.mobile-layout .chat-composer .vg-voice-tools:is(.is-recording,.is-cancelling) { box-shadow:none; }
+
 @media(prefers-reduced-motion:reduce) {
   .vg-search-field.vg-search-field,.vg-text-field.vg-text-field { transition:none; }
+  .mobile-layout .chat-composer-send:active:not(:disabled) { transform:none; }
 }
 html[data-vg-reduced-motion='true'] :is(.vg-search-field,.vg-text-field) { transition:none; }
+html[data-vg-reduced-motion='true'] .mobile-layout .chat-composer-send:active:not(:disabled) { transform:none; }
 @media(forced-colors:active) {
   .vg-search-field.vg-search-field:focus-within,
   .vg-text-field.vg-text-field:focus-visible { outline:2px solid Highlight; outline-offset:2px; }

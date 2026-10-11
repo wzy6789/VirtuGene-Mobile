@@ -3,7 +3,7 @@ import { SAMPLE_LINE, stripVoiceSampleBlock } from './character-voice';
 /** A narrow source-risk check, not a semantic truth verdict. It only recognizes
  * first-person recurring concrete actions and explicit completed episodes in
  * the same bounded action domain, plus explicit first-person childhood
- * reminiscences and explicitly dated thoughts of another person. No missing biography is interpreted
+ * reminiscences, dated location episodes and explicitly dated thoughts of another person. No missing biography is interpreted
  * as proof that an event never happened, and ordinary preferences stay allowed.
  */
 export interface SelfReportRisk { quote:string; action:string; kind?:'habit'|'episode' }
@@ -16,6 +16,11 @@ const EPISODE=new RegExp(`(?:^|[。！？!?，,；;\\n]|-{3,})\\s*(?:其实|说�
 // A user's childhood is not the character's. These explicit autobiographical
 // openings need independent support even without a completed-action “过”.
 const CHILDHOOD=/(?:^|[。！？!?，,；;\n]|-{3,})\s*(?:其实|说实话)?我(?:自己|也)?(?:还?记得)?((?:小时候|小的时候|童年时|年幼时)[^。！？!?，,；;\n]{1,100})/gu;
+// Explicit past time plus a first-person location claims a dated episode,
+// independently of the character, place name or action verb. Present wishes
+// and undated reasoning are not covered by this deliberately bounded rule.
+const PAST_TIME='(?:昨天|昨晚|前[一二三四五六七八九十两\\d]+天|前些天|上周|上星期|上个月)';
+const DATED_LOCATION=new RegExp(`(?:^|[。！？!?，,；;\\n]|-{3,})\\s*((?:我(?:也|还)?${PAST_TIME}|${PAST_TIME}我(?:也|还)?)(?:在(?!想|考虑|思考|讨论|琢磨)|从|到)[^。！？!?，,；;\\n]{2,100})`,'gu');
 // Present affection is free expression. Dating it before the exchange asserts
 // an episode; the user's own thoughts cannot establish the character's thoughts.
 // Keep this narrow: newly thinking of an idea or a solution is not autobiography.
@@ -33,6 +38,21 @@ const VISIT_EPISODE=/(?:^|[。！？!?，,；;\n]|-{3,})\s*((?:我(?:自己|也|
 const POSTURE_HABIT=/(?:^|[。！？!?，,；;\n]|-{3,})\s*(?:其实|说实话)?我(?:自己|也)?习惯(?:于)?([^。！？!?，,；;\n]{2,100})/gu;
 const HYPOTHETICAL=/^(?:如果|假如|假设|比如|例如|要是)|(?:的话|假设|假如|如果|要是)/u;
 const FREQUENCY=/(?:一般|经常|通常|平时|每次|总是|每天|每日|每晚|天天|习惯|常常|日常)/u;
+
+/** Keep a forward hypothetical thought intact while omitting only an
+ * unsupported retrospective mental lead. No replacement emotion or idea is
+ * synthesized. Concrete events after the lead remain subject to other checks. */
+function omitHypotheticalThoughtHistoryLead(sentence:string,persona:string,records:string[]):string {
+  const lead=sentence.match(/^(\s*(?:(?:正好|其实|说起来)[，,]\s*)?)(我(?:最近|近来|这阵子|这段时间|这(?:几|两)天|前阵子)(?:总是?|一直|经常|老是)(?:在想|想着|在琢磨|琢磨着|在考虑|考虑着)[，,：:]\s*)((?:要是|如果|假如|假设)[\s\S]+)/u);
+  if(!lead)return sentence;
+  const independent=[stripVoiceSampleBlock(persona).split(/\r?\n/u).filter(line=>!SAMPLE_LINE.test(line)),...records.map(record=>record.split(/\r?\n/u))].flat()
+    .map(line=>line.trim().replace(/^[^：:\n]{1,20}[：:]\s*/u,''));
+  const claim=sentence.trim().replace(/[。！？!?；;\n]+$/u,'').replace(/^(?:正好|其实|说起来)[，,]\s*/u,'');
+  // Only a direct independent assertion supports the past mental episode;
+  // a conditional, reported quotation or instruction containing it does not.
+  if(independent.some(source=>source.replace(/\s/gu,'').startsWith(claim.replace(/\s/gu,''))))return sentence;
+  return lead[1]+lead[3];
+}
 // Frequency can follow the activity as well as precede it. "我看书也有这
 // 习惯，先…再…" asserts an actual recurring method, not a present preference.
 const MANNER_HABIT=new RegExp(`(?:^|[。！？!?，,；;\\n]|-{3,})\\s*(?:其实|说实话)?我(?:自己|也)?\\s*(${ACTION}(?:时|的时候)?(?:也|一直|向来)?(?:有(?:这(?:个|样的)?|那(?:个|样的)?)?习惯|是(?:这(?:个|样的)?|那(?:个|样的)?)?习惯)[^。！？!?；;\\n]{0,120})`,'gu');
@@ -85,7 +105,7 @@ function findEpisodeRisk(content:string,sources:string[]):SelfReportRisk|undefin
     if(sources.some(source=>source.replace(/\s/gu,'').includes(quote.replace(/\s/gu,''))))continue;
     return {quote,action:quote,kind:'episode'};
   }
-  for(const match of [PAST_PERSON_THOUGHT,DATED_COMPLETED_THOUGHT,PAST_USER_JUDGMENT,VISIT_EPISODE].flatMap(pattern=>[...text.matchAll(pattern)])) {
+  for(const match of [PAST_PERSON_THOUGHT,DATED_COMPLETED_THOUGHT,PAST_USER_JUDGMENT,VISIT_EPISODE,DATED_LOCATION].flatMap(pattern=>[...text.matchAll(pattern)])) {
     const start=Math.max(...['。','！','？','!','?','\n'].map(mark=>text.lastIndexOf(mark,match.index!)))+1;
     const prefix=text.slice(start,match.index!);
     const following=text.slice(match.index!+match[0].length);
@@ -118,24 +138,30 @@ function findEpisodeRisk(content:string,sources:string[]):SelfReportRisk|undefin
   return undefined;
 }
 
-/** Only remove whole unsupported episode sentences from an unpublished draft.
+/** Excerpt an unpublished draft: remove whole unsupported episode sentences,
+ * or a separable retrospective thought lead before a forward hypothetical.
  * Includes explicit concrete posture methods. Keep independent reactions,
- * preferences and sourced events. No canned reply.
+ * preferences and sourced events. No canned reply or synthesized emotion.
  * Caller owns the fictional-mode exemption and existing retry budget. */
 export function omitUnsupportedSelfReportEpisodes(content:string,persona='',records:string[]=[]):string {
   const sources=evidenceClauses(persona,records);
   let removed=false;
   const safe=content.split(/\s*-{3,}\s*/u).map(bubble=>{
     let afterUnsupportedVisit=false;
-    return bubble.split(/(?<=[。！？!?；;\n])/u).filter(sentence=>{
-      // Details following an unsupported visit in this same message belong
-      // to that anecdote; removing only "I went" would launder its rest.
+    return bubble.split(/(?<=[。！？!?；;\n])/u).map(sentence=>{
+      const excerpt=omitHypotheticalThoughtHistoryLead(sentence,persona,records);
+      if(excerpt!==sentence)removed=true;
+      return excerpt;
+    }).filter(sentence=>{
+      // Details following an unsupported visit or dated location in this
+      // same bubble belong to that anecdote; dropping only its opening would
+      // launder the dependent observation or promised trip.
       if(afterUnsupportedVisit){removed=true;return false;}
       const risk=findEpisodeRisk(sentence,sources)??findPostureHabitRisk(sentence,sources);
       if(risk){
         removed=true;
         const plain=sentence.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
-        afterUnsupportedVisit=[...plain.matchAll(VISIT_EPISODE)].some(match=>match[1].trim()===risk.quote);
+        afterUnsupportedVisit=[VISIT_EPISODE,DATED_LOCATION].flatMap(pattern=>[...plain.matchAll(pattern)]).some(match=>match[1].trim()===risk.quote);
       }
       return !risk;
     }).join('').trim();

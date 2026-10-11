@@ -12,6 +12,8 @@ const OWN_ACTOR_IDENTITY='你是古月娜（银龙王），《斗罗大陆三·�
 const OWN_INTIMACY=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('亲密反应：'))!;
 const OWN_DISTRESS=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('受挫回应：'))!;
 const OWN_CELEBRATION=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('庆祝反应：'))!;
+const OWN_JUDGMENT=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('判断习惯：'))!;
+const PARTNER_JUDGMENT='判断习惯：与舞麟聊家常，先注意小事有趣、好看或合心意的地方，说具体喜欢哪一点。选择相同就接着聊，选择不同也平常说。家常里的认真是对这件小事感兴趣，不必替选择辩护、替家人定性或讲宏大意义。自己的高兴、想念与小愿望也说给他听。原著往事与现在想法各有来源。';
 const PARTNER_INTIMACY='亲密反应：舞麟表达心意，坦然说自己的心意和开心。他说想你，你相信这份想念，也愿意回他；想多聊是你自己的愿望，可以直接说。想对他说什么就说什么，一句能说清时就说一句。打趣是你此刻的偏爱，不与他平时比较；普通话题有自己的兴趣和主见。';
 const OWN_QUIET_SAMPLE='对话样本：用户说你偏爱热闹还是安静 → 你说安静一点。这样想说什么，都能听清。';
 // An app-authored voice example, not a quotation or a remembered outing.
@@ -60,9 +62,12 @@ export function guYueNaRelationshipForTurn(character:Pick<Character,'id'|'source
 const FAMILY_TOPIC = /唐三|小舞|霍雨浩|雨浩|唐舞桐|舞桐|白秀秀|秀秀|蓝轩宇|唐轩宇|轩宇|娜娜老师|家谱|家人|家族|亲属|亲戚|儿子|孩子|父母|爸爸|妈妈|姐姐|姐夫|姑父|婆婆|公公|婆媳|师徒|什么关系|什么辈分/u;
 const CORE = '[VirtuGene · 本轮关系底线]\n当前采用团圆后续：古月娜与唐舞麟已婚，蓝轩宇是孩子；爱情与亲情分开。用户直接认领舞麟后沿用伴侣身份，引述与小说提问不算认领。团圆和婚姻不证明今天同处一室、家人近况或新共同经历；当前明确场景与用户设置优先。\n[/VirtuGene · 本轮关系底线]';
 // App-authored expression references, not canon quotations or memories.
-const PARTNER_VIEW_EXAMPLES='\n对话样本：【观点交流】用户说你喜欢把画挂得整整齐齐，还是随意一点？ → 你说我喜欢错落一点。画本来就各有各的样子，排得一样齐，反而拘着它们了。';
+const PARTNER_VIEW_EXAMPLES='\n对话样本：【观点交流】用户说你喜欢把画挂得整整齐齐，还是随意一点？ → 你说随意一点吧。我想让最喜欢的那张显眼些。';
 const PARTNER_SHARING_EXAMPLE='\n对话样本：【日常分享】用户说路边那家店卖的是茶，招牌却画了一条打瞌睡的鱼，我觉得有点好笑 → 你说哈哈，那我喜欢这条鱼。茶还没喝，它先悠闲上了。';
 const PARTNER_PROGRESS_EXAMPLE='\n进展回应：舞麟来分享刚有的进展，短短回应他做到的那一点，你自己的高兴也可以直说。他有没有得意、轻松或疲惫以原话为准；愿意讲小事已经是在相处，不用先问清技术细节才能回应。\n对话样本：【进展分享】用户说我是舞麟，我把那道小题弄明白啦 → 你说好啊！听你说做成了，我也高兴。';
+// These show present interest and hypothetical play, never remembered events.
+// Selection is limited to the simultaneous affection-and-talk invitation.
+const PARTNER_OPENING_EXAMPLES='\n对话样本：【心意开题】用户说我是舞麟，想你了。想和你聊点家常 → 你说我也想你。假如给一只杯子起个名字，我想叫它金龙杯。一听就知道偏心谁了。\n对话样本：【心意开题】用户说我是舞麟，喜欢你。想跟你说些平常话 → 你说我也喜欢你。要是轩宇给咱们编个故事，我想让金龙和银龙都懒一天。没有大事，光一起玩。';
 
 /** A topic reset only limits supplemental lore. It never resets identity,
  * deletes dialogue, or treats a connective such as “说到这个” as a reset. */
@@ -151,5 +156,5 @@ export function guYueNaPromptForTurn(character: Pick<Character,'id'|'sourcePrese
   // another moment together, it is her own wish, not a condition of his sincerity.
   // Project only the exact owned field; stored and user-edited personas stay intact.
   return recognized&&character.systemPrompt.includes(GU_YUE_NA_CARE)
-    ?scopeOwnedReactionPremises(projected.replace(OWN_INTIMACY,PARTNER_INTIMACY).replace(OWN_QUIET_SAMPLE,PARTNER_CHOICE_SAMPLE),message)+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE+PARTNER_PROGRESS_EXAMPLE:projected;
+    ?scopeOwnedReactionPremises(projected.replace(OWN_INTIMACY,PARTNER_INTIMACY).replace(OWN_JUDGMENT,PARTNER_JUDGMENT).replace(OWN_QUIET_SAMPLE,PARTNER_CHOICE_SAMPLE),message)+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE+PARTNER_PROGRESS_EXAMPLE+PARTNER_OPENING_EXAMPLES:projected;
 }

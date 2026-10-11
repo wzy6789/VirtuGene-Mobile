@@ -172,6 +172,7 @@ export function selectVoiceExamples(lines:string[],message?:string,options:{allo
   if(message===undefined)return lines.slice(0,5);
   const moment=options.moment??interactionMoment(message);
   const current=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  const affectionOpening=isDirectAffection(current)&&isTopicInvitation(current);
   const currentTopic = exampleTopic(current, options.identityNames ?? []);
   const terms=topicTerms(currentTopic);
   const mishap=isCasualMishap(current);
@@ -203,13 +204,14 @@ export function selectVoiceExamples(lines:string[],message?:string,options:{allo
     const viewOnly=/^对话样本：[【\[]观点交流[】\]]/u.test(line);
     const sharingOnly=/^对话样本：[【\[]日常分享[】\]]/u.test(line);
     const progressOnly=/^对话样本：[【\[]进展分享[】\]]/u.test(line);
+    const affectionOpeningOnly=/^对话样本：[【\[]心意开题[】\]]/u.test(line);
     const authoredViewMatch=viewInvitation&&viewOnly;
     const authoredSharingMatch=sharingInvitation&&sharingOnly;
-    return {line,index,viewOnly,sharingOnly,progressOnly,moment:interactionMoment(example),general:!example,sceneMatch,opening:plainConversationOpening(matchingTopic),relevance:exact?2:Math.max(sceneMatch ? 0.9 : 0,choiceMatch?0.4:0,authoredViewMatch||authoredSharingMatch||progressInvitation&&progressOnly?0.35:0,topical)};
+    return {line,index,viewOnly,sharingOnly,progressOnly,affectionOpeningOnly,moment:interactionMoment(example),general:!example,sceneMatch,opening:plainConversationOpening(matchingTopic),relevance:affectionOpening&&affectionOpeningOnly?3:exact?2:Math.max(sceneMatch ? 0.9 : 0,choiceMatch?0.4:0,authoredViewMatch||authoredSharingMatch||progressInvitation&&progressOnly?0.35:0,topical)};
   })
     // A fatigue example is a poor voice reference for an explicit new subject.
     // Keep neutral examples as voice references, not unrelated emotional scripts.
-    .filter(row=>(!row.viewOnly||viewInvitation)&&(!row.sharingOnly||sharingInvitation)&&(!row.progressOnly||progressInvitation)&&(row.moment==='ordinary'||row.moment===moment)&&(!current||!row.opening||plainConversationOpening(currentTopic)));
+    .filter(row=>(!row.viewOnly||viewInvitation)&&(!row.sharingOnly||sharingInvitation)&&(!row.progressOnly||progressInvitation)&&(!row.affectionOpeningOnly||affectionOpening)&&(row.moment==='ordinary'||row.moment===moment)&&(!current||!row.opening||plainConversationOpening(currentTopic)));
   ranked.sort((a,b)=>Number(b.moment===moment&&moment!=='ordinary')-Number(a.moment===moment&&moment!=='ordinary')||b.relevance-a.relevance||a.index-b.index);
   if (!current) return ranked.slice(0,3).map(row=>row.line);
   // Examples teach local response habits as well as a voice. A bookshop or

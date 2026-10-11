@@ -189,6 +189,19 @@ async function run() {
   ok(!buildViewContinuityContext('你怎么看待我对旅行的兴趣？',timeHistory),'a new concrete perspective request does not attach the previous unrelated choice');
   ok(!buildViewContinuityContext(reasonQuestion,[timeHistory[0],{role:'assistant',content:'长回复'.repeat(120)}]),'oversized replies are omitted rather than silently truncated into a different stance');
   const openPlaceQuestion='我喜欢史莱克城里热热闹闹的茶馆。不过你自己呢，喜欢哪种地方？';
+  const storyChoice='假如孩子想听我们的故事，你更喜欢讲好笑的一段，还是慢慢讲一件小事？';
+  const storyReply='我更喜欢慢慢讲一件小事。';
+  const storyFollowup='我倒更喜欢慢慢讲小事。细节比热闹的结尾更有意思。';
+  const storyHistory=[{role:'user',content:storyChoice},{role:'assistant',content:storyReply}];
+  const storyFrame=buildViewContinuityContext(storyFollowup,storyHistory);
+  ok(storyFrame.includes(JSON.stringify(storyChoice))&&storyFrame.includes(JSON.stringify(storyReply)),'non-place family preferences preserve complete original speaker positions');
+  ok(storyFrame.includes('对这件事的喜好')&&!storyFrame.includes('喜欢的地方'),'family-story preferences are not incorrectly recast as choosing places');
+  ok(storyFrame.includes('现在的心意')&&storyFrame.includes('独立的人设与作品往事'),'current connection remains expressible while independently sourced history stays available');
+  const unverified='我以前每天都讲这种故事。';
+  const unverifiedFrame=buildViewContinuityContext(storyFollowup,[storyHistory[0],{role:'assistant',content:unverified}]);
+  ok(unverifiedFrame.includes(JSON.stringify(unverified))&&unverifiedFrame.includes('不是生活事实或永久喜好'),'an earlier unsupported autobiographical answer is kept as speech, not promoted to history');
+  ok(buildHumanConversationContext(storyFollowup,storyHistory).includes('正在聊的事物有什么特点'),'production follow-up guidance uses current object properties, not just direct perspective questions');
+  ok(buildViewContinuityContext('你自己的理由呢？',storyHistory).includes('此刻想要怎样的体验'),'a direct reason follow-up and a preference statement share the same source boundary');
   const openPlaceHistory=[{role:'user',content:openPlaceQuestion},{role:'assistant',content:'我喜欢安静一点的地方。'},{role:'assistant',content:'不过你在的话，我也愿意多坐一会儿。'}];
   for(const input of ['我倒喜欢听人聊天的声音。不一定非要安静才舒服。','我反而偏爱热闹一点的地方。','我倒更喜欢声音杂一点的地方。','我更倾向有很多人说话的茶馆。']){
     const continued=buildViewContinuityContext(input,openPlaceHistory);
@@ -640,6 +653,23 @@ async function run() {
     ok(buildHumanConversationContext(text,[]).includes('不自动转成吃饭、睡觉等生活检查'),'casual opening has actor content without collecting a life checklist: '+text);
   }
   for(const text of ['我不想跟你随便聊两句。','朋友说我们随便说两句就好。','如果我们随便聊两句呢？','“我们随便聊两句就好”是什么意思？','我们随便聊两句这个报告。','我们随便聊两句，帮我改报告。','随便聊两句之前先查一下天气。'])ok(chooseConversationAction(text,[])!=='start-topic','declines, reports, scoped subjects and tasks are not a free-topic invitation: '+text);
+  for(const text of ['想和你说些平常话。','我只想跟你聊些家常。','我现在想和你说点闲话。','先不聊牌子啦。今天就是想你了，想和你说些平常话。']){
+    ok(isTopicInvitation(text)&&chooseConversationAction(text,[])==='start-topic','a current wish to talk about everyday things permits actor participation: '+text);
+    const openingPrompt=buildHumanConversationContext(text,[]);
+    ok(openingPrompt.includes('这轮由你开话题')||openingPrompt.includes('也邀请聊些平常话'),'everyday chat invitation reaches the actual conversation prompt: '+text);
+  }
+  const affectionateTalk='今天就是想你了，想和你说些平常话。';
+  ok(buildHumanConversationContext(affectionateTalk,[]).includes('用户直接表达了心意'),'topic initiative preserves the simultaneous feeling instead of replacing it');
+  const combinedOpening=buildHumanConversationContext(affectionateTalk,[]);
+  ok(!combinedOpening.includes('用户把这轮话题的选择交给你')&&!combinedOpening.includes(DIRECT_AFFECTION_DIRECTION),'combined opening has one coherent direction instead of duplicate topic and affection contracts');
+  for(const text of ['我不想和你说些平常话。','朋友说，想和你说些平常话。','如果你愿意，想和你说些平常话。','“想和你说些平常话”。','翻译想和你说些平常话。','想和你说些平常话，帮我查天气。','想和你说些平常话，不要开新话题。','我想和你聊家常吗？','我想和他聊些家常。'])ok(!isTopicInvitation(text),'everyday invitation respects negation, source, conditions, tasks and topic limits: '+text);
+  ok(!buildHumanConversationSections(affectionateTalk,[],{name:'古月娜',tags:[],systemPrompt:GU_YUE_NA_CARE},{interpersonalBoundary:'distant'}).some(section=>section.text.includes('这轮由你开话题')),'distant identity does not inherit initiative from an affectionate everyday invitation');
+  const affectionOpeningSample='对话样本：【心意开题】用户说想你了。想和你聊点家常 → 你说我也想你。假如给一只杯子起名字，我想选个有趣的。';
+  const plainAffectionSample='对话样本：用户说想你了 → 你说我也想你。';
+  const openingSelection=selectVoiceExamples([plainAffectionSample,affectionOpeningSample],affectionateTalk);
+  ok(openingSelection[0]===affectionOpeningSample,'a simultaneous feeling-and-talk request prioritizes its combined voice reference over feeling-only examples');
+  ok(!selectVoiceExamples([affectionOpeningSample], '我想你了。').length,'feeling alone does not gain an unsolicited family topic from a combined example');
+  for(const input of ['想和你聊些家常。','我喜欢你，不过不要开新话题。','朋友说，想你了，想和你聊家常。','“想你了。想和你聊家常”。','如果我想你了，想和你聊家常呢？','我想你，想和你聊些家常。帮我查天气。','我去忙了，回头聊。'])ok(!selectVoiceExamples([affectionOpeningSample],input).length,'combined voice reference respects intent and source boundaries: '+input);
   for(const [role,persona,name,alias] of [['guyuena',GU_YUE_NA_CARE,'古月娜','舞麟'],['luxueqi',LU_XUE_QI_PRESET.systemPrompt,'陆雪琪','小凡']] as const) {
     const character={id:'test-'+role,sourcePresetId:'preset-'+role,isPreset:false,systemPrompt:persona};
     const relation=role==='guyuena'?guYueNaRelationshipForTurn:luXueQiRelationshipForTurn;
@@ -651,7 +681,8 @@ async function run() {
       const judgment=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('判断习惯：'))!;
       const edited={...owned,systemPrompt:stored.replace(judgment,'判断习惯：用户自写的不同表达。')};
       ok(guYueNaPromptForTurn(edited,'我是舞麟',[],true).includes('判断习惯：用户自写的不同表达。'),'edited Gu judgment is preserved in the request projection');
-      ok(owned.systemPrompt===stored&&warm.includes(judgment),'Gu request projection preserves the stored authored judgment');
+      ok(owned.systemPrompt===stored&&owned.systemPrompt.includes(judgment),'Gu request projection preserves the original saved authored judgment');
+      ok(warm.includes('家常里的认真是对这件小事感兴趣')&&!warm.includes(judgment),'the exact app-owned Gu judgment has a read-only everyday partner projection');
       const authoredDistress=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('受挫回应：'))!;
       const customDistress={...owned,systemPrompt:stored.replace(authoredDistress,'受挫回应：用户修改的回应。')};
       ok(guYueNaPromptForTurn(customDistress,'我是舞麟',[],true).includes('受挫回应：用户修改的回应。'),'user edited distress style remains authoritative');
@@ -744,6 +775,26 @@ async function run() {
     ok(!findSelfReportRisk(thought,'',['经历：'+thought]),'an exact independently recorded dated thought is preserved: '+thought);
   }
   for(const thought of ['我也想你。','我现在想你。','我想过这个问题。','我刚才想到一个办法。','我昨晚没有想你。','我刚才想到你了？','朋友说，刚才我也想到你了。','他说“刚才我也想到你了”。','如果昨晚没睡好，我昨晚想起你。','我刚才想你这句话怎么翻译？'])ok(!findSelfReportRisk(thought),'present feelings, reasoning and nonassertions are not past personal episodes: '+thought);
+  for(const claim of ['我前两天在星斗大森林那边感应到一点东西。','昨天我在食堂吃了点东西。','我上周从书店带回一张小卡片。','上个月我到河边坐了一会儿。']){
+    ok(findSelfReportRisk(claim)?.kind==='episode','explicit dated own-location history requires a source independently of place and verb: '+claim);
+    ok(!findSelfReportRisk(claim,'',['经历：'+claim]),'an exact independent dated-location record preserves the supported statement: '+claim);
+  }
+  for(const claim of ['我想在星斗大森林附近看看。','如果我前两天在星斗大森林感应到一点东西，就会告诉你。','朋友说，我前两天在星斗大森林感应到一点东西。','我前两天在星斗大森林感应到一点东西？','“我前两天在星斗大森林感应到一点东西”。','我前两天在思考这个问题。','我昨天不在那家店。'])ok(!findSelfReportRisk(claim),'dated-location check keeps wishes, conditions, reports, questions, quotes and ordinary reasoning distinct: '+claim);
+  const forestClaim='我前两天在星斗大森林那边感应到一点有意思的东西';
+  ok(!!findSelfReportRisk(forestClaim,'对话样本：用户说想聊天 → 你说'+forestClaim),'a dated location in an expression sample is not independent episode evidence');
+  for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput(forestClaim+'。',{mode,userMessage:'想和你聊些平常话。'}).check.issue==='self-report-risk','dated-location evidence checking applies to the shared actual output boundary: '+mode);
+  ok(omitUnsupportedSelfReportEpisodes('我也想你。---'+forestClaim+'。改天带你去看。---你说吧。')==='我也想你。\n---\n你说吧。','unsupported dated-location removal also drops the dependent invitation in the same bubble while keeping other bubbles');
+  const recentWish='我最近总在想，要是把我们俩的名字刻在什么东西上，还是“金龙”和“银龙”好，别的都显得生分。';
+  const currentWish='要是把我们俩的名字刻在什么东西上，还是“金龙”和“银龙”好，别的都显得生分。';
+  ok(omitUnsupportedSelfReportEpisodes(recentWish)===currentWish,'an unsupported retrospective mental lead can be omitted without rewriting its original hypothetical preference');
+  ok(omitUnsupportedSelfReportEpisodes('我也想你。正好，'+recentWish)==='我也想你。正好，'+currentWish,'current affection and a conversational connective survive selective excerpting');
+  ok(omitUnsupportedSelfReportEpisodes(recentWish,'',['独立心理记录：'+recentWish])===recentWish,'an exact independent complete thought keeps its retrospective time and content');
+  ok(omitUnsupportedSelfReportEpisodes(recentWish,'对话样本：用户说想你 → 你说'+recentWish)===currentWish,'an expression example cannot prove repeated past thinking');
+  ok(omitUnsupportedSelfReportEpisodes(recentWish,'禁止说'+recentWish)===currentWish,'a quoted prohibition cannot supply episode evidence');
+  ok(omitUnsupportedSelfReportEpisodes(recentWish,'',['我最近总在想，要是只刻“银龙”，别的都显得生分。'])===currentWish,'similar temporal phrasing with different imagined content does not support this thought');
+  for(const source of ['独立记录：如果'+recentWish,'角色记录：朋友说'+recentWish,'规则：不要说'+recentWish])ok(omitUnsupportedSelfReportEpisodes(recentWish,'',[source])===currentWish,'an independent source containing a condition, report or prohibition cannot prove the thought: '+source);
+  for(const text of ['我现在在想，要是给杯子起名，我想叫它金龙。','我想给杯子起个名字。','如果我最近一直在想，要是给杯子起名字呢？','朋友说，我最近总在想，要是给杯子起名。','“我最近总在想，要是给杯子起名”。','我最近一直在想这个问题。','我最近一直在想，森林发生了什么。'])ok(omitUnsupportedSelfReportEpisodes(text)===text,'selective mental-lead omission does not rewrite current wishes, reports, quotes or concrete non-hypothetical claims: '+text);
+  for(const lead of ['我这两天一直在琢磨','我近来经常在考虑','我这阵子老是在想'])ok(omitUnsupportedSelfReportEpisodes(lead+'，假如给一只杯子起个名字，我想叫它金龙。')==='假如给一只杯子起个名字，我想叫它金龙。','bounded grammatical variations preserve the entire forward conditional: '+lead);
   ok(!!findSelfReportRisk('刚才我也想到你了。','对话样本：用户说想你 → 你说刚才我也想到你了。'),'an authored answer example is not evidence for a dated thought');
   ok(!!findSelfReportRisk('刚才我也想到你了。','心意：我也想到你了。'),'an undated feeling does not validate the added time');
   for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput('刚才我也想到你了。',{mode,userMessage:'今天挺想你，来聊两句。'}).check.issue==='self-report-risk','all modes keep user thoughts separate from character autobiographical thoughts: '+mode);

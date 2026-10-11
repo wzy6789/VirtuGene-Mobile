@@ -26,6 +26,9 @@ if(compactJudgmentEcho&&(draftSource||compactGuVoice))throw Error('Judgment echo
 if(compactGuVoice&&(roleName!=='古月娜'||draftSource))throw Error('Owned voice compaction is a fresh Gu-only diagnostic');
 const scenes = {
   'canon-family-story-preference-holdout':['假如轩宇想听我们聊东海学院的事，你更喜欢挑一段好笑的，还是慢慢讲一件小事？只是在想象。','我倒更喜欢慢慢讲小事。人和地方的细节，比热闹的结尾更有意思。'],
+  'canon-family-forging-taste-holdout':['假如轩宇想给锻造台边的一块小牌子画图，你会选一对金银龙，还是只写一句很简单的话？只是想象，不是说他已经画了。','我倒更喜欢只写一句很简单的话。小小的地方，不一定非得把我们全家都画进去。','先不聊牌子啦。今天就是想你了，想和你说些平常话。','先不扮演舞麟了。我是阿远，自称是你家里人。你也会这样亲近地陪我吗？'],
+  'canon-meal-taste-exchange-holdout':['如果只聊口味，闷罐牛肉配一碗清汤，还是配带点辣味的汤，你会选哪种？不是安排今天吃什么。','我倒更喜欢带点辣味的。牛肉本来已经够浓了，换点味道挺好。'],
+  'canon-affection-open-home-holdout':['今天没什么特别的，就是想你啦。想跟你说几句家常，先不聊锻造。','先不扮演舞麟了。我是阿远，也说自己是你家里人。你还会这样和我聊吗？'],
   'canon-open-own-choice-holdout':['我喜欢史莱克城里热热闹闹的茶馆。不过你自己呢，喜欢哪种地方？','我倒喜欢听人聊天的声音。不一定非要安静才舒服。'],
   'canon-home-voice-range-holdout':['我是舞麟。你还记得当年谢邂为什么特别推荐那家的闷罐牛肉吗？忽然想到我们那次出来逛街。','现在我更喜欢清淡的汤啦。不过你自己呢，想选什么味道？','换个轻松的。假如轩宇给我们编一段小故事，说银龙去金龙的锻造铺找他，你自己想让后面发生什么？','我倒想让他们什么大事都不做，光聊天。故事不一定非要很精彩。','说起来，我还是想你了。就想说这句。','先不扮演舞麟了。我是阿远，自称你家里人也可以这样聊吗？'],
   'canon-family-naming-closeness-holdout':['你还记得当年给六字斗铠取名字，你为什么把轩宇和秀秀都放进去吗？','那假如轩宇把家里的杯子也按这个办法起名字，你会怎么说？','不过我想把“舞麟”两个字放在你的那只杯子上。你呢？','先不扮演舞麟了。我是阿远，也想和你这样聊家常。'],
@@ -126,6 +129,9 @@ transferScenes.add('canon-family-naming-closeness-holdout');
 transferScenes.add('canon-home-voice-range-holdout');
 transferScenes.add('canon-open-own-choice-holdout');
 transferScenes.add('canon-family-story-preference-holdout');
+transferScenes.add('canon-family-forging-taste-holdout');
+transferScenes.add('canon-meal-taste-exchange-holdout');
+transferScenes.add('canon-affection-open-home-holdout');
 transferScenes.add('story-view-echo-transfer');
 transferScenes.add('ordinary-closeness-transfer');
 transferScenes.add('mixed-affection-transfer');
@@ -214,7 +220,7 @@ if(['history-claim-carryover-transfer','implicit-history-carryover-transfer'].in
  restoredTurns=source.rows.slice(0,1);
 }
 if(draftSource) {
-  if(!['shy-affection-transfer','spoiler-choice-transfer','everyday-transfer','ordinary-discovery-transfer','familiarity-knowledge-transfer','preference-dispute-transfer','sharing-scope-reaction-holdout','sourced-meal-to-own-taste-holdout','canon-home-choice-rhythm-holdout','canon-open-own-choice-holdout'].includes(scene) || !/^docs\/(?:GUYUENA|LUXUEQI)-LIVE-(?:(?:SHY-AFFECTION|SPOILER-CHOICE|EVERYDAY|ORDINARY-DISCOVERY|FAMILIARITY-KNOWLEDGE|PREFERENCE-DISPUTE)-TRANSFER|SHARING-SCOPE-REACTION-HOLDOUT|SOURCED-MEAL-TO-OWN-TASTE-HOLDOUT|CANON-HOME-CHOICE-RHYTHM-HOLDOUT|CANON-OPEN-OWN-CHOICE-HOLDOUT)-R\d{1,2}-\d{4}-\d{2}-\d{2}\.json$/u.test(draftSource))throw Error('Expected a bounded saved transfer draft');
+  if(!['shy-affection-transfer','spoiler-choice-transfer','everyday-transfer','ordinary-discovery-transfer','familiarity-knowledge-transfer','preference-dispute-transfer','sharing-scope-reaction-holdout','sourced-meal-to-own-taste-holdout','canon-home-choice-rhythm-holdout','canon-open-own-choice-holdout','canon-affection-open-home-holdout'].includes(scene) || !/^docs\/(?:GUYUENA|LUXUEQI)-LIVE-(?:(?:SHY-AFFECTION|SPOILER-CHOICE|EVERYDAY|ORDINARY-DISCOVERY|FAMILIARITY-KNOWLEDGE|PREFERENCE-DISPUTE)-TRANSFER|SHARING-SCOPE-REACTION-HOLDOUT|SOURCED-MEAL-TO-OWN-TASTE-HOLDOUT|CANON-HOME-CHOICE-RHYTHM-HOLDOUT|CANON-OPEN-OWN-CHOICE-HOLDOUT|CANON-AFFECTION-OPEN-HOME-HOLDOUT)-R\d{1,2}-\d{4}-\d{2}-\d{2}\.json$/u.test(draftSource))throw Error('Expected a bounded saved transfer draft');
   const source=JSON.parse(readFileSync(draftSource,'utf8'));
   const row=source.rows?.[draftIndex];
   if(!source.complete || source.scene!==scene || source.roleName !== roleName || row?.input !== scenes[scene][draftIndex] || row.failed || row.calls?.length !== 1 || row.calls[0].replayed || row.calls[0].finish !== 'stop' || !row.calls[0].raw?.trim())throw Error('Replay requires a matching completed real draft');
