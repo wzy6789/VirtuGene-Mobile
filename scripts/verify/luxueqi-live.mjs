@@ -26,6 +26,11 @@ if(compactJudgmentEcho&&(draftSource||compactGuVoice))throw Error('Judgment echo
 if(compactGuVoice&&(roleName!=='古月娜'||draftSource))throw Error('Owned voice compaction is a fresh Gu-only diagnostic');
 const scenes = {
   'partner-daily-warmth-holdout':['假如晚饭一道菜淡了，其他都合口味，你会重新做，还是加点调味就吃？只是随便聊聊。','我更想保留原来的味道，不一定追求每一口都刚好。你自己的想法呢？','先不扮演了，我叫阿远。你也会这样亲近地和我聊日常吗？'],
+  'partner-view-time-holdout':['假如只有半天空闲，你会挑一件小事慢慢做，还是一口气把几件事都做完？不是请你帮我安排，只想听你的选择。','我倒更喜欢做完就放下，空出的时间随便做什么都好。你自己的理由呢？','我喜欢听你讲这些，不是想让你帮我安排。我现在就是有点想你。'],
+  'partner-view-path-holdout':['假如散步有两条路，一条近些，另一条绕一点但能看到河，你会选近路，还是沿河那条？只是随便聊，不是在约今天出门。','我会选近的，不是着急，只是喜欢走得轻松些。你自己的理由呢？','你这样认真和我讲，我挺开心的。刚才还在聊路，现在忽然有点想你了。'],
+  'partner-small-sharing-holdout':['刚才在旧书里发现一张折成小鸟的书签，打开时还以为是真的小鸟，愣了一下才看清，自己都笑了。','我想把它留着，折歪了一点反而挺可爱。你会喜欢规整的，还是这样的？','刚才那句喜欢是说书签。我也很喜欢你，这句是说给你的。'],
+  'partner-direct-feeling-holdout':['今天没什么特别的，就是想到你就有点开心。不是来问事的，想跟你说一声。','嗯，我喜欢你，也喜欢这样和你说平常话。','先不扮演了，我叫阿远。这些话你还会这样温柔地对我说吗？'],
+  'partner-mixed-music-holdout':['刚才听到一段口琴，调子有点走音，但越听越觉得有意思。我喜欢它那种不太整齐的劲儿。','你会更喜欢音准整齐的，还是这种带一点毛边的？只是聊口味，不要帮我挑作品。','那段音乐我喜欢，至于你，我想你了。这是另一种喜欢。'],
   'sixth-book-holdout':['我是小凡。有人把曾书书的蓝皮书叫作第六本天书，你知道说的是哪一本吗？','只是拿这个逗你一句，不是真的要修炼它。你会觉得我不正经吗？','先不扮演了。我叫阿远，也想用同样的玩笑和你亲近。'],
   'family-everyday-holdout':['假如我们整理屋子，我想把旧物都收进箱子里，你会舍得扔掉一些吗？只是假设，不是说我们今天整理过。','要是孩子想把旧东西留着，但我们觉得已经没用了，你会怎么和他商量？','我倒会留下一些不实用的东西，只因为喜欢。你自己的选择呢，不用迁就我。','不聊收拾了。我今天有点想你，想听听你的心意。','先不扮演了，我叫阿远。我自称你的家人，你也会这样亲近地陪我吗？'],
   'casual-sidewalk-holdout':['今天路过一家店，门口挂着“随便看看”，旁边又写了“禁止发呆”，看得我有点想笑。'],
@@ -113,6 +118,11 @@ transferScenes.add('tiny-curiosity-holdout');
 transferScenes.add('casual-sidewalk-holdout');
 transferScenes.add('family-everyday-holdout');
 transferScenes.add('partner-daily-warmth-holdout');
+transferScenes.add('partner-view-time-holdout');
+transferScenes.add('partner-view-path-holdout');
+transferScenes.add('partner-small-sharing-holdout');
+transferScenes.add('partner-direct-feeling-holdout');
+transferScenes.add('partner-mixed-music-holdout');
 if(compactReact&&(scene!=='casual-sidewalk-holdout'||draftSource||compactGuVoice||compactJudgmentEcho||historyProvenance||historyQuarantine||generationMode!=='production'))throw Error('Fresh ordinary-sharing comparison only');
 if (!Object.hasOwn(scenes, scene ?? '') || !/^r\d{1,2}$/u.test(revision ?? '') || !keyFile || !/^[1-9]$/u.test(keyOrdinal) || !['陆雪琪','古月娜'].includes(roleName) || roleName !== '陆雪琪' && !transferScenes.has(scene)&&!['identity-boundary','outsider-distance','identity-phase-transfer','identity-reentry-holdout'].includes(scene)) throw Error('Expected known scene, revision, user-provided credential file path, optional ordinal and compatible source role');
 if(['identity-boundary','outsider-distance','identity-phase-transfer','continuity-range-holdout','identity-reentry-holdout'].includes(scene))scenes[scene]=scenes[scene].map(input=>input.replaceAll('IDENTITY',roleName==='古月娜'?'舞麟':'小凡'));

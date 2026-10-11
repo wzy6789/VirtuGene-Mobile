@@ -1,4 +1,4 @@
-/* Mobile navigation uses complete pages, never bottom drawers. Imported last. */
+/* Details use complete pages; brief actions use centered dialogs, never drawers. Imported last. */
 .vg-page-overlay { background:transparent; overflow:hidden; }
 .vg-modal-panel.vg-mobile-page {
   display:flex; flex-direction:column; width:100%; max-width:none;

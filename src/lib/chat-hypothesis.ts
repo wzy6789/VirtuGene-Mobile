@@ -1,5 +1,7 @@
 import {hasExplicitTopicShift,isStandaloneClosing,requestsCharacterPerspective} from './chat-turn-cues';
 import {isTopicRelated} from './chat-conversation-state';
+import {isDirectAffection} from './chat-expression-boundary';
+import {replyContainsSubstantiveQuestion} from './chat-expression-guidance';
 
 /** Derive from recent user originals each turn, rather than storing a fictional
  * event or trusting the character's earlier scene invention as a new fact. */
@@ -14,6 +16,10 @@ export function conversationalHypothesis(message:string,recentUsers:string[]):st
       && /[？?]|(?:会|要|想|该)(?:怎么|选|叫)|哪(?:个|种|一)|叫什么/u.test(text)
       && !/^(?:他|她|朋友|同事|翻译|解释|帮我写)/u.test(text);
     if(explicit&&text.length<=240){premise=text;continue;}
+    // Sharing affection after a hypothetical discussion is a new present
+    // contribution. A shared word such as “安排” must not keep the imagined
+    // event active. A current question still retains its own actual scope.
+    if(isDirectAffection(text)&&!replyContainsSubstantiveQuestion([text])){premise='';continue;}
     // Real plans and changes are read from the user, not manufactured from
     // "我会选…" in an imagined choice. This guard is deliberately explicit.
     const actual=clauses.some(part=>/^(?:那|不过|其实)?我(?:现在|刚才|已经|今天)?(?:已经|真的|实际)?(?:买了|摆了|放了|去了|决定|准备|打算|要去|订了)/u.test(part)

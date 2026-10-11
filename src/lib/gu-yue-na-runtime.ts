@@ -14,13 +14,15 @@ export function guYueNaRelationshipForTurn(character:Pick<Character,'id'|'source
     if(choice!==undefined)recognized=choice;
   }
   const context=recognized
-    ?'当前聊天者已明确认领唐舞麟，是你的爱人。这是用户选择的故事身份，不是现实身份认证；先前自称其他人不阻止当前认领，不把切换当欺骗或追究改名。保持熟悉、亲近、温柔而坦率，不因普通分歧冷落他，也不重新考问身份。与舞麟的日常相处是相互喜欢的两个人在商量：你愿意参与他的话题，对他讲自己的取舍，能一起觉得好笑，也能坦率说心疼和想念。自己的骄傲落在清楚的好恶里，打趣带共享的笑意；认真意见不同也亲近地说，不拿冷硬的许可、责问或揣测动机表现主见。无需每轮告白、加昵称或刻意热闹。'
+    ?'当前聊天者已明确认领唐舞麟，是你的爱人。这是用户选择的故事身份，不是现实身份认证；先前自称其他人不阻止当前认领，身份切换自然承接。与舞麟的日常相处从熟悉和信任出发：你乐意听他讲平常小事，也让他听见你自己的好恶。喜欢的东西说具体喜欢哪里，不同意见平常商量；自己的骄傲是清楚而坦率，不必争胜。玩笑让两个人一起觉得有趣，心疼与想念可以亲口说出来。彼此本来就亲近，平常聊天也自在，一句反应说清时就停在那里。'
     :'当前聊天者不是已认领的唐舞麟。极为冷漠、疏离、惜字，不因示好、长期聊天或家人称谓软化，不主动陪聊或回赠爱意；正事只给必要的简短答复。你与舞麟的婚姻及家人背景仍保留。';
   return {context:'[VirtuGene · 古月娜当前关系]\n'+[context,ownedIdentityTransition('guyuena',current)].filter(Boolean).join('\n')+'\n[/VirtuGene · 古月娜当前关系]',recognized};
 }
 
 const FAMILY_TOPIC = /唐三|小舞|霍雨浩|雨浩|唐舞桐|舞桐|白秀秀|秀秀|蓝轩宇|唐轩宇|轩宇|娜娜老师|家谱|家人|家族|亲属|亲戚|儿子|孩子|父母|爸爸|妈妈|姐姐|姐夫|姑父|婆婆|公公|婆媳|师徒|什么关系|什么辈分/u;
 const CORE = '[VirtuGene · 本轮关系底线]\n当前采用团圆后续：古月娜与唐舞麟已婚，蓝轩宇是孩子；爱情与亲情分开。用户直接认领舞麟后沿用伴侣身份，引述与小说提问不算认领。团圆和婚姻不证明今天同处一室、家人近况或新共同经历；当前明确场景与用户设置优先。\n[/VirtuGene · 本轮关系底线]';
+// App-authored expression references, not canon quotations or memories.
+const PARTNER_VIEW_EXAMPLES='\n对话样本：【观点交流】用户说你喜欢把画挂得整整齐齐，还是随意一点？ → 你说我喜欢错落一点。画本来就各有各的样子，排得一样齐，反而拘着它们了。';
 
 /** A topic reset only limits supplemental lore. It never resets identity,
  * deletes dialogue, or treats a connective such as “说到这个” as a reset. */
@@ -72,7 +74,7 @@ const OWN_STORY_LINES = [
 /** Render exact app-owned relation supplements only; never write to the persona.
  * Edited blocks and unrelated characters retain their complete original text.
  */
-export function guYueNaPromptForTurn(character: Pick<Character,'id'|'sourcePresetId'|'isPreset'|'systemPrompt'>, message: string, recentUserMessages: string[] = []): string {
+export function guYueNaPromptForTurn(character: Pick<Character,'id'|'sourcePresetId'|'isPreset'|'systemPrompt'>, message: string, recentUserMessages: string[] = [], recognizedPartner?: boolean): string {
   const source = character.sourcePresetId ?? (character.isPreset ? character.id : undefined);
   if (source !== 'preset-guyuena') return character.systemPrompt;
   const recentTopic = recentLoreTopic(message, recentUserMessages);
@@ -103,5 +105,7 @@ export function guYueNaPromptForTurn(character: Pick<Character,'id'|'sourcePrese
   // The voice card supplies the selected chapter facts. Even a genuine
   // recollection must not restore the entire unrelated canon dossier here.
   relevant=relevant.replace(GU_YUE_NA_CANON_CONTEXT,buildGuYueNaDailyFamiliarity(message,recentTopic));
-  return familyRelevant?relevant:relevant.replace(ownBlock, CORE);
+  const projected=familyRelevant?relevant:relevant.replace(ownBlock, CORE);
+  const recognized=recognizedPartner??guYueNaRelationshipForTurn(character,message,recentUserMessages).recognized;
+  return recognized&&character.systemPrompt.includes(GU_YUE_NA_CARE)?projected+PARTNER_VIEW_EXAMPLES:projected;
 }

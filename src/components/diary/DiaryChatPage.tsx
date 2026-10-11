@@ -824,7 +824,7 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
       />
 
       {/* 把这一天发给角色 */}
-      <Modal open={shareOpen} onClose={() => setShareOpen(false)} title="分享日记" width="max-w-sm" closeOnBackdrop={false}>
+      <Modal presentation="dialog" open={shareOpen} onClose={() => setShareOpen(false)} title="分享日记" width="max-w-sm" closeOnBackdrop={false}>
         <div className="p-6">
           <p className="text-sm text-sub mb-1">把这一天发给角色</p>
           <p className="text-xs text-gray-500 mb-4">会以你的身份把这篇日记发到 TA 的会话里，TA 会回应你的一天。</p>

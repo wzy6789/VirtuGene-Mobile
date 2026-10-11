@@ -78,6 +78,19 @@ export function isDirectAffection(message: string): boolean {
     .some(match=>!/[?？]/u.test(match[2])&&DIRECT_FEELING.test(match[1].trim()));
 }
 
+/** Quote an exact, plain current-user clause addressed to the interlocutor.
+ * Preserve the existing intent classifier; never turn quoted dialogue or an
+ * object's appeal into an addressed feeling through string cleanup. */
+export function directAffectionSources(message:string):string[] {
+  if(message.length>4000||!isDirectAffection(message))return [];
+  const masked=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,quote=>' '.repeat(quote.length));
+  return [...masked.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)].flatMap(match=>{
+    const plain=match[1].trim();
+    const original=message.slice(match.index,match.index+match[1].length).trim();
+    return !/[?？]/u.test(match[2])&&plain===original&&DIRECT_FEELING.test(plain)?[original]:[];
+  });
+}
+
 /** A direct question about the interlocutor's feelings, rather than a request
  * to define love, discuss somebody else, or solve a second task. */
 export function isAffectionQuestion(message:string):boolean {
@@ -241,6 +254,9 @@ export function directChatGuidance(userMessage:string, recentUserMessages:string
     :'用户邀请你说真实看法：以这个人物自己的立场回应一处具体观点，同意或不同意都可以。这里是在交流看法，不是让你安排下一步；说清态度和依据即可收住，不固定追加“你觉得呢”。用户说出的原因是事实，历史里你猜过的原因仍是猜测；拿不准时留白或具体问，不替用户补理由。');
   if (isDirectAffection(userMessage)) {
     if(options.includeAffection!==false)lines.push(DIRECT_AFFECTION_DIRECTION);
+    const sources=directAffectionSources(userMessage);
+    const otherFeeling=unquoted.split(/[。！？!?，,；;\n]/u).some(part=>!sources.includes(part.trim())&&/喜欢|爱|想你|想念|惦记/u.test(part));
+    if(sources.length&&otherFeeling)lines.push(`[本轮直接心意原句]\n用户本轮原句：${JSON.stringify(sources)}\n[/本轮直接心意原句]`);
     if(previousUser.length>0&&previousUser.length<=120&&(recentReplies[recentReplies.length-1]?.length??0)>60)lines.push(`相邻发言归属：用户上一条原文是 ${JSON.stringify(previousUser)}。历史中的人物发言属于你自己的话，不能说成用户此前的铺垫、解释或亲历；这轮直接回应眼前的心意。`);
   }
   if (recentReplies.slice(-3).some(text=>hasUninvitedStaging(text)||hasOverwrittenAffection(text,userMessage))) lines.push('最近回复带出了现场表演或情绪独白。历史里的门、动作和氛围不是现在同处一室的证据；这轮回到发消息，接用户眼前的话，不再续演那个布景。');

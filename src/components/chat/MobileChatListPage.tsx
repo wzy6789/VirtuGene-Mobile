@@ -1,5 +1,5 @@
 import { avatarImageSrc } from '../../lib/avatar';
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { useFeedback } from '../../lib/feedback';
 import { useAuthStore } from '../../store/auth-store';
 import { registerSoulElement } from '../../lib/soul-handoff';
@@ -7,6 +7,9 @@ import { useChatStore } from '../../store/chat-store';
 import { useGroupStore } from '../../store/group-store';
 import { useUIStore } from '../../store/ui-store';
 import { SwipeActionItem } from '../ui/SwipeActionItem';
+import { Modal } from '../ui/Modal';
+import { Icon } from '../ui/Icon';
+import { confirm } from '../../lib/haptics';
 import { Avatar } from '../ui/Avatar';
 import { LoadingSkeleton } from '../ui/LoadingSkeleton';
 import { BrandWordmark } from '../ui/BrandWordmark';
@@ -49,10 +52,48 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
   const fetchUnreadCounts = useChatStore((s) => s.fetchUnreadCounts);
   const togglePin = useChatStore((s) => s.togglePin);
   const hideFromChatList = useChatStore((s) => s.hideFromChatList);
+  const markCharacterRead = useChatStore((s) => s.markCharacterRead);
   const feedback = useFeedback();
   const hideConversation = (id: string) => hideFromChatList(id).then(() => feedback('已从列表移除，角色与聊天记录保留', { tone: 'success' })).catch(() => feedback('聊天未能移除，请重试', { tone: 'error' }));
   /** 会话列表搜索（搜角色名） */
   const owner = useAuthStore(s=>s.userId);
+  const [menu, setMenu] = useState<{ id: string; owner: string | null } | null>(null);
+  const menuOwner = useRef(owner);
+  if (menu) menuOwner.current = menu.owner;
+  const snapshotOwner = menuOwner.current;
+  const menuCharacter = menu?.owner === owner ? characters.find(c => c.id === menu.id && c.createdBy === owner && !c.chatListHidden) : undefined;
+  const [menuBusy, setMenuBusy] = useState(false);
+  const menuLock = useRef(false);
+  const hold = useRef<{ timer: number; id: number; x: number; y: number } | null>(null);
+  const held = useRef(false);
+  const cancelHold = () => { if (hold.current) window.clearTimeout(hold.current.timer); hold.current = null; };
+  const openMenu = (id: string) => {
+    cancelHold(); held.current = true;
+    setMenu({ id, owner }); confirm();
+  };
+  const startHold = (event: PointerEvent<HTMLButtonElement>, id: string) => {
+    cancelHold(); held.current = false;
+    if (!event.isPrimary || event.button !== 0) return;
+    // A held row stays in place; scrolling or swiping cancels before the menu opens.
+    hold.current = { id: event.pointerId, x: event.clientX, y: event.clientY,
+      timer: window.setTimeout(() => openMenu(id), 550) };
+  };
+  useEffect(() => {
+    setMenu(null); held.current = false; cancelHold();
+    const hidden = () => { if (document.hidden) cancelHold(); };
+    window.addEventListener('blur', cancelHold);
+    window.addEventListener('resize', cancelHold);
+    window.addEventListener('scroll', cancelHold, true);
+    document.addEventListener('visibilitychange', hidden);
+    return () => { cancelHold(); window.removeEventListener('blur', cancelHold); window.removeEventListener('resize', cancelHold); window.removeEventListener('scroll', cancelHold, true); document.removeEventListener('visibilitychange', hidden); };
+  }, [owner]);
+  const runMenuAction = async (action: (id: string) => Promise<void>, message?: string) => {
+    if (menuLock.current || !menuCharacter || useAuthStore.getState().userId !== owner) return;
+    menuLock.current = true; setMenuBusy(true);
+    try { await action(menuCharacter.id); if (useAuthStore.getState().userId === owner) { setMenu(null); if (message) feedback(message, { tone: 'success' }); } }
+    catch { if (useAuthStore.getState().userId === owner) feedback('操作未能完成，请重试', { tone: 'error' }); }
+    finally { menuLock.current = false; setMenuBusy(false); }
+  };
   const [charactersLoading, setCharactersLoading] = useState(characters.length === 0);
   const [search, setSearch] = useState(() => savedPosition?.owner === useAuthStore.getState().userId ? savedPosition.search : '');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -214,7 +255,15 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
                   contentClassName={c.pinned ? 'vg-conversation-shell is-pinned' : 'vg-conversation-shell'}
                 >
                   <button
-                    onContextMenu={(e) => e.preventDefault()}
+                    type="button"
+                    aria-haspopup="dialog"
+                    aria-expanded={menuCharacter?.id === c.id}
+                    onPointerDown={e => startHold(e, c.id)}
+                    onPointerMove={e => { const g = hold.current; if (g && (g.id !== e.pointerId || Math.hypot(e.clientX - g.x, e.clientY - g.y) > 10)) cancelHold(); }}
+                    onPointerUp={cancelHold} onPointerCancel={cancelHold} onPointerLeave={cancelHold}
+                    onClickCapture={e => { if (held.current && e.detail !== 0) { e.preventDefault(); e.stopPropagation(); held.current = false; } }}
+                    onContextMenu={e => { e.preventDefault(); openMenu(c.id); }}
+                    onKeyDown={e => { if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); openMenu(c.id); } }}
                     className="vg-conversation-row w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-transparent transition-colors active:bg-surface-strong"
                   >
                     {avatarImageSrc(c.avatar) ? (
@@ -254,6 +303,17 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
         )}
       </div>
       </div>
+
+      <Modal presentation="dialog" open={!!menuCharacter} title={menuCharacter?.name} width="max-w-sm"
+        onClose={() => { if (!menuLock.current) setMenu(null); }}
+        canSnapshotOnExit={() => useAuthStore.getState().userId === snapshotOwner}>
+        <div className="p-4 space-y-2" aria-busy={menuBusy}>
+          <button type="button" disabled={menuBusy} onClick={() => void runMenuAction(togglePin)} className="w-full min-h-12 flex items-center gap-3 px-4 rounded-xl bg-surface text-sm text-ink disabled:opacity-50"><Icon name="flag" />{menuCharacter?.pinned ? '取消置顶' : '置顶聊天'}</button>
+          <button type="button" disabled={menuBusy} onClick={() => void runMenuAction(markCharacterRead)} className="w-full min-h-12 flex items-center gap-3 px-4 rounded-xl bg-surface text-sm text-ink disabled:opacity-50"><Icon name="check" />标为已读</button>
+          <button type="button" disabled={menuBusy} onClick={() => void runMenuAction(hideFromChatList, '已从列表移除，角色与聊天记录保留')} className="w-full min-h-12 flex items-center gap-3 px-4 rounded-xl bg-red-500/10 text-sm text-red-400 disabled:opacity-50"><Icon name="trash" />从聊天列表移除</button>
+          <p className="px-1 pt-2 text-xs leading-relaxed text-sub">移除后，角色与聊天记录仍会保留。</p>
+        </div>
+      </Modal>
 
       {/* 群聊覆盖层（按需加载：与 GroupChatPage 自身的 fixed inset-0 vg-layer-page 布局对齐） */}
       {showGroups && (

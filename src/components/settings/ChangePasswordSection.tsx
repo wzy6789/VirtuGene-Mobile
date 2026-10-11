@@ -89,7 +89,7 @@ export function ChangePasswordSection() {
         <span aria-hidden="true" className="text-gray-400 text-xs">›</span>
       </button>
 
-      <Modal panelClassName="vg-settings-panel" open={open} onClose={() => { setOpen(false); reset(); }} title="修改密码" width="max-w-sm" closeOnBackdrop={false} footer={!done ? <div className="vg-settings-design !py-3">              <div className="flex justify-end gap-2">
+      <Modal presentation="dialog" canSnapshotOnExit={() => false} panelClassName="vg-settings-panel" open={open} onClose={() => { setOpen(false); reset(); }} title="修改密码" width="max-w-sm" closeOnBackdrop={false} footer={!done ? <div className="vg-settings-design !py-3">              <div className="flex justify-end gap-2">
                 <button onClick={() => { setOpen(false); reset(); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
                 <button
                   onClick={() => void handleSubmit()}

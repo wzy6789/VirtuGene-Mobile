@@ -45,6 +45,18 @@ export function requestsCharacterPerspective(message: string): boolean {
   });
 }
 
+/** An addressed two-option question, including an explicitly imagined choice.
+ * A delivery clue only: neither a real plan nor authority to execute a task. */
+export function requestsCharacterChoice(message:string):boolean {
+  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
+  if(/^(?:朋友|同事|他|她|翻译|解释|改写|帮我写|替我写|(?:如果|假如|假设)(?:朋友|同事|他|她|别人))/u.test(text))return false;
+  const activeRequest=text.split(/[。！？!?，,；;\n]/u).some(clause=>
+    /(?:帮我|替我|给我).{0,12}(?:写|改|安排|查|推荐|整理)/u.test(clause)
+    && !/^(?:我)?(?:不是|并非|不用|不要|不必|不需要|别)(?:想|要|请|让)?/u.test(clause.trim()));
+  if(activeRequest||/(?:不要|不用|别|不必).{0,8}(?:回答|选择|选|说)/u.test(text))return false;
+  return /(?:^|[。！？!?，,；;])\s*你(?:自己|个人)?(?:会|更喜欢|喜欢|想选)[^。！？!?]{1,50}还是[^。！？!?]{1,50}[？?]/u.test(text);
+}
+
 /** A direct denial of the speaker's own feeling, not proof of a different
  * feeling. Preserve the rest of the original message and any actual request. */
 export function correctsOwnFeeling(message: string): boolean {

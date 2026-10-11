@@ -10,6 +10,7 @@ import type {PromptSection} from './chat-context-compiler';
 import {isLongFormRequest} from './reply-quality';
 import {buildGuYueNaRecallCard} from './gu-yue-na-canon';
 import {buildHypothesisContext,buildPreferenceProposalContext} from './chat-hypothesis';
+import {buildViewContinuityContext} from './chat-view-continuity';
 
 /**
  * 只在本地判断这一轮对话的气质，不调用模型，也不写入数据库。
@@ -405,6 +406,8 @@ export function buildHumanConversationSections(
     if(hypothesis)lines.push(hypothesis);
     const choice=buildPreferenceProposalContext(userText,recentUsers);
     if(choice)lines.push(choice);
+    const viewContinuity=buildViewContinuityContext(userText,history);
+    if(viewContinuity)lines.push(viewContinuity);
   }
   if (isPersonalExperienceQuestion(userText)) {
     const authored=(character?.systemPrompt??'').split(/\r?\n/u).filter(line=>!SAMPLE_LINE.test(line)).join('\n').slice(0,2000);

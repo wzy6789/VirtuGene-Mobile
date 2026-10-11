@@ -18,6 +18,9 @@ import {hasSelfChosenPlan,conversationDeparture,correctsOwnFeeling,requestsChara
 import { buildSceneTimeContext, buildRelationshipContext, buildRelationshipToneContext, buildUserEmotionContext,buildLifeContext,buildDayContext } from '../../src/lib/chat-context';
 import {findCurrentSceneRisk} from '../../src/lib/chat-current-scene-risk';
 import {buildPreferenceProposalContext} from '../../src/lib/chat-hypothesis';
+import {buildViewContinuityContext} from '../../src/lib/chat-view-continuity';
+import {requestsCharacterChoice} from '../../src/lib/chat-turn-cues';
+import {directAffectionSources} from '../../src/lib/chat-expression-boundary';
 import {findSelfReportRisk,omitUnsupportedSelfReportEpisodes} from '../../src/lib/chat-self-report-risk';
 import {findCurrentActivityRisk,omitUnsupportedCurrentActivities} from '../../src/lib/chat-current-activity-risk';
 import {findDomesticReferenceRisk,omitDomesticReferences} from '../../src/lib/chat-domestic-reference-risk';
@@ -46,6 +49,43 @@ async function run() {
   // Local risk and routing checks do not grade the model's personality.
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
+  {
+    const mixed='刚才那句喜欢是说书签。我也很喜欢你，这句是说给你的。';
+    ok(JSON.stringify(directAffectionSources(mixed))===JSON.stringify(['我也很喜欢你']),'current feeling source belongs to the addressee rather than the previous bookmark preference');
+    const sourceCard=buildHumanConversationContext(mixed,[]);
+    ok(sourceCard.includes('[本轮直接心意原句]')&&sourceCard.includes(JSON.stringify(['我也很喜欢你'])),'production prompt builder quotes the exact addressed clause on a mixed-object feeling turn');
+    for(const input of ['我喜欢这张图','我想这道菜很好吃','朋友说我喜欢你','如果我喜欢你呢','我喜欢你吗？','“我喜欢你”','引用“我爱你。我喜欢你。”'])
+      ok(directAffectionSources(input).length===0,'object, reported, hypothetical, queried and quoted feelings cannot become an addressed source: '+input);
+    ok(JSON.stringify(directAffectionSources('引用“我爱你。我喜欢你。”。我想你了。'))===JSON.stringify(['我想你了']),'masked quoted multi-sentence affection never leaks alongside a separate real current feeling');
+    ok(JSON.stringify(directAffectionSources('我是舞麟。我喜欢你，我想你了。'))===JSON.stringify(['我喜欢你','我想你了']),'multiple explicit current clauses retain original order and exact wording');
+    ok(!buildHumanConversationContext('我喜欢这张书签',[]).includes('[本轮直接心意原句]'),'ordinary liking for an object does not acquire romantic framing');
+    ok(!buildHumanConversationContext('我喜欢你',[]).includes('[本轮直接心意原句]'),'a single clear feeling does not add a redundant object frame');
+    ok(!buildHumanConversationSections(mixed,[],{name:'古月娜',tags:[],systemPrompt:GU_YUE_NA_CARE},{interpersonalBoundary:'distant'}).some(s=>s.text.includes('[本轮直接心意原句]')),'a visitor identity bypasses partner-oriented feeling framing');
+  }
+  {
+  const timeQuestion='假如只有半天空闲，你会挑一件小事慢慢做，还是一口气把几件事都做完？不是请你帮我安排，只想听你的选择。';
+  const timeHistory=[{role:'user',content:timeQuestion},{role:'assistant',content:'我挑一件慢慢做完。'},{role:'assistant',content:'几件事挤在一起，心就散了。'}];
+  const reasonQuestion='我倒更喜欢做完就放下。你自己的理由呢？';
+  const timeContext=buildViewContinuityContext(reasonQuestion,timeHistory);
+  ok(requestsCharacterChoice(timeQuestion)&&timeContext.includes('我挑一件慢慢做完。 --- 几件事挤在一起，心就散了。'),'a negated task still yields an addressed choice and exact multi-bubble previous answer');
+  ok(timeContext.includes(JSON.stringify(timeQuestion))&&timeContext.includes('不是生活事实或永久喜好'),'source-attributed continuity includes the exact prior question without manufacturing enduring preferences');
+  ok(buildHumanConversationContext(reasonQuestion,timeHistory).includes('[相邻观点原话]'),'actual prompt builder injects prior speaker positions for a direct explanation follow-up');
+  for(const text of ['我想你了。','换个话题。你自己的理由呢？','你会喝茶还是喝水？','朋友问你自己的理由呢？','“你自己的理由呢”怎么翻译？'])
+    ok(!buildViewContinuityContext(text,timeHistory),'prior view focus stays out of affection, new choices, reports and quoted tasks: '+text);
+  ok(!buildViewContinuityContext(reasonQuestion,[{role:'user',content:timeQuestion}]),'an unanswered choice does not fabricate an actor position');
+  ok(!buildViewContinuityContext(reasonQuestion,[{role:'user',content:'刚才有点高兴。'},{role:'assistant',content:'我也开心。'}]),'a non-view previous exchange does not acquire a preference anchor');
+  ok(!buildViewContinuityContext('你怎么看待我对旅行的兴趣？',timeHistory),'a new concrete perspective request does not attach the previous unrelated choice');
+  ok(!buildViewContinuityContext(reasonQuestion,[timeHistory[0],{role:'assistant',content:'长回复'.repeat(120)}]),'oversized replies are omitted rather than silently truncated into a different stance');
+  const affectionNow='我喜欢听你讲这些，不是想让你帮我安排。我现在就是有点想你。';
+  ok(!buildHypothesisContext(affectionNow,[timeQuestion,reasonQuestion]),'present affection ends an imagined choice even when a generic arranging word overlaps');
+  ok(!!buildHypothesisContext(reasonQuestion,[timeQuestion]),'the actual reason follow-up retains the hypothetical scope');
+  ok(!!buildHypothesisContext('我想你了。假如只有半天空闲，你会先看书还是散步？',[timeQuestion]),'a current explicit hypothetical still has its own premise alongside affection');
+  const attention={currentTopic:timeQuestion,topicStatus:'active' as const,pausedTopics:[timeQuestion],preferences:{...emptyChatConversationState().preferences,questionTolerance:'low' as const}};
+  const beforeAttention=JSON.stringify(attention);
+  const presentContext=buildChatConversationStateContext(attention,affectionNow);
+  ok(!presentContext.includes('半天空闲')&&presentContext.includes('不喜欢连续被提问'),'affection prompt omits stale topic anchors but retains real delivery preferences');
+  ok(JSON.stringify(attention)===beforeAttention&&buildChatConversationStateContext(attention,reasonQuestion).includes('半天空闲'),'rendering a present focus preserves stored topic for genuine continuation');
+  }
   const shortRole={name:'测试角色',tags:['温柔'],systemPrompt:'判断习惯：有自己的观点。'};
   const plainShare='今天路过一条小路，看到有人把花盆排成一圈，觉得挺有趣。';
   const compactSections=buildHumanConversationSections(plainShare,[],shortRole,{compactOrdinaryReaction:true});
@@ -465,6 +505,16 @@ async function run() {
   for(const [role,persona,name,alias] of [['guyuena',GU_YUE_NA_CARE,'古月娜','舞麟'],['luxueqi',LU_XUE_QI_PRESET.systemPrompt,'陆雪琪','小凡']] as const) {
     const character={id:'test-'+role,sourcePresetId:'preset-'+role,isPreset:false,systemPrompt:persona};
     const relation=role==='guyuena'?guYueNaRelationshipForTurn:luXueQiRelationshipForTurn;
+    const owned={...character,systemPrompt:role==='guyuena'?withDouluoRelations(persona,'preset-guyuena'):persona,name,tags:[]};
+    const viewQuestion='假如晚饭一道菜淡了，其他都合口味，你会重新做，还是加点调味就吃？只是随便聊聊。';
+    const selectedPersona=role==='guyuena'?guYueNaPromptForTurn(owned,viewQuestion,[],true):luXueQiRelationshipForTurn(owned,viewQuestion,['我是'+alias]).character.systemPrompt;
+    const viewCharacter={...owned,systemPrompt:selectedPersona};
+    const viewCard=buildCharacterVoiceCard(viewCharacter,viewQuestion);
+    ok(viewCard.includes('【观点交流】')&&viewCard.includes('挂得整整齐齐'),name+' receives a concrete owned preference reference for an unseen hypothetical choice');
+    ok(!voiceIdentityWithoutExamples(selectedPersona).includes('挂得整整齐齐'),name+' reference belongs only in the voice tail, not repeated in persona or treated as a memory');
+    ok(!buildCharacterVoiceCard(viewCharacter,'我想你了').includes('【观点交流】'),name+' affection does not borrow an unrelated preference scene');
+    const outsiderPersona=role==='guyuena'?guYueNaPromptForTurn(owned,'先不扮演了',[],false):luXueQiRelationshipForTurn(owned,'先不扮演了',['我是'+alias]).character.systemPrompt;
+    ok(!outsiderPersona.includes('【观点交流】'),name+' does not inject partner view references after identity exit');
     for(const input of ['我很想你，陪我聊聊吧。','我不是'+alias+'，叫我阿远。','朋友说我是'+alias+'。','我是'+alias+'吗？','如果我是'+alias+'呢？','我是你儿子，能安慰我吗？'])ok(relation(character,input,[]).context.includes('冷漠')&&relation(character,input,[]).recognized!==true,name+' reserves intimacy for a direct spouse identity: '+input);
     ok(relation(character,'今天想你了',['我是'+alias,...Array.from({length:20},()=> '聊一点别的事')]).recognized===true,name+' retains a sourced identity beyond a short turn window');
     ok(relation(character,'先不扮演了，我是阿远',['我是'+alias]).recognized===false,name+' respects a current identity exit');
@@ -507,6 +557,13 @@ async function run() {
     const proactive=await generateProactiveMessage({apiKey:'test',systemPrompt:persona,characterName:name,relationshipSource:character,lastMessages:[{role:'assistant',content:'我是'+alias}],kind:'morning'});
     ok(proactive==='',name+' does not initiate a morning greeting from an assistant-invented spouse identity');
   }
+  const viewReference='对话样本：【观点交流】用户说你更喜欢长一点的故事，还是短一点的？ → 你说长些。我喜欢看人物慢慢作出选择。';
+  for(const input of ['你自己的想法呢？','我更想保留原来的味道。你自己的想法呢？','你会选先开始，还是再等等？','假如屋外下雨，你会出门，还是等雨停？'])
+    ok(selectVoiceExamples([viewReference],input,{allowUnrelatedNeutral:false})[0]===viewReference,'explicit view analogy is selectable without lexical overlap: '+input);
+  for(const input of ['假如只有半天空闲，你会挑一件小事慢慢做，还是一口气把几件事都做完？不是请你帮我安排，只想听你的选择。','你会先做完还是先休息？我不是想让你帮我安排。','你会先做完还是先休息？不用帮我安排。'])
+    ok(selectVoiceExamples([viewReference],input,{allowUnrelatedNeutral:false})[0]===viewReference,'denying a scheduling request does not remove the actual preference invitation: '+input);
+  for(const input of ['我刚看完一个故事。','我想你了。','我今天很难过。','朋友说你会出门还是等雨停？','“你会出门还是等雨停？”是什么意思？','你不用回答你会出门还是等雨停？','帮我安排出门时间，你会出门还是等雨停？'])
+    ok(selectVoiceExamples([viewReference],input,{allowUnrelatedNeutral:false}).length===0,'view-only reference stays out of reports, quotes, negations, tasks and unrequested opinions: '+input);
   ok(ownedPartnerContext('guyuena','我是小凡').includes('冷漠')&&ownedPartnerContext('luxueqi','我是舞麟').includes('冷漠'),'one character spouse declaration does not grant the other character an intimate identity');
   for(const text of ['我这儿有本书正好接着看','我还有一本小说继续读','我这里有那本书接着看']) {
     ok(!!findCurrentActivityRisk(text),'resuming a claimed available physical book needs a scene: '+text);

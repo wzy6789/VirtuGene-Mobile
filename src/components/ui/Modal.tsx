@@ -18,7 +18,7 @@ interface ModalProps {
   /** An optional action area outside the scrolling form. */
   footer?: React.ReactNode;
   panelClassName?: string;
-  /** Mobile forms and detail views are pages; brief confirmations stay centered. */
+  /** Mobile details use pages; short action menus, choices and confirmations stay centered. */
   presentation?: 'page' | 'dialog';
   onBack?: () => void;
   /** Recheck access at unmount before retaining any visual copy for the exit animation. */

@@ -400,7 +400,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       const guYueNaTurn = guYueNaRelationshipForTurn(character,text,contextMessages
         .filter(message=>message.id!==userMsg.id&&message.role==='user'&&message.secretaryDispatch?.bodyOrigin!=='composed')
         .map(message=>message.content));
-      const scopedVoiceCharacter={...luXueQiTurn.character,systemPrompt:guYueNaPromptForTurn(luXueQiTurn.character,text,history.filter(turn=>turn.role==='user').slice(-2).map(turn=>turn.content))};
+      const scopedVoiceCharacter={...luXueQiTurn.character,systemPrompt:guYueNaPromptForTurn(luXueQiTurn.character,text,history.filter(turn=>turn.role==='user').slice(-2).map(turn=>turn.content),guYueNaTurn.recognized)};
       const compiled = compileChatContext(
         voiceIdentityWithoutExamples(scopedVoiceCharacter.systemPrompt).slice(0, MAX_CHARACTER_PROMPT_CHARS),
         [

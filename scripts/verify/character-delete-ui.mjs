@@ -15,7 +15,7 @@ try{
   for(const mobile of [true,false]) {
     await page.evaluate(mobile=>window.characterDeleteUI.setup(mobile),mobile);
     if(mobile){await page.getByRole('button',{name:'管理删除压力测试角色',exact:true}).click();await page.getByRole('button',{name:'删除角色',exact:true}).click();}
-    else {await page.getByText('删除压力测试角色',{exact:true}).click({button:'right'});await page.getByRole('button',{name:'删除角色',exact:true}).click();}
+    else {await page.getByText('删除压力测试角色',{exact:true}).click({button:'right'});await page.getByRole('button',{name:/抹除序列/}).click();}
     await page.getByRole('button',{name:'确认删除',exact:true}).waitFor();
     await page.evaluate(()=>{
       window.deleteFrames=0;window.deleteMaxGap=0;window.deleteLast=performance.now();window.deleteActive=true;

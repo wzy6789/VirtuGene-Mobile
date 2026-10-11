@@ -1,5 +1,6 @@
 import {assessExpressionSignals} from './chat-expression-guidance';
 import {isDirectAffection,isAffectionQuestion,isAffectionReaction,allowsDramaticReply,isViewExchange,isTopicInvitation} from './chat-expression-boundary';
+import {requestsCharacterPerspective,requestsCharacterChoice} from './chat-turn-cues';
 import {authoredVoiceFields,JUDGMENT_FIELDS,REACTION_FIELDS} from './character-voice-fields';
 import {topicTerms} from './chat-conversation-state';
 import {recentQuestionDirection} from './chat-expression-guidance';
@@ -176,6 +177,10 @@ export function selectVoiceExamples(lines:string[],message?:string,options:{allo
   // they state a preference. Do not borrow hypothetical outings or reports;
   // the sample remains a voice reference, never a fact about the new object.
   const choice=isViewExchange(current)&&current.includes('还是')&&moment==='ordinary';
+  // Explicitly labelled authored view examples can teach a way of making a
+  // choice on an unseen topic. A hypothetical question is still a question;
+  // it does not establish that the event actually happened.
+  const viewInvitation=moment==='ordinary'&&(isViewExchange(current)||requestsCharacterPerspective(current)||requestsCharacterChoice(current));
   const ranked=lines.map((line,index)=>{
     const example=voiceExampleUserText(line);
     const exampleContent = example.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
@@ -191,11 +196,13 @@ export function selectVoiceExamples(lines:string[],message?:string,options:{allo
     const exact=matchingTopic.trim().replace(/[。！？!?～~]+$/u,'')===currentTopic.replace(/[。！？!?～~]+$/u,'')&&currentTopic.length>=2;
     const sceneMatch=mishap&&isCasualMishap(example);
     const choiceMatch=choice&&isViewExchange(example)&&example.includes('还是')&&interactionMoment(example)==='ordinary';
-    return {line,index,moment:interactionMoment(example),general:!example,sceneMatch,opening:plainConversationOpening(matchingTopic),relevance:exact?2:Math.max(sceneMatch ? 0.9 : 0,choiceMatch?0.4:0,topical)};
+    const viewOnly=/^对话样本：[【\[]观点交流[】\]]/u.test(line);
+    const authoredViewMatch=viewInvitation&&viewOnly;
+    return {line,index,viewOnly,moment:interactionMoment(example),general:!example,sceneMatch,opening:plainConversationOpening(matchingTopic),relevance:exact?2:Math.max(sceneMatch ? 0.9 : 0,choiceMatch?0.4:0,authoredViewMatch?0.35:0,topical)};
   })
     // A fatigue example is a poor voice reference for an explicit new subject.
     // Keep neutral examples as voice references, not unrelated emotional scripts.
-    .filter(row=>(row.moment==='ordinary'||row.moment===moment)&&(!current||!row.opening||plainConversationOpening(currentTopic)));
+    .filter(row=>(!row.viewOnly||viewInvitation)&&(row.moment==='ordinary'||row.moment===moment)&&(!current||!row.opening||plainConversationOpening(currentTopic)));
   ranked.sort((a,b)=>Number(b.moment===moment&&moment!=='ordinary')-Number(a.moment===moment&&moment!=='ordinary')||b.relevance-a.relevance||a.index-b.index);
   if (!current) return ranked.slice(0,3).map(row=>row.line);
   // Examples teach local response habits as well as a voice. A bookshop or

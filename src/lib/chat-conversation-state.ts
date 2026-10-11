@@ -291,15 +291,16 @@ export function buildChatConversationStateContext(state: Partial<ChatConversatio
   const current = { ...emptyChatConversationState(), ...(state ?? {}) };
   const prefs = { ...DEFAULT_CHAT_PREFERENCES, ...(current.preferences ?? {}) };
   const lines = ['[本会话的连续注意力]'];
-  if(current.currentTopic&&current.topicStatus==='paused') {
+  const presentAffection=currentMessage!==undefined&&isDirectAffection(currentMessage)&&!replyContainsSubstantiveQuestion([currentMessage]);
+  if(!presentAffection&&current.currentTopic&&current.topicStatus==='paused') {
     lines.push(`暂缓的话题：「${current.currentTopic}」。留到用户明确接续时再聊；回来本身不表示答应其中的行动或希望马上展开。`);
-  } else if (current.currentTopic && current.topicStatus !== 'closed') {
+  } else if (!presentAffection&&current.currentTopic && current.topicStatus !== 'closed') {
     lines.push(`当前话题只作为背景参考：「${current.currentTopic}」。用户已经换题时，以用户的新话题为准。`);
   }
   // Stored candidates are not all relevant context for the next utterance.
   // Callers doing an explicit history query can omit currentMessage to retain
   // the candidate list; ordinary new topics do not repeat unrelated feelings.
-  const pausedTopics=currentMessage===undefined?current.pausedTopics:current.pausedTopics.filter(topic=>isTopicRelated(currentMessage,topic));
+  const pausedTopics=presentAffection?[]:currentMessage===undefined?current.pausedTopics:current.pausedTopics.filter(topic=>isTopicRelated(currentMessage,topic));
   if (pausedTopics.length > 0) {
     lines.push(`暂时搁置的话题：${pausedTopics.slice(0, 3).map((item) => `「${item}」`).join('、')}。除非用户主动提起，不要自行拉回。`);
   }

@@ -100,7 +100,7 @@ export function BackupSection() {
         {msg && <p className="text-xs text-gray-500 break-all">{msg}</p>}
 
         {/* 备份弹窗 */}
-        <Modal panelClassName="vg-settings-panel" open={backupOpen} onClose={() => { setBackupOpen(false); setMsg(null); }} title="备份数据" width="max-w-sm" closeOnBackdrop={false} footer={<div className="vg-settings-design !py-3">            <div className="flex justify-end gap-2">
+        <Modal presentation="dialog" canSnapshotOnExit={() => false} panelClassName="vg-settings-panel" open={backupOpen} onClose={() => { setBackupOpen(false); setMsg(null); }} title="备份数据" width="max-w-sm" closeOnBackdrop={false} footer={<div className="vg-settings-design !py-3">            <div className="flex justify-end gap-2">
               <button onClick={() => { setBackupOpen(false); setMsg(null); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
               <button onClick={() => void doBackup()} disabled={busy} className="px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] transition-all disabled:opacity-50">
                 {busy ? '备份中…' : '开始备份'}
@@ -116,7 +116,7 @@ export function BackupSection() {
         </Modal>
 
         {/* 恢复弹窗 */}
-        <Modal panelClassName="vg-settings-panel" open={restoreOpen} onClose={() => { setRestoreOpen(false); setMsg(null); }} title="一键恢复" width="max-w-sm" closeOnBackdrop={false} footer={hasBackupFile ? <div className="vg-settings-design !py-3">                <div className="flex justify-end gap-2">
+        <Modal presentation="dialog" canSnapshotOnExit={() => false} panelClassName="vg-settings-panel" open={restoreOpen} onClose={() => { setRestoreOpen(false); setMsg(null); }} title="一键恢复" width="max-w-sm" closeOnBackdrop={false} footer={hasBackupFile ? <div className="vg-settings-design !py-3">                <div className="flex justify-end gap-2">
                   <button onClick={() => { setRestoreOpen(false); setMsg(null); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
                   <button onClick={() => void doRestore()} disabled={busy} className="px-4 py-2 rounded-lg text-sm bg-life-cyan text-[#0F0F1A] hover:bg-[#00B8B3] transition-all disabled:opacity-50">
                     {busy ? '恢复中…' : '一键恢复'}
