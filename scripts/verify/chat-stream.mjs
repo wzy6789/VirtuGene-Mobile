@@ -170,6 +170,18 @@ try {
   }
   check(teasingSaved.map(m=>m.content).join('')==='我还是更喜欢仙人掌那股安静的劲。','a fabricated remembered tease is corrected before the actual private-chat DB write');
   check((await test('completeRequests')).length===2,'user attribution warning shares one correction budget without a separate critic call');
+  await ready(0);await test('useReviewedCharacter','preset-guyuena');
+  await test('useCompleteResponses',['浓一点的。你还笑过我口味重。','你以前取笑过我口味重。']);
+  await test('submit','我现在喜欢清淡的汤，你自己呢？');
+  await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='浓一点的。','two unsupported teasing drafts keep only the independent preference in real private IndexedDB');
+  check((await test('completeRequests')).length===2,'teasing retry exhaustion adds no third generation');
+  await ready(0);await test('useReviewedCharacter','preset-guyuena');
+  await test('useCompleteResponses',['你还笑过我口味重。','你以前取笑过我口味重。']);
+  await test('submit','我现在喜欢清淡的汤，你自己呢？');
+  await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+  check(!(await test('records')).some(m=>m.role==='assistant')&&(await test('records'))[0].failed,'two wholly unsupported teasing drafts cannot write a fabricated memory or restore bestDraft');
+  check((await test('completeRequests')).length===2,'wholly rejected teasing stays within one repair budget');
   await ready(0);
   await test('submit','我喜欢这个说法'); await waitRequests(1);
   const proseSlash=String.fromCharCode(92);

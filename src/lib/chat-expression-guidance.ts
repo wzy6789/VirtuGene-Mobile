@@ -7,6 +7,9 @@ function statesSetbackFeeling(text:string):boolean {
   return text.split(/[。！!，,；;\n]/u).some(clause=>{
     const value=clause.trim();
     if(/^(?:(?:但是|不过|可是|但)\s*)?(?:我(?:自己)?\s*)?(?:(?:今天|现在|最近|刚才)(?:我)?\s*)?(?:(?:确实|真的|还是|也|还|感觉|觉得)\s*)?(?:挺|很|有点|有一点|有些|有一些|特别|好|真|太)\s*(?:失落|沮丧|扫兴)(?:的|了|啊|呀|呢|极了)?\s*$/u.test(value))return true;
+    // A completed event can locate a current feeling without repeating "我":
+    // "写完却有点失落" reports a feeling, not failure of the writing task.
+    if(/^(?:我)?(?:今天|刚才|现在)?(?:做完|写完|交完|整理完|忙完|练完|考完|结束)(?:了)?[^。！？!?，,；;\n]{0,60}(?:却|反而|之后|以后|后)(?:我)?(?:感觉|觉得)?(?:挺|很|有点|有一点|有些|有一些|特别)(?:失落|沮丧|扫兴)(?:了|啊|呀|呢)?$/u.test(value))return true;
     // Everyday event frames can omit "我". Require an explicit feeling;
     // the event alone, a lost object, a report or a question is not evidence.
     return /^(?:(?:但是|不过|可是|但)\s*)?(?:我(?:自己)?\s*)?(?:(?:今天|现在|最近|刚才)(?:我)?\s*)?(?:有(?:一|几)?件(?:小)?事(?:让我)?|(?:这|那)(?:件|次)(?:小)?事让我)(?:确实|真的|还是|也|还|感觉|觉得)?(?:挺|很|有点|有一点|有些|有一些|特别|好|真|太)(?:失落|沮丧)(?:的|了|啊|呀|呢|极了)?$/u.test(value);
@@ -92,6 +95,21 @@ export function assessExpressionSignals(userText: string): ExpressionSignals {
     || /(?:^|[。！？!?，,；;\n])\s*(?:但|不过)?我(?:还|也|现在|今天)?(?:挺|很|有点|有一点|有些|有一些|真|特别)得意(?:的|了|啊|呀|呢)?(?:$|[。！？!?，,；;\n])/u.test(ownText);
   return { situation, emotionConfidence:situation === 'neutral' ? 0 : self ? .9 : .55,
     request, requestConfidence:request ? .9 : 0, quoted, hypothetical };
+}
+
+/** A completed first-person result can invite a reaction without naming an
+ * emotion. This does not assert happiness, authorize an operation or verify
+ * the result; the original text remains the source of the reported progress. */
+export function reportsOwnCompletedProgress(message:string):boolean {
+  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  return ownFeelingSentences(text).some(sentence=>[...sentence.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)].some(match=>{
+    const clause=match[1].trim();
+    const predicate=clause.replace(/^(?:我(?:今天|刚才|现在)?|今天|刚才)(?:终于|总算|刚|已经)?/u,'');
+    if(/[?？]/u.test(match[2])||/^(?:如果|假如|假设|比如|例如|他|她|朋友|同事|以前|当年|上次|昨天|帮我|请你|替我|翻译|解释)/u.test(clause)
+      ||/^(?:想|准备|打算|希望|试着|争取|差点|险些|还没|没有|并未|不曾|不是)/u.test(predicate)
+      ||/(?:还没|没有|并未|不曾|不是)(?:弄明白|搞定|做完|完成|装好|拼好|修好|写完|交上|顺下来|练顺|通过|考过)(?:了|啦|了呀|了啊|啦呀|啦啊)?$/u.test(predicate))return false;
+    return /^(?:我(?:今天|刚才|现在)?|今天|刚才)(?:终于|总算|刚|已经)?(?:把)?[^。！？!?]{1,100}(?:弄明白|搞定|做完|完成|装好|拼好|修好|写完|交上|顺下来|练顺|通过|考过)(?:了|啦|了呀|了啊|啦呀|啦啊)$/u.test(clause);
+  }));
 }
 
 export function expressionDirection(signals: ExpressionSignals): string {

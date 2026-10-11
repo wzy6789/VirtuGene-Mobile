@@ -25,9 +25,11 @@ import {directAffectionSources} from '../../src/lib/chat-expression-boundary';
 import {findSelfReportRisk,omitUnsupportedSelfReportEpisodes} from '../../src/lib/chat-self-report-risk';
 import {findCurrentActivityRisk,omitUnsupportedCurrentActivities} from '../../src/lib/chat-current-activity-risk';
 import {findDomesticReferenceRisk,omitDomesticReferences} from '../../src/lib/chat-domestic-reference-risk';
+import {omitRememberedTeasing} from '../../src/lib/chat-remembered-teasing-risk';
 import {findUserVisualRisk,omitUnsupportedUserVisual} from '../../src/lib/chat-user-visual-risk';
 import { normalizeVoiceLines, voicePromptRevision, voiceIdentityWithoutExamples } from '../../src/lib/character-voice';
 import { interactionMoment, interactionMomentForTurn, emotionalExpressionGuidance, selectVoiceExamples, authoredReactionLines, voiceExampleUserText } from '../../src/lib/chat-emotional-expression';
+import {reportsOwnCompletedProgress} from '../../src/lib/chat-expression-guidance';
 import {omitUnsupportedAffectionHistory,findAffectionHistoryRisk} from '../../src/lib/chat-affection-history-risk';
 import {findUserHabitRisk,omitUnsupportedUserHabits} from '../../src/lib/chat-user-habit-risk';
 import {readRecalledUserHabitSources} from '../../src/lib/chat-user-habit-sources';
@@ -47,9 +49,25 @@ import {buildChatHistoryWindow,boundChatHistory} from '../../src/lib/chat-histor
 import {conversationalHypothesis,buildHypothesisContext} from '../../src/lib/chat-hypothesis';
 
 async function run() {
-  // Local risk and routing checks do not grade the model's personality.
   let checks = 0;
   const ok = (value: unknown, label: string) => { if (!value) throw Error(label); checks++; console.log(`ok ${label}`); };
+  for(const message of ['今天把锻造练习里一直卡住的一点弄明白啦，想先跟你说。','我终于把总弹错的那一段练顺了。','我刚才把一直没拼好的小模型拼好啦。','今天把那份材料交上了。']) {
+    ok(reportsOwnCompletedProgress(message)&&interactionMoment(message)==='ordinary','completed personal progress remains ordinary without manufacturing a celebration mood: '+message);
+    ok(assessExpressionSignals(message).emotionConfidence===0,'a progress clue does not fabricate a happy emotion: '+message);
+    ok(!authoredReactionLines(GU_YUE_NA_CARE,message).some(line=>line.startsWith('庆祝反应：')),'plain progress does not select the Gu happy-celebration field: '+message);
+  }
+  for(const message of ['我想把那一点弄明白。','今天准备把那一点弄明白。','我还没把模型拼好。','我差点把模型拼好了。','我没有把那段练顺。','以前我把这点弄明白了。','朋友把模型拼好了。','如果我把模型拼好了，你会说什么？','“今天把模型拼好啦”怎么翻译？','帮我把模型拼好。','今天把模型拼好了吗？'])
+    ok(!reportsOwnCompletedProgress(message),'plans, negative/near-miss results, old events, reports, hypotheses, quotes, requests and questions do not become present self progress: '+message);
+  ok(interactionMoment('今天把模型拼好啦，可是有点失落。')==='distress','explicit disappointment takes priority over a completed result');
+  ok(interactionMoment('今天把模型拼好啦，帮我看看说明书。')!=='celebration','a concrete task after a result retains its request rather than a celebration-only route');
+  ok(emotionalExpressionGuidance('今天把锻造练习里一直卡住的一点弄明白啦，想先跟你说。',[],{tags:[],systemPrompt:GU_YUE_NA_CARE}).includes('不需要先交代技术细节'),'actual actor expression guidance welcomes progress before information gathering');
+  ok(reportsOwnCompletedProgress('我刚才把一直还没弄明白的那一点弄明白了。'),'a negated old difficulty inside the object does not cancel the newly completed result');
+  ok(!reportsOwnCompletedProgress('我把模型还没拼好。')&&!reportsOwnCompletedProgress('我把模型拼好'),'terminal negation and a bare future-like predicate do not claim a completed result');
+  for(const message of ['写完却有点失落，跟我以为的感觉不一样。','写完那篇文章之后有点失落。','我今天整理完材料后觉得有点沮丧。','考完反而有点失落。'])
+    ok(assessExpressionSignals(message).situation==='distress'&&assessExpressionSignals(message).emotionConfidence>=.8&&interactionMoment(message)==='distress','a completed event frames the speaker current feeling without declaring the event failed: '+message);
+  for(const message of ['朋友写完却有点失落。','如果写完却有点失落，你会怎么办？','“写完却有点失落”是什么意思？','写完之后他有点失落。','写完却没有失落。','写完却有点失落吗？','我想知道写完却有点失落是什么意思。','帮我写一句写完却有点失落。'])
+    ok(assessExpressionSignals(message).emotionConfidence<.8,'reported, imagined, quoted, other-person, negative, question and writing-request feelings are not asserted as the user current feeling: '+message);
+  // Local risk and routing checks do not grade the model's personality.
   {
     const originals=[{role:'user',content:'今天放上了一个木头的摆件。'},{role:'assistant',content:'我看见了，它是红色的。'},{role:'user',content:'其实是陶瓷的，我刚才说错了。不是木头。'},{role:'user',content:'你自己会选颜色多的，还是简单的？'},{role:'user',content:'我会选颜色多的，热热闹闹的。'},{role:'user',content:'假如孩子画了一只小龙，你会怎么说？'}];
     const query='我们刚才聊的摆件是什么材质来着？';
@@ -953,7 +971,20 @@ async function run() {
     ok(inspectChatOutput('你刚才笑我挑仙人掌省事。',{mode:'private',userMessage:source}).check.ok,'explicitly directed user teasing suppresses only this attribution warning: '+source);
   for(const source of ['朋友说我刚才笑你','如果我刚才笑你呢','我没有笑你','帮我写我刚才笑你','“我刚才笑你”是什么意思','我刚才笑你穿红衣服','我刚才笑你选这个省事'])
     ok(inspectChatOutput('你刚才笑我挑仙人掌省事。',{mode:'private',userMessage:source}).check.issue==='user-source-risk','reported, hypothetical, negated and quoted sources do not assert a directed tease: '+source);
+  for(const mode of ['private','proactive','group'] as const)
+    ok(inspectChatOutput('浓一点的。你还笑过我口味重。',{mode,userMessage:'现在我更喜欢清淡一点的汤了',recentReplies:['你笑过我口味重。']}).check.issue==='user-source-risk','past-aspect directed teasing needs real user evidence, not prior assistant text: '+mode);
+  for(const reply of ['你笑过我口味重。','你曾经取笑过我口味重。','你以前打趣过我口味重。','你也嘲笑过我口味重。'])
+    ok(inspectChatOutput(reply,{mode:'private',userMessage:'我现在喜欢清淡的汤'}).check.issue==='user-source-risk','past-aspect history is checked without an explicit last-time marker: '+reply);
+  for(const reply of ['你还笑过我口味重吗？','如果你还笑过我口味重，我也不会改口。','不是你还笑过我口味重。','朋友说你还笑过我口味重。','你说“你还笑过我口味重”是什么意思？','你没笑过我口味重。','以后你笑我口味重也行。'])
+    ok(inspectChatOutput(reply,{mode:'private',userMessage:'聊聊口味'}).check.ok,'question, hypothesis, denial, report, quote and future teasing remain available: '+reply);
+  for(const source of ['我还笑过你口味重','我曾经取笑过你口味重','我以前打趣过你口味重'])
+    ok(inspectChatOutput('你还笑过我口味重。',{mode:'private',userMessage:'你自己现在喜欢什么？',recentUserMessages:[source]}).check.ok,'matching direct past-aspect earlier user speech remains usable: '+source);
+  for(const source of ['我没有笑过你口味重','朋友说我还笑过你口味重','如果我笑过你口味重','我笑过你字写得小'])
+    ok(inspectChatOutput('你还笑过我口味重。',{mode:'private',userMessage:source}).check.issue==='user-source-risk','unsupported or differently scoped past-aspect sources do not prove this tease: '+source);
   ok(inspectChatOutput('你刚才笑我挑仙人掌省事。',{mode:'private',userMessage:'我们继续角色扮演，演一段玩笑'}).check.ok,'explicit fictional play can invent its teasing scene');
+  ok(omitRememberedTeasing('浓一点的。你还笑过我口味重。','我喜欢清汤')==='浓一点的。','retry exhaustion preserves the independent preference without the unsupported remembered tease');
+  ok(omitRememberedTeasing('你还笑过我口味重。','我喜欢清汤')==='','a wholly unsupported remembered tease yields no canned replacement');
+  ok(omitRememberedTeasing('你还笑过我口味重。','聊聊汤',['我还笑过你口味重'])==='你还笑过我口味重。','independently sourced teasing survives retry exhaustion');
   for(const text of ['嗯，我就喜欢听你说自己的想法。今天先聊到这','谢谢你陪我聊天，今晚先这样吧','今天先聊到这里','我喜欢听你说看法，先聊到这'])
     ok(detectChatIntent(text)==='closing'&&chooseConversationAction(text,[])==='short-close','an explicit end after brief appreciation closes the shared flow: '+text);
   for(const text of ['明天三点开会，今天先聊到这','你觉得怎么样？今天先聊到这','朋友说今天先聊到这','“今天先聊到这”怎么翻译','帮我记待办，今天先聊到这','今天先聊到这，顺便告诉我怎么做','我不想今天先聊到这','如果今天先聊到这呢','今天先聊到这？','这样'])
@@ -1205,6 +1236,21 @@ async function run() {
   ok(reactionContext.includes('有新的具体好奇仍可自然问'),'one-question continuation remains a soft hint rather than a ban');
   ok(!buildHumanConversationSections('帮我列一下补考要带什么',[],null,{recentReplyTurns:examQuestionTurns})[0].text.includes('上一轮问过的细节'),'a new concrete request keeps task clarification available');
   ok(!buildHumanConversationSections('你觉得这次算运气吗？',[],null,{recentReplyTurns:examQuestionTurns})[0].text.includes('上一轮问过的细节'),'an explicit view question retains direct answer guidance');
+  for(const input of ['你自己会选颜色多的，还是很简单的？','你更喜欢小摊，还是安静的店？','我想听听你自己的看法。']) {
+    const context=buildHumanConversationSections(input,[],null,{recentReplyTurns:[['是什么颜色？']]})[0].text;
+    ok(context.includes('这一轮是在问你的想法'),'one previous question does not turn an invitation to actor views into another interview: '+input);
+    ok(context.includes('仍可自然问'),'view contribution cue preserves concrete curiosity and clarification: '+input);
+  }
+  for(const input of ['帮我挑一把伞，先问我需要什么。','朋友问“你更喜欢小摊，还是安静的店？”','不用回答你会选什么。','换个话题，你喜欢哪种天气？','给我写一句“你自己会选彩色的，还是简单的？”']) {
+    ok(!buildHumanConversationSections(input,[],null,{recentReplyTurns:[['是什么颜色？']]})[0].text.includes('这一轮是在问你的想法'),'task, report, denial, new topic and quoted writing do not borrow own-choice question rhythm: '+input);
+  }
+  ok(!buildHumanConversationSections('你自己会选颜色多的，还是很简单的？',[],null,{recentReplyTurns:[['啊？？']]})[0].text.includes('这一轮是在问你的想法'),'pure question reactions do not create interview history');
+  ok(!buildHumanConversationSections('你自己会选颜色多的，还是很简单的？',[],null,{recentReplyTurns:[['我选简单的。']]})[0].text.includes('这一轮是在问你的想法'),'a previous statement does not create unanswered detail questions');
+  ok(!buildHumanConversationSections('你自己会选颜色多的，还是很简单的？',[],null,{recentReplyTurns:[['哪种颜色？'],['多大的？']]})[0].text.includes('这一轮是在问你的想法'),'existing two-turn question rhythm is not duplicated by own-choice continuation');
+  ok(buildHumanConversationSections('你自己会选颜色多的，还是很简单的？',[
+    {role:'user',content:'摆件其实是陶瓷的，我刚才说错了。不是木头。'},
+    {role:'assistant',content:'陶瓷的。它是白色的吗？'},
+  ],null,{recentReplyTurns:[['陶瓷的。它是白色的吗？']]})[0].text.includes('这一轮是在问你的想法'),'a material-to-colour choice keeps actor contribution even when noun distance suggests a topic shift');
   ok(!buildHumanConversationSections('换个话题，想吃火锅了',[],null,{recentReplyTurns:examQuestionTurns})[0].text.includes('上一轮问过的细节'),'new topics do not receive the old question continuation hint');
   ok(!buildHumanConversationSections('哈哈哈',[],null,{recentReplyTurns:[['啊？？']]})[0].text.includes('上一轮问过的细节'),'a punctuation reaction is not mistaken for an unanswered information question');
   ok(!buildHumanConversationSections('哈哈哈',[],null,{recentReplyTurns:[['是什么考试呀？'],['什么时候考的？']]})[0].text.includes('上一轮问过的细节'),'existing two-turn rhythm guidance is not duplicated by the one-question hint');

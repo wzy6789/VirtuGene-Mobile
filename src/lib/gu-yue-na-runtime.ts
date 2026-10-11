@@ -4,9 +4,30 @@ import { GU_YUE_NA_CANON_CONTEXT, buildGuYueNaDailyFamiliarity } from './gu-yue-
 import {setsAsideNamedTopic} from './chat-turn-cues';
 import {ownedIdentityChoice,ownedIdentityTransition} from './chat-owned-identity';
 import {GU_YUE_NA_CARE} from './gu-yue-na-personality';
+import {assessExpressionSignals,reportsOwnCompletedProgress,replyContainsSubstantiveQuestion} from './chat-expression-guidance';
 
 const OWN_INTIMACY=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('亲密反应：'))!;
+const OWN_DISTRESS=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('受挫回应：'))!;
+const OWN_CELEBRATION=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('庆祝反应：'))!;
 const PARTNER_INTIMACY='亲密反应：舞麟表达心意，坦然说自己的心意和开心。他说想你，你相信这份想念，也愿意回他；想多聊是你自己的愿望，可以直接说。想对他说什么就说什么，一句能说清时就说一句。打趣是你此刻的偏爱，不与他平时比较；普通话题有自己的兴趣和主见。';
+const OWN_QUIET_SAMPLE='对话样本：用户说你偏爱热闹还是安静 → 你说安静一点。这样想说什么，都能听清。';
+// An app-authored voice example, not a quotation or a remembered outing.
+// Chapter 74 supports initiative and a preference for joining Wulin; it does
+// not establish a universal preference for quiet places or busy places.
+const PARTNER_CHOICE_SAMPLE='对话样本：用户说你偏爱热闹还是安静 → 你说得看做什么呀。和你逛街，我倒想挑热闹一点的地方。';
+
+/** Response headings describe a way to react, not evidence of what the user
+ * experienced. Confine changes to the exact owned block in the rendered view. */
+function scopeOwnedReactionPremises(prompt:string,message:string):string {
+  const begin='[VirtuGene · 古月娜的关心]',end='[/VirtuGene · 古月娜的关心]';
+  const at=prompt.indexOf(begin),stop=prompt.indexOf(end,at);
+  if(at<0||stop<0||prompt.indexOf(begin,at+begin.length)>=0)return prompt;
+  const signals=assessExpressionSignals(message);
+  const plainProgress=signals.situation==='neutral'&&!signals.request&&!replyContainsSubstantiveQuestion([message])&&reportsOwnCompletedProgress(message);
+  const block=prompt.slice(at,stop).split('\n').filter(line=>!plainProgress||line!==OWN_CELEBRATION)
+    .map(line=>line===OWN_DISTRESS?line.replace('舞麟说事情没做成，你会在意他的失落','舞麟说起难受的事，你会在意他此刻自己的感受'):line).join('\n');
+  return prompt.slice(0,at)+block+prompt.slice(stop);
+}
 
 export function guYueNaRelationshipForTurn(character:Pick<Character,'id'|'sourcePresetId'|'isPreset'|'systemPrompt'>,current:string,originalUserMessages:string[]=[]):{context:string;recognized:boolean|undefined} {
   const source=character.sourcePresetId??(character.isPreset?character.id:undefined);
@@ -27,6 +48,7 @@ const CORE = '[VirtuGene · 本轮关系底线]\n当前采用团圆后续：古�
 // App-authored expression references, not canon quotations or memories.
 const PARTNER_VIEW_EXAMPLES='\n对话样本：【观点交流】用户说你喜欢把画挂得整整齐齐，还是随意一点？ → 你说我喜欢错落一点。画本来就各有各的样子，排得一样齐，反而拘着它们了。';
 const PARTNER_SHARING_EXAMPLE='\n对话样本：【日常分享】用户说路边那家店卖的是茶，招牌却画了一条打瞌睡的鱼，我觉得有点好笑 → 你说哈哈，那我喜欢这条鱼。茶还没喝，它先悠闲上了。';
+const PARTNER_PROGRESS_EXAMPLE='\n进展回应：舞麟来分享刚有的进展，短短回应他做到的那一点，你自己的高兴也可以直说。他有没有得意、轻松或疲惫以原话为准；愿意讲小事已经是在相处，不用先问清技术细节才能回应。\n对话样本：【进展分享】用户说我是舞麟，我把那道小题弄明白啦 → 你说好啊！听你说做成了，我也高兴。';
 
 /** A topic reset only limits supplemental lore. It never resets identity,
  * deletes dialogue, or treats a connective such as “说到这个” as a reset. */
@@ -115,5 +137,5 @@ export function guYueNaPromptForTurn(character: Pick<Character,'id'|'sourcePrese
   // another moment together, it is her own wish, not a condition of his sincerity.
   // Project only the exact owned field; stored and user-edited personas stay intact.
   return recognized&&character.systemPrompt.includes(GU_YUE_NA_CARE)
-    ?projected.replace(OWN_INTIMACY,PARTNER_INTIMACY)+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE:projected;
+    ?scopeOwnedReactionPremises(projected.replace(OWN_INTIMACY,PARTNER_INTIMACY).replace(OWN_QUIET_SAMPLE,PARTNER_CHOICE_SAMPLE),message)+PARTNER_VIEW_EXAMPLES+PARTNER_SHARING_EXAMPLE+PARTNER_PROGRESS_EXAMPLE:projected;
 }

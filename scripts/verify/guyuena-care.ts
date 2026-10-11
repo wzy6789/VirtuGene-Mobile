@@ -156,6 +156,28 @@ async function run(): Promise<void> {
   const editedIntimacy={...runtimeCard,systemPrompt:runtimeCard.systemPrompt.replace('亲密反应：','亲密反应：用户补充的表达。')};
   check(!guYueNaPromptForTurn(editedIntimacy,'我是舞麟，想你了').includes('他说想你，你相信这份想念')&&guYueNaPromptForTurn(editedIntimacy,'我是舞麟，想你了').includes('用户补充的表达'),'user-edited intimacy remains their authored expression');
   check(runtimeCard.systemPrompt===storedPrompt,'intimacy projection never writes back to stored character text');
+  const ownQuietSample='对话样本：用户说你偏爱热闹还是安静 → 你说安静一点。这样想说什么，都能听清。';
+  const choicePrompt=guYueNaPromptForTurn(runtimeCard,'你偏爱热闹还是安静？',[],true);
+  check(choicePrompt.includes('得看做什么呀。和你逛街')&&!choicePrompt.includes(ownQuietSample),'owned partner choice example depends on the activity instead of teaching universal quietness');
+  check(buildCharacterVoiceCard({...runtimeCard,systemPrompt:choicePrompt},'你偏爱热闹还是安静？').includes('得看做什么呀。和你逛街'),'activity-dependent choice reaches the selected actual voice card');
+  check(guYueNaPromptForTurn(runtimeCard,'你偏爱热闹还是安静？',[],false).includes(ownQuietSample),'outsiders do not inherit the warm partner choice example');
+  const editedQuiet={...runtimeCard,systemPrompt:runtimeCard.systemPrompt.replace(ownQuietSample,'对话样本：用户说你偏爱热闹还是安静 → 你说用户自己定义的选择。')};
+  check(guYueNaPromptForTurn(editedQuiet,'我是舞麟，聊聊天').includes('用户自己定义的选择')&&!guYueNaPromptForTurn(editedQuiet,'我是舞麟，聊聊天').includes('得看做什么呀。和你逛街'),'user-edited examples never receive the owned replacement');
+  check(runtimeCard.systemPrompt===storedPrompt,'choice voice projection is read-only and creates no stored preference fact');
+  const progressVoice=buildCharacterVoiceCard({...runtimeCard,systemPrompt:guYueNaPromptForTurn(runtimeCard,'今天把锻造练习里一直卡住的一点弄明白啦，想先跟你说。',[],true)},'今天把锻造练习里一直卡住的一点弄明白啦，想先跟你说。');
+  check(progressVoice.includes('进展回应：')&&progressVoice.includes('好啊！听你说做成了，我也高兴'),'plain progress selects both the owned reaction and a short actor voice example');
+  check(!guYueNaPromptForTurn(runtimeCard,'我是阿远，今天把小题弄明白啦').includes('好啊！听你说做成了，我也高兴'),'outsider progress does not receive the partner warm example');
+  const neutralProgress=guYueNaPromptForTurn(runtimeCard,'我今天把那份记录写完啦',[],true);
+  check(!neutralProgress.includes('庆祝反应：舞麟愿意分享小小的得意')&&neutralProgress.includes('进展回应：'),'neutral progress does not retain an unselected pride premise in the owned persona head');
+  const completedDisappointment=guYueNaPromptForTurn(runtimeCard,'写完却有点失落，跟我以为的感觉不一样。',[],true);
+  check(completedDisappointment.includes('舞麟说起难受的事，你会在意他此刻自己的感受')&&!completedDisappointment.includes('舞麟说事情没做成'),'distress routing does not define a completed result as failed');
+  check(buildCharacterVoiceCard({...runtimeCard,systemPrompt:completedDisappointment},'写完却有点失落，跟我以为的感觉不一样。').includes('受挫回应：舞麟说起难受的事'),'the scoped disappointment description reaches the actual selected voice card');
+  check(guYueNaPromptForTurn(runtimeCard,'我今天把那份记录写完啦，特别开心',[],true).includes('庆祝反应：舞麟愿意分享小小的得意'),'explicit joy retains the existing authored celebration response');
+  check(guYueNaPromptForTurn(runtimeCard,'帮我把记录写完',[],true).includes('庆祝反应：舞麟愿意分享小小的得意'),'task requests do not borrow a completed progress reading');
+  check(guYueNaPromptForTurn(runtimeCard,'我今天把那份记录写完啦',[],false).includes('舞麟说事情没做成'),'distant visitors do not receive the partner reaction premise projection');
+  const editedDistress={...runtimeCard,systemPrompt:runtimeCard.systemPrompt.replace('受挫回应：','受挫回应：用户自定义回应。')};
+  check(guYueNaPromptForTurn(editedDistress,'我是舞麟，写完有点失落').includes('用户自定义回应')&&!guYueNaPromptForTurn(editedDistress,'我是舞麟，写完有点失落').includes('舞麟说起难受的事'),'user-edited reaction blocks retain their authored premises');
+  check(runtimeCard.systemPrompt===storedPrompt,'reaction premise scoping never changes saved persona, sources or preference facts');
   check(ordinary.length<storedPrompt.length-500,'ordinary relation routing meaningfully reduces redundant context');
   for(const message of ['唐三跟你是什么关系？','我想跟你聊聊轩宇','小舞是你什么人','你们的孩子现在是谁','你和白秀秀的师徒关系'])
     check(guYueNaPromptForTurn(runtimeCard,message).includes(withDouluoRelations('','preset-guyuena').trim()),'actual family topic retains complete original relation context: '+message);

@@ -35,6 +35,7 @@ import {allowsDramaticReply,findUninvitedSharedPosture,omitUninvitedSharedPostur
 import {findCurrentActivityRisk,omitUnsupportedCurrentActivities} from '../chat-current-activity-risk';
 import {findUserAudioRisk,omitUnsupportedUserAudio} from '../chat-user-audio-risk';
 import {findUserHabitRisk,omitUnsupportedUserHabits} from '../chat-user-habit-risk';
+import {findRememberedTeasingRisk,omitRememberedTeasing} from '../chat-remembered-teasing-risk';
 import {findDomesticReferenceRisk,omitDomesticReferences} from '../chat-domestic-reference-risk';
 import {readRecalledUserHabitSources} from '../chat-user-habit-sources';
 import {omitUnsupportedSelfReportEpisodes} from '../chat-self-report-risk';
@@ -548,6 +549,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       let activityFallbackApplied=false;
       let audioFallbackApplied=false;
       let userHabitFallbackApplied=false;
+      let teasingFallbackApplied=false;
       let episodeFallbackApplied=false;
       let affectionHistoryFallbackApplied=false;
       let visualFallbackApplied=false;
@@ -564,6 +566,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         safe=omitUnsupportedCurrentActivities(safe,text,character.systemPrompt);
         safe=omitUnsupportedUserAudio(safe);
         safe=omitUnsupportedUserHabits(safe,userHabitSources);
+        safe=omitRememberedTeasing(safe,text,userHabitSources);
         safe=omitUninvitedSharedPosture(safe);
         safe=omitUnsupportedSelfReportEpisodes(safe,character.systemPrompt,independentCharacterRecords);
         safe=omitDomesticReferences(safe,character.systemPrompt,independentCharacterRecords,userHabitSources);
@@ -739,6 +742,15 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         if(!safe)recordQualityEvent(userId,{mode:'private',issue:'user-source-risk',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
       }
 
+      if(!request.stream.published&&!request.controller.signal.aborted&&result.content
+        &&!allowsDramaticReply(text,history.filter(m=>m.role==='user').map(m=>m.content))
+        &&findRememberedTeasingRisk(result.content,text,userHabitSources)) {
+        const safe=omitRememberedTeasing(result.content,text,userHabitSources);
+        teasingFallbackApplied=true;
+        result={...result,content:safe||undefined,...(!safe?{error:'server:error'}:{})};
+        if(!safe)recordQualityEvent(userId,{mode:'private',issue:'user-source-risk',retries,blocked:true,streamed:false,durationMs:Date.now()-startedAt});
+      }
+
       // 保证「对方正在输入…」自然停留一会儿，而不是秒回一闪而过
       const elapsed = Date.now() - startedAt;
       if (!request.stream.published && !request.controller.signal.aborted && elapsed < 620) {
@@ -845,7 +857,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         request.completed = true;
         savedReplies.forEach(addMessage);
         const finalQuality = inspectChatOutput(savedReplies.map(m => m.content).join('\n---\n'), {mode:'private',userMessage:text,recentReplies:assistantContents.slice(-4),recentUserMessages:history.filter(m=>m.role==='user').map(m=>m.content),userHabitSources,catchphrase:character.catchphrase,persona:character.systemPrompt,independentCharacterRecords,hasCurrentImage:!!(image||momentImage),hasUserVisualEvidence,selectedPartnerRole});
-        recordChatQuality(userId, rawResponse ?? result.content, savedReplies.map(m => m.content).join(''), retries, rawResponse !== undefined, {issue:finalQuality.check.issue??(sharedPostureFallbackApplied?'uninvited-staging':audioFallbackApplied||visualFallbackApplied||userHabitFallbackApplied?'user-source-risk':activityFallbackApplied||episodeFallbackApplied?'self-report-risk':affectionHistoryFallbackApplied?'emotional-script':undefined), streamed:wasStreamed,durationMs:Date.now()-startedAt,firstVisibleMs:request.stream.firstTextAt!==undefined?request.stream.firstTextAt-startedAt:undefined});
+        recordChatQuality(userId, rawResponse ?? result.content, savedReplies.map(m => m.content).join(''), retries, rawResponse !== undefined, {issue:finalQuality.check.issue??(sharedPostureFallbackApplied?'uninvited-staging':audioFallbackApplied||visualFallbackApplied||userHabitFallbackApplied||teasingFallbackApplied?'user-source-risk':activityFallbackApplied||episodeFallbackApplied?'self-report-risk':affectionHistoryFallbackApplied?'emotional-script':undefined), streamed:wasStreamed,durationMs:Date.now()-startedAt,firstVisibleMs:request.stream.firstTextAt!==undefined?request.stream.firstTextAt-startedAt:undefined});
         if (stillCurrent()) { observer.onComplete?.(); }
         if (result.interrupted || request.controller.signal.aborted) return;
         // 记录本轮对话的轻量节奏状态：不存原文，只保存话题标签、用户偏好和

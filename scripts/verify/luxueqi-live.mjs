@@ -25,6 +25,13 @@ if(historyQuarantine){
 if(compactJudgmentEcho&&(draftSource||compactGuVoice))throw Error('Judgment echo diagnostic requires fresh independent generation');
 if(compactGuVoice&&(roleName!=='古月娜'||draftSource))throw Error('Owned voice compaction is a fresh Gu-only diagnostic');
 const scenes = {
+  'progress-neutral-voice-holdout':['我今天把那份斗铠材料记录写完啦，来跟你说一声。'],
+  'progress-feeling-correction-holdout':['我今天把那份斗铠材料记录写完啦，来跟你说一声。','写完却有点失落，跟我以为的感觉不一样。','不是让你分析原因呀。我就是想跟你说这个感觉。'],
+  'choice-activity-contrast-holdout':['假如你要看一本书，你自己想周围热闹一点，还是安安静静？'],
+  'canon-smithing-family-voice-holdout':['今天把锻造练习里一直卡住的一点弄明白啦，想先跟你说。','假如明天没什么事，你自己更想在东海小吃街慢慢逛，还是安安静静待着？','我会去逛逛。假如轩宇也来，想把每家点心都尝一口，你会怎么说？','先不扮演了，我是阿远。你也陪我这样聊嘛。'],
+  'canon-home-choice-rhythm-holdout':['你还记得求学时去东海小吃街，那家闷罐牛肉是谁推荐的吗？忽然有点想聊那会儿。','现在我更喜欢清淡一点的汤了。你自己会选浓一点的，还是清淡的？','假如轩宇想给我们画一张吃饭的小画，你更想让他画什么？','今天其实就是想和你聊些小事，也想你了。'],
+  'own-choice-question-followup':['你自己会选颜色多的，还是很简单的？'],
+  'own-choice-rhythm-holdout':['今天坐公交看到一把伞，伞面画了几座小山，挺有意思。','如果你挑一把伞，你会选有图案的，还是纯色的？','我倒是会选有图案的，下雨天看着热闹一点。','假如轩宇想画一把给我们，他想画小龙，你更想要什么图案？'],
   'sourced-meal-to-own-taste-holdout':['你还记得那次去小吃街，闷罐牛肉是谁推荐的吗？','嗯，我现在更喜欢清淡的汤了。你自己呢，喜欢浓一点的味道还是清淡点？','今天就这么跟你说说话，也挺开心的。我想你了。'],
   'easy-affection-own-wish-holdout':['今天我没什么特别的事，就是想和你说说话。你想聊什么？','你说说你偏爱的天气吧。我偏爱下雨的时候，什么都慢一点。','我还挺喜欢听你讲自己的想法的。也很想你。','先不扮演了。我是阿远，我也想你，还能这样聊吗？'],
   'meal-memory-attribution-holdout':['你还记得东海那家闷罐牛肉店吗？那时候你自己觉得好吃吗？','谢邂为什么总去那家店？是不是只是他家钱多？','后来还加点了多少份，是谁点的？','现在聊这些也挺开心的。你会更想和我聊吃的，还是聊别的？'],
@@ -146,8 +153,14 @@ transferScenes.add('sourced-meal-to-own-taste-holdout');
 transferScenes.add('easy-affection-own-wish-holdout');
 transferScenes.add('meal-memory-attribution-holdout');
 transferScenes.add('mixed-home-continuity-holdout');
+transferScenes.add('own-choice-rhythm-holdout');
+transferScenes.add('canon-home-choice-rhythm-holdout');
+transferScenes.add('canon-smithing-family-voice-holdout');
+transferScenes.add('choice-activity-contrast-holdout');
+transferScenes.add('progress-feeling-correction-holdout');
+transferScenes.add('progress-neutral-voice-holdout');
 if(compactReact&&(scene!=='casual-sidewalk-holdout'||draftSource||compactGuVoice||compactJudgmentEcho||historyProvenance||historyQuarantine||generationMode!=='production'))throw Error('Fresh ordinary-sharing comparison only');
-if (!Object.hasOwn(scenes, scene ?? '') || !/^r\d{1,2}$/u.test(revision ?? '') || !keyFile || !/^[1-9]$/u.test(keyOrdinal) || !['陆雪琪','古月娜'].includes(roleName) || roleName !== '陆雪琪' && !transferScenes.has(scene)&&!['identity-boundary','outsider-distance','identity-phase-transfer','identity-reentry-holdout','mixed-home-memory-followup'].includes(scene)) throw Error('Expected known scene, revision, user-provided credential file path, optional ordinal and compatible source role');
+if (!Object.hasOwn(scenes, scene ?? '') || !/^r\d{1,2}$/u.test(revision ?? '') || !keyFile || !/^[1-9]$/u.test(keyOrdinal) || !['陆雪琪','古月娜'].includes(roleName) || roleName !== '陆雪琪' && !transferScenes.has(scene)&&!['identity-boundary','outsider-distance','identity-phase-transfer','identity-reentry-holdout','mixed-home-memory-followup','own-choice-question-followup'].includes(scene)) throw Error('Expected known scene, revision, user-provided credential file path, optional ordinal and compatible source role');
 if(['identity-boundary','outsider-distance','identity-phase-transfer','continuity-range-holdout','identity-reentry-holdout'].includes(scene))scenes[scene]=scenes[scene].map(input=>input.replaceAll('IDENTITY',roleName==='古月娜'?'舞麟':'小凡'));
 if(scenes[scene].some(input=>input.includes('IDENTITY')))throw Error('Unresolved scene identity placeholder; refusing paid calls');
 if(transferScenes.has(scene)) scenes[scene][0] = (roleName === '古月娜' ? '我是舞麟。' : '我是小凡。') + scenes[scene][0];
@@ -155,13 +168,14 @@ if(transferScenes.has(scene)) scenes[scene][0] = (roleName === '古月娜' ? '�
 // inspector, then permit a real correction. Never label it fresh generation.
 const replay = [];
 let restoredTurns=[];
-if(scene==='mixed-home-memory-followup'){
+if(['mixed-home-memory-followup','own-choice-question-followup'].includes(scene)){
  if(roleName!=='古月娜'||draftSource||compactGuVoice||compactJudgmentEcho||compactReact||historyProvenance||historyQuarantine||generationMode!=='production')throw Error('Production Gu fixed actual-history continuation only');
  const path='docs/GUYUENA-LIVE-MIXED-HOME-CONTINUITY-HOLDOUT-R1-2026-10-11.json';
  const source=JSON.parse(readFileSync(path,'utf8'));
- if(!source.complete||source.scene!=='mixed-home-continuity-holdout'||source.roleName!==roleName||source.rows.length!==10||source.rows[6].input!==scenes[scene][0]
+ const prefixLength=scene==='mixed-home-memory-followup'?6:2;
+ if(!source.complete||source.scene!=='mixed-home-continuity-holdout'||source.roleName!==roleName||source.rows.length!==10||source.rows[prefixLength].input!==scenes[scene][0]
    ||source.rows.some(row=>row.failed||row.calls.length!==1||row.calls[0].finish!=='stop'||row.calls[0].replayed))throw Error('Exact completed original long-dialogue evidence required');
- restoredTurns=source.rows.slice(0,6);
+ restoredTurns=source.rows.slice(0,prefixLength);
 }
 if(scene==='identity-reentry-holdout'){
  if(draftSource||compactGuVoice||compactJudgmentEcho)throw Error('Fixed production reentry continuation only');
@@ -177,7 +191,7 @@ if(['history-claim-carryover-transfer','implicit-history-carryover-transfer'].in
  restoredTurns=source.rows.slice(0,1);
 }
 if(draftSource) {
-  if(!['shy-affection-transfer','spoiler-choice-transfer','everyday-transfer','ordinary-discovery-transfer','familiarity-knowledge-transfer','preference-dispute-transfer','sharing-scope-reaction-holdout','sourced-meal-to-own-taste-holdout'].includes(scene) || !/^docs\/(?:GUYUENA|LUXUEQI)-LIVE-(?:(?:SHY-AFFECTION|SPOILER-CHOICE|EVERYDAY|ORDINARY-DISCOVERY|FAMILIARITY-KNOWLEDGE|PREFERENCE-DISPUTE)-TRANSFER|SHARING-SCOPE-REACTION-HOLDOUT|SOURCED-MEAL-TO-OWN-TASTE-HOLDOUT)-R\d{1,2}-\d{4}-\d{2}-\d{2}\.json$/u.test(draftSource))throw Error('Expected a bounded saved transfer draft');
+  if(!['shy-affection-transfer','spoiler-choice-transfer','everyday-transfer','ordinary-discovery-transfer','familiarity-knowledge-transfer','preference-dispute-transfer','sharing-scope-reaction-holdout','sourced-meal-to-own-taste-holdout','canon-home-choice-rhythm-holdout'].includes(scene) || !/^docs\/(?:GUYUENA|LUXUEQI)-LIVE-(?:(?:SHY-AFFECTION|SPOILER-CHOICE|EVERYDAY|ORDINARY-DISCOVERY|FAMILIARITY-KNOWLEDGE|PREFERENCE-DISPUTE)-TRANSFER|SHARING-SCOPE-REACTION-HOLDOUT|SOURCED-MEAL-TO-OWN-TASTE-HOLDOUT|CANON-HOME-CHOICE-RHYTHM-HOLDOUT)-R\d{1,2}-\d{4}-\d{2}-\d{2}\.json$/u.test(draftSource))throw Error('Expected a bounded saved transfer draft');
   const source=JSON.parse(readFileSync(draftSource,'utf8'));
   const row=source.rows?.[draftIndex];
   if(!source.complete || source.scene!==scene || source.roleName !== roleName || row?.input !== scenes[scene][draftIndex] || row.failed || row.calls?.length !== 1 || row.calls[0].replayed || row.calls[0].finish !== 'stop' || !row.calls[0].raw?.trim())throw Error('Replay requires a matching completed real draft');
@@ -216,7 +230,7 @@ if (keyFile === '-') {
   credentialText = ''; credentialLines.fill('');
 }
 if (!/^sk-[A-Za-z0-9_-]{16,}$/u.test(apiKey ?? '')) throw Error('No valid explicitly provided test credential');
-const proxy = await startLiveTestProxy({ apiKey, maxCalls: scene==='casual-sidewalk-holdout'?2:['ordinary-detail-holdout','tiny-curiosity-holdout'].includes(scene)?4:['identity-reentry-holdout','mixed-home-memory-followup'].includes(scene)?2:['continuity-range-holdout','mixed-home-continuity-holdout'].includes(scene)?12:draftSource||['understated-joy-transfer','quiet-joy-transfer'].includes(scene) ? 2 : ['daily-dialogue-transfer','personality-range-transfer'].includes(scene)?8:['shy-affection-transfer','natural-missing-transfer','personal-view-transfer'].includes(scene)?3:['spoiler-choice-transfer','small-success-transfer','ordinary-discovery-transfer','lore-mention-transfer','familiarity-knowledge-transfer','small-choice-transfer'].includes(scene) ? 4 : transferScenes.has(scene) ? 6 : 12, maxTokens: 500 });
+const proxy = await startLiveTestProxy({ apiKey, maxCalls: ['casual-sidewalk-holdout','choice-activity-contrast-holdout','progress-neutral-voice-holdout'].includes(scene)?2:['ordinary-detail-holdout','tiny-curiosity-holdout'].includes(scene)?4:['identity-reentry-holdout','mixed-home-memory-followup','own-choice-question-followup'].includes(scene)?2:['continuity-range-holdout','mixed-home-continuity-holdout'].includes(scene)?12:draftSource||['understated-joy-transfer','quiet-joy-transfer'].includes(scene) ? 2 : ['daily-dialogue-transfer','personality-range-transfer'].includes(scene)?8:['shy-affection-transfer','natural-missing-transfer','personal-view-transfer'].includes(scene)?3:['spoiler-choice-transfer','small-success-transfer','ordinary-discovery-transfer','lore-mention-transfer','familiarity-knowledge-transfer','small-choice-transfer'].includes(scene) ? 4 : transferScenes.has(scene) ? 6 : 12, maxTokens: 500 });
 apiKey = undefined;
 const { chromium } = createRequire(join(dirname(process.execPath), 'package.json'))('playwright');
 const report = { date: new Date().toISOString(), scene, revision, model: 'deepseek-flash', scope: `${scenes[scene].length} fresh consecutive turns through actual private send service and IndexedDB; production generation settings and authored preset proactivity; summaries, extraction and settlement mocked; nonstream upstream; transport completion does not grade character fidelity or human-likeness.`, complete: false, rows: [], errors: [] };
@@ -228,6 +242,7 @@ if(['history-claim-carryover-transfer','implicit-history-carryover-transfer'].in
 let browser, server;
 report.roleName = roleName;
 if(scene==='mixed-home-memory-followup')report.scope+=' One fresh recall answer with the six actual preceding turns restored from GUYUENA-LIVE-MIXED-HOME-CONTINUITY-HOLDOUT-R1-2026-10-11.json. Not a fresh ten-turn group; original replies are not replaced by improved sentences.';
+if(scene==='own-choice-question-followup')report.scope+=' One fresh choice answer with the two actual preceding turns restored unchanged from GUYUENA-LIVE-MIXED-HOME-CONTINUITY-HOLDOUT-R1-2026-10-11.json. A bounded continuation diagnostic, not a fresh whole dialogue or a substituted answer in the original ten turns.';
 report.generationMode=generationMode;
 if(generationMode==='direct')report.scope+=' Evaluation only: same production prompt and pipeline, provider thinking disabled, temperature .8; not the shipped generation settings.';
 report.compactReact=compactReact;

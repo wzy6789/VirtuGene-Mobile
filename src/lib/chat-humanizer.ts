@@ -4,7 +4,7 @@ import { assessExpressionSignals, expressionDirection, recentRhythmDirection, re
 import { SAMPLE_LINE, validVoiceSamples, VOICE_SAMPLE_MARKER } from './character-voice';
 import { directChatGuidance, DIRECT_AFFECTION_DIRECTION, AFFECTION_QUESTION_DIRECTION, isAffectionQuestion, isDirectAffection, isViewExchange,isTopicInvitation,allowsDramaticReply } from './chat-expression-boundary';
 import { authoredReactionLines, emotionalExpressionGuidance, selectVoiceExamples, interactionMoment, interactionMomentForTurn } from './chat-emotional-expression';
-import { hasExplicitTopicShift, isStandaloneClosing, isPersonalExperienceQuestion,requestsRepetition,hasSelfChosenPlan,correctsOwnFeeling,requestsCharacterPerspective,correctsConversationIntent } from './chat-turn-cues';
+import { hasExplicitTopicShift, isStandaloneClosing, isPersonalExperienceQuestion,requestsRepetition,hasSelfChosenPlan,correctsOwnFeeling,requestsCharacterPerspective,requestsCharacterChoice,correctsConversationIntent } from './chat-turn-cues';
 import {authoredVoiceFields,JUDGMENT_FIELDS,ADDRESS_FIELDS} from './character-voice-fields';
 import type {PromptSection} from './chat-context-compiler';
 import {isLongFormRequest} from './reply-quality';
@@ -356,7 +356,7 @@ export function buildHumanConversationSections(
   ];
   const action = chooseConversationAction(userText, history, character, options);
   const authoredReactionIncluded=authoredReactionLines(character?.systemPrompt??'',userText,history).length>0;
-  const ownPerspective = requestsCharacterPerspective(userText)||isViewExchange(userText);
+  const ownPerspective = requestsCharacterPerspective(userText)||requestsCharacterChoice(userText)||isViewExchange(userText);
   const directions: Record<ConversationAction, string> = {
     'respond-clarification': '按本轮明确的交流范围，继续聊他提到的具体事情。说一处你感兴趣的细节、自己的看法或感受，接话本身体现听懂了。若有需要纠正的事实，简短纠正后接上；自己的不同好恶仍然保留。',
     'respond-affection': isAffectionQuestion(userText)?AFFECTION_QUESTION_DIRECTION:DIRECT_AFFECTION_DIRECTION,
@@ -419,7 +419,17 @@ export function buildHumanConversationSections(
   const feeling=action==='start-topic'?'':emotionalExpressionGuidance(userText,history,character?{...character,hasVoiceJudgment:!!validVoiceSamples(character)}:character,options.recentReplyTurns,{authoredReactionAlreadyIncluded:authoredReactionIncluded});
   if(feeling)lines.push(feeling);
   const replyTurns=options.recentReplyTurns??[];
-  if(['casual','emotional'].includes(signals.mode)&&!signals.topicShift
+  // A user's question can invite the actor's contribution rather than answer
+  // the actor's previous detail question. Do not turn that invitation into a
+  // questionnaire. This is a soft turn clue, never a question-removal filter.
+  // Lexical topic-distance is too weak here: a material correction followed
+  // by a question about colour is still the same ordinary exchange. Respect
+  // an explicit topic reset, not an inferred reset based on changing nouns.
+  if(ownPerspective&&!hasExplicitTopicShift(userText)&&!allowsDramaticReply(userText,recentUsers)
+    &&replyContainsSubstantiveQuestion(replyTurns[replyTurns.length-1]??[])
+    &&!recentQuestionDirection(replyTurns)) {
+    lines.push('这一轮是在问你的想法：说你自己会选什么、在意什么，让对方听见你的趣味。上一轮提过的细节可以先留白，你自己的回答已经能让聊天继续，不需要靠回问补齐对方的信息。有新的具体好奇、确实需要澄清或对方邀请你提问时，仍可自然问。');
+  } else if(['casual','emotional'].includes(signals.mode)&&!signals.topicShift
     &&replyContainsSubstantiveQuestion(replyTurns[replyTurns.length-1]??[])
     &&!recentQuestionDirection(replyTurns)) {
     lines.push('先接用户本轮说出的内容，上一轮问过的细节不必重复催问。用户可以顺着说自己的反应，不必先答完你的问题；有新的具体好奇仍可自然问，不把接话变成补齐资料。');

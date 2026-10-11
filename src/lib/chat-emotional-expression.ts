@@ -1,4 +1,4 @@
-import {assessExpressionSignals} from './chat-expression-guidance';
+import {assessExpressionSignals,reportsOwnCompletedProgress} from './chat-expression-guidance';
 import {isDirectAffection,isAffectionQuestion,isAffectionReaction,allowsDramaticReply,isViewExchange,isTopicInvitation} from './chat-expression-boundary';
 import {requestsCharacterPerspective,requestsCharacterChoice,conversationDeparture} from './chat-turn-cues';
 import {authoredVoiceFields,JUDGMENT_FIELDS,REACTION_FIELDS} from './character-voice-fields';
@@ -47,7 +47,7 @@ export function interactionMomentForTurn(message:string,history:Array<{role:stri
   return isAffectionReaction(message,previousUser,last?.role==='assistant'&&!!last.content.trim())?'affection':interactionMoment(message);
 }
 
-const MOMENT_NAMES:Record<Exclude<InteractionMoment,'ordinary'>,string>={praise:'被夸或被感谢',affection:'直接的心意',disagreement:'意见不同或理解纠正',repair:'道歉与澄清',tired:'疲惫',distress:'受挫与难过',celebration:'进展与开心'};
+const MOMENT_NAMES:Record<Exclude<InteractionMoment,'ordinary'>,string>={praise:'被夸或被感谢',affection:'直接的心意',disagreement:'意见不同或理解纠正',repair:'道歉与澄清',tired:'疲惫',distress:'受挫与难过',celebration:'进展或开心'};
 const STYLES:Array<[VoiceStyle,RegExp]>=[
   ['professional',/专业|理性|高冷|冷淡|寡言|冷静|外冷/u],
   ['partner',/搭档|随和|爽朗|直率|坦率/u],
@@ -115,7 +115,9 @@ const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,s
 
 const FIELD_NAMES:Partial<Record<InteractionMoment,string>>={praise:'被夸反应',disagreement:'分歧反应',repair:'道歉修复',affection:'亲密反应',tired:'疲惫回应',distress:'受挫回应',celebration:'庆祝反应'};
 export function authoredReactionLines(prompt:string,message?:string,history:Array<{role:string;content:string}>=[]):string[]{
-  const field=message===undefined?undefined:FIELD_NAMES[interactionMomentForTurn(message,history)];
+  const moment=message===undefined?undefined:interactionMomentForTurn(message,history);
+  const progress=message!==undefined&&moment==='ordinary'&&!assessExpressionSignals(message).request&&reportsOwnCompletedProgress(message);
+  const field=progress?'进展回应':moment===undefined?undefined:FIELD_NAMES[moment];
   return authoredVoiceFields(prompt,REACTION_FIELDS)
     .filter(row=>message===undefined||row.field==='情境反应'||row.field===field)
     .slice(0,3).map(row=>row.line.slice(0,180));
@@ -181,6 +183,7 @@ export function selectVoiceExamples(lines:string[],message?:string,options:{allo
   // choice on an unseen topic. A hypothetical question is still a question;
   // it does not establish that the event actually happened.
   const viewInvitation=moment==='ordinary'&&(isViewExchange(current)||requestsCharacterPerspective(current)||requestsCharacterChoice(current));
+  const progressInvitation=moment==='ordinary'&&!assessExpressionSignals(current).request&&reportsOwnCompletedProgress(current);
   const sharingInvitation=moment==='ordinary'&&currentTopic.length>6&&!assessExpressionSignals(current).request&&!replyContainsSubstantiveQuestion([current])&&!allowsDramaticReply(current)&&!plainConversationOpening(currentTopic)&&!conversationDeparture(currentTopic);
   const ranked=lines.map((line,index)=>{
     const example=voiceExampleUserText(line);
@@ -199,13 +202,14 @@ export function selectVoiceExamples(lines:string[],message?:string,options:{allo
     const choiceMatch=choice&&isViewExchange(example)&&example.includes('还是')&&interactionMoment(example)==='ordinary';
     const viewOnly=/^对话样本：[【\[]观点交流[】\]]/u.test(line);
     const sharingOnly=/^对话样本：[【\[]日常分享[】\]]/u.test(line);
+    const progressOnly=/^对话样本：[【\[]进展分享[】\]]/u.test(line);
     const authoredViewMatch=viewInvitation&&viewOnly;
     const authoredSharingMatch=sharingInvitation&&sharingOnly;
-    return {line,index,viewOnly,sharingOnly,moment:interactionMoment(example),general:!example,sceneMatch,opening:plainConversationOpening(matchingTopic),relevance:exact?2:Math.max(sceneMatch ? 0.9 : 0,choiceMatch?0.4:0,authoredViewMatch||authoredSharingMatch?0.35:0,topical)};
+    return {line,index,viewOnly,sharingOnly,progressOnly,moment:interactionMoment(example),general:!example,sceneMatch,opening:plainConversationOpening(matchingTopic),relevance:exact?2:Math.max(sceneMatch ? 0.9 : 0,choiceMatch?0.4:0,authoredViewMatch||authoredSharingMatch||progressInvitation&&progressOnly?0.35:0,topical)};
   })
     // A fatigue example is a poor voice reference for an explicit new subject.
     // Keep neutral examples as voice references, not unrelated emotional scripts.
-    .filter(row=>(!row.viewOnly||viewInvitation)&&(!row.sharingOnly||sharingInvitation)&&(row.moment==='ordinary'||row.moment===moment)&&(!current||!row.opening||plainConversationOpening(currentTopic)));
+    .filter(row=>(!row.viewOnly||viewInvitation)&&(!row.sharingOnly||sharingInvitation)&&(!row.progressOnly||progressInvitation)&&(row.moment==='ordinary'||row.moment===moment)&&(!current||!row.opening||plainConversationOpening(currentTopic)));
   ranked.sort((a,b)=>Number(b.moment===moment&&moment!=='ordinary')-Number(a.moment===moment&&moment!=='ordinary')||b.relevance-a.relevance||a.index-b.index);
   if (!current) return ranked.slice(0,3).map(row=>row.line);
   // Examples teach local response habits as well as a voice. A bookshop or
@@ -239,6 +243,7 @@ export function emotionalExpressionGuidance(message:string,history:Array<{role:s
   if(moment==='disagreement'&&/(?:不是这个意思|我不是这个意思|你(?:刚才)?(?:没理解|误会|理解错))/u.test(message))lines.push('用户正在纠正理解，接这次具体澄清，不再给其用词另下一层心理定义；按其自己讲明的原因理解，不把否认的原因改写成新的疲惫或情绪解释。前文没说错的内容不用替自己认领，不补写未提供的场面、第三方态度或动机。');
   else if(moment==='disagreement')lines.push('这轮在交流不同看法，先对照你刚才实际说过的意思与用户反对的那一点：自己的偏好、对事情的判断和对方的理解可以不同。说出真正认同或不认同的一点；有误会就说明自己的原意，确实说错才改口。自己刚才举的情况仍是自己的例子，不归到用户名下。不需要让用户认输，也不要求谁认错；语气按人物与关系保持自然。');
   const prior=users.map(interactionMoment);
+  if(moment==='ordinary'&&!assessExpressionSignals(message).request&&reportsOwnCompletedProgress(message))lines.push('用户讲了一个已经做到的进展，先对这个变化有自己的反应，再决定要不要接着问。愿意先告诉你本身就在分享，不需要先交代技术细节才能接话；原话没说开心或辛苦，不替他认定感受与代价。好奇仍可以自然表达，有明确求助时照常回应。');
   if(moment==='repair'&&prior.slice(-2).includes('disagreement'))lines.push('前面有明确分歧，这轮是道歉或澄清。接住用户此刻说的歉意或解释，分清是谁误会了哪一点，再表达自己真正的态度；澄清后仍可各有偏好，不用轮流认错。不替用户断言“你不是冲我”“你只是心情不好”，也不假定角色已经生气、突然撒娇或宣告关系完全修复。');
   else if(moment==='praise'&&prior[prior.length-1]==='repair'&&prior.includes('disagreement'))lines.push('刚从分歧转到澄清和感谢，可以自然放松一点，不再复盘，也不为了保持情绪继续追究。');
   const turns=recentReplyTurns??history.filter(m=>m.role==='assistant').slice(-4).map(m=>[m.content]);
