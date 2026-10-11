@@ -1,0 +1,12 @@
+import {readFileSync as read,writeFileSync as write,appendFileSync as append,existsSync} from 'node:fs';
+const root='D:/月起云归/VirtuGene/手机版',date='2026-10-11';
+if(!read('release/chat-partner-warmth-expression-'+date+'.log','utf16le').includes('PASS chat-expression: 2829')||!read('release/chat-partner-warmth-lu-'+date+'.log','utf16le').includes('PASS luxueqi-preset: 123')||read('release/chat-partner-warmth-types-'+date+'.log','utf16le').trim())throw Error('Verification missing');
+const log=root+'/开发日志/'+date+'.md',direction=root+'/优化方向/'+date+'.md';
+if(!existsSync(log))write(log,'# 2026-10-11 手机版开发日志\n');
+const heading='## 伴侣日常亲近与外人冷淡分开表达';
+if(!read(log,'utf8').includes(heading))append(log,`\n${heading}\n- 用户明确补充两位角色对舞麟/小凡过于冰冷，调整目标优先级。当前关系说明仅在实际认领伴侣后新增正向相处方向：Gu共享笑意、参与话题、坦率取舍；Lu安静亲近、愿意商量与明确心意。独立意见仍保留，少言不等于打发，主见不靠冷硬许可、责问或猜动机体现。无需每轮告白、称呼或统一活泼。没有加入固定回复、改用户人设或建立新的共同经历。\n- src/lib/gu-yue-na-runtime.ts 与 lu-xue-qi-runtime.ts：亲近方向限定已有伴侣分支，来客/退出仍按原极冷分支，Lu非原预设与用户编辑不自动覆盖。已有家庭、来源与当前情境规则保留。\n- 聊天表达2829与Lu123集成检查、类型均退出0；证据release/chat-partner-warmth-expression-${date}.log、chat-partner-warmth-lu-${date}.log、chat-partner-warmth-types-${date}.log。检查证明本地兼容与已有关系分支，不能证明模型稳定变温柔。本次没有新真实模型调用、0token，未补造对话精选。\n- 已补齐上一阶段六组实际调用的手机版日志及四组整组精选：25调用/83446输入/3600输出/87046总token，计入2026-10-10历史实测，不重复计入本日。chat-family-lore-journal脚本二次执行结果一致，原稿在项目docs，整组精选不拼句。\n- 尚待真实独立家庭/日常语料观察：模型理解内容、温度与亲疏自然性、虚构生活细节与长聊漂移仍开放。这次是表达方向修订，未宣称仅凭提示即可达标。\n- 版本6.0.14保持，本改动在已发布包之后，未打包、未发布、未更新官网下载。\n`);
+if(!existsSync(direction))write(direction,'# 2026-10-11 优化方向\n');
+if(!read(direction,'utf8').includes(heading))append(direction,`\n${heading}\n- 对伴侣日常也亲近，不只告白时温柔。\n- 古月娜共享趣味，陆雪琪安静而有回应。\n- 不同意见说取舍，少许可、盘问与动机猜测。\n- 外人冷淡保持，真实新话题验证后再判断收益。\n`);
+const index=root+'/00-总览.md',marker='2026-10-11 · 伴侣日常亲近';
+if(!read(index,'utf8').includes(marker))append(index,`\n- [[手机版/开发日志/2026-10-11|${marker}与本地验证]]；[[手机版/优化方向/2026-10-11|优化方向]]。6.0.14之后的开发改动未发布，真实模型效果尚待观察。\n`);
+console.log('Recorded partner warmth change; zero new model calls; unpublished');

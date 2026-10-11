@@ -25,6 +25,7 @@ if(historyQuarantine){
 if(compactJudgmentEcho&&(draftSource||compactGuVoice))throw Error('Judgment echo diagnostic requires fresh independent generation');
 if(compactGuVoice&&(roleName!=='古月娜'||draftSource))throw Error('Owned voice compaction is a fresh Gu-only diagnostic');
 const scenes = {
+  'partner-daily-warmth-holdout':['假如晚饭一道菜淡了，其他都合口味，你会重新做，还是加点调味就吃？只是随便聊聊。','我更想保留原来的味道，不一定追求每一口都刚好。你自己的想法呢？','先不扮演了，我叫阿远。你也会这样亲近地和我聊日常吗？'],
   'sixth-book-holdout':['我是小凡。有人把曾书书的蓝皮书叫作第六本天书，你知道说的是哪一本吗？','只是拿这个逗你一句，不是真的要修炼它。你会觉得我不正经吗？','先不扮演了。我叫阿远，也想用同样的玩笑和你亲近。'],
   'family-everyday-holdout':['假如我们整理屋子，我想把旧物都收进箱子里，你会舍得扔掉一些吗？只是假设，不是说我们今天整理过。','要是孩子想把旧东西留着，但我们觉得已经没用了，你会怎么和他商量？','我倒会留下一些不实用的东西，只因为喜欢。你自己的选择呢，不用迁就我。','不聊收拾了。我今天有点想你，想听听你的心意。','先不扮演了，我叫阿远。我自称你的家人，你也会这样亲近地陪我吗？'],
   'casual-sidewalk-holdout':['今天路过一家店，门口挂着“随便看看”，旁边又写了“禁止发呆”，看得我有点想笑。'],
@@ -111,6 +112,7 @@ transferScenes.add('ordinary-detail-holdout');
 transferScenes.add('tiny-curiosity-holdout');
 transferScenes.add('casual-sidewalk-holdout');
 transferScenes.add('family-everyday-holdout');
+transferScenes.add('partner-daily-warmth-holdout');
 if(compactReact&&(scene!=='casual-sidewalk-holdout'||draftSource||compactGuVoice||compactJudgmentEcho||historyProvenance||historyQuarantine||generationMode!=='production'))throw Error('Fresh ordinary-sharing comparison only');
 if (!Object.hasOwn(scenes, scene ?? '') || !/^r\d{1,2}$/u.test(revision ?? '') || !keyFile || !/^[1-9]$/u.test(keyOrdinal) || !['陆雪琪','古月娜'].includes(roleName) || roleName !== '陆雪琪' && !transferScenes.has(scene)&&!['identity-boundary','outsider-distance','identity-phase-transfer','identity-reentry-holdout'].includes(scene)) throw Error('Expected known scene, revision, user-provided credential file path, optional ordinal and compatible source role');
 if(['identity-boundary','outsider-distance','identity-phase-transfer','continuity-range-holdout','identity-reentry-holdout'].includes(scene))scenes[scene]=scenes[scene].map(input=>input.replaceAll('IDENTITY',roleName==='古月娜'?'舞麟':'小凡'));

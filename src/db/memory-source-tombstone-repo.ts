@@ -22,28 +22,46 @@ const STATUS_PRIORITY: Record<MemorySourceTombstone['status'], number> = {
   deleted: 3,
 };
 
+function mergeTombstone(input: RecordMemorySourceTombstoneInput, existing?: MemorySourceTombstone): MemorySourceTombstone {
+  const sourceRevision = Math.max(0, input.sourceRevision ?? 0);
+  const incomingIsNewer = sourceRevision > (existing?.sourceRevision ?? -1);
+  const status = existing?.status === 'deleted' || input.status === 'deleted'
+    ? 'deleted'
+    : !existing || incomingIsNewer || STATUS_PRIORITY[input.status] > STATUS_PRIORITY[existing.status]
+      ? input.status : existing.status;
+  return {
+    id: memorySourceTombstoneId(input.userId, input.sourceType, input.sourceId),
+    userId: input.userId, sourceType: input.sourceType, sourceId: input.sourceId,
+    characterId: input.characterId ?? existing?.characterId,
+    suppressedMessageIds: [...new Set([...(existing?.suppressedMessageIds ?? []), ...(input.suppressedMessageIds ?? [])])],
+    sourceRevision: Math.max(sourceRevision, existing?.sourceRevision ?? 0),
+    status, updatedAt: Date.now(),
+  };
+}
+
 export const memorySourceTombstoneRepo = {
   async record(input: RecordMemorySourceTombstoneInput): Promise<void> {
-    if (!input.userId || !input.sourceId) return;
-    const id = memorySourceTombstoneId(input.userId, input.sourceType, input.sourceId);
-    const existing = await db.memorySourceTombstones.get(id);
-    const sourceRevision = Math.max(0, input.sourceRevision ?? 0);
-    const incomingIsNewer = sourceRevision > (existing?.sourceRevision ?? -1);
-    const status = existing?.status === 'deleted' || input.status === 'deleted'
-      ? 'deleted'
-      : !existing || incomingIsNewer || STATUS_PRIORITY[input.status] > STATUS_PRIORITY[existing.status]
-        ? input.status
-        : existing.status;
-    await db.memorySourceTombstones.put({
-      id,
-      userId: input.userId,
-      sourceType: input.sourceType,
-      sourceId: input.sourceId,
-      characterId: input.characterId ?? existing?.characterId,
-      suppressedMessageIds: [...new Set([...(existing?.suppressedMessageIds ?? []), ...(input.suppressedMessageIds ?? [])])],
-      sourceRevision: Math.max(sourceRevision, existing?.sourceRevision ?? 0),
-      status,
-      updatedAt: Date.now(),
+    await this.recordMany([input]);
+  },
+
+  /** Keep import protections atomic without a get/put round trip per message. */
+  async recordMany(inputs: RecordMemorySourceTombstoneInput[]): Promise<void> {
+    const valid = inputs.filter(input => input.userId && input.sourceId);
+    if (!valid.length) return;
+    await db.transaction('rw', db.memorySourceTombstones, async () => {
+      for (let offset = 0; offset < valid.length; offset += 500) {
+        const batch = valid.slice(offset, offset + 500);
+        const ids = [...new Set(batch.map(input => memorySourceTombstoneId(input.userId, input.sourceType, input.sourceId)))];
+        // Most deleted messages have never had a tombstone. A keyed cursor
+        // returns only existing rows, instead of issuing one missing get per id.
+        const existing = await db.memorySourceTombstones.where(':id').anyOf(ids).toArray();
+        const merged = new Map<string, MemorySourceTombstone>(existing.map(row => [row.id, row]));
+        for (const input of batch) {
+          const id = memorySourceTombstoneId(input.userId, input.sourceType, input.sourceId);
+          merged.set(id, mergeTombstone(input, merged.get(id)));
+        }
+        await db.memorySourceTombstones.bulkPut([...merged.values()]);
+      }
     });
   },
 
@@ -66,11 +84,7 @@ export const memorySourceTombstoneRepo = {
   },
 
   async merge(rows: MemorySourceTombstone[] = []): Promise<number> {
-    let merged = 0;
-    for (const row of rows) {
-      await this.record(row);
-      merged += 1;
-    }
-    return merged;
+    await this.recordMany(rows);
+    return rows.length;
   },
 };

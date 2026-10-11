@@ -2,6 +2,7 @@ import Dexie from 'dexie';
 import { db, type Message } from './index';
 import { invalidateUnpinnedMemoriesForMessages } from './memory-repo';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
+import { protectDeletedSessionMessages } from './message-deletion';
 import { memoryLedgerRepo } from './memory-ledger-repo';
 import { invalidateSessionSummarySources } from './session-summary-repo';
 
@@ -86,15 +87,11 @@ export const messageRepo = {
   async deleteBySession(sessionId: string): Promise<void> {
     await db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.secretaryTasks], async () => {
       const session = await db.sessions.get(sessionId);
-      const messages = await db.messages.where('sessionId').equals(sessionId).toArray();
       if (session) {
-        const ids = messages.map((message) => message.id);
+        const ids = await protectDeletedSessionMessages(sessionId, session.userId);
         await invalidateUnpinnedMemoriesForMessages(session.userId, ids);
         await invalidateSessionSummarySources(sessionId, ids);
-        for (const message of messages) {
-          await memorySourceTombstoneRepo.record({ userId: session.userId, sourceType: 'message', sourceId: message.id, sourceRevision: message.revision ?? 1, status: 'deleted' });
-        }
-        const messageIdSet = new Set(messages.map((message) => message.id));
+        const messageIdSet = new Set(ids);
         await db.memoryJobs.where('userId').equals(session.userId).filter((job) => job.sourceIds.some((sourceId) => messageIdSet.has(sourceId)) && job.status !== 'done').modify({ status: 'cancelled', leaseUntil: undefined, updatedAt: Date.now() });
       }
       await db.messages.where('sessionId').equals(sessionId).delete();

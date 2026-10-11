@@ -688,24 +688,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   deleteCharacterWithSessions: async (id) => {
-    await db.secretaryTasks.where('characterId').equals(id).filter(task => task.userId === useAuthStore.getState().userId).delete();
     const userId = useAuthStore.getState().userId ?? '';
-    const sessions = await sessionRepo.getByCharacter(id, userId);
-    const sessionIds = sessions.map((s) => s.id);
-    if (sessionIds.length > 0) {
-      await db.emotionSnapshots.where('sessionId').anyOf(sessionIds).delete();
-    }
-    for (const sid of sessionIds) {
-      await sessionRepo.deleteById(sid);
-    }
-    await characterRepo.deleteById(id);
-    await memoryRepo.clearForCharacter(id, userId);
-    await stateRepo.deleteByCharacter(id, userId);
-    // 4.0 生命连续性：该角色的未完成事件与牵涉 TA 的人物共同事件一并清理
-    await continuityRepo.deleteByCharacter(id, userId);
-    await sharedEventRepo.deleteByCharacter(id, userId);
-    // 5.0 Living World：认知/关系随角色删除；世界事件与共同记忆保留历史、只摘掉该角色引用
-    await worldRepo.cleanupCharacter(userId, id);
+    const assertOwner = () => { if (!userId || useAuthStore.getState().userId !== userId) throw new Error('账号已切换，删除已停止。'); };
+    // One commit means live queries refresh once, and a failed cleanup cannot
+    // strand a role whose conversations have already been partially removed.
+    const removed = await db.transaction('rw', db.tables, async () => {
+      assertOwner();
+      const character = await characterRepo.getById(id);
+      if (!character || character.isPreset || character.createdBy !== userId) return false;
+      if (character.agentProfile === 'secretary') throw new Error('请从助理管理办理解雇，聊天和办事记录会保留。');
+      await db.secretaryTasks.where('characterId').equals(id).filter(task => task.userId === userId).delete();
+      const sessions = await sessionRepo.getByCharacter(id, userId);
+      const sessionIds = sessions.map(s => s.id);
+      if (sessionIds.length) await db.emotionSnapshots.where('sessionId').anyOf(sessionIds).delete();
+      for (const sid of sessionIds) {
+        assertOwner();
+        await sessionRepo.deleteById(sid);
+      }
+      await characterRepo.deleteById(id);
+      await memoryRepo.clearForCharacter(id, userId);
+      await stateRepo.deleteByCharacter(id, userId);
+      await continuityRepo.deleteByCharacter(id, userId);
+      await sharedEventRepo.deleteByCharacter(id, userId);
+      // World history survives, with references and permissions detached.
+      await worldRepo.cleanupCharacter(userId, id);
+      assertOwner();
+      return true;
+    });
+    if (!removed || useAuthStore.getState().userId !== userId) return;
 
     const { selectedCharacterId } = get();
     const all = await characterRepo.getAll();
@@ -715,11 +725,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     visible.forEach((c, i) => {
       charPreviews[c.id] = previewList[i];
     });
+    if (useAuthStore.getState().userId !== userId) return;
     set({ characters: visible, charPreviews });
 
     if (selectedCharacterId === id) {
       if (visible.length > 0) {
-        get().selectCharacter(visible[0].id);
+        await get().selectCharacter(visible[0].id);
       } else {
         set({ selectedCharacterId: null, currentSessionId: null, messages: [], hasMoreMessages: false });
       }

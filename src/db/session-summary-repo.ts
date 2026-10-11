@@ -7,9 +7,13 @@ export async function invalidateSessionSummarySources(sessionId: string, message
   const session = await db.sessions.get(sessionId);
   if (!session?.summary) return;
   const hasSourceIds = (session.summarySourceMessageIds?.length ?? 0) > 0;
-  const sourceHit = hasSourceIds && session.summarySourceMessageIds!.some((id) => messageIds.includes(id));
-  const legacyMessages = !hasSourceIds ? await db.messages.bulkGet(messageIds) : [];
-  const legacyHit = !hasSourceIds && legacyMessages.some((message) => Boolean(message && message.createdAt <= (session.summaryUpdatedAt ?? 0)));
+  const changedIds = new Set(messageIds);
+  const sourceHit = hasSourceIds && session.summarySourceMessageIds!.some(id => changedIds.has(id));
+  let legacyHit = false;
+  if (!hasSourceIds) for (let offset = 0; offset < messageIds.length && !legacyHit; offset += 100) {
+    const messages = await db.messages.bulkGet(messageIds.slice(offset, offset + 100));
+    legacyHit = messages.some(message => Boolean(message && message.createdAt <= (session.summaryUpdatedAt ?? 0)));
+  }
   if (!sourceHit && !legacyHit) return;
   const {
     summary: _summary,

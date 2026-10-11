@@ -85,25 +85,32 @@ async function revokeMemoryEvidence(
       : memory.sourceMessageIds?.length ? 'chat' : 'legacy';
   const claim = await memoryLedgerRepo.findClaim(memory.userId, memory.memoryKind ?? 'fact', memory.content);
   if (!claim) return;
-  for (const sourceId of sourceIds) {
-    await memoryLedgerRepo.revokeClaimSource(memory.userId, claim.id, sourceType, sourceId, exhaustedStatus);
-  }
+  await memoryLedgerRepo.revokeClaimSources(memory.userId, claim.id, [sourceType], sourceIds, exhaustedStatus);
 }
 
 /** A corrected/deleted durable fact must not remain baked into any summary that cited its source turn. */
 async function invalidateSessionSummariesForMemory(memory: MemoryItem): Promise<void> {
   const sourceIds = [...new Set(memory.sourceMessageIds ?? [])];
-  const sourceMessages = sourceIds.length ? await db.messages.bulkGet(sourceIds) : [];
+  const sourceIdSet = new Set(sourceIds);
+  let legacySourceTimes: Map<string, number> | undefined;
   const sessions = await db.sessions.where('userId').equals(memory.userId).toArray();
   for (const session of sessions) {
     if (!session.summary) continue;
     let affected = session.id === memory.sourceSessionId || session.characterId === memory.characterId
       || session.summaryWitnessedBy?.includes(memory.characterId) === true;
     if (!affected && (session.summarySourceMessageIds?.length ?? 0) > 0) {
-      affected = session.summarySourceMessageIds!.some((id) => sourceIds.includes(id));
+      affected = session.summarySourceMessageIds!.some(id => sourceIdSet.has(id));
     } else if (!affected && sourceIds.length) {
-      affected = sourceMessages.some((message) => message?.sessionId === session.id
-        && message.createdAt <= (session.summaryUpdatedAt ?? 0));
+      if (!legacySourceTimes) {
+        legacySourceTimes = new Map();
+        for (let offset = 0; offset < sourceIds.length; offset += 100) {
+          const messages = await db.messages.bulkGet(sourceIds.slice(offset, offset + 100));
+          for (const message of messages) if (message) {
+            legacySourceTimes.set(message.sessionId, Math.min(legacySourceTimes.get(message.sessionId) ?? Infinity, message.createdAt));
+          }
+        }
+      }
+      affected = (legacySourceTimes.get(session.id) ?? Infinity) <= (session.summaryUpdatedAt ?? 0);
     }
     if (!affected) continue;
     const {
@@ -156,16 +163,18 @@ export async function invalidateUnpinnedMemoriesForMessages(userId: string, mess
     // source messages instead of being discarded wholesale.
     const isAggregateSummary = isSessionAggregateSummary(memory);
     const revokedIds = isAggregateSummary ? (allSourceIds.length ? allSourceIds : [memory.id]) : changedIds;
-    const remainingIds = allSourceIds.filter((id) => !revokedIds.includes(id));
+    const revokedIdSet = new Set(revokedIds);
+    const remainingIds = allSourceIds.filter((id) => !revokedIdSet.has(id));
     // Legacy batch extraction has no per-fact evidence mapping. Treat that batch
     // as a dependency set, never as independent confirmations of every fact.
     const dependentBatch = memory.type === 'auto' && !memory.pinned && allSourceIds.length > 1
       && memory.sourceEvidenceMode !== 'independent';
     const shouldSupersede = isAggregateSummary || dependentBatch || (!memory.pinned && remainingIds.length === 0);
     const retainedIds = remainingIds;
+    const retainedIdSet = new Set(retainedIds);
     const retainMap = (value?: Record<string, number>) => {
       if (!value) return undefined;
-      const next = Object.fromEntries(Object.entries(value).filter(([id]) => retainedIds.includes(id)));
+      const next = Object.fromEntries(Object.entries(value).filter(([id]) => retainedIdSet.has(id)));
       return Object.keys(next).length ? next : undefined;
     };
     const now = Date.now();
@@ -182,13 +191,11 @@ export async function invalidateUnpinnedMemoriesForMessages(userId: string, mess
     await db.memories.put(updated);
 
     const claim = await memoryLedgerRepo.findClaim(userId, memory.memoryKind ?? 'fact', memory.content);
-    if (claim) for (const sourceId of revokedIds) {
+    if (claim) {
       // Revoke only this memory claim's evidence edge. A different fact extracted
       // from the same message remains supported by that message.
-      for (const sourceType of sourceTypes) {
-        await memoryLedgerRepo.revokeClaimSource(userId, claim.id, sourceType, sourceId,
-          shouldSupersede ? 'superseded' : 'withdrawn');
-      }
+      await memoryLedgerRepo.revokeClaimSources(userId, claim.id, sourceTypes, revokedIds,
+        shouldSupersede ? 'superseded' : 'withdrawn');
     }
 
     if (shouldSupersede) {

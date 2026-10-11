@@ -56,6 +56,8 @@ export function CharacterList({ collapsed }: Props) {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; char: Character } | null>(null);
   const [editCharacter, setEditCharacter] = useState<Character | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Character | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const deleteLock = useRef(false);
   const [search, setSearch] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -165,12 +167,14 @@ export function CharacterList({ collapsed }: Props) {
   };
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || deleteLock.current) return;
+    deleteLock.current = true; setDeleting(true);
     try {
       await deleteCharacter(deleteTarget.id);
       setDeleteTarget(null);
       feedback('角色与关联记录已删除', { tone: 'success' });
     } catch { feedback('角色未能删除，请重试', { tone: 'error' }); }
+    finally { deleteLock.current = false; setDeleting(false); }
   };
 
   if (collapsed) {
@@ -304,24 +308,27 @@ export function CharacterList({ collapsed }: Props) {
       )}
 
       {/* Delete confirm modal */}
-      <Modal presentation="dialog" open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
-        <div className="vg-delete-confirmation m-5">
+      <Modal presentation="dialog" open={!!deleteTarget} onClose={() => { if (!deleteLock.current) setDeleteTarget(null); }}>
+        <div className="vg-delete-confirmation m-5" aria-busy={deleting}>
           <p className="text-sm text-sub mb-2">
             角色与关联的对话、记忆和关系将被删除，无法恢复。
           </p>
           <p className="text-xs text-gray-500 mb-6">确认删除此角色？</p>
+          {deleting && <p role="status" className="mb-4 text-sm text-sub">正在清理聊天与关联记录，完成后会自动关闭。</p>}
           <div className="flex gap-3 justify-end">
             <button
               onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
               className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors"
             >
               取消
             </button>
             <button
               onClick={handleDelete}
+              disabled={deleting}
               className="px-4 py-2 rounded-lg text-sm bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
             >
-              确认删除
+              {deleting ? '正在删除…' : '确认删除'}
             </button>
           </div>
         </div>

@@ -357,26 +357,34 @@ export const memoryLedgerRepo = {
     sourceId: string,
     exhaustedStatus: 'withdrawn' | 'superseded' = 'withdrawn',
   ): Promise<number> {
+    return this.revokeClaimSources(userId, claimId, [sourceType], [sourceId], exhaustedStatus);
+  },
+
+  /** A long summary can cite thousands of messages. Revoke its evidence once
+   * per claim, rather than re-reading that growing claim for every source. */
+  async revokeClaimSources(
+    userId: string,
+    claimId: string,
+    sourceTypes: MemoryEvidenceSource[],
+    sourceIds: string[],
+    exhaustedStatus: 'withdrawn' | 'superseded' = 'withdrawn',
+  ): Promise<number> {
+    const sources = new Set(sourceIds), types = new Set(sourceTypes);
+    if (!sources.size || !types.size) return 0;
     return db.transaction('rw', [db.memoryEvidence, db.memoryKnowledge, db.memoryClaims], async () => {
-      const rows = await db.memoryEvidence.where('[userId+sourceType+sourceId]')
-        .equals([userId, sourceType, sourceId])
-        .filter((row) => row.claimId === claimId && !row.withdrawnAt)
-        .toArray();
+      const evidence = await db.memoryEvidence.where('[userId+claimId]').equals([userId, claimId]).toArray();
+      const rows = evidence.filter(row => !row.withdrawnAt && sources.has(row.sourceId) && types.has(row.sourceType));
       if (!rows.length) return 0;
       const now = Date.now();
-      await db.memoryEvidence.bulkPut(rows.map((row) => ({ ...row, withdrawnAt: now })));
-      const stillHasEvidence = await db.memoryEvidence.where('[userId+claimId]')
-        .equals([userId, claimId]).filter((row) => !row.withdrawnAt).count();
-      const matchingEdges = await db.memoryKnowledge.where('[userId+claimId]')
-        .equals([userId, claimId])
-        .filter((row) => row.sourceType === sourceType && row.sourceId === sourceId)
-        .toArray();
-      if (matchingEdges.length) {
-        await db.memoryKnowledge.bulkPut(matchingEdges.map((row) => ({ ...row, canMention: false, revokedAt: now })));
+      for (let offset = 0; offset < rows.length; offset += 500) {
+        await db.memoryEvidence.bulkPut(rows.slice(offset, offset + 500).map(row => ({ ...row, withdrawnAt: now })));
       }
-      if (stillHasEvidence === 0) {
-        const knowledge = await db.memoryKnowledge.where('[userId+claimId]').equals([userId, claimId]).toArray();
-        await db.memoryKnowledge.bulkPut(knowledge.map((row) => ({ ...row, canMention: false, revokedAt: now })));
+      const revoked = new Set(rows.map(row => `${row.sourceType}:${row.sourceId}`));
+      const stillHasEvidence = evidence.some(row => !row.withdrawnAt && !revoked.has(`${row.sourceType}:${row.sourceId}`));
+      const knowledge = await db.memoryKnowledge.where('[userId+claimId]').equals([userId, claimId]).toArray();
+      const affected = knowledge.filter(row => !stillHasEvidence || revoked.has(`${row.sourceType}:${row.sourceId}`));
+      if (affected.length) await db.memoryKnowledge.bulkPut(affected.map(row => ({ ...row, canMention: false, revokedAt: now })));
+      if (!stillHasEvidence) {
         await db.memoryClaims.update(claimId, { status: exhaustedStatus, updatedAt: now });
       }
       return rows.length;
