@@ -26,6 +26,11 @@ const DATED_COMPLETED_THOUGHT=/(?:^|[。！？!?，,；;\n]|-{3,})\s*((?:我)?(?
 // A dated recollection of listening to the other person's performance asserts
 // an event, unlike wanting to hear it now or discussing a reported achievement.
 const PAST_PERFORMANCE=/(?:^|[。！？!?，,；;\n]|-{3,})\s*((?:我(?:先前|此前|之前|上次|昨天|昨晚)|(?:先前|此前|之前|上次|昨天|昨晚)(?:我)?)(?:也|曾|还)?听(?:过|见|到)?你[^。！？!?，,；;\n]{0,12}(?:弹(?:琴|曲子)?|唱(?:歌)?|演奏)[^。！？!?，,；;\n]{0,60})/gu;
+// Dating a judgment of the addressee asserts an earlier observation, not
+// merely an opinion now. Do not infer that history from current familiarity.
+const PAST_USER_JUDGMENT=/(?:^|[。！？!?，,；;\n]|-{3,})\s*((?:我(?:自己|也)?)?(?:当初|以前|那时|那时候)(?:我)?(?:就|也|还|一直|已经)?(?:觉得|以为|发现|注意到)你[^。！？!?，,；;\n]{1,100})/gu;
+const VISIT_EPISODE=/(?:^|[。！？!?，,；;\n]|-{3,})\s*((?:我(?:自己|也|还)?)(?:曾经|以前)?去过[^。！？!?，,；;\n]{1,100})/gu;
+const POSTURE_HABIT=/(?:^|[。！？!?，,；;\n]|-{3,})\s*(?:其实|说实话)?我(?:自己|也)?习惯(?:于)?([^。！？!?，,；;\n]{2,100})/gu;
 const HYPOTHETICAL=/^(?:如果|假如|假设|比如|例如|要是)|(?:的话|假设|假如|如果|要是)/u;
 const FREQUENCY=/(?:一般|经常|通常|平时|每次|总是|每天|每日|每晚|天天|习惯|常常|日常)/u;
 // Frequency can follow the activity as well as precede it. "我看书也有这
@@ -52,6 +57,24 @@ function evidenceClauses(persona:string,records:string[]):string[] {
       &&!/^(?:用户|TA|他|她|朋友|同事)/u.test(clause)));
 }
 
+function findPostureHabitRisk(content:string,sources:string[]):SelfReportRisk|undefined {
+  const text=content.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  for(const match of text.matchAll(POSTURE_HABIT)) {
+    const start=Math.max(...['。','！','？','!','?','\n'].map(mark=>text.lastIndexOf(mark,match.index!)))+1;
+    const prefix=text.slice(start,match.index!);
+    const action=match[1].trim();
+    // Concrete posture methods only; stylistic habits and siding with someone
+    // are not physical routines. Other habits still need semantic evaluation.
+    if(!/(?:坐(?:着|下|到|进|在)|站(?:着|起|到|在))/u.test(action)
+      ||/站在.{0,12}(?:这边|那边|立场|角度)/u.test(action)
+      ||HYPOTHETICAL.test(prefix)||HYPOTHETICAL.test(action)||/(?:这个词|这句话|这个说法|什么意思|翻译)/u.test(action)||/(?:朋友说|他说|她说|举例|例如|比如)/u.test(prefix)
+      ||/^(?:的话|吗|么|[?？])/u.test(text.slice(match.index!+match[0].length)))continue;
+    if(sources.some(source=>FREQUENCY.test(source)&&source.replace(/\s/gu,'').includes(action.replace(/\s/gu,''))))continue;
+    return {quote:match[0].replace(/^[。！？!?，,；;\n\s-]+/u,'').trim(),action,kind:'habit'};
+  }
+  return undefined;
+}
+
 function findEpisodeRisk(content:string,sources:string[]):SelfReportRisk|undefined {
   const text=content.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   for(const match of text.matchAll(PAST_PERFORMANCE)){
@@ -62,7 +85,7 @@ function findEpisodeRisk(content:string,sources:string[]):SelfReportRisk|undefin
     if(sources.some(source=>source.replace(/\s/gu,'').includes(quote.replace(/\s/gu,''))))continue;
     return {quote,action:quote,kind:'episode'};
   }
-  for(const match of [PAST_PERSON_THOUGHT,DATED_COMPLETED_THOUGHT].flatMap(pattern=>[...text.matchAll(pattern)])) {
+  for(const match of [PAST_PERSON_THOUGHT,DATED_COMPLETED_THOUGHT,PAST_USER_JUDGMENT,VISIT_EPISODE].flatMap(pattern=>[...text.matchAll(pattern)])) {
     const start=Math.max(...['。','！','？','!','?','\n'].map(mark=>text.lastIndexOf(mark,match.index!)))+1;
     const prefix=text.slice(start,match.index!);
     const following=text.slice(match.index!+match[0].length);
@@ -96,20 +119,35 @@ function findEpisodeRisk(content:string,sources:string[]):SelfReportRisk|undefin
 }
 
 /** Only remove whole unsupported episode sentences from an unpublished draft.
- * Keep independent reactions, preferences and sourced events. No canned reply.
+ * Includes explicit concrete posture methods. Keep independent reactions,
+ * preferences and sourced events. No canned reply.
  * Caller owns the fictional-mode exemption and existing retry budget. */
 export function omitUnsupportedSelfReportEpisodes(content:string,persona='',records:string[]=[]):string {
   const sources=evidenceClauses(persona,records);
   let removed=false;
-  const safe=content.split(/\s*-{3,}\s*/u).map(bubble=>bubble
-    .split(/(?<=[。！？!?；;\n])/u)
-    .filter(sentence=>{const risk=findEpisodeRisk(sentence,sources);if(risk)removed=true;return !risk;}).join('').trim())
+  const safe=content.split(/\s*-{3,}\s*/u).map(bubble=>{
+    let afterUnsupportedVisit=false;
+    return bubble.split(/(?<=[。！？!?；;\n])/u).filter(sentence=>{
+      // Details following an unsupported visit in this same message belong
+      // to that anecdote; removing only "I went" would launder its rest.
+      if(afterUnsupportedVisit){removed=true;return false;}
+      const risk=findEpisodeRisk(sentence,sources)??findPostureHabitRisk(sentence,sources);
+      if(risk){
+        removed=true;
+        const plain=sentence.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+        afterUnsupportedVisit=[...plain.matchAll(VISIT_EPISODE)].some(match=>match[1].trim()===risk.quote);
+      }
+      return !risk;
+    }).join('').trim();
+  })
     .filter(Boolean).join('\n---\n');
   return removed?safe:content;
 }
 
 export function findSelfReportRisk(content:string,persona='',independentCharacterRecords:string[]=[]):SelfReportRisk|undefined {
   const sources=evidenceClauses(persona,independentCharacterRecords);
+  const posture=findPostureHabitRisk(content,sources);
+  if(posture)return posture;
   // Quoted reports, questions and hypothetical jokes are not declarations.
   const text=content.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   for(const match of text.matchAll(MANNER_HABIT)){

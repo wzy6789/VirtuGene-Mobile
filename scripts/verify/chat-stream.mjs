@@ -390,6 +390,26 @@ try {
   await test('finish',0);await done();
   check((await test('requests')).length===1&&(await test('records')).some(m=>m.role==='assistant'&&m.content==='第一段。'),`${sourcePresetId}: long answer persists once`);
   }
+  for(const sourcePresetId of ['preset-guyuena','preset-luxueqi']) {
+    const original=JSON.parse(readFileSync('docs/GUYUENA-LIVE-CANON-OPEN-OWN-CHOICE-HOLDOUT-R1-2026-10-11.json','utf8'));
+    const corrected=JSON.parse(readFileSync('docs/GUYUENA-LIVE-CANON-OPEN-OWN-CHOICE-HOLDOUT-R2-2026-10-11.json','utf8'));
+    const realCorrection=corrected.rows[0].calls.find(call=>!call.replayed);
+    if(!original.complete||!corrected.complete||!realCorrection||realCorrection.finish!=='stop')throw Error('Complete saved original drafts required');
+    await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',[original.rows[1].calls[0].raw,realCorrection.raw]);await test('submit',original.rows[1].input);await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+    check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='热闹有热闹的好处，各人喜欢的本来就不一样。',`${sourcePresetId}: saved real drafts cannot replace an old observation with an invented visit or service detail`);
+    check((await test('completeRequests')).length===2,`${sourcePresetId}: the saved real correction keeps the original two-generation budget`);
+    await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit','我倒喜欢听人聊天的声音。');await waitRequests(1);
+    await test('push',0,'当初就觉得你跟别人不太一样。我习惯挑个角落坐着看。');await page.waitForTimeout(100);
+    check(await page.locator('[data-streaming-reply]').count()===0,`${sourcePresetId}: old judgment and routine stay unpublished during review`);
+    await test('finish',0);await waitRequests(2);await test('push',1,'我倒更喜欢清静一点。');await test('finish',1);await done();
+    check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='我倒更喜欢清静一点。',`${sourcePresetId}: actual DB stores the current preference instead of invented old familiarity`);
+    check((await test('requests')).length===2,`${sourcePresetId}: recurring-method correction uses only the existing single retry`);
+    await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',['当初就觉得你跟别人不太一样。我倒更喜欢清静一点。','我习惯挑个角落坐着看。']);await test('submit','我倒喜欢听人聊天的声音。');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
+    check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='我倒更喜欢清静一点。',`${sourcePresetId}: two unsafe drafts keep the independent current preference`);
+    check((await test('completeRequests')).length===2,`${sourcePresetId}: routine fallback spends no third generation`);
+    await ready(0);await test('useReviewedCharacter',sourcePresetId,'生活习惯：我习惯挑个角落坐着看。');await test('useCompleteResponses',['我习惯挑个角落坐着看。']);await test('submit','你喜欢坐哪里？');await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===1);await done();
+    check((await test('completeRequests')).length===1&&(await test('records')).some(m=>m.role==='assistant'&&m.content==='我习惯挑个角落坐着看。'),`${sourcePresetId}: the independently authored routine remains intact without a retry`);
+  }
   check(await test('extraNetwork') === 0 && errors.length === 0, 'no real network or uncaught page errors');
   mkdirSync('.tmp-preview/chat-delivery-pacing',{recursive:true});
   writeFileSync('.tmp-preview/chat-delivery-pacing/verification.json',JSON.stringify({date:new Date().toISOString(),status:'PASS',checks,pacingCases,paidModelCalls:0,generatedModelTokens:0,scope:'Mock transports through real ChatWindow, delivery queue and IndexedDB; excludes real-device subjective waiting assessment'},null,2)+'\n');

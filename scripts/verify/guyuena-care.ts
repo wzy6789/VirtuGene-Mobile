@@ -322,6 +322,15 @@ async function run(): Promise<void> {
   const namedExit=guYueNaRelationshipForTurn(ownedActor,'先不扮演舞麟了。我是阿远，也想听你讲几句，陪我聊吧。',['我是舞麟。']);
   check(namedExit.recognized===false&&namedExit.context.includes('未认领唐舞麟的来者')&&namedExit.context.includes('极为冷漠'),'a named exit updates actual private-chat participant selection rather than preserving the old spouse');
   check(namedExit.context.includes('明确结束伴侣扮演')&&!namedExit.context.includes('当前聊天者已明确认领唐舞麟'),'named exit emits only the new visitor relationship and transition');
+  const familyOwned={...ownedActor,systemPrompt:withDouluoRelations(ownedActor.systemPrompt,'preset-guyuena')};
+  const familyIdentity=(input:string,actor=familyOwned)=>guYueNaRelationshipForTurn(actor,input,['我是舞麟。']).context;
+  const familyMapped=familyIdentity('假如轩宇说“像爸爸这么能吃”，你会怎么说？');
+  check(familyMapped.includes('"爸爸":"唐舞麟","妈妈":"古月娜"'),'a child quoted family comparison retains the distinct parent referents');
+  check(familyMapped.includes('"姓名":"蓝轩宇","别名":"唐轩宇"'),'child aliases belong to the same existing family member');
+  check(!familyIdentity('今天想聊颜色').includes('原家族资料中的指代'),'non-family conversation does not acquire additional family metadata');
+  check(!familyIdentity('假如轩宇说“像爸爸这么能吃”',ownedActor).includes('原家族资料中的指代'),'missing owned family evidence does not create a default family map');
+  check(!familyIdentity('聊轩宇',{...familyOwned,systemPrompt:familyOwned.systemPrompt.replace('蓝轩宇也是唐轩宇','蓝轩宇不是唐轩宇')}).includes('原家族资料中的指代'),'edited family evidence is not overwritten by an owned referent projection');
+  check(guYueNaRelationshipForTurn(familyOwned,'我是阿远，轩宇说爸爸很能吃').context.includes('未认领唐舞麟的来者'),'a family referent never promotes an outsider to the father or spouse');
   const familyLore='假如轩宇问“爸爸当年在小吃街吃的闷罐牛肉，是你带他去的吗”，你会怎么回他？';
   const familyCard=buildGuYueNaRecallCard(fullPreset.systemPrompt,familyLore)??'';
   check(familyCard.includes('谢邂先推荐闷罐牛肉')&&familyCard.includes('不证明今天发生同样的事'),'an explicit hypothetical quoted historical question loads factual canon without making a current episode');
@@ -335,6 +344,16 @@ async function run(): Promise<void> {
     check(!buildGuYueNaRecallCard(fullPreset.systemPrompt,input),'reports, quoted tasks, current meals and declined recall do not load old canon: '+input);
   check(!buildGuYueNaRecallCard('我的自定义古月娜',familyLore),'hypothetical quote retrieval cannot attach lore to an unrelated custom persona');
   check(fullPreset.systemPrompt.includes('【熟悉舞麟的依据】')&&!fullPreset.systemPrompt.includes(familyLore),'the quoted question is never persisted into the actor persona');
+  const namingInput='你还记得当年给六字斗铠取名字，为什么把轩宇和秀秀都放进去吗？';
+  const namingRecall=buildGuYueNaRecallCard(fullPreset.systemPrompt,namingInput)??'';
+  check(namingRecall.includes('第一千六百一十一章')&&namingRecall.includes('银龙舞轩秀麟')&&namingRecall.includes('金龙月轩寰语'),'explicit family naming recall retrieves the new checked chapter');
+  check(namingRecall.includes('神龙月秀帝舞')&&namingRecall.includes('冰噬轩宇月魔'),'the checked source keeps distinct names for both children');
+  check(!namingRecall.includes('第一百三十五章'),'a specific family naming question does not substitute an unrelated forging interest');
+  check(buildCharacterVoiceCard(fullPreset,namingInput).includes('用自己与舞麟的名字包裹两个孩子的名字'),'the actual voice card carries the reason for family naming, not just labels');
+  check((buildGuYueNaRecallCard(fullPreset.systemPrompt,'假如轩宇问“妈妈，当年银龙舞轩秀麟为什么这样起名字”，你会怎么说？')??'').includes('第一千六百一十一章'),'a historical naming question inside an explicit hypothetical receives the same source');
+  for(const input of ['今天我给杯子起个名字。','朋友问“银龙舞轩秀麟为什么这样起名字？”','翻译“当年斗铠的名字”。','如果以后我们给斗铠起新名字呢？','你还记得当年给斗铠取名字吗，不用回忆这件事。'])check(!buildGuYueNaRecallCard(fullPreset.systemPrompt,input)?.includes('第一千六百一十一章'),'ordinary naming, quotation, reports and declined recall do not establish this past event: '+input);
+  for(const ending of ['别讲这个了','那不用回忆这件事','不过先不要说这些'])check(!buildGuYueNaRecallCard(fullPreset.systemPrompt,namingInput+'，'+ending),'a direct final correction cancels the requested lore scope: '+ending);
+  for(const ending of ['朋友说不用回忆这件事','如果他说不用回忆这件事','解释“别讲这个了”','“不用回忆这件事”'])check((buildGuYueNaRecallCard(fullPreset.systemPrompt,namingInput+'。'+ending)??'').includes('第一千六百一十一章'),'reported, hypothetical and quoted cancellation do not become the user control: '+ending);
   await report('/result?suite=guyuena-care', { method: 'POST', body: `ok ${count} assertions\nALL PASS` });
 }
 run().catch(async (error) => {

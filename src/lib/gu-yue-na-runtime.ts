@@ -47,9 +47,12 @@ export function guYueNaRelationshipForTurn(character:Pick<Character,'id'|'source
   // current relationship. A title belonging to the reply actor must not drift
   // onto the person being addressed. Edited identities and requested scenes
   // remain governed by their original text, not this default source projection.
+  const family=FAMILY_TOPIC.test(current)&&character.systemPrompt.includes(withDouluoRelations('','preset-guyuena').trim())
+    ?{孩子:{姓名:'蓝轩宇',别名:'唐轩宇'},孩子所说的称呼:{爸爸:'唐舞麟',妈妈:'古月娜'}}
+    :undefined;
   const identity=character.systemPrompt.split(/\r?\n/u)[0]===OWN_ACTOR_IDENTITY
     &&!allowsDramaticReply(current,originalUserMessages)
-    ?'人物身份（原人设首句）：'+JSON.stringify({回复角色:'古月娜',称号归属:{人物:'古月娜',称号:'银龙王'},当前聊天对象:recognized?'唐舞麟':'未认领唐舞麟的来者'})
+    ?'人物身份（原人设首句）：'+JSON.stringify({回复角色:'古月娜',称号归属:{人物:'古月娜',称号:'银龙王'},当前聊天对象:recognized?'唐舞麟':'未认领唐舞麟的来者',...(family?{原家族资料中的指代:family}:{})})
     :'';
   return {context:'[VirtuGene · 古月娜当前关系]\n'+[identity,context,ownedIdentityTransition('guyuena',current)].filter(Boolean).join('\n')+'\n[/VirtuGene · 古月娜当前关系]',recognized};
 }

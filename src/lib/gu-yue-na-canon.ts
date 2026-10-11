@@ -1,6 +1,8 @@
 import {hasExplicitTopicShift,setsAsideNamedTopic,requestsCharacterWording} from './chat-turn-cues';
 import {conversationalHypothesis} from './chat-hypothesis';
 
+const FAMILY_NAMING_TOPIC=/六字斗铠|银龙舞轩秀麟|金龙月轩寰语|斗铠.{0,8}(?:取名|命名|名字)/u;
+
 /** Short paraphrases, not a novel transcript. Source chapters are auditable. */
 export const GU_YUE_NA_CANON = [
   {
@@ -34,6 +36,17 @@ export const GU_YUE_NA_CANON = [
     topic:'心意',chapter:'第七百六十五章 古月，我爱你',
     sources:['https://www.8xiaoshuo.com/shu_23340/13026449.html'],
     knowledge:'海神缘告白后，古月主动与舞麟亲近，也因身份和使命仍有顾虑。这段体现爱意主动、会有自己的担忧，不是始终嘴上不回应；如今的团圆婚后设定不重演那时的分离、身体场景或生死承诺。',
+  },
+  {
+    topic:'家人命名',chapter:'《终极斗罗》第一千六百一十一章 为六字斗铠命名',
+    sources:['https://www.69shuba.com/txt/29586/25167995'],
+    knowledge:'为六字斗铠命名时，舞麟取金龙月轩寰语，你取银龙舞轩秀麟；你解释自己的名字用父母的名字包裹两个孩子的名字，包含轩宇与秀秀。你直接说出对家人的珍惜，也与舞麟拌嘴，夸轩宇的命名、邀请秀秀起名。亲近有自己的理由与活泼的一面，不只是安慰或替孩子安排。这里是该次取名的往事，不证明今天有新的斗铠、物品或家庭活动。',
+    details:[
+      {actor:'唐舞麟',fact:'六字斗铠名为金龙月轩寰语。'},
+      {actor:'古月娜',fact:'六字斗铠名为银龙舞轩秀麟；解释用自己与舞麟的名字包裹两个孩子的名字。'},
+      {actor:'蓝轩宇',fact:'六字斗铠名为神龙月秀帝舞。'},
+      {actor:'白秀秀',fact:'六字斗铠名为冰噬轩宇月魔。'},
+    ],
   },
 ] as const;
 
@@ -99,6 +112,11 @@ export const GU_YUE_NA_WHITE_CORRECTION = {
 export function buildGuYueNaRecallCard(persona:string, message:string,recentUserMessages:string[]=[]):string|undefined {
   if(!persona.includes('[VirtuGene · 古月娜的关心]')||!persona.includes('【熟悉舞麟的依据】'))return undefined;
   const text=message.slice(0,2000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
+  // A direct closing correction applies to the requested recollection, not
+  // just its own comma-delimited clause. Quotes/reports are not this control.
+  const clauses=text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).filter(Boolean);
+  const lastClause=clauses[clauses.length-1]??'';
+  if(/^(?:那|不过|但是|但|现在|这次)?(?:先)?(?:不用|不要|别|不必)(?:再)?(?:回忆|讲|说|查)(?:这个|这些|这件事|那件事)(?:了|吧)?$/u.test(lastClause))return undefined;
   // A quoted question inside an explicitly requested hypothetical reply can
   // query existing canon without becoming a real event or a spouse identity.
   // Ordinary reports/quoted tasks and present-day meals still do not recall lore.
@@ -106,11 +124,12 @@ export function buildGuYueNaRecallCard(persona:string, message:string,recentUser
     &&!/(?:不要|不用|别|不必).{0,6}(?:回忆|讲|说|查)/u.test(text)) {
     const question=[...message.matchAll(/[“「『"]([^”」』"]*)[”」』"]/gu)].map(m=>m[1])
       .filter(part=>/[？?]|(?:谁|是不是|为什么|多少|吗|哪)/u.test(part)).join('\n');
-    if(/当年|那时候|那时|以前|后来|小吃街|海神缘|入学考核|蔡老/u.test(question)) {
+    if(/当年|那时候|那时|以前|后来|小吃街|海神缘|入学考核|蔡老|银龙舞轩秀麟|金龙月轩寰语/u.test(question)) {
       const quotedRows=GU_YUE_NA_CANON.filter(row=>row.topic==='吃饭'&&/小吃街|牛肉|吃饭|饭量/u.test(question)
-        ||row.topic==='锻造'&&/锻造|斗铠|休息日|工坊/u.test(question)
+        ||row.topic==='锻造'&&!FAMILY_NAMING_TOPIC.test(question)&&/锻造|斗铠|休息日|工坊/u.test(question)
         ||row.topic==='护短'&&/拜师|蔡老|入学考核|收徒/u.test(question)
-        ||row.topic==='心意'&&/海神缘|告白|表白/u.test(question)).slice(0,2);
+        ||row.topic==='心意'&&/海神缘|告白|表白/u.test(question)
+        ||row.topic==='家人命名'&&FAMILY_NAMING_TOPIC.test(question)).slice(0,2);
       if(quotedRows.length)return renderGuYueNaRecallRows(quotedRows);
     }
   }
@@ -151,11 +170,12 @@ export function buildGuYueNaRecallCard(persona:string, message:string,recentUser
   const requestText=requested.join('\n');
   const food=/(?:小吃|吃饭|牛肉|饭量|口味)/u.test(requestText);
   const forging=/(?:锻造|斗铠|休息日|工坊)/u.test(requestText);
+  const familyNaming=FAMILY_NAMING_TOPIC.test(requestText);
   const protective=/(?:拜师|蔡老|入学考核|收徒|护短|被打)/u.test(requestText);
   const affection=/(?:海神缘|告白|表白)/u.test(requestText);
   const broad=requested.some(part=>/^(?:(?:你(?:还)?(?:记得|知道))|(?:聊聊|讲讲|说说|查查))?(?:你|我们|你们)?(?:的|记忆中的)?(?:过去|以前|往事|经历)(?:是什么样|什么样|是怎样的|吗|么|呢)?$/u.test(part.trim())
     || /^你(?:还)?(?:记得|知道|了解|觉得).{0,12}(?:我|唐舞麟|舞麟).{0,12}(?:喜欢|喜好|爱好|口味)/u.test(part.trim()));
-  const chosen=food||forging||protective||affection?GU_YUE_NA_CANON.filter(row=>food&&row.topic==='吃饭'||forging&&row.topic==='锻造'||protective&&row.topic==='护短'||affection&&row.topic==='心意').slice(0,2):broad?GU_YUE_NA_CANON.slice(0,2):carriedMeal?GU_YUE_NA_CANON.slice(0,1):[];
+  const chosen=food||forging||protective||affection||familyNaming?GU_YUE_NA_CANON.filter(row=>food&&row.topic==='吃饭'||forging&&!familyNaming&&row.topic==='锻造'||protective&&row.topic==='护短'||affection&&row.topic==='心意'||familyNaming&&row.topic==='家人命名').slice(0,2):broad?GU_YUE_NA_CANON.slice(0,2):carriedMeal?GU_YUE_NA_CANON.slice(0,1):[];
   if(!chosen.length)return undefined;
   return renderGuYueNaRecallRows(chosen);
 }

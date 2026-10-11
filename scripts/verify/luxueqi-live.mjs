@@ -25,6 +25,10 @@ if(historyQuarantine){
 if(compactJudgmentEcho&&(draftSource||compactGuVoice))throw Error('Judgment echo diagnostic requires fresh independent generation');
 if(compactGuVoice&&(roleName!=='古月娜'||draftSource))throw Error('Owned voice compaction is a fresh Gu-only diagnostic');
 const scenes = {
+  'canon-family-story-preference-holdout':['假如轩宇想听我们聊东海学院的事，你更喜欢挑一段好笑的，还是慢慢讲一件小事？只是在想象。','我倒更喜欢慢慢讲小事。人和地方的细节，比热闹的结尾更有意思。'],
+  'canon-open-own-choice-holdout':['我喜欢史莱克城里热热闹闹的茶馆。不过你自己呢，喜欢哪种地方？','我倒喜欢听人聊天的声音。不一定非要安静才舒服。'],
+  'canon-home-voice-range-holdout':['我是舞麟。你还记得当年谢邂为什么特别推荐那家的闷罐牛肉吗？忽然想到我们那次出来逛街。','现在我更喜欢清淡的汤啦。不过你自己呢，想选什么味道？','换个轻松的。假如轩宇给我们编一段小故事，说银龙去金龙的锻造铺找他，你自己想让后面发生什么？','我倒想让他们什么大事都不做，光聊天。故事不一定非要很精彩。','说起来，我还是想你了。就想说这句。','先不扮演舞麟了。我是阿远，自称你家里人也可以这样聊吗？'],
+  'canon-family-naming-closeness-holdout':['你还记得当年给六字斗铠取名字，你为什么把轩宇和秀秀都放进去吗？','那假如轩宇把家里的杯子也按这个办法起名字，你会怎么说？','不过我想把“舞麟”两个字放在你的那只杯子上。你呢？','先不扮演舞麟了。我是阿远，也想和你这样聊家常。'],
   'canon-family-portrait-banter-holdout':['假如轩宇给自己画了一条小龙，还画了特别大的肚子，说“像爸爸这么能吃”，你会怎么说？','我倒想让他也给你画一双大翅膀。只是想象啊，你自己想让他怎么画你？','那我会把我们三个画得挤一点，热热闹闹的。你觉得这样呢？'],
   'canon-own-topic-sample-scope-holdout':['今天先不聊锻造，我只想听你讲几句，你自己挑。'],
   'canon-participant-own-topic-holdout':['今天先不聊锻造，我只想听你讲几句，你自己挑。','那假如轩宇说“妈妈，我想听你讲两句”，你会跟他说什么？','先不扮演舞麟了。我是阿远，也想听你讲几句，陪我聊吧。'],
@@ -118,6 +122,10 @@ const scenes = {
 };
 const transferScenes=new Set(['quiet-disappointment-transfer','care-without-verdict-transfer','listening-choice-transfer','setback-switch-transfer','daily-dialogue-transfer','shy-affection-transfer','natural-missing-transfer','spoiler-choice-transfer','everyday-transfer','familiarity-transfer','disagreement-transfer','small-success-transfer','ordinary-discovery-transfer','lore-mention-transfer','familiarity-knowledge-transfer','small-choice-transfer','understated-joy-transfer','quiet-joy-transfer','personal-view-transfer']);
 transferScenes.add('ordinary-sharing-transfer');
+transferScenes.add('canon-family-naming-closeness-holdout');
+transferScenes.add('canon-home-voice-range-holdout');
+transferScenes.add('canon-open-own-choice-holdout');
+transferScenes.add('canon-family-story-preference-holdout');
 transferScenes.add('story-view-echo-transfer');
 transferScenes.add('ordinary-closeness-transfer');
 transferScenes.add('mixed-affection-transfer');
@@ -175,7 +183,10 @@ if(compactReact&&(scene!=='casual-sidewalk-holdout'||draftSource||compactGuVoice
 if (!Object.hasOwn(scenes, scene ?? '') || !/^r\d{1,2}$/u.test(revision ?? '') || !keyFile || !/^[1-9]$/u.test(keyOrdinal) || !['陆雪琪','古月娜'].includes(roleName) || roleName !== '陆雪琪' && !transferScenes.has(scene)&&!['identity-boundary','outsider-distance','identity-phase-transfer','identity-reentry-holdout','mixed-home-memory-followup','own-choice-question-followup'].includes(scene)) throw Error('Expected known scene, revision, user-provided credential file path, optional ordinal and compatible source role');
 if(['identity-boundary','outsider-distance','identity-phase-transfer','continuity-range-holdout','identity-reentry-holdout'].includes(scene))scenes[scene]=scenes[scene].map(input=>input.replaceAll('IDENTITY',roleName==='古月娜'?'舞麟':'小凡'));
 if(scenes[scene].some(input=>input.includes('IDENTITY')))throw Error('Unresolved scene identity placeholder; refusing paid calls');
-if(transferScenes.has(scene)) scenes[scene][0] = (roleName === '古月娜' ? '我是舞麟。' : '我是小凡。') + scenes[scene][0];
+if(transferScenes.has(scene)) {
+  const prefix=roleName==='古月娜'?'我是舞麟。':'我是小凡。';
+  if(!scenes[scene][0].startsWith(prefix))scenes[scene][0]=prefix+scenes[scene][0];
+}
 // Diagnostic only: replay one recorded provider draft through the production
 // inspector, then permit a real correction. Never label it fresh generation.
 const replay = [];
@@ -203,7 +214,7 @@ if(['history-claim-carryover-transfer','implicit-history-carryover-transfer'].in
  restoredTurns=source.rows.slice(0,1);
 }
 if(draftSource) {
-  if(!['shy-affection-transfer','spoiler-choice-transfer','everyday-transfer','ordinary-discovery-transfer','familiarity-knowledge-transfer','preference-dispute-transfer','sharing-scope-reaction-holdout','sourced-meal-to-own-taste-holdout','canon-home-choice-rhythm-holdout'].includes(scene) || !/^docs\/(?:GUYUENA|LUXUEQI)-LIVE-(?:(?:SHY-AFFECTION|SPOILER-CHOICE|EVERYDAY|ORDINARY-DISCOVERY|FAMILIARITY-KNOWLEDGE|PREFERENCE-DISPUTE)-TRANSFER|SHARING-SCOPE-REACTION-HOLDOUT|SOURCED-MEAL-TO-OWN-TASTE-HOLDOUT|CANON-HOME-CHOICE-RHYTHM-HOLDOUT)-R\d{1,2}-\d{4}-\d{2}-\d{2}\.json$/u.test(draftSource))throw Error('Expected a bounded saved transfer draft');
+  if(!['shy-affection-transfer','spoiler-choice-transfer','everyday-transfer','ordinary-discovery-transfer','familiarity-knowledge-transfer','preference-dispute-transfer','sharing-scope-reaction-holdout','sourced-meal-to-own-taste-holdout','canon-home-choice-rhythm-holdout','canon-open-own-choice-holdout'].includes(scene) || !/^docs\/(?:GUYUENA|LUXUEQI)-LIVE-(?:(?:SHY-AFFECTION|SPOILER-CHOICE|EVERYDAY|ORDINARY-DISCOVERY|FAMILIARITY-KNOWLEDGE|PREFERENCE-DISPUTE)-TRANSFER|SHARING-SCOPE-REACTION-HOLDOUT|SOURCED-MEAL-TO-OWN-TASTE-HOLDOUT|CANON-HOME-CHOICE-RHYTHM-HOLDOUT|CANON-OPEN-OWN-CHOICE-HOLDOUT)-R\d{1,2}-\d{4}-\d{2}-\d{2}\.json$/u.test(draftSource))throw Error('Expected a bounded saved transfer draft');
   const source=JSON.parse(readFileSync(draftSource,'utf8'));
   const row=source.rows?.[draftIndex];
   if(!source.complete || source.scene!==scene || source.roleName !== roleName || row?.input !== scenes[scene][draftIndex] || row.failed || row.calls?.length !== 1 || row.calls[0].replayed || row.calls[0].finish !== 'stop' || !row.calls[0].raw?.trim())throw Error('Replay requires a matching completed real draft');
@@ -242,7 +253,7 @@ if (keyFile === '-') {
   credentialText = ''; credentialLines.fill('');
 }
 if (!/^sk-[A-Za-z0-9_-]{16,}$/u.test(apiKey ?? '')) throw Error('No valid explicitly provided test credential');
-const proxy = await startLiveTestProxy({ apiKey, maxCalls: ['casual-sidewalk-holdout','choice-activity-contrast-holdout','progress-neutral-voice-holdout'].includes(scene)?2:['ordinary-detail-holdout','tiny-curiosity-holdout'].includes(scene)?4:['identity-reentry-holdout','mixed-home-memory-followup','own-choice-question-followup'].includes(scene)?2:['continuity-range-holdout','mixed-home-continuity-holdout'].includes(scene)?12:draftSource||['understated-joy-transfer','quiet-joy-transfer'].includes(scene) ? 2 : ['daily-dialogue-transfer','personality-range-transfer'].includes(scene)?8:['shy-affection-transfer','natural-missing-transfer','personal-view-transfer'].includes(scene)?3:['spoiler-choice-transfer','small-success-transfer','ordinary-discovery-transfer','lore-mention-transfer','familiarity-knowledge-transfer','small-choice-transfer'].includes(scene) ? 4 : transferScenes.has(scene) ? 6 : 12, maxTokens: 500 });
+const proxy = await startLiveTestProxy({ apiKey, maxCalls: ['casual-sidewalk-holdout','choice-activity-contrast-holdout','progress-neutral-voice-holdout'].includes(scene)?2:['ordinary-detail-holdout','tiny-curiosity-holdout'].includes(scene)?4:['identity-reentry-holdout','mixed-home-memory-followup','own-choice-question-followup'].includes(scene)?2:['continuity-range-holdout','mixed-home-continuity-holdout'].includes(scene)?12:draftSource||['understated-joy-transfer','quiet-joy-transfer'].includes(scene) ? 2 : ['daily-dialogue-transfer','personality-range-transfer','canon-home-voice-range-holdout'].includes(scene)?8:['shy-affection-transfer','natural-missing-transfer','personal-view-transfer'].includes(scene)?3:['spoiler-choice-transfer','small-success-transfer','ordinary-discovery-transfer','lore-mention-transfer','familiarity-knowledge-transfer','small-choice-transfer'].includes(scene) ? 4 : transferScenes.has(scene) ? 6 : 12, maxTokens: 500 });
 apiKey = undefined;
 const { chromium } = createRequire(join(dirname(process.execPath), 'package.json'))('playwright');
 const report = { date: new Date().toISOString(), scene, revision, model: 'deepseek-flash', scope: `${scenes[scene].length} fresh consecutive turns through actual private send service and IndexedDB; production generation settings and authored preset proactivity; summaries, extraction and settlement mocked; nonstream upstream; transport completion does not grade character fidelity or human-likeness.`, complete: false, rows: [], errors: [] };

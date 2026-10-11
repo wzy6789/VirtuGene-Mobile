@@ -41,6 +41,11 @@ export function requestsCharacterPerspective(message: string): boolean {
   const text = message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu, '').trim();
   if (/^(?:他|她|朋友|同事|如果|假如|假设|比如|例如|翻译|解释|帮我写|写一段)/u.test(text)) return false;
   if (/(?:帮我|替我|给我).{0,12}(?:写|改|整理|安排|查|推荐|总结)/u.test(text)) return false;
+  // The subject may be supplied by an adjacent "你自己呢" clause. This is
+  // an open preference question, not a request to investigate the user.
+  if(!/^我.{0,8}(?:听说|听到|听见|看到|看见|转述|引用).{0,12}(?:问|说)/u.test(text)
+    &&!/(?:不用|不要|别|不必).{0,8}(?:选|说|回答|喜欢|偏爱)/u.test(text)
+    &&/(?:^|[。！？!?，,；;\n])\s*(?:不过|那|对了)?你(?:自己|个人)?呢[，,]\s*(?:你(?:自己|个人)?)?(?:更|比较|最)?(?:想选|会选|喜欢|偏爱)(?:什么|哪种|哪个|哪一个)[^。！？!?，,；;\n]{0,25}[？?]/u.test(text))return true;
   const view = '(?:看法|想法|观点|理由)';
   const ask = new RegExp(`^(?:(?:那|先|请|请你|你先|你)\\s*)?(?:说说|说|讲讲|讲|聊聊|聊|谈谈|谈)(?:一下|两句|几句|一点)?你(?:自己|个人)?的${view}(?:是什么|呢|吧|呀|啊)?$`, 'u');
   const listen = new RegExp(`^我(?:更|就|只是|还是)?想(?:听听|听|知道|了解)你(?:自己|个人)?的${view}(?:是什么|呢|吧|呀|啊)?$`, 'u');

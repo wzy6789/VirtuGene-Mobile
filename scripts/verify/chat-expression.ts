@@ -188,6 +188,16 @@ async function run() {
   ok(!buildViewContinuityContext(reasonQuestion,[{role:'user',content:'刚才有点高兴。'},{role:'assistant',content:'我也开心。'}]),'a non-view previous exchange does not acquire a preference anchor');
   ok(!buildViewContinuityContext('你怎么看待我对旅行的兴趣？',timeHistory),'a new concrete perspective request does not attach the previous unrelated choice');
   ok(!buildViewContinuityContext(reasonQuestion,[timeHistory[0],{role:'assistant',content:'长回复'.repeat(120)}]),'oversized replies are omitted rather than silently truncated into a different stance');
+  const openPlaceQuestion='我喜欢史莱克城里热热闹闹的茶馆。不过你自己呢，喜欢哪种地方？';
+  const openPlaceHistory=[{role:'user',content:openPlaceQuestion},{role:'assistant',content:'我喜欢安静一点的地方。'},{role:'assistant',content:'不过你在的话，我也愿意多坐一会儿。'}];
+  for(const input of ['我倒喜欢听人聊天的声音。不一定非要安静才舒服。','我反而偏爱热闹一点的地方。','我倒更喜欢声音杂一点的地方。','我更倾向有很多人说话的茶馆。']){
+    const continued=buildViewContinuityContext(input,openPlaceHistory);
+    ok(continued.includes(JSON.stringify(openPlaceQuestion))&&continued.includes('我喜欢安静一点的地方。 --- 不过你在的话，我也愿意多坐一会儿。'),'an alternative preference retains exact adjacent speaker positions: '+input);
+    ok(continued.includes('不是生活事实或永久喜好')&&buildHumanConversationContext(input,openPlaceHistory).includes('不要求他证明自己的趣味'),'actual guidance continues distinct tastes without turning dialogue into an enduring fact: '+input);
+  }
+  for(const input of ['我更喜欢你。','我想你了。','换个话题，我倒喜欢有很多人说话。','朋友说我倒喜欢有很多人说话。','如果我倒喜欢有很多人说话呢。','“我倒喜欢有很多人说话”。','翻译“我倒喜欢有很多人说话”。','我倒喜欢很多人，你帮我写一段。','我倒喜欢很多人聊天吗？','我刚才去了一家很热闹的茶馆。'])ok(!buildViewContinuityContext(input,openPlaceHistory),'affection, tasks, reports, conditions and events do not acquire a preference follow-up: '+input);
+  ok(!buildViewContinuityContext('我倒喜欢很多人聊天。',[{role:'user',content:openPlaceQuestion}]),'an unanswered preference invitation does not fabricate an actor stance');
+  ok(!buildViewContinuityContext('我倒喜欢很多人聊天。',[{role:'user',content:'我今天吃了面条。'},{role:'assistant',content:'这听着不错。'}]),'a preference after an unrelated actual event does not reuse an imagined prior stance');
   const affectionNow='我喜欢听你讲这些，不是想让你帮我安排。我现在就是有点想你。';
   ok(!buildHypothesisContext(affectionNow,[timeQuestion,reasonQuestion]),'present affection ends an imagined choice even when a generic arranging word overlaps');
   ok(!!buildHypothesisContext(reasonQuestion,[timeQuestion]),'the actual reason follow-up retains the hypothetical scope');
@@ -738,6 +748,25 @@ async function run() {
   ok(!!findSelfReportRisk('刚才我也想到你了。','心意：我也想到你了。'),'an undated feeling does not validate the added time');
   for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput('刚才我也想到你了。',{mode,userMessage:'今天挺想你，来聊两句。'}).check.issue==='self-report-risk','all modes keep user thoughts separate from character autobiographical thoughts: '+mode);
   ok(omitUnsupportedSelfReportEpisodes('刚才我也想到你了。---我也想你。')==='我也想你。','fallback retains independent present affection after removing an unsupported dated thought');
+  for(const candidate of ['当初就觉得你跟别人不太一样。','我以前发现你很喜欢凑热闹。','那时我注意到你总往人群里坐。']){
+    ok(findSelfReportRisk(candidate)?.kind==='episode','a dated user judgment is not inferred from current familiarity: '+candidate);
+    ok(!findSelfReportRisk(candidate,'',['经历：'+candidate]),'the exact independently sourced old observation remains available: '+candidate);
+  }
+  for(const candidate of ['我习惯挑个角落坐着看。','我习惯在人少的地方站着。']){
+    ok(findSelfReportRisk(candidate)?.kind==='habit','an explicit concrete posture method requires a recurring source: '+candidate);
+    ok(!findSelfReportRisk(candidate,'生活习惯：'+candidate),'an exact authored recurring method remains available: '+candidate);
+  }
+  for(const candidate of ['我觉得你说得有道理。','我现在觉得你很有趣。','我以前不觉得你爱热闹。','当初就觉得你跟别人不太一样？','朋友说，当初就觉得你跟别人不太一样。','他说“当初就觉得你跟别人不太一样”。','如果有机会，那时我觉得你会喜欢这里。','我喜欢坐在角落。','我想挑个角落坐着。','我习惯把话说清楚。','我习惯站在你这边考虑。','我习惯坐在角落吗？','如果人多，我习惯挑个角落坐着看。','“我习惯坐在角落”，这个词怎么翻译？'])ok(!findSelfReportRisk(candidate),'present views, wishes, style and nonassertions survive the new checks: '+candidate);
+  for(const mode of ['private','proactive','group'] as const)for(const candidate of ['当初就觉得你跟别人不太一样。','我习惯挑个角落坐着看。'])ok(inspectChatOutput(candidate,{mode,userMessage:'我倒喜欢听人聊天的声音。'}).check.issue==='self-report-risk','shared checks keep current preferences separate from old observations and routines: '+mode);
+  ok(omitUnsupportedSelfReportEpisodes('当初就觉得你跟别人不太一样。---我习惯挑个角落坐着看。---我倒更喜欢清静一点。')==='我倒更喜欢清静一点。','fallback removes unsupported old observation and posture method but keeps the current preference');
+  ok(!!findSelfReportRisk('我习惯挑个角落坐着看。','对话样本：用户说人声 → 你说我习惯挑个角落坐着看。'),'a voice example is not evidence for the added method');
+  for(const candidate of ['我也去过几次。','我去过东海小吃街。','我曾经去过那家店。']){
+    ok(findSelfReportRisk(candidate)?.kind==='episode','a claimed completed visit needs a source independent of current liking: '+candidate);
+    ok(!findSelfReportRisk(candidate,'',['经历：'+candidate]),'a sourced completed visit is retained: '+candidate);
+  }
+  for(const candidate of ['我想去那家店。','我喜欢那家店的名字。','我没去过那里。','我去过那里吗？','朋友说，我也去过几次。','他说“我也去过几次”。','如果我们聊过这个，我也去过几次。'])ok(!findSelfReportRisk(candidate),'a wish, denial, question or non-owned visit remains outside the completed-visit check: '+candidate);
+  ok(omitUnsupportedSelfReportEpisodes('热闹有热闹的好处，各人喜欢的本来就不一样。---不过你说的茶馆，我也去过几次。人多是多了些，但添茶的手倒是诚心，够快。')==='热闹有热闹的好处，各人喜欢的本来就不一样。','an unsupported visit and the rest of that anecdote cannot validate service details, while the independent current opinion remains');
+  ok(omitUnsupportedSelfReportEpisodes('我喜欢这个想法。我也去过那家店。服务挺快。---不过我还是更喜欢清静。')==='我喜欢这个想法。\n---\n不过我还是更喜欢清静。','a visit does not delete a preceding current preference or another independent bubble');
   ok(inspectChatOutput('刚才我也想到你了。',{mode:'private',userMessage:'陪我演一段互相想念的剧情。'}).check.ok,'explicit roleplay permits authored thought episodes');
   for(const mode of ['private','proactive','group'] as const) {
     ok(inspectChatOutput(episode,{mode,userMessage:'刚才拿倒了一本书。'}).check.issue==='self-report-risk',`${mode} checks an episodic physical self-report rather than only repeated habits`);
@@ -844,6 +873,11 @@ async function run() {
     ok(!requestsCharacterPerspective(input),'other speakers, negation, tasks and biography keep their own intent: '+input);
   const floor = buildHumanConversationContext('先说你自己的想法，不用急着反问我。',[]);
   ok(floor.includes('这轮对方想听你的观点')&&!floor.includes('轻松交流，接这件小事的趣味'),'actual production guidance gives the character the requested contribution instead of the generic casual-share direction');
+  for(const input of ['现在我更喜欢清淡的汤啦。不过你自己呢，想选什么味道？','那你呢，喜欢哪种结尾？','你个人呢，偏爱什么颜色？','对了你自己呢，会选哪个？']){
+    ok(requestsCharacterPerspective(input),'a locally supplied addressee opens the character preference: '+input);
+    ok(buildHumanConversationContext(input,[]).includes('这轮对方想听你的观点'),'the actual prompt invites a contribution rather than user investigation: '+input);
+  }
+  for(const input of ['朋友问你自己呢，想选什么味道？','如果你自己呢，想选什么味道？','“你自己呢，想选什么味道？”','翻译你自己呢，想选什么味道？','帮我写一句你自己呢，想选什么味道？','我听到朋友问，你自己呢，想选什么味道？','你自己呢，不用回答想选什么味道。','他自己呢，想选什么味道？','你自己呢，想选什么任务帮我安排？','你自己呢，我该怎么选？'])ok(!requestsCharacterPerspective(input),'ellipsis does not transfer reported, conditional, task or denied speech into a preference: '+input);
   for(const input of ['你怎么想？','你怎么看待这种喜欢？','你怎么理解我对锻造的喜欢？','你如何看待我们对结尾的不同选择？']) {
     ok(requestsCharacterPerspective(input),'everyday interpretation asks for this character perspective: '+input);
     ok(buildHumanConversationContext(input,[]).includes('这轮对方想听你的观点'),'actual guidance develops the invited viewpoint: '+input);
