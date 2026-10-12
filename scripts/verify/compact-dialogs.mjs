@@ -142,6 +142,34 @@ try {
   await compact('short viewport password');
   const save = await page.getByRole('button', { name: '确认修改', exact: true }).boundingBox();
   check(save && save.y + save.height <= 450, 'password action stays reachable in short viewport');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  for (const theme of ['dark', 'light']) {
+    await page.setViewportSize({ width: 320, height: 450 });
+    await page.evaluate(theme => { document.documentElement.classList.toggle('dark', theme === 'dark'); document.documentElement.style.fontSize = '20.8px'; }, theme);
+    await setup('footer');
+    const dialog = page.getByRole('dialog'); await dialog.waitFor(); await page.waitForTimeout(240);
+    const metrics = await dialog.evaluate(el => {
+      const r = el.getBoundingClientRect(), body = el.querySelector('[data-modal-scroll]');
+      const close = el.querySelector('.vg-modal-header button').getBoundingClientRect();
+      const action = el.querySelector('.vg-modal-footer button').getBoundingClientRect();
+      body.scrollTop = body.scrollHeight;
+      return { top:r.top, bottom:r.bottom, closeWidth:close.width, closeHeight:close.height,
+        actionBottom:action.bottom, overflow:el.scrollWidth > el.clientWidth + 1,
+        scrollable:body.scrollHeight > body.clientHeight && body.scrollTop > 0 };
+    });
+    check(metrics.top >= 20 && metrics.bottom <= 430 && metrics.actionBottom <= 430 && metrics.scrollable && !metrics.overflow,
+      'short viewport and large text preserve scrollable content and fixed action ' + theme);
+    check(metrics.closeWidth >= 48 && metrics.closeHeight >= 48, 'close target is at least 48px ' + theme);
+    await page.screenshot({ path: `${output}/footer-large-text-${theme}-320.png` });
+    await setup('chat-settings'); await page.getByRole('button', { name:'聊天设置', exact:true }).click();
+    const reading = page.locator('details.vg-chat-reading > summary'); await reading.click();
+    check(await page.locator('details.vg-chat-reading').evaluate(el => el.open), 'reading disclosure opens ' + theme);
+    await reading.click(); await reading.focus(); await page.keyboard.press('Enter');
+    check(await page.locator('details.vg-chat-reading').evaluate(el => el.open), 'reading disclosure supports keyboard ' + theme);
+    check(await page.getByRole('dialog').evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'chat settings fit large text on narrow screen ' + theme);
+    await page.screenshot({ path: `${output}/chat-settings-large-text-${theme}-320.png` });
+  }
+  await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
   check(await page.evaluate(() => window.compactDialogs.network()) === 0 && errors.length === 0, 'no model calls or unhandled browser errors');
   writeFileSync(`${output}/result.json`, JSON.stringify({ status: 'PASS', checks, paidCalls: 0, evidence, errors }, null, 2) + '\n');
   console.log(`PASS compact-dialogs: ${checks} checks`);

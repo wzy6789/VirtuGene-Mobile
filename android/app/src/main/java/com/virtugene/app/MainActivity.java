@@ -8,6 +8,7 @@ import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
@@ -17,6 +18,7 @@ import com.getcapacitor.BridgeWebChromeClient;
 
 import com.virtugene.app.plugins.NativeAudioRecorderPlugin;
 import com.virtugene.app.plugins.ChatTextRecognitionPlugin;
+import com.virtugene.app.plugins.VoiceCallAudioPlugin;
 
 public class MainActivity extends BridgeActivity {
 
@@ -27,8 +29,11 @@ public class MainActivity extends BridgeActivity {
         // 原生录音插件必须在 super.onCreate() 之前注册（load() 在 onCreate 末尾消费插件列表）
         registerPlugin(NativeAudioRecorderPlugin.class);
         registerPlugin(ChatTextRecognitionPlugin.class);
+        registerPlugin(VoiceCallAudioPlugin.class);
 
         super.onCreate(savedInstanceState);
+
+        installWebBackNavigation();
 
         applySystemBarColors();
 
@@ -43,6 +48,37 @@ public class MainActivity extends BridgeActivity {
         // 这里继承 BridgeWebChromeClient，仅对 AUDIO_CAPTURE 直接 grant，
         // 其余行为（对话框/文件选择等）保持 Capacitor 默认。
         postForceMicGrant();
+    }
+
+    private void installWebBackNavigation() {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            private boolean pending;
+
+            @Override public void handleOnBackPressed() {
+                if (pending) return;
+                Bridge current = getBridge();
+                WebView webView = current == null ? null : current.getWebView();
+                if (webView == null || isFinishing() || isDestroyed()) { nativeBack(); return; }
+                pending = true;
+                try {
+                    // The mounted mobile layout owns a guarded history stack. Its
+                    // popstate handler gives the top modal first refusal (a live
+                    // call minimizes there), then restores the previous app page.
+                    webView.evaluateJavascript("(function(){if(!window.history.state||!window.history.state.vgMobileNav)return false;window.history.back();return true;})()", handled -> {
+                        pending = false;
+                        if (!"true".equals(handled) && !isFinishing() && !isDestroyed()) nativeBack();
+                    });
+                } catch (RuntimeException ignored) { pending = false; nativeBack(); }
+            }
+
+            private void nativeBack() {
+                // Temporarily unregister this callback from dispatch so a loading
+                // or absent WebView falls back without recursively invoking us.
+                setEnabled(false);
+                try { getOnBackPressedDispatcher().onBackPressed(); }
+                finally { if (!isFinishing() && !isDestroyed()) setEnabled(true); }
+            }
+        });
     }
 
     private void postForceMicGrant() {

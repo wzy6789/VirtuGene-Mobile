@@ -382,6 +382,17 @@ async function run(): Promise<void> {
   check(familyMappedData.原家族资料中的指代.孩子.当前团圆阶段==='已长大，有自己的生活，与白秀秀是伴侣','the near-turn family map names the grown son stage instead of leaving age implicit');
   check(familyMappedData.原家族资料中的指代.时间范围.includes('明确回忆小时候'),'current family metadata preserves user-selected childhood recollection scope');
   const grownFamilyPrompt=guYueNaPromptForTurn(familyOwned,'假如轩宇和秀秀画一幅全家福，你想画什么？');
+  const familyChoice=guYueNaPromptForTurn(familyOwned,'我是舞麟。假如轩宇和秀秀有空来聊聊，你想听他们说什么？');
+  check(familyChoice.includes('先说自己想了解他们哪一点')&&familyChoice.includes('愿意听他们自己讲'),'owned partner family focus favors curiosity about the adult children own choices');
+  check(buildCharacterVoiceCard({...familyOwned,name:'古月娜',systemPrompt:familyChoice},'你想听轩宇讲什么？').includes('先说自己想了解他们哪一点'),'family judgment reaches the actual tail voice card');
+  check(!guYueNaPromptForTurn(familyOwned,'我是舞麟。今天想聊锻造。').includes('先说自己想了解他们哪一点'),'unrelated turn does not seed family curiosity');
+  check(!guYueNaPromptForTurn(familyOwned,'我是舞麟。先不说孩子们啦。今天就是想你。').includes('先说自己想了解他们哪一点'),'explicitly setting aside the children does not keep family response focus');
+  check(!guYueNaPromptForTurn(familyOwned,'我是阿远，想聊轩宇。').includes('先说自己想了解他们哪一点'),'outsider does not receive the warm family judgment');
+  check(guYueNaPromptForTurn(familyOwned,'我是舞麟。轩宇五岁时，我们会聊什么？').includes('聊小时候或另设场景仍沿用那个阶段'),'family interest does not override an explicit childhood scope');
+  const judgmentSource=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('判断习惯：'))!;
+  const customFamilyJudgment={...familyOwned,systemPrompt:familyOwned.systemPrompt.replace(judgmentSource,'判断习惯：我自己写的家庭交流方式。')};
+  check(guYueNaPromptForTurn(customFamilyJudgment,'我是舞麟，聊聊轩宇。').includes('判断习惯：我自己写的家庭交流方式。')&&!guYueNaPromptForTurn(customFamilyJudgment,'我是舞麟，聊聊轩宇。').includes('先说自己想了解他们哪一点'),'edited family judgment is preserved rather than overwritten');
+  check(!familyOwned.systemPrompt.includes('先说自己想了解他们哪一点'),'family judgment projection never writes to saved persona');
   check(grownFamilyPrompt.includes('[VirtuGene · 斗罗家族关系]')&&grownFamilyPrompt.includes('蓝轩宇已长大，有自己的生活，与白秀秀是伴侣'),'full family rendering retains its dossier and explicitly states the same grown stage as ordinary chat');
   check(guYueNaPromptForTurn(familyOwned,'轩宇小时候，你记得什么？').includes('当前团圆阶段不限定明确回忆或用户另外设定的年龄'),'a request for childhood is not overridden by the current family stage');
   check(guYueNaPromptForTurn(familyOwned,'就把这段设定成轩宇五岁，写一段故事。').includes('用户另外设定的年龄'),'an explicitly invited age-specific scene remains available');

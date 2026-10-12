@@ -44,6 +44,7 @@ export interface BackupData {
   memories: SyncExportData['memories'];
   emotionSnapshots: SyncExportData['emotionSnapshots'];
   characterStates: SyncExportData['characterStates'];
+  voiceCalls?: SyncExportData['voiceCalls'];
   diaries: SyncExportData['diaries'];
   groups?: SyncExportData['groups'];
   continuityThreads?: SyncExportData['continuityThreads'];
@@ -96,6 +97,7 @@ export async function collectBackupData(userId: string | null, username: string 
     memories: base.memories,
     emotionSnapshots: base.emotionSnapshots,
     characterStates: base.characterStates,
+    voiceCalls: base.voiceCalls,
     diaries: base.diaries,
     groups: base.groups,
     continuityThreads: base.continuityThreads,
@@ -216,6 +218,7 @@ export async function restoreBackup(password: string): Promise<{
       memories: data.memories ?? [],
       emotionSnapshots: data.emotionSnapshots ?? [],
       characterStates: data.characterStates ?? [],
+      voiceCalls: data.voiceCalls ?? [],
       diaries: data.diaries ?? [],
       groups: data.groups ?? [],
       continuityThreads: data.continuityThreads ?? [],

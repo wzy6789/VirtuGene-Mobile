@@ -28,7 +28,7 @@ import { knowledgeRepo } from '../../db/knowledge-repo';
 import { continuityRepo } from '../../db/continuity-repo';
 import { relationshipRepo } from '../../db/relationship-repo';
 import { characterRef, userRef } from './subjects';
-import { buildCharacterMemoryContext, detectRecallIntent } from '../character-memory';
+import { buildCharacterMemoryContext, renderMemoryRetrievalStatus, detectRecallIntent } from '../character-memory';
 import { isTopicRelated } from '../chat-conversation-state';
 import { coolingWorldMotifs, WORLD_OBJECT_TOPIC_RULE, worldAttentionHint } from './world-attention';
 import { describeFacets, FACET_LABEL } from './relationships';
@@ -239,7 +239,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
         ].filter(Boolean).join('\n'),
         ...(carryMemory ? { characterLifeContext: buildLifeContext(characterState) } : {}),
       } : {}),
-      unifiedMemory: memory?.text ?? '',
+      unifiedMemory: memory?[renderMemoryRetrievalStatus(memory),memory.text].filter(Boolean).join('\n\n'):'',
       unifiedReferences: memory?.references.map(({ source, id }) => ({ source, id })) ?? [],
       persona: params.characters.find((character) => character.id === characterId)?.systemPrompt,
       characterId,

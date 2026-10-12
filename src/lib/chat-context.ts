@@ -1,4 +1,3 @@
-import { getRelationLevel } from './affinity';
 import type { Character, CharacterState, ContinuityThread, Diary, SharedMemory, SharedStoryEvent, WorldEvent } from '../db/index';
 
 export type SceneTimeOfDay = 'morning' | 'afternoon' | 'dusk' | 'night' | 'late-night';
@@ -47,65 +46,32 @@ export function buildTimeContext(prevMessageAt?: number): string {
   return text + '。';
 }
 
-/**
- * 关系状态文字化：把灵魂状态（等阶·好感度·心情）告诉角色——包括用户自定义的等阶名。
- * 让模型自然地调整语气，而不是机械地说"好感度 60"。
- */
+/** Interaction counters remain UI data, never a second relationship source.
+ * Keep the public arguments for existing channel adapters and saved state. */
 export function buildRelationshipContext(
-  affinity: number,
+  _affinity: number,
   mood: number,
-  tierNames?: Record<string, string>,
-  character?: Pick<Character, 'id' | 'sourcePresetId' | 'isPreset'>,
+  _tierNames?: Record<string, string>,
+  _character?: Pick<Character, 'id' | 'sourcePresetId' | 'isPreset'>,
 ): string {
-  if (usesAuthoredRelationship(character)) return authoredRelationshipTone(mood);
-  const { level } = getRelationLevel(affinity);
-  // 用户自定义等阶名优先（100+ 等阶可随便改）
-  const levelName = (tierNames && tierNames[level.name]) || level.name;
-  const moodText =
-    mood >= 75
-      ? '状态较好，按这个人自己的方式表达'
-      : mood >= 50
-        ? '心情平稳'
-        : mood >= 30
-          ? '心情有些低落、易倦'
-          : '状态不太好，可以少说一点，但仍尊重用户';
-  return (
-    `\n\n[当前灵魂状态]\n本应用互动累计等阶：${levelName}（不是人设关系的起点）。\n` +
-    `本应用互动好感指标：${Math.round(affinity)}；心情：${Math.round(mood)}/100（${moodText}）。\n` +
-    '互动积累仅辅助当前措辞，保留原有性格，不重置已有人设或真实经历中的熟悉、婚姻与亲情；低数值不证明两人刚认识、需要试探或缺少感情。关系类型、称呼和亲密边界依据人设与真实对话；数值不代表恋爱、未来承诺或共同现场。当前明确的分歧和感受仍认真回应，状态较好不要求活泼，状态差也不用挖苦用户。不要说出数值或等阶。'
-  );
+  return relationshipExpressionContext(mood);
 }
 
-/** Shared tone cue for channels with actor-private prompts (group / moments). */
+/** Same relationship source for actor-private group / proactive / moments prompts. */
 export function buildRelationshipToneContext(
-  affinity: number,
+  _affinity: number,
   mood: number,
-  tierNames?: Record<string, string>,
-  character?: Pick<Character, 'id' | 'sourcePresetId' | 'isPreset'>,
+  _tierNames?: Record<string, string>,
+  _character?: Pick<Character, 'id' | 'sourcePresetId' | 'isPreset'>,
 ): string {
-  if (usesAuthoredRelationship(character)) return authoredRelationshipTone(mood);
-  const { level } = getRelationLevel(affinity);
-  const levelName = tierNames?.[level.name] || level.name;
-  const moodText = mood >= 75 ? '状态较好，按原有性格表达'
-    : mood >= 50 ? '心情平稳，按平常节奏回应'
-      : mood >= 30 ? '有些低落或疲倦，不必强打精神'
-    : '状态不太好，语气可以短一点、收敛一点';
-  return `[关系与情绪语气参考]\n本应用互动累计等阶为「${levelName}」，不是人设关系的起点；${moodText}。已有熟悉、婚姻与亲情继续依据人设和真实对话，低互动值不表示刚认识或需要试探。只用来辅助表达节奏，关系类型、称呼和亲密边界不由数值自动改变。不要说出等阶、数值或“系统状态”，也不要因此偏离角色原本性格。`;
+  return relationshipExpressionContext(mood);
 }
 
-/** The two story adaptations have explicit relation/identity rules. Their
- * app interaction counters remain stored and visible, but do not compete
- * with those rules as a second relationship origin in model prompts. */
-function usesAuthoredRelationship(character?: Pick<Character, 'id' | 'sourcePresetId' | 'isPreset'>): boolean {
-  const source = character?.sourcePresetId ?? (character?.isPreset ? character.id : undefined);
-  return source === 'preset-guyuena' || source === 'preset-luxueqi';
-}
-
-function authoredRelationshipTone(mood: number): string {
-  const tone = mood >= 75 ? '状态较好，按人物自己的方式表达'
+function relationshipExpressionContext(mood: number): string {
+  const tone = mood >= 75 ? '状态较好，按原有性格表达'
     : mood >= 50 ? '按平常节奏回应'
-      : '表达可以简短、收敛一些，仍认真回应眼前内容';
-  return `[人物关系与表达节奏]\n关系类型、称呼和亲疏依据人物设定与当前真实对话，包括明确认领、退出和改变场景。当前表达参考：${tone}。已有关系不因应用互动积累改变，保持人物的主见与边界；当前分歧、感受和本人更正优先，不根据心情补身体状况、经历或日程。`;
+      : '表达可以简短、收敛一些，仍尊重用户';
+  return '[人物关系与表达节奏]\n关系类型、称呼和亲密边界依据人设与真实对话，以人物设定、当前有效身份和明确关系记录为依据；资料不足时保持不确定。已有熟悉、婚姻与亲情不因应用互动积累改变，互动档位不是人设关系的起点。友好、信任、想念或好感数值不自动建立恋爱关系；被引用的身份不等于当前身份，明确的场景扮演只在其适用范围内生效。保留原有性格、主见与边界，当前明确的分歧和感受仍认真回应，当前分歧、感受和本人更正优先。当前表达参考：' + tone + '；不根据心情补身体状况、经历或日程。';
 }
 
 /**

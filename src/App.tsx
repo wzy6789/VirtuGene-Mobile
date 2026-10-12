@@ -22,6 +22,8 @@ import { db } from './db';
 import { canUseAi } from './lib/ai/availability';
 import { todoRepo } from './db/todo-repo';
 import { FeedbackHost } from './components/ui/FeedbackHost';
+import { useVoiceCallUIStore } from './store/voice-call-ui-store';
+const VoiceCallHost = lazyFeature(() => import('./components/chat/VoiceCallHost').then(m => ({ default: m.VoiceCallHost })));
 
 const AuthPage = lazyFeature(() => import('./pages/AuthPage').then(m => ({ default: m.AuthPage })));
 const ChatPage = lazyFeature(() => import('./pages/ChatPage').then(m => ({ default: m.ChatPage })));
@@ -33,6 +35,7 @@ const ActionCabinPage = lazyFeature(() => import('./components/secretary/Secreta
 const TodoPage = lazy(() => import('./components/todo/TodoPage').then(m => ({ default: m.TodoPage })));
 
 export default function App() {
+  const callTarget = useVoiceCallUIStore(s => s.target);
   useSlideOutCancel();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const activeUserId = useAuthStore((s) => s.userId);
@@ -350,6 +353,7 @@ export default function App() {
     </div>
     {!splashGone && <SplashScreen ready={ready} onComplete={finishSplash} />}
     {splashGone && <FeedbackHost />}
+    {splashGone && callTarget && <Suspense fallback={<div role="status">正在打开通话…</div>}><VoiceCallHost /></Suspense>}
     </>
   );
 }

@@ -12,6 +12,7 @@ import { computeMessageDelays, followUpDelay, MAX_TOTAL_DELAY } from '../../src/
 import { sendMessage } from '../../src/lib/ai/deepseek';
 import { readSseResponse } from '../../src/lib/ai/llm';
 import { gatewayChatStream } from '../../src/lib/ai/gateway';
+import { sendRoleChatReply } from '../../src/lib/chat/send-service';
 
 const encoder = new TextEncoder();
 const realFetch = window.fetch.bind(window);
@@ -174,11 +175,35 @@ async function unitChecks() {
     useChatStore.setState({ characters: useChatStore.getState().characters.map(c => c.id === 'a' ? character : c) });
   },
   useCompleteResponses: (values:string[]) => {completeResponses=[...values];},
+  seedSummaryEvidence: async (state:'valid'|'orphan'|'unversioned'|'stale') => {
+    const sourceId='history-10';
+    await db.messages.update(sourceId,{role:'user',content:'早前已确认的薄荷偏好。',revision:state==='stale'?2:1});
+    await db.sessions.update('a',{summary:'旧摘要内容标记：我喜欢薄荷。',summaryUpdatedAt:Date.now(),summarySourceMessageIds:state==='orphan'?[]:[sourceId],summarySourceMessageRevisions:state==='unversioned'?{}:{[sourceId]:1}});
+    useChatStore.setState({messages:await db.messages.where('sessionId').equals('a').sortBy('createdAt')});
+  },
   seedMemory: async () => {
     const memory={id:'delivery-memory',userId:uid,characterId:'a',content:'用户喜欢海边星空。',type:'auto' as const,memoryKind:'preference' as const,pinned:true,confidence:1,createdAt:Date.now()};
     await db.memories.add(memory); return memory.id;
   },
   deliveryMemory: () => db.memories.get('delivery-memory'),
+  dispatchMemoryChange: async (mode:'edit'|'delete'|'keep') => {
+    const marker='OUTBOUND_MEMORY_OLD';
+    await db.memories.put({id:'outbound-memory',userId:uid,characterId:'a',content:marker,type:'manual',pinned:true,status:'active',createdAt:Date.now()} as any);
+    const message:Message={id:crypto.randomUUID(),sessionId:'a',role:'user',content:'还记得之前的偏好吗？',createdAt:Date.now(),isProactive:false};
+    await db.messages.add(message);
+    const controller=new AbortController();
+    const stream=new ChatReplyStream('a',()=>undefined);
+    let validations=0;
+    try{
+      await sendRoleChatReply((await db.characters.get('a'))!,message,{controller,userId:uid,stopped:false,completed:false,stream} as any,{userId:uid,text:message.content,validate:async()=>{
+        if(++validations===2){
+          if(mode==='edit')await db.memories.update('outbound-memory',{content:'OUTBOUND_MEMORY_NEW'});
+          else if(mode==='delete')await db.memories.delete('outbound-memory');
+        }
+      }});
+      return {validations,source:await db.memories.get('outbound-memory'),messageId:message.id};
+    }finally{stream.dispose();}
+  },
   seedUserImage: async (image:string) => {
     const source:Message={id:crypto.randomUUID(),sessionId:'a',role:'user',content:'看这张图。',image,createdAt:Date.now()-1000,isProactive:false};
     await db.messages.add(source);

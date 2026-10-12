@@ -34,12 +34,14 @@
   border-top:1px solid var(--border);
 }
 .vg-modal-panel.vg-mobile-dialog {
-  width:calc(100% - 48px); max-width:400px; max-height:calc(100dvh - 48px);
+  width:calc(100% - 48px); max-width:400px;
+  max-height:calc(100dvh - 48px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
   border-radius:var(--vg-sheet-radius); display:flex; flex-direction:column; animation:none;
   background:var(--vg-elev-2); border-color:var(--vg-elev-edge);
   box-shadow:inset 0 1px 0 var(--vg-elev-highlight),var(--vg-elev-shadow-3);
 }
-.vg-mobile-dialog > [data-modal-scroll] { min-height:0; max-height:70dvh; overscroll-behavior:contain; }
+.vg-mobile-dialog > [data-modal-scroll] { flex:1 1 auto; min-height:0; max-height:70dvh; overscroll-behavior:contain; overflow-wrap:anywhere; }
+.vg-mobile-dialog > .vg-modal-footer { flex:none; background:inherit; border-top:1px solid var(--vg-elev-edge); }
 .vg-mobile-dialog > .vg-modal-header::before { content:none; }
 .vg-modal-panel.vg-mobile-dialog > .vg-modal-header {
   padding:12px 16px; min-height:68px; gap:8px;
@@ -50,9 +52,9 @@
   font-weight:var(--vg-weight-heading); letter-spacing:normal; overflow-wrap:anywhere;
 }
 .vg-modal-panel.vg-mobile-dialog > .vg-modal-header > button {
-  flex:none; width:44px; height:44px; min-width:44px; min-height:44px;
+  flex:none; width:48px; height:48px; min-width:48px; min-height:48px;
   display:grid; place-items:center; border-radius:var(--vg-radius-2); color:var(--text-secondary);
-  background:var(--vg-panel-light);
+  background:transparent; -webkit-tap-highlight-color:transparent; touch-action:manipulation;
   transition:transform var(--vg-motion-fast) var(--vg-motion-standard),opacity var(--vg-motion-fast) var(--vg-motion-standard);
 }
 .vg-modal-panel.vg-mobile-dialog > .vg-modal-header > button:active { transform:scale(.94); opacity:.8; }
@@ -69,6 +71,10 @@
 .vg-dialog-actions > button > svg { color:var(--vg-accent); flex:none; }
 .vg-dialog-actions > button[class*='bg-red'] > svg { color:inherit; }
 .vg-dialog-actions > p { margin:12px 2px 0; color:var(--text-secondary); font-size:12px; line-height:1.7; }
+@media(hover:hover) {
+  .vg-mobile-dialog > .vg-modal-header > button:hover { color:var(--text); background:var(--vg-panel-light); }
+  .vg-dialog-actions > button:hover:not(:disabled) { border-color:color-mix(in srgb,var(--vg-accent) 26%,var(--vg-elev-edge)); }
+}
 .vg-mobile-page.vg-character-profile .vg-profile-hero { padding:30px 24px; }
 .vg-mobile-page.vg-character-profile .vg-profile-intro { margin-top:4px; }
 .vg-scene-page-content.scene-card { margin:0; border:0; border-radius:0; box-shadow:none; padding:20px 0; }
@@ -83,3 +89,4 @@
   .vg-dialog-actions > button:active:not(:disabled),.vg-mobile-dialog > .vg-modal-header > button:active { transform:none; }
 }
 html[data-vg-reduced-motion='true'] :is(.vg-dialog-actions > button:active:not(:disabled),.vg-mobile-dialog > .vg-modal-header > button:active) { transform:none; }
+html[data-vg-reduced-motion='true'] :is(.vg-dialog-actions > button,.vg-mobile-dialog > .vg-modal-header > button) { transition-duration:0s!important; }

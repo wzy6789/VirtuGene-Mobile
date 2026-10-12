@@ -230,10 +230,12 @@ export const memoryLedgerRepo = {
   },
 
   /** Lease a small same-session batch so extraction keeps conversational context without racing another tab. */
-  async leaseNextBatch(userId: string, limit = 8, now = Date.now(), leaseMs = 90_000): Promise<MemoryJob[]> {
+  async leaseNextBatch(userId: string, limit = 8, now = Date.now(), leaseMs = 90_000, scope?: { sessionId: string; sourcePrefix: string; characterId?: string }): Promise<MemoryJob[]> {
     return db.transaction('rw', db.memoryJobs, async () => {
       const rows = await db.memoryJobs.where('userId').equals(userId).toArray();
       const eligible = rows
+        .filter(job => !scope || (job.sessionId === scope.sessionId && job.sourceType === 'chat' && job.sourceIds.length > 0 && job.sourceIds.every(id => id.startsWith(scope.sourcePrefix))
+          && (!scope.characterId || (job.characterIds.length === 1 && job.characterIds[0] === scope.characterId))))
         .filter((job) => (job.status === 'queued' || job.status === 'retry' || (job.status === 'running' && (job.leaseUntil ?? 0) <= now)) && job.availableAt <= now)
         .sort((a, b) => a.availableAt - b.availableAt || a.createdAt - b.createdAt);
       const first = eligible[0];

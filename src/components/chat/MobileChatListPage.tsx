@@ -166,7 +166,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
       {/* 群聊和私聊共享滚动容器，群聊较多时不会挤走私聊。 */}
       {groups.length > 0 && (
         <div className="px-3 pt-2 shrink-0">
-          <p className="text-[10px] text-gray-400 mb-1 px-1">群聊（{groups.length}）</p>
+          <p className="text-xs text-sub mb-2 px-1">群聊（{groups.length}）</p>
           <div className="space-y-1.5">
             {groups.map((g) => {
               const preview = groupPreviews[g.id];
@@ -181,7 +181,7 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
                   className="vg-conversation-row is-group w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-surface border border-line hover:border-gene-purple/40 transition-colors"
                 >
                   <span className="shrink-0 w-12 h-12 rounded-xl bg-gene-purple/12 flex items-center justify-center relative">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6C5CE7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <svg className="text-gene-purple" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                       <circle cx="9" cy="7" r="4" />
                       <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />

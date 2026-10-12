@@ -1,4 +1,4 @@
-import { SAMPLE_LINE, stripVoiceSampleBlock } from './character-voice';
+import { SAMPLE_LINE, stripVoiceSampleBlock } from './character-voice-source';
 
 /** A narrow source-risk check, not a semantic truth verdict. It only recognizes
  * first-person recurring concrete actions and explicit completed episodes in
@@ -55,7 +55,7 @@ function recentIdeaRisk(content:string,sources:string[]):SelfReportRisk|undefine
     // by the existing local excerpt path. Do not spend a quality retry merely
     // because the same lead follows a conversational connective.
     const at=content.indexOf(lead);
-    if(at>=0&&/^[，,：:]\s*(?:要是|如果|假如|假设)/u.test(content.slice(at+lead.length)))continue;
+    if(at>=0&&/^[，,：:]\s*(?:要是|如果|假如|假设|等(?:哪天|有空|闲下来|以后|下次))/u.test(content.slice(at+lead.length)))continue;
     if(sources.some(source=>source.replace(/\s/gu,'').startsWith(lead.replace(/\s/gu,''))))continue;
     return {quote:lead,action:lead,kind:'episode'};
   }
@@ -76,9 +76,9 @@ const FREQUENCY=/(?:一般|经常|通常|平时|每次|总是|每天|每日|每�
  * unsupported retrospective mental lead. No replacement emotion or idea is
  * synthesized. Concrete events after the lead remain subject to other checks. */
 function omitHypotheticalThoughtHistoryLead(sentence:string,persona:string,records:string[]):string {
-  const lead=sentence.match(/^(\s*(?:(?:正好|其实|说起来)[，,]\s*)?)(我(?:最近|近来|这阵子|这段时间|这(?:几|两)天|前阵子)(?:总是?|一直|经常|老是)(?:在想|想着|在琢磨|琢磨着|在考虑|考虑着)[，,：:]\s*)((?:要是|如果|假如|假设)[\s\S]+)/u);
+  const lead=sentence.match(/^(\s*(?:(?:正好|其实|说起来)[，,]\s*)?)(我(?:最近|近来|这阵子|这段时间|这(?:几|两)天|前阵子)(?:总是?|一直|经常|老是)(?:在想|想着|在琢磨|琢磨着|在考虑|考虑着)[，,：:]\s*)((?:要是|如果|假如|假设|等(?:哪天|有空|闲下来|以后|下次))[\s\S]+)/u);
   if(!lead){
-    const idea=sentence.match(/^(我(?:最近|近来|这阵子|这段时间|这(?:几|两)天)(?:也|还)?(?:一直|总是?|经常|老是)?(?:在想|在琢磨|在考虑|想着|琢磨着|考虑着)[，,：:]\s*)((?:要不要|要是|如果|假如|假设)[\s\S]+)/u);
+    const idea=sentence.match(/^(我(?:最近|近来|这阵子|这段时间|这(?:几|两)天)(?:也|还)?(?:一直|总是?|经常|老是)?(?:在想|在琢磨|在考虑|想着|琢磨着|考虑着)[，,：:]\s*)((?:要不要|要是|如果|假如|假设|等(?:哪天|有空|闲下来|以后|下次))[\s\S]+)/u);
     if(idea&&!recentIdeaEvidence(persona,records).some(source=>source.replace(/\s/gu,'').startsWith(idea[1].trim().replace(/[，,：:]\s*$/u,'').replace(/\s/gu,''))))return idea[2];
     return sentence;
   }

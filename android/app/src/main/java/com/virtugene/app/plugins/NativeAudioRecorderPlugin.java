@@ -38,6 +38,7 @@ public class NativeAudioRecorderPlugin extends Plugin {
                 call.reject("already recording");
                 return;
             }
+            if (!AudioCaptureLease.acquire(this)) { call.reject("voice:microphone_busy"); return; }
             File dir = new File(getContext().getCacheDir(), "recordings");
             if (!dir.exists()) {
                 //noinspection ResultOfMethodCallIgnored
@@ -57,6 +58,8 @@ public class NativeAudioRecorderPlugin extends Plugin {
             startedAt = System.currentTimeMillis();
             call.resolve(new JSObject());
         } catch (Exception e) {
+            if (recorder != null) { try { recorder.release(); } catch (Exception ignored) {} recorder = null; }
+            AudioCaptureLease.release(this);
             call.reject("start failed: " + e.getMessage(), e);
         }
     }
@@ -77,6 +80,7 @@ public class NativeAudioRecorderPlugin extends Plugin {
             }
             recorder.release();
             recorder = null;
+            AudioCaptureLease.release(this);
             String dataUrl = fileToDataUrl(outputFile, "audio/mp4");
             JSObject ret = new JSObject();
             ret.put("dataUrl", dataUrl);
@@ -104,6 +108,7 @@ public class NativeAudioRecorderPlugin extends Plugin {
                 outputFile.delete();
             }
             call.resolve(new JSObject());
+            AudioCaptureLease.release(this);
         } catch (Exception e) {
             call.reject("cancel failed: " + e.getMessage(), e);
         }
@@ -147,5 +152,9 @@ public class NativeAudioRecorderPlugin extends Plugin {
         } catch (IOException e) {
             return "";
         }
+    }
+    @Override protected void handleOnDestroy() {
+        if (recorder != null) { try { recorder.stop(); } catch (Exception ignored) {} try { recorder.release(); } catch (Exception ignored) {} recorder = null; }
+        AudioCaptureLease.release(this); super.handleOnDestroy();
     }
 }

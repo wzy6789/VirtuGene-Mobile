@@ -38,8 +38,9 @@ export function findCurrentActivityRisk(content:string,userMessage='',persona=''
     // schedule explicit through the same sentence's first-person continuation.
     // A bare daily-news remark is not enough to infer that omitted subject.
     const following=parts.slice(i+2).join('').split(/[。！？!?\n]|-{3,}/u)[0];
+    const chatContinuation=/^(?:(?:我|我们|咱们)(?:就|也|可以)?(?:一起)?)?(?:随便|随意|慢慢)?(?:聊(?:聊|会儿|一会儿|一会|两句|几句)?|说(?:两句|几句|会儿话|一会儿话))(?:就好|就行|也好|吧|呀|啊|呢)?$/u.test(following.split(/[，,；;]/u)[0].trim());
     const implicitAvailability=/^(?:现在|这会儿|此刻|今天|今晚)/u.test(clause)&&AVAILABILITY.test('我'+clause)
-      && /我(?:也|还|就|会|可以)?(?:陪你|和你|跟你)/u.test(following)
+      && (/我(?:也|还|就|会|可以)?(?:陪你|和你|跟你)/u.test(following)||chatContinuation)
       && !/^(?:朋友|同事|他|她|有人).{0,12}(?:说|问|写|提到)/u.test(following.trim());
     if(/[?？]/u.test(delimiter)||PAST.test(clause)||PAST.test(preceding)||CONDITIONAL.test(clause)||CONDITIONAL.test(preceding)
       ||/^(?:朋友|同事|他|她|有人).{0,12}(?:说|问|写|提到)/u.test(preceding.trim()))continue;

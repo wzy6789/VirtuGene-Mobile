@@ -11,6 +11,7 @@
  * 排序 = 命中词数 → 重要度 → 新鲜度。宁可少召回，也不把整个数据库塞进 Prompt。
  */
 import type { SharedMemory, WorldEvent } from '../../db/index';
+import { withMemorySourceSnapshot, memorySourceSnapshotsStillLive } from '../memory-source-snapshot';
 import { isMentionableDiaryEvent, worldEventRepo } from '../../db/world-event-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { isVisibleToCharacter } from './visibility';
@@ -136,7 +137,7 @@ export async function findRelevantHistory(params: {
     const score = hitCount(text, terms) * 2 + (row.importance ?? 0.5);
     if (score < 2) return;
     const ts = kind === 'event' ? (row as WorldEvent).timestamp : (row as SharedMemory).createdAt;
-    hits.push({ date: formatDate(ts), timestamp: ts, text, kind, id: row.id, score });
+    hits.push(withMemorySourceSnapshot({ date: formatDate(ts), timestamp: ts, text, kind, id: row.id, score }, kind === 'event' ? 'worldEvents' : 'sharedMemories', row));
   };
 
   for (const event of events) {
@@ -148,9 +149,12 @@ export async function findRelevantHistory(params: {
   }
   for (const memory of memories) push(memory, 'memory');
 
-  return hits
+  const selected = hits
     .sort((a, b) => b.score - a.score || (a.date < b.date ? 1 : -1))
     .slice(0, limit);
+  const current: HistoryHit[] = [];
+  for (const hit of selected) if (await memorySourceSnapshotsStillLive(hit)) current.push(hit);
+  return current;
 }
 
 function audienceCanMentionSingle(

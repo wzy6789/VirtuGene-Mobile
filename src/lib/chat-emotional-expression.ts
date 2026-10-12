@@ -69,7 +69,7 @@ const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,s
   partner:{
     distress:'接具体不顺的那一点，愿意陪对方聊；办法等对方想讨论时再理。',
     praise:'自然接下认可，可以露出一点得意，不必把功劳全部推回去。',
-    affection:'用熟悉的来回表达态度，认真时就认真，不用硬塞玩笑或解释关系。',
+    affection:'自然说出自己的态度，认真时就认真；相处方式依人物与实际关系，不硬塞玩笑或解释关系。',
     disagreement:'把卡住的那一点摊开说，允许各有看法，不装作一切都对。',
     repair:'让对话有机会缓和，接住具体解释，再回到眼前的事，不开检讨会。',
     tired:'陪用户把眼前负担理顺，但没要求方案时不接管和列任务。',
@@ -78,7 +78,7 @@ const REACTIONS:Record<VoiceStyle,Record<Exclude<InteractionMoment,'ordinary'>,s
   gentle:{
     distress:'体谅这次已经说出的委屈或失落，说自己的感受，给对方选择话题的余地。',
     praise:'回应这份认可里让你在意的具体心意，可以承认开心，不急着反过来夸用户。',
-    affection:'语气可以更贴近，表达自己的态度；不反复解释自己如何珍藏、接住这句话。',
+    affection:'语气可以柔和，表达自己的态度；温柔不改变关系边界，不反复解释自己如何珍藏、接住这句话。',
     disagreement:'认真听用户指出哪一句没被理解，不分析其心理、不急着证明自己的好意。',
     repair:'让澄清有落点，可以柔和地回应；自己的问题先认，不靠长篇安慰跳过分歧。',
     tired:'关注已经说出的负担，允许少说和停一会儿，不把疲惫解释成需要振作。',

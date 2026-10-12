@@ -15,6 +15,7 @@
  * 私聊说成已经结算的完整经历。
  */
 import { db, type WorldEvent, type WorldScene } from '../../db/index';
+import { withMemorySourceSnapshot, memorySourceSnapshotsStillLive } from '../memory-source-snapshot';
 import { sceneEntryKnownBy, hasSceneHistory, worldSceneRepo } from '../../db/world-scene-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { knowledgeRepo } from '../../db/knowledge-repo';
@@ -175,7 +176,7 @@ export async function findSceneSegmentHistory(params: {
       const text = entry.content.trim();
       const score = hitCount(text, terms) * 2 + (entry.kind === 'dialogue' ? 0.5 : 0);
       if (score < 2) continue;
-      hits.push({
+      hits.push(withMemorySourceSnapshot(withMemorySourceSnapshot({
         date: formatDate(entry.createdAt),
         timestamp: entry.createdAt,
         text: text.slice(0, 400),
@@ -183,12 +184,15 @@ export async function findSceneSegmentHistory(params: {
         sceneTitle: scene.title,
         entryId: entry.id,
         score,
-      });
+      }, 'worldSceneEntries', entry), 'worldScenes', scene));
     }
   }
-  return hits
+  const selected = hits
     .sort((a, b) => b.score - a.score || b.timestamp - a.timestamp)
     .slice(0, limit);
+  const current: SceneSegmentHit[] = [];
+  for (const hit of selected) if (await memorySourceSnapshotsStillLive(hit)) current.push(hit);
+  return current;
 }
 
 /**
@@ -224,13 +228,13 @@ export async function selectRecentFinishedSceneMoments(params: {
     const entries = [...new Map([...userStatements, ...ownWords]
       .sort((a, b) => a.createdAt - b.createdAt)
       .slice(-Math.max(1, params.entriesPerScene ?? 3))
-      .map((entry) => [entry.id, {
+      .map((entry) => [entry.id, withMemorySourceSnapshot({
         id: entry.id,
         kind: entry.kind,
         content: entry.content.trim().slice(0, 220),
         createdAt: entry.createdAt,
         ...(entry.speakerId ? { speakerId: entry.speakerId } : {}),
-      }]))].map(([, entry]) => entry);
+      }, 'worldSceneEntries', entry)]))].map(([, entry]) => entry);
     if (entries.length) out.push({ scene, entries });
   }
   return out;
@@ -267,18 +271,18 @@ export async function selectLiveSceneMoments(params: {
       .filter((entry) => LIVE_ENTRY_KINDS.has(entry.kind) && entry.content.trim());
     const entries = readable
       .slice(-(Math.max(2, params.entriesPerScene ?? 5)))
-      .map((entry) => ({
+      .map((entry) => withMemorySourceSnapshot({
         id: entry.id,
         kind: entry.kind,
         content: entry.content.trim().slice(0, 220),
         createdAt: entry.createdAt,
         ...(entry.speakerId ? { speakerId: entry.speakerId } : {}),
-      }));
+      }, 'worldSceneEntries', entry));
     const recentEntryIds = new Set(entries.map((entry) => entry.id));
     const userStatements = readable
       .filter((entry) => entry.kind === 'user_input' && !recentEntryIds.has(entry.id))
       .slice(-6)
-      .map((entry) => ({ id: entry.id, content: entry.content.trim().slice(0, 220), createdAt: entry.createdAt }));
+      .map((entry) => withMemorySourceSnapshot({ id: entry.id, content: entry.content.trim().slice(0, 220), createdAt: entry.createdAt }, 'worldSceneEntries', entry));
     if (entries.length > 0 || userStatements.length > 0) out.push({ scene, entries, userStatements });
   }
   return out;

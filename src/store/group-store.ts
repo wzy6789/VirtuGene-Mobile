@@ -119,7 +119,7 @@ function groupPromptTrace(briefs: GroupMemberBrief[], session: Session | undefin
 
 /** 构建群聊上下文：成员人设（含经当前全体成员见证的跨场景记忆） */
 async function buildBriefs(group: Group, userId: string, query = ''): Promise<GroupMemberBrief[]> {
-  const { buildCharacterMemoryContext } = await loadForAccount(userId, () => import('../lib/character-memory'));
+  const { buildCharacterMemoryContext, renderMemoryRetrievalStatus } = await loadForAccount(userId, () => import('../lib/character-memory'));
   if (useAuthStore.getState().userId !== userId) throw new Error('Account changed');
   const world = await worldRepo.ensureDefaultWorld(userId).catch(() => null);
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
@@ -163,6 +163,7 @@ async function buildBriefs(group: Group, userId: string, query = ''): Promise<Gr
         memory: shared.text || undefined,
         memoryReferences: shared.references.map(({ source, id }) => ({ source, id })),
         privateMemory: personal.text.trim() || undefined,
+        memoryRetrievalContext: [renderMemoryRetrievalStatus(shared)?'群内共同资料：'+renderMemoryRetrievalStatus(shared):'',renderMemoryRetrievalStatus(personal)?'仅供本人判断的资料：'+renderMemoryRetrievalStatus(personal):''].filter(Boolean).join('\n'),
         relationshipContext: characterState
           ? buildRelationshipToneContext(characterState.affinity, characterState.mood, characterState.tierNames, c)
           : undefined,

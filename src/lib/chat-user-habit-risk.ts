@@ -6,6 +6,11 @@ const CLAIM=new RegExp(`你(?:自己)?(?:${FREQUENCY}|又(?=不爱|不喜欢))([
 // A contextual past "就爱..." is a generalization, not a dated single event.
 // Ordinary sourced background preferences are not swept into this pattern.
 const PAST_CONTEXT_PREFERENCE=/^你(?:自己)?(?:以前|从前|过去)[^。！？!?，,；;\n]{1,36}?(?:就|总)(?:不喜欢|不爱|喜欢|爱)[^。！？!?，,；;\n]{1,50}$/u;
+// A claimed change in the interlocutor's way of communicating also needs
+// their own evidence; familiarity alone does not establish the old baseline.
+// Keep this bounded to explicit temporal comparisons about communication,
+// rather than auditing affection, appearance or every use of “比”.
+const COMMUNICATION_CHANGE=/你(?:自己)?(?:现在|如今|这会儿)?(?:说(?:话|这种话|这些话)|讲(?:话|这种话|这些话)|表达(?:心意|感情|喜欢)|聊天)[^。！？!?，,；;\n]{0,16}比(?:以前|从前|过去|往常)[^。！？!?，,；;\n]{0,16}(?:坦率|直白|直接|主动|放得开|放松|自然|温柔|热情|冷淡|拘谨)(?:多|得多|一些|一点)?[了呀啊呢吧]*/u;
 const SOURCE=new RegExp(`^我(?:自己)?(?:${FREQUENCY})?((?:不爱|不喜欢|喜欢|爱)[^。！？!?，,；;\\n]{1,75}|[^。！？!?，,；;\\n]{2,80})$`,'u');
 const CONDITIONAL=/(?:如果|假如|假设|要是|比如|例如|的话|的时候|时才|时就|才会)/u;
 const normalize=(value:string)=>value.trim().replace(/\s/gu,'').replace(/[的了呀啊呢吧]+$/u,'');
@@ -47,6 +52,15 @@ export function findUserHabitRisk(content:string,actualUserMessages:string[]=[])
   for(const clause of directClauses(content)) {
     const part=clause.trim();
     if(!part||/[?？]/u.test(part)||/(?:如果|假如|假设|要是|比如|例如|的话)/u.test(part)||/^(?:他|她|朋友|同事)|(?:不是|并非|不觉得|不认为).{0,8}你/u.test(part))continue;
+    const change=part.match(COMMUNICATION_CHANGE)?.[0];
+    if(change) {
+      const latest=actualUserMessages.flatMap(directClauses).map(source=>source.trim())
+        .filter(source=>!/[?？]/u.test(source)&&!CONDITIONAL.test(source)&&/^我(?:自己)?/u.test(source))
+        .filter(source=>normalize(source.replace(/^我/u,'你'))===normalize(change)
+          ||normalize(source.replace(/^我/u,'你').replace(/^你(?:自己)?不(?:是|觉得|认为)/u,'你'))===normalize(change)).reverse()[0];
+      if(!latest||!/^我(?:自己)?(?:现在|如今|这会儿|说|讲|表达|聊天)/u.test(latest))return part.slice(0,120);
+      continue;
+    }
     if(PAST_CONTEXT_PREFERENCE.test(part)) {
       if(!supportsPastContextPreference(part,actualUserMessages))return part.slice(0,120);
       continue;

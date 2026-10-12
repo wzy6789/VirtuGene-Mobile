@@ -14,8 +14,10 @@ export function isOpinionInvitation(message:string):boolean {
 
 /** An invitation to choose a subject, not to invent a day or an old conversation. */
 function hasListeningInvitation(text:string):boolean {
-  return text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
-    /^(?:我(?:今天|现在)?|今天|现在)?(?:就是|只是|就|只)?想(?:听听|听)你(?:说说话|说话|聊几句|讲两句|讲几句|说两句|说几句|聊聊)[呀啊啦呢嘛\s]*$/u.test(part));
+  return text.split(/[。！？!?\n]/u).map(sentence=>sentence.trim())
+    .filter(sentence=>!/^(?:朋友|同事|他|她|我听(?:说|见|到)?|如果|假如|假设|比如|例如)/u.test(sentence))
+    .flatMap(sentence=>sentence.split(/[，,；;]/u)).map(part=>part.trim()).some(part=>
+      /^(?:我(?:今天|现在)?|今天|现在)?(?:也|还)?(?:就是|只是|就|只)?想(?:听听|听)你(?:说说话|说话|聊几句|讲两句|讲几句|说两句|说几句|聊聊)(?:你?自己的(?:想法|感受|话)?)?[呀啊啦呢嘛\s]*$/u.test(part));
 }
 
 /** Ask for a present idea, rather than a report of an unrecorded recent life.

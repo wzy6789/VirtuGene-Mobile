@@ -1,3 +1,4 @@
+import { useVoiceCallUIStore } from '../../store/voice-call-ui-store';
 import { lazyFeature } from '../ui/lazyFeature';
 import { ActionCabinLauncher } from '../todo/ActionCabinLauncher';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
@@ -44,6 +45,8 @@ import { sendRoleChatReply, type ChatRequest } from '../../lib/chat/send-service
 import { withChatSessionLock } from '../../lib/chat/request-coordinator';
 import { CharacterSoulOrb } from './CharacterSoulOrb';
 import { useOrbAttention } from '../../lib/use-orb-attention';
+import { Icon } from '../ui/Icon';
+
 
 const ImmersiveSceneCard = lazyFeature(() => import('./ImmersiveSceneCard').then(m => ({ default: m.ImmersiveSceneCard })));
 const SecretaryMoreMenu = lazyFeature(() => import('../secretary/SecretaryMoreMenu').then(m => ({default:m.SecretaryMoreMenu})));
@@ -94,8 +97,10 @@ function moodEmoji(mood: number): string {
 }
 
 export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
+
   const messages = useChatStore((s) => s.messages);
   const currentSessionId = useChatStore((s) => s.currentSessionId);
+  const showVoiceCall = useVoiceCallUIStore(s => s.blocksChat && s.target?.sessionId === currentSessionId);
   const selectedCharacterId = useChatStore((s) => s.selectedCharacterId);
   const characters = useChatStore((s) => s.characters);
   const addMessage = useChatStore((s) => s.addMessage);
@@ -156,6 +161,7 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
   const [sessionSelection, setSessionSelection] = useState<{ id: string; model: { provider: string; model: string } | null } | null>(null);
   /** TTS 朗读（用户主动点击才发声；Edge-TTS 直连，失败自动回退系统语音） */
   const { speakingKey, busyKey, speak, stop } = useTTS();
+  useEffect(() => { if (showVoiceCall) stop(); }, [showVoiceCall, stop]);
   const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
   const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
 
@@ -674,7 +680,7 @@ return (
           </button>
         )}
         {character && (
-          <div key={`title-${selectedCharacterId}`} className={`chat-header-title absolute left-1/2 min-w-0 ${character.agentProfile==='secretary'?'max-w-[calc(100%-14rem)]':'max-w-[calc(100%-12rem)]'} -translate-x-1/2 text-center animate-fade-in`}>
+          <div key={`title-${selectedCharacterId}`} className={`chat-header-title min-w-0 ${character.agentProfile==='secretary'?'absolute left-1/2 max-w-[calc(100%-14rem)] -translate-x-1/2 text-center':'relative flex-1 text-left'} animate-fade-in`}>
             {IS_MOBILE && <Avatar avatar={character.avatar} size="sm" className="vg-chat-identity-avatar !w-8 !h-8 !text-base" soulKey={`avatar:${character.id}`} soulRole="chat" />}
             <div className="vg-chat-identity-copy"><div className="text-base sm:text-lg font-semibold leading-tight text-ink truncate">{character.name}</div>
             {IS_MOBILE ? <div className={`vg-chat-presence${sending ? ' is-responding' : ''}`}>
@@ -683,7 +689,8 @@ return (
             </div> : sending && <div className="mt-0.5 text-xs text-life-cyan animate-pulse">正在回应你</div>}</div>
           </div>
         )}
-        <div className="flex-1 min-w-0" />
+        {character?.agentProfile === 'secretary' && <div className="flex-1 min-w-0" />}
+        {character && character.agentProfile !== 'secretary' && <button aria-label={`与${character.name}语音通话`} title="语音通话" disabled={sending} onClick={() => { if (character && currentSessionId) useVoiceCallUIStore.getState().open({ character, sessionId: currentSessionId, userId }); }} className="shrink-0 min-w-12 h-12 flex flex-col gap-1 items-center justify-center rounded-lg text-sub hover:bg-surface"><Icon name="phone" size={18}/><span className="text-xs leading-none">语音通话</span></button>}
         {character && character.agentProfile !== 'secretary' && <CharacterSoulOrb character={character} sending={sending} streaming={replyVisible} failed={!!error} attention={orbAttention} soulKey={`role-orb:${character.id}`} soulRole="chat" />}
         {character?.agentProfile === 'secretary' && <ActionCabinLauncher from="chat" compact emotion={sending?'thinking':'idle'} />}
         {character?.agentProfile === 'secretary' ? <SecretaryMoreMenu key={character.id} onInbox={() => setShowSecretaryInbox(true)} onReview={() => setShowSecretaryDailyReview(true)} onManage={() => setShowSecretaryPersonality(true)} disabled={sending || character.secretaryStatus === 'dismissed'} /> : (
@@ -887,7 +894,7 @@ return (
 
       <ChatInput ref={inputRef} onSend={handleSend} onSendImage={IS_MOBILE ? handleSendImage : undefined} onSendVoice={IS_MOBILE ? handleSendVoice : undefined}
         onStop={sending && character?.agentProfile !== 'secretary' ? () => { const request = currentSessionId ? requestsRef.current.get(currentSessionId) : undefined; if (request) { request.stopped = true; request.controller.abort(); } } : undefined}
-        disabled={sending || character?.secretaryStatus === 'dismissed'} onFocusInput={() => scrollToLatest(true)} />
+        disabled={sending || showVoiceCall || character?.secretaryStatus === 'dismissed'} onFocusInput={() => scrollToLatest(true)} />
     </div>
     </SwipeBackView>
 );

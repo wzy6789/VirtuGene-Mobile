@@ -57,10 +57,14 @@ export function compileChatContext(
   const tails: Array<{text:string;order:number}> = [];
   for (const section of [...ordered.filter(s => s.placement === 'tail'), ...ordered.filter(s => s.placement !== 'tail')]) {
     const text = section.text.trim();
-    if (text.length <= remaining) {
+    // Joining blocks consumes budget too. Otherwise a full budget can clip the
+    // final boundary at the transport layer even though we report it included.
+    const separator = output.some(Boolean) || tails.length > 0 ? 2 : 0;
+    const available = Math.max(0, remaining - separator);
+    if (text.length <= available) {
       if(section.placement==='tail')tails.push({text,order:section.tailOrder??0});
       else output.push(text);
-      remaining -= text.length;
+      remaining -= text.length + separator;
       included.push(section.key);
       continue;
     }
@@ -69,9 +73,9 @@ export function compileChatContext(
     // is too small. This keeps the identity and current-turn instructions intact.
     if(section.requireComplete){omitted.push(section.key);continue;}
     const minimum = Math.min(text.length, section.priority >= 80 ? 500 : 240);
-    if (remaining >= minimum) {
-      if(section.placement==='tail')tails.push({text:text.slice(0,remaining),order:section.tailOrder??0});
-      else output.push(text.slice(0,remaining));
+    if (available >= minimum) {
+      if(section.placement==='tail')tails.push({text:text.slice(0,available),order:section.tailOrder??0});
+      else output.push(text.slice(0,available));
       // 截断：区块里的条目可能有部分没进去，因此只报 partial，不谎报"完整注入"
       partial.push(section.key);
       remaining = 0;

@@ -4,7 +4,7 @@ import { stateRepo } from './state-repo';
 import { sendMessage } from '../lib/ai/deepseek';
 import { canUseAi } from '../lib/ai/availability';
 import { useAuthStore } from '../store/auth-store';
-import { buildCharacterMemoryContext } from '../lib/character-memory';
+import { buildCharacterMemoryContext, renderMemoryRetrievalStatus } from '../lib/character-memory';
 import { buildRelationshipToneContext } from '../lib/chat-context';
 import { historyWindowCutoff, loadMomentsPreferences, type MomentPostFrequency } from '../lib/moments/preferences';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
@@ -79,7 +79,7 @@ async function generateComment(userId: string, character: Character, moment: Mom
     ? `\n\n【只分享给你的未完成事项，仅供调整语气，不要在公开评论中提起】\n${personalTodos.map(({ todo, occurrence }) => `- ${todo.title}${occurrence.dueDate !== '9999-12-31' ? `（${occurrence.dueDate}）` : ''}`).join('\n')}`
     : ''}`.trim();
   const publicInstruction = `你正在看朋友圈里一条由${postOwner}发布的动态。以你自己的性格留一句自然、有具体回应的评论，最多60个汉字；可以不赞同，不必总是夸赞或提问。不要写动作或旁白，不要假装看清图片细节。没有配文时只知道对方发了图片。只能评论当前动态和评论区里真实出现的内容。`;
-  const prompt = `${character.systemPrompt}\n${publicInstruction}\n\n【你的个人经历，仅用于判断语气和关系距离】\n${privateContext}\n${relationshipTone ? `\n${relationshipTone}\n` : ''}不得复述、转述、影射或借评论透露这些私聊、日记、待办或个人生活信息；也不要说出关系等阶、情绪数值或系统状态。用户在当前评论区亲自写出的内容除外，但不得补充未公开细节。`;
+  const prompt = `${character.systemPrompt}\n${renderMemoryRetrievalStatus(recalled)}\n${publicInstruction}\n\n【你的个人经历，仅用于判断语气和关系距离】\n${privateContext}\n${relationshipTone ? `\n${relationshipTone}\n` : ''}不得复述、转述、影射或借评论透露这些私聊、日记、待办或个人生活信息；也不要说出关系等阶、情绪数值或系统状态。用户在当前评论区亲自写出的内容除外，但不得补充未公开细节。`;
   const original = moment.text || `${postAuthor?.name ?? '用户'}发布了${moment.mediaIds.length}张图片，没有配文，图片内容未知。`;
   const thread = (await db.momentReactions.where('momentId').equals(moment.id)
     .filter(r => r.userId === userId && r.status === 'active' && r.type === 'comment').toArray())

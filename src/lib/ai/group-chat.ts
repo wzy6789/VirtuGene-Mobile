@@ -1,3 +1,4 @@
+import { CHAT_FACT_SOURCE_INSTRUCTION } from '../../../server/chat-messaging-policy.mjs';
 /**
  * 群聊消息生成（3.1.0）：
  * - 用户发消息 → 单次调用让 AI 决定"群里谁说话、说什么"（1~3 条，可互相接话）
@@ -32,6 +33,8 @@ export interface GroupMemberBrief {
   memory?: string;
   /** Actor-only memory. It is never interpolated into the shared director prompt. */
   privateMemory?: string;
+  /** Actor-only read outcome, separate from private factual material/disclosure review. */
+  memoryRetrievalContext?: string;
   /** Actor-only relationship / mood cue, used only to shape this speaker's voice. */
   relationshipContext?: string;
   /** Verified owned source only; group user identity is resolved actor-locally. */
@@ -49,7 +52,7 @@ const GROUP_INSTRUCTION =
   '这是一个微信式角色群聊。你是群聊的"编剧"，根据群成员的性格决定谁开口、说什么。规则：\n' +
   '- 像真人微信群：短句、口语、自然，不要长篇大论、不要分点、不要 Markdown\n' +
   '- 说人话，别像 AI：禁止"作为AI/人工智能""当然可以""没问题""很高兴""总的来说"这类表达；不解释自己、不做总结陈词\n' +
-  '- 主动适配用户的时代与生活背景：用户聊天里提到的时代/身份/日常，群成员要像真人一样自然地接住并贴合（默认与用户同一时代同一语境，用词观念随 TA 走）；不要出现与用户所述时代不符的设定\n' +
+  '- 接住用户的话题，保留各角色自己的时代、身份、知识与关系边界。提到现代事物、引用他人台词或对某人示爱，不自动改变成员的背景或双方关系；资料不足可以自然问或承认不了解，不补共同经历。明确设定的新场景只在该场景范围生效，不改写稳定人设\n' +
   '- 别天天念叨同一件事或同一个梗（某个食物、某次经历、某个话题），除非用户主动提起；话题要像真人一样自然流动\n' +
   '- 不是每人都必须说话：性格活泼/相关的人接话，高冷/无关的人可以沉默\n' +
   '- 角色之间可以互相接话、吐槽、拌嘴，但别自说自话刷屏\n' +
@@ -59,6 +62,7 @@ const GROUP_INSTRUCTION =
   '- 成员资料中若有共享记忆，那些内容已确认当前群全体成员都可知。只在话题相关时自然提起，不要生硬复述，也不要编造记忆里没有的内容\n' +
   '- 私聊、个人心情、好感度、未共享日记和待办不会进入共享群聊提示词；个人记忆只会在该角色自己的独立回合中用于理解关系，任何成员都不能借别人的口吻泄露这些私密资料\n' +
   '- 没有共享记忆的成员不要假装有共同经历\n' +
+  CHAT_FACT_SOURCE_INSTRUCTION + '\n' +
   '- 禁止用括号写动作描写（如（笑）（叹气））\n' +
   '输出要求（务必遵守）：\n' +
   '- **只输出 JSON 本身**：不要任何解释、前言、结尾、代码块标记（不要 ```json / ```）\n' +
@@ -241,7 +245,7 @@ async function generateActorReply(
   const identity = member.voiceCard ? voiceIdentityWithoutExamples(member.persona) : member.persona;
   const storyIdentity=member.storyPartnerRole&&params.mode!=='banter'?ownedPartnerContext(member.storyPartnerRole,params.userMessage??'',groupUserSpeech):'';
   const voice=distant?member.distantVoiceCard??'':member.voiceCard??'';
-  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【角色设定（只有你自己的，例句在声音卡中）】\n${identity}${shared}${personal}${relationship}\n\n${feeling}\n${direct}\n${voice}\n${storyIdentity}\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
+  const system = `${GROUP_INSTRUCTION}\n\n当前群成员：${roster}\n你只扮演一位角色：${member.name}\n【角色设定（只有你自己的，例句在声音卡中）】\n${identity}${shared}${personal}${relationship}\n${member.memoryRetrievalContext??''}\n\n${feeling}\n${direct}\n${voice}\n${storyIdentity}\n只输出这位角色的一条自然群聊消息正文，不加名字前缀、不加解释、不替其他成员说话。`;
   const recentReplies = history.filter(h => h.role === 'assistant' && h.senderName === member.name).map(h => h.content);
   let hint = '';
   for (let attempt = 0; attempt < 2; attempt++) {

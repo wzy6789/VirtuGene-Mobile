@@ -50,7 +50,8 @@ async function assignVoiceIfNeeded(characterId: string, userId: string): Promise
 /** Provide the conversation to the common service; no separate follow-up selection. */
 async function recallProactiveMemory(characterId: string, userId: string, sessionId: string, messages: Message[]): Promise<string> {
   const recent = messages.filter(message => !message.failed && message.role !== 'system');
-  const memory = await (await loadForAccount(userId, () => import('../lib/character-memory'))).buildCharacterMemoryContext({
+  const memoryService = await loadForAccount(userId, () => import('../lib/character-memory'));
+  const memory = await memoryService.buildCharacterMemoryContext({
     userId, characterId,
     mode: 'proactive-chat',
     topic: [...recent].reverse().find(message => message.role === 'user')?.content,
@@ -61,7 +62,7 @@ async function recallProactiveMemory(characterId: string, userId: string, sessio
     includePrivateCharacterLifeEvents: true,
     budget: 1600,
   });
-  return memory.text;
+  return [memoryService.renderMemoryRetrievalStatus(memory),memory.text].filter(Boolean).join('\n\n');
 }
 
 interface CharPreview {
@@ -285,14 +286,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadEarlierMessages: async () => {
     const { currentSessionId, messages } = get();
     if (!currentSessionId || messages.length === 0) return;
-    const oldest = messages[0].createdAt;
-    const earlier = await messageRepo.getPage(currentSessionId, { limit: MESSAGE_PAGE_SIZE, before: oldest });
+    const oldest = messages[0];
+    const earlier = await messageRepo.getPage(currentSessionId, { limit: MESSAGE_PAGE_SIZE, beforeMessage: oldest });
+    const current=get();
+    if(current.currentSessionId!==currentSessionId||!current.messages.some(message=>message.id===oldest.id))return;
+    const existingIds=new Set(current.messages.map(message=>message.id));
     if (earlier.length === 0) {
       set({ hasMoreMessages: false });
       return;
     }
     set({
-      messages: [...earlier, ...messages],
+      messages: [...earlier.filter(message=>!existingIds.has(message.id)), ...current.messages],
       hasMoreMessages: earlier.length === MESSAGE_PAGE_SIZE,
     });
   },

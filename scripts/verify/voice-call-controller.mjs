@@ -1,0 +1,10 @@
+import { build } from 'esbuild';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+mkdirSync('.tmp-preview/voice-call', { recursive: true });
+await build({ entryPoints: ['scripts/verify/voice-call-controller.ts'], outfile: '.tmp-preview/voice-call/controller.cjs', bundle: true, platform: 'node', format: 'cjs' });
+const result = spawnSync(process.execPath, ['.tmp-preview/voice-call/controller.cjs'], { encoding: 'utf8', timeout: 20_000 });
+writeFileSync('.tmp-preview/voice-call/controller-result.txt', (result.stdout ?? '') + (result.stderr ?? '') + (result.error ? String(result.error) : ''), 'utf8');
+process.stdout.write(result.stdout ?? ''); process.stderr.write(result.stderr ?? '');
+if (result.error) console.error(result.error);
+process.exitCode = result.status ?? 1;

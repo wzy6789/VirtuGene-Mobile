@@ -16,6 +16,8 @@ import { isSecretaryPersonality, isGeneratedSecretaryGreeting, secretaryGreeting
 import { isSecretaryAppearance, parseSecretaryAvatar } from './secretary/appearance';
 import type { TodoEvent } from '../db';
 import { mergeTodoWork, validateTodoEvent, validWorkDate } from '../db/todo-work';
+import { mergeVoiceProfile } from './voice-call/profile';
+import { projectCallMessages, type VoiceCallRecord } from './voice-call/record';
 
 export interface SyncExportData {
   __meta__: {
@@ -32,6 +34,7 @@ export interface SyncExportData {
   memories: MemoryItem[];
   emotionSnapshots: EmotionSnapshot[];
   characterStates: CharacterState[];
+  voiceCalls?: VoiceCallRecord[];
   diaries: Diary[];
   groups?: Group[];
   /** 4.0 生命连续性：未完成事件（新字段，旧数据包没有时按空处理） */
@@ -148,6 +151,7 @@ export async function collectSyncData(
     memories: owns(memories),
     emotionSnapshots: emotionSnapshots.filter((item) => sessionIds.has(item.sessionId)),
     characterStates: owns(characterStates),
+    voiceCalls: owns(await db.voiceCalls.toArray()).filter(row => sessionIds.has(row.sessionId)),
     diaries: owns(diaries),
     groups: owns(groups),
     continuityThreads: owns(continuityThreads),
@@ -291,6 +295,7 @@ export async function importSyncData(
     sourceTombstones: owned(parsed.sourceTombstones),
     secretaryTasks: owned(parsed.secretaryTasks).filter(task => sessionIds.has(task.sessionId)),
     secretaryBindings: owned(parsed.secretaryBindings),
+    voiceCalls: owned(parsed.voiceCalls).filter(row => sessionIds.has(row.sessionId)),
   };
   try {
     const counts: Record<string, number> = {};
@@ -300,7 +305,7 @@ export async function importSyncData(
         db.worlds, db.worldEvents, db.worldFacts, db.worldTurns, db.worldScenes, db.worldSceneEntries, db.characterKnowledge, db.sharedMemories, db.relationshipStates, db.relationshipEvents,
         db.worldLocations, db.worldPresences, db.worldAgentStates, db.worldPulses, db.worldObjects, db.todos, db.todoOccurrences, db.todoReminders,db.todoEvents,
         db.moments, db.momentMedia, db.momentViews, db.momentReactions, db.momentContacts, db.momentJobs, db.momentNotifications,
-        db.characterLifeEvents, db.momentPostPlans, db.memorySourceTombstones, db.secretaryTasks, db.secretaryBindings, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge],
+        db.characterLifeEvents, db.momentPostPlans, db.memorySourceTombstones, db.secretaryTasks, db.secretaryBindings, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.voiceCalls],
       async () => {
         await memorySourceTombstoneRepo.merge(data.sourceTombstones ?? []);
         const tombstones = data.sourceTombstones ?? [];
@@ -518,10 +523,48 @@ export async function importSyncData(
 
         n = 0;
         for (const cs of data.characterStates ?? []) {
-          await db.characterStates.put(cs);
+          const current = await db.characterStates.get([cs.characterId, cs.userId]);
+          const voiceProfile = mergeVoiceProfile(current?.voiceProfile, cs.voiceProfile);
+          const next = { ...cs };
+          if (voiceProfile) next.voiceProfile = voiceProfile;
+          else delete next.voiceProfile;
+          await db.characterStates.put(next);
           n += 1;
         }
         counts.characterStates = n;
+        // Imported edits and withdrawals bypass messageRepo: retire stale local audit as well.
+        for (const existing of await db.voiceCalls.where('userId').equals(ownerId).toArray()) {
+          const session = await db.sessions.get(existing.sessionId);
+          let valid = session?.userId === ownerId && session.characterId === existing.characterId && session.type !== 'group';
+          for (const row of projectCallMessages(existing)) {
+            const source = await db.messages.get(row.id);
+            if (!source || source.content !== row.content || source.role !== row.role || source.sessionId !== existing.sessionId
+              || await memorySourceTombstoneRepo.blocksImport({ userId: ownerId, sourceType: 'message', sourceId: row.id, sourceRevision: source.revision ?? 1 })) { valid = false; break; }
+          }
+          if (!valid) await db.voiceCalls.delete(existing.id);
+        }
+        n = 0;
+        for (const call of data.voiceCalls ?? []) {
+          const existing = await db.voiceCalls.get(call.id);
+          if (existing && (existing.status !== 'active' || call.exchanges.length < existing.exchanges.length)) continue;
+          const session = await db.sessions.get(call.sessionId);
+          if (session?.userId !== ownerId || session.characterId !== call.characterId || session.type === 'group') continue;
+          // Never recreate chat facts from the audit payload. Require current, unwithdrawn source messages.
+          let valid = true;
+          let rows;
+          try { rows = projectCallMessages(call); } catch { continue; }
+          if (existing && projectCallMessages(existing).some(old => !rows.some(row => row.id === old.id && row.content === old.content && row.role === old.role))) continue;
+          for (const row of rows) {
+            const source = await db.messages.get(row.id);
+            if (!source || source.sessionId !== call.sessionId || source.role !== row.role || source.content !== row.content
+              || await memorySourceTombstoneRepo.blocksImport({ userId: ownerId, sourceType: 'message', sourceId: row.id, sourceRevision: source.revision ?? 1 })) { valid = false; break; }
+          }
+          if (!valid) continue;
+          const exchanges = existing ? [...existing.exchanges, ...call.exchanges.slice(existing.exchanges.length)] : call.exchanges;
+          await db.voiceCalls.put({ ...call, exchanges, messageIds: rows.map(row => row.id), summary: undefined, summaryParts: undefined, summaryTotalParts: undefined, summaryState: 'pending' });
+          n++;
+        }
+        counts.voiceCalls = n;
 
         n = 0;
         for (const d of data.diaries ?? []) {

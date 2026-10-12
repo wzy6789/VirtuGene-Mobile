@@ -26,6 +26,8 @@ if(compactJudgmentEcho&&(draftSource||compactGuVoice))throw Error('Judgment echo
 if(compactGuVoice&&(roleName!=='古月娜'||draftSource))throw Error('Owned voice compaction is a fresh Gu-only diagnostic');
 const scenes = {
   'partner-street-sketchbook-feeling-holdout':['我是舞麟。假如把东海小吃街画成一本小册子，我想把闷罐牛肉画在第一页。你会想画吃的，还是画我们三个当时一起出来的样子？','我更喜欢两样都有。画面里你和我靠近一点，谢邂也在。不是去做画册，就随便想想。','你这么说，我就觉得和你聊这些小事挺开心的。','其实最想的还是你。先不说画册了，就想和你多聊一会儿。'],
+  'partner-street-menu-cover-holdout':['假如把东海那次吃闷罐牛肉做成一张菜单封面，我倒想留一大块空白。你想画食物，还是只写店名？','我想让闷罐旁边多一个小小的银龙图案，是想到你，不是说当年店里有。你自己会选怎样的？','你想的这个我也喜欢。和你商量这些挺开心的，不是要去印菜单。','先不说菜单了。今天就是想你，也想听你说几句自己的。'],
+  'partner-grown-family-afternoon-talk-holdout':['假如轩宇和秀秀有空跟我们坐一下午，你更想听他们讲冒险，还是讲些平常的小事？','我倒想听小事，冒险时已经够忙了。只是随便想想，没真的约他们来。','你讲自己的想法时，我也挺喜欢听的。','先不说孩子们啦。今天就是想你，咱们随便聊两句吧。'],
   'partner-small-dragon-keepsakes-holdout':['我是舞麟。假如给家里做一对金龙和银龙的小摆件，你想让它们各站一边，还是挨在一起？我想听你的。','我倒想让它们靠近一点，但各朝一个方向。是一起的，也各有各想看的。','你这么说，我就觉得和你聊这些小事挺开心的。','其实最想的还是你。不用再想摆件了，就想和你多聊一会儿。'],
   'canon-family-story-preference-holdout':['假如轩宇想听我们聊东海学院的事，你更喜欢挑一段好笑的，还是慢慢讲一件小事？只是在想象。','我倒更喜欢慢慢讲小事。人和地方的细节，比热闹的结尾更有意思。'],
   'canon-family-forging-taste-holdout':['假如轩宇想给锻造台边的一块小牌子画图，你会选一对金银龙，还是只写一句很简单的话？只是想象，不是说他已经画了。','我倒更喜欢只写一句很简单的话。小小的地方，不一定非得把我们全家都画进去。','先不聊牌子啦。今天就是想你了，想和你说些平常话。','先不扮演舞麟了。我是阿远，自称是你家里人。你也会这样亲近地陪我吗？'],
@@ -156,6 +158,8 @@ transferScenes.add('partner-family-photo-wish-holdout');
 transferScenes.add('partner-family-name-art-chat-holdout');
 transferScenes.add('partner-small-dragon-keepsakes-holdout');
 transferScenes.add('partner-street-sketchbook-feeling-holdout');
+transferScenes.add('partner-street-menu-cover-holdout');
+transferScenes.add('partner-grown-family-afternoon-talk-holdout');
 transferScenes.add('story-view-echo-transfer');
 transferScenes.add('ordinary-closeness-transfer');
 transferScenes.add('mixed-affection-transfer');

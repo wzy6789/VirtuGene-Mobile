@@ -33,7 +33,7 @@ import {
 } from '../ai/scene-director';
 import { validateSettlement } from './scene-consequences';
 import { actMarkerContent, shouldAdvanceAct } from './scene-acts';
-import { buildCharacterMemoryContext } from '../character-memory';
+import { buildCharacterMemoryContext, renderMemoryRetrievalStatus } from '../character-memory';
 import { compactDouluoDirectorPersona } from '../douluo-relations';
 
 /** 一次场景推演的结果（供 UI 与验收断言） */
@@ -67,7 +67,7 @@ async function buildMembers(scene: WorldScene, userId: string, query = '', recen
       scene: { worldId: scene.worldId, sceneId: scene.id },
       excludeSceneId: scene.id,
       includePrivateCharacterLifeEvents: scene.characterIds.length === 1,
-    }) : { text: '' };
+    }) : { text: '', retrieval:undefined };
     // Scene Director sees every member in one request. Per-character history, goals and secrets
     // cannot be isolated inside that shared prompt, so only inject them in a single-actor scene.
     const privateContextIsIsolated = scene.characterIds.length === 1;
@@ -78,7 +78,7 @@ async function buildMembers(scene: WorldScene, userId: string, query = '', recen
         character.systemPrompt ?? '', character.sourcePresetId ?? character.id,
       ),
       ...(privateContextIsIsolated && participant?.goals?.length ? { goal: participant.goals.join('；') } : {}),
-      ...(recalled.text ? { knows: recalled.text } : {}),
+      ...([renderMemoryRetrievalStatus(recalled),recalled.text].some(Boolean) ? { knows: [renderMemoryRetrievalStatus(recalled),recalled.text].filter(Boolean).join('\n\n') } : {}),
       ...(privateContextIsIsolated && participant?.secrets?.length ? { secret: participant.secrets.join('；') } : {}),
     });
   }

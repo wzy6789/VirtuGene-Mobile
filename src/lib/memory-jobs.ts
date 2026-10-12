@@ -30,13 +30,15 @@ async function jobSourcesAreCurrent(userId: string, job: import('../db').MemoryJ
  * only extraction evidence; group audiences are the witness snapshot stored
  * with the source message, never the current group membership.
  */
-export async function processMemoryJobs(userId: string, apiKey: string | null, maxBatches = 2): Promise<number> {
-  if (!userId || !canUseAi() || runningUsers.has(userId)) return 0;
+export async function processMemoryJobs(userId: string, apiKey: string | null, maxBatches = 2,
+  options?: { extract: typeof extractMemories; scope: { sessionId: string; sourcePrefix: string; characterId?: string }; signal: AbortSignal; maxJobs?: number }): Promise<number> {
+  if (!userId || (!options && !canUseAi()) || runningUsers.has(userId) || options?.signal.aborted) return 0;
   runningUsers.add(userId);
   let completed = 0;
   try {
     for (let batchIndex = 0; batchIndex < Math.max(1, maxBatches); batchIndex += 1) {
-      const jobs = await memoryLedgerRepo.leaseNextBatch(userId);
+      if (options?.signal.aborted) break;
+      const jobs = await memoryLedgerRepo.leaseNextBatch(userId, Math.max(1, Math.min(8, options?.maxJobs ?? 8)), Date.now(), 90_000, options?.scope);
       if (!jobs.length) break;
       const activeJobs = jobs.filter((job) => job.task === 'extract' && (job.sourceType === 'chat' || job.sourceType === 'group'));
       const invalidJobs = jobs.filter((job) => !activeJobs.includes(job));
@@ -108,11 +110,12 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
         // Include only the exact user-authored source segments. This avoids
         // attributing a character's generated guess or private audience data
         // to the user as if it were a confirmed fact.
-        const result = await extractMemories({
+        const result = await (options?.extract ?? extractMemories)({
           apiKey: apiKey ?? '',
           history: slices.map((slice) => ({ role: 'user', content: slice.text, sourceId: slice.sourceId })),
         });
         if (result.error) throw new Error(result.error);
+        if (options?.signal.aborted) throw new Error('memory:cancelled');
 
         // Discard model output if a source changed during inference. Since the
         // extractor returns one batch of claims, it cannot safely separate
@@ -142,6 +145,7 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
           // Repeated genuine evidence must be merged, rather than silently discarded.
           const fresh = extracted;
           if (!fresh.length) continue;
+          if (options?.signal.aborted) throw new Error('memory:cancelled');
           const rows = fresh.map((content, index) => {
             const ids = result.evidence?.find(item => item.content === content)?.sourceIds ?? evidenceIds;
             const subset = (record: Record<string, number>) => Object.fromEntries(Object.entries(record).filter(([id]) => ids.includes(id)));
@@ -162,7 +166,13 @@ export async function processMemoryJobs(userId: string, apiKey: string | null, m
             confidence: evidenceIds.length ? 0.9 : 0.6,
             updatedAt: now + index,
           }); });
-          await memoryRepo.createMany(rows);
+          if (options) {
+            await db.transaction('rw', db.tables, async () => {
+              if (options.signal.aborted) throw new Error('memory:cancelled');
+              await memoryRepo.createMany(rows);
+              if (options.signal.aborted) throw new Error('memory:cancelled');
+            });
+          } else await memoryRepo.createMany(rows);
         }
 
         // Close the final race between validation and persistence. If a source

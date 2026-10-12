@@ -1,0 +1,70 @@
+/* Voice conversations share app surfaces; only real call state drives the soul. */
+.vg-modal-panel.vg-voice-call-modal{background:var(--bg);color:var(--text)}
+.vg-modal-panel.vg-mobile-page.vg-voice-call-modal>.vg-modal-header,.vg-modal-panel.vg-voice-call-modal>.vg-modal-header{display:none}
+.vg-voice-call{position:relative;isolation:isolate;min-height:100%;padding:16px 20px 24px;overflow:hidden;background:var(--bg)}
+.vg-voice-call-art{position:absolute;inset:0;z-index:-1;opacity:.045;mask-image:linear-gradient(#000,transparent 75%);pointer-events:none}
+.vg-voice-call-art img{width:100%;height:100%;object-fit:cover;filter:blur(12px)}
+.vg-voice-call:before{content:'';position:absolute;inset:0;z-index:-1;background:radial-gradient(ellipse at 25% 20%,var(--vg-panel-light),transparent 60%);pointer-events:none}
+.vg-voice-call-header{display:grid;grid-template-columns:48px minmax(0,1fr) 48px;align-items:center;gap:8px}
+.vg-voice-call-header strong{font-size:16px;line-height:1.5;text-align:center;overflow-wrap:anywhere;font-weight:var(--vg-weight-heading)}
+.vg-voice-call .vg-voice-call-header button{display:grid;place-items:center;padding:0;background:transparent;border-color:transparent;border-radius:50%}
+.vg-voice-call .vg-voice-call-header .vg-voice-call-caption-toggle{display:flex;flex-direction:column;justify-content:center;gap:2px;border-radius:12px;font-size:12px;line-height:1.2;color:var(--text-secondary)}
+.vg-voice-call .vg-voice-call-header .vg-voice-call-caption-toggle[aria-pressed=true]{color:var(--vg-cyan)}
+.vg-voice-call-persona{text-align:center;margin:32px 0 24px}
+.vg-voice-call-portrait{width:128px;height:148px;margin:auto;border-radius:36px;border:1px solid var(--vg-elev-edge);padding:6px;box-shadow:var(--vg-elev-shadow-2);background:var(--vg-elev-1)}
+.vg-voice-call-portrait img,.vg-voice-call-portrait>span{width:100%;height:100%;object-fit:cover;border-radius:30px;display:flex;align-items:center;justify-content:center;font-size:56px}
+.vg-voice-call-soul{margin:12px auto 0;min-height:52px}
+.vg-voice-call-persona h2{font-size:24px;line-height:1.4;margin:10px 0 8px;font-weight:var(--vg-weight-heading);overflow-wrap:anywhere}
+.vg-voice-call-persona p{color:var(--text-secondary);font-size:14px;line-height:1.6;margin:0 0 6px}
+.vg-voice-call-persona time{font-size:14px;font-variant-numeric:tabular-nums;color:var(--text-secondary)}
+.vg-voice-call-setup{padding:16px;border:1px solid var(--vg-elev-edge);border-radius:20px;background:var(--vg-elev-1)}
+.vg-voice-call-setup label{display:grid;grid-template-columns:70px minmax(0,1fr);align-items:center;gap:10px;font-size:13px;margin-bottom:12px}
+.vg-voice-call-setup input,.vg-voice-call-setup select{min-width:0;width:100%;border:1px solid var(--border);border-radius:12px;background:var(--vg-inset);color:var(--text);padding:12px;font:inherit;min-height:48px}
+.vg-voice-call-setup p,.vg-voice-call-note{font-size:12px;line-height:1.7;color:var(--text-secondary)}
+:is(.vg-voice-call,.vg-voice-call-footer) button{min-height:48px;min-width:48px;cursor:pointer;font:inherit;border:1px solid var(--vg-elev-edge);border-radius:14px;color:var(--text);background:var(--vg-panel-light);padding:10px;touch-action:manipulation}
+:is(.vg-voice-call,.vg-voice-call-footer) button:disabled{opacity:.5;cursor:default}
+.vg-voice-call-connect,.vg-voice-call-history{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;margin-top:12px}
+.vg-voice-call-connect{background:var(--vg-action)!important;color:var(--vg-on-action)!important}
+.vg-voice-call-captions{padding:16px;border:1px solid var(--vg-elev-edge);background:var(--vg-elev-1);border-radius:16px;font-size:14px;line-height:1.7}
+.vg-voice-call-captions p{margin:0;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.vg-voice-call-captions span{color:var(--text-secondary);font-size:12px;margin-right:8px}
+.vg-voice-call-footer{padding:12px 16px;background:var(--bg-panel);border-top:1px solid var(--vg-elev-edge)}
+.vg-voice-call-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.vg-voice-call-controls button{display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;font-size:13px;line-height:1.5;min-height:96px;overflow-wrap:anywhere;background:transparent;border-color:transparent;padding:4px}
+.vg-voice-call-controls button svg{box-sizing:border-box;width:56px;height:56px;flex:none;padding:16px;border-radius:50%;border:1px solid var(--vg-elev-edge);background:var(--vg-elev-1)}
+.vg-voice-call-controls button[aria-pressed=true]{color:var(--vg-cyan)}
+.vg-voice-call-controls button[aria-pressed=true] svg{background:color-mix(in srgb,var(--vg-cyan) 12%,var(--bg-panel));border-color:var(--vg-cyan)}
+.vg-voice-call-controls .vg-voice-call-hangup svg{background:var(--vg-danger);color:var(--bg);border-color:transparent;transform:rotate(135deg)}
+.vg-voice-call-resume{width:100%;margin-top:10px;font-size:13px!important}
+.vg-voice-call-routes{display:grid;gap:8px;margin-top:12px;font-size:13px}
+.vg-voice-call-route-dialog .vg-voice-call-routes{padding:16px;margin:0}
+.vg-modal-panel.vg-voice-call-route-dialog>.vg-modal-header>button{min-width:48px;min-height:48px}
+.vg-voice-call-routes button{min-height:48px;width:100%;padding:12px 16px;border:1px solid var(--vg-elev-edge);border-radius:14px;background:var(--vg-elev-1);color:var(--text);text-align:left;font:inherit;touch-action:manipulation;overflow-wrap:anywhere}
+.vg-voice-call-routes button[aria-pressed=true]{border-color:var(--vg-cyan);background:color-mix(in srgb,var(--vg-cyan) 8%,var(--vg-elev-1))}
+.vg-voice-call-routes button:disabled{opacity:.5}
+.vg-voice-call-routes p{line-height:1.7;color:var(--text-secondary)}
+.vg-voice-call-routes button:focus-visible{outline:2px solid var(--vg-cyan);outline-offset:3px}
+.vg-voice-call-error{padding:12px;color:var(--vg-danger);background:color-mix(in srgb,var(--vg-danger) 8%,var(--bg-panel));border-radius:12px;font-size:13px;line-height:1.7}
+.vg-voice-call-note{display:block;text-align:center;margin-top:14px}
+.vg-voice-call-summary{font-size:14px;line-height:1.7;padding:16px;background:var(--vg-elev-1);border-radius:16px}
+.vg-voice-call-setup summary{min-height:48px;padding:12px 0;cursor:pointer;font-size:14px}
+.vg-voice-call-ended{padding:20px;border:1px solid var(--vg-elev-edge);border-radius:20px;background:var(--vg-elev-1)}
+.vg-voice-call-ended h3{font-size:18px;line-height:1.5;margin:0 0 12px}
+.vg-voice-call-ended p{font-size:13px;line-height:1.7;color:var(--text-secondary)}
+.vg-voice-call-ended button{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:10px}
+@media(max-width:360px){.vg-voice-call{padding:12px}.vg-voice-call-persona{margin:20px 0}.vg-voice-call-portrait{width:104px;height:120px}.vg-voice-call-controls{gap:8px}}
+@media(max-height:650px){.vg-voice-call-persona{margin:12px 0}.vg-voice-call-portrait{width:88px;height:100px}}
+.vg-voice-call-capsule{position:fixed;right:16px;bottom:calc(88px + env(safe-area-inset-bottom,0px));z-index:var(--vg-z-popover,60);display:flex;align-items:center;gap:8px;min-height:56px;max-width:calc(100vw - 32px);padding:8px 14px 8px 8px;border:1px solid var(--vg-elev-edge);border-radius:var(--vg-radius-pill,999px);background:var(--bg-panel);color:var(--text);box-shadow:var(--vg-elev-shadow-2);font-size:12px;touch-action:manipulation}
+.vg-voice-call-capsule-label{display:flex;align-items:center;gap:5px;color:var(--vg-cyan)}
+.vg-voice-call-capsule time{display:block;font-variant-numeric:tabular-nums;font-size:14px;line-height:1.6}
+html[data-vg-call-minimized] .vg-character-orb > .vg-soul-orb-button{visibility:hidden}
+html:has(.vg-modal-overlay) .vg-voice-call-capsule{visibility:hidden;pointer-events:none}
+/* Feedback affects only compositor properties, and never hides control labels. */
+:is(.vg-voice-call,.vg-voice-call-footer) button,.vg-voice-call-capsule{transition:transform 120ms var(--vg-ease-standard,cubic-bezier(.2,.8,.2,1)),opacity 120ms ease}
+:is(.vg-voice-call,.vg-voice-call-footer) button:not(:disabled):active,.vg-voice-call-capsule:active{transform:scale(.97);opacity:.86}
+.vg-voice-call-header button:focus-visible,.vg-voice-call-capsule:focus-visible,.vg-voice-call-footer button:focus-visible{outline:2px solid var(--vg-cyan);outline-offset:3px}
+@media(hover:hover){.vg-voice-call-header button:hover{background:var(--vg-panel-light)}}
+/* Override the shared 0.01ms fallback: these controls need no transition events. */
+@media(prefers-reduced-motion:reduce){:is(.vg-voice-call,.vg-voice-call-footer) button,.vg-voice-call-capsule{transition:none;transition-duration:0s!important}:is(.vg-voice-call,.vg-voice-call-footer) button:not(:disabled):active,.vg-voice-call-capsule:active{transform:none}}
+html[data-vg-reduced-motion='true'] :is(.vg-voice-call,.vg-voice-call-footer) button,html[data-vg-reduced-motion='true'] .vg-voice-call-capsule{transition:none;transition-duration:0s!important}
+html[data-vg-reduced-motion='true'] :is(.vg-voice-call,.vg-voice-call-footer) button:not(:disabled):active,html[data-vg-reduced-motion='true'] .vg-voice-call-capsule:active{transform:none}

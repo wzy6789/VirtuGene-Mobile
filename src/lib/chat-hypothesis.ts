@@ -66,7 +66,7 @@ export function buildHypothesisContext(message:string,recentUsers:string[]):stri
   const invitedSpeech=wording&&premise===message.trim()&&[...message.matchAll(/[“「『"]([^”」』"]*)[”」』"]/gu)].some(match=>isTopicInvitation(match[1]));
   const response=invitedSpeech?'这句设想中的话是在邀请你开口，回应时说一点自己愿意聊的想法或好恶，给听者有内容可接的一句话。不是向你索要当天近况，也不是请你问他想听哪方面；假设中的交流仍不证明今天发生过什么。':wording?'本轮是在问设想中你会说的话，直接给出那句回应，改口沿用最新条件。':'本轮仍在这个假设里交换想法；可以给自己的选择、理由和玩笑，改口沿用最新条件。用设想中的例子说明你会怎样选择；';
   const joint=conditionalJointWish(premise)?'这是有条件的一起相处的愿望。可以亲近地说你也想怎样一起过，不把“如果有空”改成你已有空或已确定行程；两个人的空闲仍是条件。':'';
-  return premise?`[正在讨论的假设]\n用户提出的条件：${JSON.stringify(premise)}。${response}${joint}已知背景照常保留，尚未提供的具体物品与活动仍属于设想。各自选一项不表示共同摆放、购买、见面或已经约定行动；真实计划另按用户明确说的内容。\n[/正在讨论的假设]`:'';
+  return premise?`[正在讨论的假设]\n用户提出的条件：${JSON.stringify(premise)}。${response}${joint}已知背景照常保留，尚未提供的具体物品与活动仍属于设想。把旧事用作新构思时，背景沿用对方原话和已有资料；新增的动作、神情与布置说成“我想让它……”这样的现在想法，不把构思转成刚想起的往事细节。自己的画法、选法可以与他不同，也可以喜欢他的想法。各自选一项不表示共同摆放、购买、见面或已经约定行动；真实计划另按用户明确说的内容。\n[/正在讨论的假设]`:'';
 }
 
 /** A modal question about this speaker's preference does not put both people

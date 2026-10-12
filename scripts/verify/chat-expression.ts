@@ -113,6 +113,12 @@ async function run() {
   const wordingHypothesis=buildHypothesisContext('假如孩子拿来一张画，你会怎么回他？',[]);
   ok(wordingHypothesis.includes('直接给出那句回应')&&!wordingHypothesis.includes('用设想中的例子说明'),'a wording hypothesis does not reintroduce generic choice narration after the direct delivery clue');
   ok(buildHypothesisContext('假如要挑一张画，你更喜欢整齐还是错落？',[]).includes('用设想中的例子说明'),'ordinary hypothetical choices retain their existing explanatory freedom');
+  for(const premise of ['假如把以前那次小吃街画成一张画，你想怎么画？','假如把以前那段曲子编成一个故事，你想怎么写？','假如把我以前做的木雕改成一只船，你会选什么颜色？']) {
+    const context=buildHypothesisContext(premise,[]);
+    ok(context.includes(JSON.stringify(premise))&&context.includes('背景沿用对方原话和已有资料'),'mixed old background and new construction keep the exact original premise: '+premise);
+    ok(context.includes('现在想法')&&context.includes('自己的画法、选法可以与他不同'),'new construction does not require invented recollection or agreement: '+premise);
+  }
+  for(const message of ['我以前画了一张画，今天终于装裱好了。','朋友说，假如把旧事画成画，你想怎么画？','换个话题，我想你了。'])ok(!buildHypothesisContext(message,[]).includes('把旧事用作新构思时'),'real updates, reports and topic shifts are not made into new constructions: '+message);
   for(const [name,systemPrompt] of [['古月娜',GU_YUE_NA_CARE],['陆雪琪',LU_XUE_QI_PRESET.systemPrompt]]) {
     const text=buildHumanConversationSections('假如孩子拿来一张画，你会怎么回他？',[],{name,systemPrompt,tags:[]},{interpersonalBoundary:'distant'}).map(row=>row.text).join('\n');
     ok(!text.includes('对方想听你会亲口说什么')&&text.includes('极为冷漠'),'a wording invitation never opens intimate family roleplay to a visitor: '+name);
@@ -373,6 +379,13 @@ async function run() {
   }
   for(const thought of ['我想和你出去走走。','我现在在琢磨，要不要一起逛逛。','我最近很想你。','朋友说，我最近在琢磨，要不要找一天一起出去走走。','如果有空，我最近在琢磨，要不要一起走走。','“我最近在琢磨”这句话怎么说？','我最近在想什么？'])ok(!findSelfReportRisk(thought),'current affection, current thought, reported material and questions retain scope: '+thought);
   ok(omitUnsupportedSelfReportEpisodes('我最近在琢磨，要不要找一天一起出去走走。---我也想你。')==='要不要找一天一起出去走走。\n---\n我也想你。','omit only the retrospective mental lead, preserving the exact shared wish and affection');
+  for(const condition of ['等哪天闲下来','等有空','等闲下来','等以后','等下次']) {
+    const future=condition+'，我们一起慢慢走走。';
+    const draft='我最近在想，'+future;
+    ok(omitUnsupportedSelfReportEpisodes(draft)===future,'a forward wait condition keeps its own wording and omits only unsupported old thinking: '+condition);
+    ok(!findSelfReportRisk(draft),'a locally separable forward wish does not need a quality retry: '+condition);
+  }
+  ok(omitUnsupportedSelfReportEpisodes('我最近在想，等哪天闲下来，我们一起慢慢走走。','独立心理记录：我最近在想，等哪天闲下来，我们一起慢慢走走。')==='我最近在想，等哪天闲下来，我们一起慢慢走走。','independent thought history stays unchanged');
   ok(omitUnsupportedSelfReportEpisodes('我这两天在想一件事。---我想和你去逛逛。')==='我想和你去逛逛。','remove an unsupported mental-history sentence without deleting the independent current wish');
   for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput('我最近在琢磨，要不要找一天出去走走。',{mode,userMessage:'想聊聊平常话。'}).check.issue==='self-report-risk','dated mental history enters the existing quality check in '+mode);
   ok(!!findSelfReportRisk('我最近在琢磨，要不要出去走走。','',['如果我最近在琢磨，要不要出去走走。']),'conditional source material cannot establish a dated mental process');
@@ -651,6 +664,18 @@ async function run() {
     ok(!!findUserHabitRisk(claim),'a definite user routine needs a raw user source: '+claim);
     ok(inspectChatOutput(claim,{mode:'private',userMessage:'我更想听你的偏好。'}).check.issue==='user-source-risk','actual shared inspector catches unsupported user habit: '+claim);
   }
+  for(const claim of ['老公，我发现你现在说这种话比以前坦率多了，挺好。','你聊天比从前放松了。','你如今表达心意比过去直接了。']) {
+    ok(!!findUserHabitRisk(claim),'communication comparison needs an independently stated old baseline: '+claim);
+    for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput(claim,{mode,userMessage:'我更喜欢两样都有。'}).check.issue==='user-source-risk','all output modes check ungrounded communication comparison: '+mode);
+  }
+  const comparison='你现在说这种话比以前坦率多了。';
+  ok(!findUserHabitRisk(comparison,['我现在说这种话比以前坦率多了。']),'direct matching first-person comparison is supported');
+  for(const source of ['我喜欢说这种话。','我今天说得很坦率。','朋友说，我现在说这种话比以前坦率多了。','“我现在说这种话比以前坦率多了。”','如果我现在说这种话比以前坦率多了呢？']) {
+    ok(!!findUserHabitRisk(comparison,[source]),'current liking, single occurrence and reported comparisons are not user evidence: '+source);
+  }
+  ok(!!findUserHabitRisk(comparison,['我现在说这种话比以前坦率多了。','我不觉得现在说这种话比以前坦率多了。']),'later explicit denial invalidates a comparison');
+  for(const text of ['我喜欢你这么说。','你说得很坦率，我也开心。','你现在说这种话比以前坦率多了吗？','如果你现在说这种话比以前坦率多了，我会开心。','朋友说，你聊天比从前放松了。','你不是现在说这种话比以前坦率多了。','这个杯子比以前那个好看。'])ok(!findUserHabitRisk(text),'present warmth and nonassertions retain their ordinary expression: '+text);
+  ok(omitUnsupportedUserHabits('我也开心。'+comparison+'---我也想你。')==='我也开心。\n---\n我也想你。','existing retry exhaustion preserves independent warmth verbatim');
   for(const text of ['你平时声音放得轻吗？','如果你平时声音放得轻，我会认真听。','“你平时声音放得轻”是他的原话。','你不是一向不爱重复。','你总是让我开心。','我就喜欢安静些。','你喜欢热闹，我喜欢安静。'])ok(!findUserHabitRisk(text),'questions, fictional conditions, quotes, feelings and current choices remain allowed: '+text);
   ok(!findUserHabitRisk('你平时声音放得轻。',['我平时声音放得轻。']),'explicit user habit supports the corresponding claim');
   ok(!findUserHabitRisk('你又不爱重复。',['我不爱重复。']),'stated general dislike can be used without inventing a frequency');
@@ -1025,6 +1050,14 @@ async function run() {
   ok(omitUnsupportedCurrentActivities('我也想你。今天没什么事，你想聊到多晚我就陪你。')==='我也想你。','omit the unsupported implicit schedule while preserving reciprocal affection verbatim');
   ok(!findCurrentActivityRisk('今天没什么事，我就陪你聊聊。','你今天没什么事'),'explicitly authored user scene supports the same implicit actor schedule');
   ok(!findCurrentActivityRisk('今天没什么事，我就陪你聊聊。','','当前场景：今天没什么事'),'an explicitly authored current scene supports the implicit actor schedule');
+  for(const text of ['今天没别的事，随便聊就好。','今晚没什么事，咱们聊两句吧。','这会儿没什么要忙的，慢慢聊也好。']) {
+    ok(!!findCurrentActivityRisk(text),'same-sentence direct chat continuation gives the omitted free-schedule subject: '+text);
+    for(const mode of ['private','proactive','group'] as const)ok(inspectChatOutput(text,{mode,userMessage:'我想你了。'}).check.issue==='self-report-risk','implicit chat availability is checked in every delivery mode: '+mode);
+  }
+  for(const text of ['今天没别的事。','今天没别的事，朋友说随便聊就好。','今天没别的事，随便聊就好是电影台词。','今天没别的事，能聊两句吗？','如果今天没别的事，随便聊就好。','朋友说，今天没别的事，随便聊就好。','“今天没别的事，随便聊就好”。','我也想你，聊两句吧。'])ok(!findCurrentActivityRisk(text),'daily news, scope, quotes and affection alone do not assert a new actor schedule: '+text);
+  ok(!findCurrentActivityRisk('今天没别的事，随便聊就好。','你今天没别的事'),'direct explicit scene still supports omitted-subject availability');
+  ok(!findCurrentActivityRisk('今天没别的事，随便聊就好。','','当前场景：今天没别的事'),'authored current scene supports the same chat continuation');
+  ok(omitUnsupportedCurrentActivities('我也想你。今天没别的事，随便聊就好。今天要是能一起闲着就好了。')==='我也想你。今天要是能一起闲着就好了。','schedule removal preserves mutual affection and independent conditional wish');
   ok(omitUnsupportedAffectionHistory('嗯，我也想你。---难得你主动说这种话，我记下了。','我想你。')==='嗯，我也想你。','exhausted drafts preserve independent warmth without fabricated user frequency');
   ok(omitUnsupportedAffectionHistory('难得你主动说这种话。','我以前很少主动说喜欢。')==='难得你主动说这种话。','source-backed frequency is not erased by fallback');
   ok(omitUnsupportedAffectionHistory('我也想你，难得你主动说这种话。','我想你。')==='','a dependent unsupported sentence is removed whole instead of rewriting its meaning');
@@ -1128,13 +1161,13 @@ async function run() {
     for (const affinity of [0,80,10000]) {
       const plain = buildRelationshipContext(affinity,70,{'初识':'我改的档位'},owned);
       const tone = buildRelationshipToneContext(affinity,70,{'初识':'我改的档位'},owned);
-      ok(!plain.includes('初识')&&!plain.includes('好感指标')&&!plain.includes('我改的档位')&&plain.includes('明确认领、退出'),'owned relationship does not compete with app counters: '+sourcePresetId+'/'+affinity);
+      ok(!plain.includes('初识')&&!plain.includes('好感指标')&&!plain.includes('我改的档位')&&plain.includes('当前有效身份'),'owned relationship does not compete with app counters: '+sourcePresetId+'/'+affinity);
       ok(tone===plain&&plain.includes('当前分歧、感受和本人更正优先'),'all actor channels share the same authored identity and current-message precedence: '+sourcePresetId+'/'+affinity);
     }
     ok(buildRelationshipContext(0,10,undefined,owned).includes('收敛一些')&&!buildRelationshipContext(0,10,undefined,owned).includes('疲倦'),'low mood shapes expression without inventing bodily fatigue: '+sourcePresetId);
   }
-  ok(buildRelationshipContext(0,70,undefined,{id:'a',sourcePresetId:'preset-aili',isPreset:false}).includes('初识'),'other characters retain the existing interaction metadata');
-  ok(buildRelationshipContext(0,70,undefined,{id:'preset-guyuena',isPreset:false}).includes('初识'),'a custom character without preset provenance cannot enable the authored-role path');
+  ok(buildRelationshipContext(0,70,undefined,{id:'a',sourcePresetId:'preset-aili',isPreset:false}).includes('当前有效身份'),'other characters use relationship evidence instead of interaction metadata');
+  ok(buildRelationshipContext(0,70,undefined,{id:'preset-guyuena',isPreset:false}).includes('当前有效身份'),'a custom character receives the same evidence boundary without preset privilege');
   for(const input of ['不是累了，就是一下没反应过来。','我不难过，只是事情多。','其实我没有生气。','我不累，但有点烦，帮我想个办法。'])
     ok(correctsOwnFeeling(input), 'a direct personal feeling correction is distinguished from a new diagnosis: '+input);
   for(const input of ['不是要你评水平，就是画出来了，想让你知道。','我不是想让你解决问题，只是想说说今天的事。','其实不是让你赞同，而是想听你自己的看法。','我并不是要你道歉，我只是想把事情说清楚。']) {
@@ -1233,6 +1266,13 @@ async function run() {
     ok(planCharacterIntent(text,[],undefined).action==='start-topic','the actor plan and runtime agree for listening invitations: '+text);
   }
   for(const text of ['如果今天没事，我想听你说话','朋友说，我想听你说话','我不想听你说话','我想听你说话的原因','“我想听你说话”是什么意思','我想听你说话，帮我改报告'])ok(chooseConversationAction(text,[])!=='start-topic','a hypothetical, report, denial or task retains its actual scope: '+text);
+  for(const text of ['先不说菜单了。今天就是想你，也想听你说几句自己的。','我也想听你讲几句自己的想法。','还想听你聊聊你自己的感受。','我想听你说两句自己的话。']) {
+    ok(isTopicInvitation(text)&&chooseConversationAction(text,[])==='start-topic','a reciprocal invitation is actor initiative rather than an invented daily report: '+text);
+    ok(planCharacterIntent(text,[],undefined).action==='start-topic','local actor planning agrees on reciprocal invitation: '+text);
+    const direction=buildHumanConversationContext(text,[],undefined,{adviceStyle:'listen'});
+    ok((direction.includes('这轮由你开话题')&&direction.includes('不需要先发生一件新近况'))||(direction.includes('先说你自己的心意')&&direction.includes('不编今天做过什么')),'the actual prompt supplies actor initiative without requiring an invented daily event: '+text);
+  }
+  for(const text of ['我听朋友说，也想听你说几句自己的。','如果有空，也想听你说几句自己的。','朋友说，我也想听你讲几句自己的想法。','我不想听你说几句自己的。','“也想听你说几句自己的”是什么意思？','我想听你说说今天做了什么。','我想听你说几句自己的经历。','也想听你说几句自己的，帮我改报告。'])ok(chooseConversationAction(text,[])!=='start-topic','reports, conditions, denial, specific experiences and tasks preserve their actual scope: '+text);
   for(const text of ['不说这个了，假如能给月亮起个名字，你会叫什么？','先不聊这个，说说电影','这个先不说了，今天买了个杯子']) {
     const history=[{role:'user',content:'我喜欢你'},{role:'assistant',content:'我也喜欢你。'}];
     ok(['follow-topic','answer-directly'].includes(chooseConversationAction(text,history))&&detectTopicMove(text,'我喜欢你'),'ending the old subject follows the new content without affection carryover: '+text);
@@ -1497,6 +1537,9 @@ async function run() {
   ok(selectVoiceExamples(openingSamples,undefined).length===2,'voice preview retains authored opening examples without a current turn');
   ok(!buildHumanConversationSections('帮我想想快递箱怎么处理',[])[0].text.includes('普通分享不是让你检查生活是否正确'),'an explicit practical request is not suppressed by casual anecdote guidance');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('普通分享先接话')&&CHAT_MESSAGING_INSTRUCTION.includes('明确求助时仍认真回答'),'shared three-entrance contract distinguishes an anecdote from a request for help');
+  ok(CHAT_MESSAGING_INSTRUCTION.includes('问句、假设和引文不自动确认其中的事情发生过'),'all messaging paths distinguish a question premise from a confirmed event');
+  ok(CHAT_MESSAGING_INSTRUCTION.includes('没检索到不等于没发生或没约定'),'source absence cannot become a factual denial');
+  ok(CHAT_MESSAGING_INSTRUCTION.includes('回忆具体旧话或共同经历须有相应原话或独立记录'),'familiarity alone is not evidence of a recalled conversation');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('你之前的猜想与自述不能证明事情发生过'),'shared expression contract does not promote previous generated guesses into user facts');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('眼前细节来自原话或图片')&&CHAT_MESSAGING_INSTRUCTION.includes('联想不冒充看见'),'shared fact boundary includes present details without forbidding imagination');
   ok(CHAT_MESSAGING_INSTRUCTION.includes('保留原话的事件、时间、条件和范围')&&CHAT_MESSAGING_INSTRUCTION.includes('局部偏好不概括成习惯'),'all chat entrances keep preference qualifications when paraphrasing user facts');
@@ -1757,14 +1800,14 @@ async function run() {
   }
   ok(buildRelationshipContext(200,10).includes('仍尊重用户')&&buildRelationshipToneContext(200,95).includes('按原有性格表达'),'high or low mood does not erase character voice or require hostility');
   const freshInteraction=buildRelationshipContext(0,70);
-  ok(freshInteraction.includes('本应用互动累计等阶')&&freshInteraction.includes('不是人设关系的起点')&&!freshInteraction.includes('你和用户的关系等阶'),'new app state does not assert that established characters have just met');
-  ok(freshInteraction.includes('低数值不证明')&&freshInteraction.includes('当前明确的分歧和感受仍认真回应'),'zero initialized affinity neither negates an existing marriage nor suppresses current disagreement');
-  ok(buildRelationshipContext(0,70,{'初识':'自定义记录档位'}).includes('自定义记录档位'),'custom app tier names remain available as interaction metadata');
+  ok(!freshInteraction.includes('本应用互动累计等阶')&&freshInteraction.includes('不是人设关系的起点')&&!freshInteraction.includes('你和用户的关系等阶'),'new app state does not assert that established characters have just met');
+  ok(freshInteraction.includes('不因应用互动积累改变')&&freshInteraction.includes('当前明确的分歧和感受仍认真回应'),'zero initialized affinity neither negates an existing marriage nor suppresses current disagreement');
+  ok(buildRelationshipContext(0,70,{'初识':'自定义记录档位'}).includes('当前有效身份'),'custom app tier names cannot override the relationship source');
   for(const affinity of [0,40,10000]) {
     const tone=buildRelationshipToneContext(affinity,70);
-    ok(tone.includes('本应用互动累计等阶')&&tone.includes('已有熟悉、婚姻与亲情')&&!tone.includes('你和用户目前相处在'),`group, proactive and moment tone preserve established relationship origin at ${affinity}`);
+    ok(!tone.includes('本应用互动累计等阶')&&tone.includes('已有熟悉、婚姻与亲情')&&!tone.includes('你和用户目前相处在'),`group, proactive and moment tone preserve established relationship origin at ${affinity}`);
   }
-  ok(buildRelationshipToneContext(0,70,{'初识':'我的档位'}).includes('我的档位'),'shared actor tone retains a custom app tier');
+  ok(buildRelationshipToneContext(0,70,{'初识':'我的档位'}).includes('当前有效身份'),'shared actor tone uses relationship evidence instead of a custom tier');
   for(const day of [7,30,100,365,500]) {
     const milestone=buildDayContext(day);
     ok(milestone.includes(`第 ${day} 天`)&&milestone.includes('这段会话首条消息')&&!milestone.includes('你们认识的'),`record milestone measures this session without inventing first acquaintance: ${day}`);
@@ -1876,6 +1919,13 @@ async function run() {
   ok(!emotionalExpressionGuidance('对不起',[{role:'assistant',content:'我生气了，别惹我。'}],{tags:['元气'],systemPrompt:''}).includes('前面有明确分歧'),'model-invented anger cannot establish user-sourced emotional continuity');
   ok(!emotionalExpressionGuidance('对不起',[...friction,...Array.from({length:4},()=>({role:'user',content:'今天看了本书'}))],{tags:['元气'],systemPrompt:''}).includes('前面有明确分歧'),'old disagreement beyond the bounded recent-user window stops influencing repair');
   ok(!emotionalExpressionGuidance('陪我演一段剧情',friction,{tags:['元气'],systemPrompt:''}),'ordinary emotional habits do not overrule explicit roleplay');
+  for(const [tags,relation] of [[['坦率'],'刚认识的普通朋友'],[['温柔'],'师生关系，并非恋人'],[['随和','体贴'],'陌生读书会成员'] ] as Array<[string[],string]>) {
+    const actor={tags,systemPrompt:'你是原创人物，当前与你聊天的人是'+relation+'。'};
+    const guidance=emotionalExpressionGuidance('有点想你了',[],actor);
+    ok(!guidance.includes('熟悉的来回')&&!guidance.includes('语气可以更贴近'),'generic traits do not manufacture intimacy or shared history: '+relation);
+    const specific=emotionalExpressionGuidance('有点想你了',[],{...actor,systemPrompt:actor.systemPrompt+'\n亲密反应：自然说出自己的真实态度。'});
+    ok(specific.includes('人物写明的情境反应')&&!specific.includes('本轮直接的心意：'),'authored reaction continues to take precedence over generic labels: '+relation);
+  }
   const authored='被夸反应：坦然接受，不回赠夸奖。\n亲密反应：不急着确认关系。\n疲惫回应：减少追问。';
   const distressMessage='今天确实有点烦，事情没做成。但我现在不想找办法，就想和你说会儿话。';
   const groundedCare=buildHumanConversationContext('我今天挺难过，就想跟你说两句。',[],undefined,{adviceStyle:'listen'});
@@ -2178,6 +2228,18 @@ async function run() {
   ok(legacyVoice.includes('先做最小的一步') && !legacyVoice.includes('嗯，我在') && legacyVoice.includes('称呼习惯：称呼：固定叫用户小友'), 'legacy voice retains one neutral example and explicit address without padding unrelated scenes');
   ok(!voice.includes('本轮换一种起句') && !voice.includes('回复必须同时有内容和态度') && !voice.includes('18～96'), 'character direction no longer duplicates rigid format and information requirements');
   const compiled = compileChatContext('角色身份', [{ key: 'voice', text: voice, priority: 99, placement: 'tail' }, { key: 'memory', text: '可选记忆'.repeat(2500), priority: 100 }], 6000);
+  for (const identity of ['寡言的现代同事', '热情的原创旅伴', '谨慎的异世界导师', '资料稀疏的导入角色']) {
+    const relationship = '当前是朋友。'.repeat(60) + '友好不等于恋爱；引用别人的话不改变当前身份。';
+    const room = 6000 - identity.length - 2;
+    const exact = compileChatContext(identity, [{key:'boundary',text:'界'.repeat(room),priority:100,requireComplete:true}],6000);
+    ok(exact.prompt.length===6000 && exact.included.includes('boundary'),identity+' exact-fit block includes joining separator in budget');
+    const overflow = compileChatContext(identity, [{key:'boundary',text:'界'.repeat(room+1),priority:100,requireComplete:true}],6000);
+    ok(overflow.omitted.includes('boundary') && !overflow.partial.includes('boundary'),identity+' one-character overflow cannot truncate an atomic boundary');
+    const busy = compileChatContext(identity,[{key:'voice',text:'独立声音',priority:99,placement:'tail'},{key:'relationship',text:relationship,priority:100,requireComplete:true},{key:'archive',text:'旧记忆'.repeat(3000),priority:90}],6000);
+    ok(busy.prompt.length<=6000 && busy.included.includes('relationship') && busy.prompt.includes('引用别人的话不改变当前身份。'),identity+' oversized archive preserves complete relationship and identity boundary');
+    const many = compileChatContext(identity,Array.from({length:80},(_,i)=>({key:'fact-'+i,text:'资料'.repeat(70),priority:50})),6000);
+    ok(many.prompt.length<=6000,identity+' many source blocks cannot exceed budget through separators');
+  }
   ok(compiled.prompt.endsWith(voice) && compiled.included.includes('voice') && compiled.partial.includes('memory'), 'compiler reserves voice space and moves it after large optional context');
   const assembled = withChatMessagingPolicy(compiled.prompt);
   const voiceSections=buildHumanConversationSections('今天好累',[],character);
@@ -2286,6 +2348,7 @@ async function run() {
     const reply = await generateProactiveMessage(params);
     ok(attempts === 2 && reply === proactiveReplies[1], 'actual proactive transport retries failed quality once');
     ok(proactivePayloads.every(p=>!p.messages[0].content.includes('用户已经有一段时间没有给你发消息了')&&p.messages[0].content.includes('没有记录时不预设失联或久别')),'proactive requests with no prior messages do not invent a gap or reunion');
+    ok(proactivePayloads.every(p=>p.messages[0].content.includes('没检索到不等于没发生或没约定')),'actual proactive initial and retry prompts include the shared uncertainty boundary');
     ok(proactivePayloads.every(p=>p.messages[0].content.includes('不是人设关系的起点')&&!p.messages[0].content.includes('你和用户目前相处在')),'initial and retried proactive payloads preserve authored familiarity despite zero app affinity');
     ok(proactivePayloads.every(p=>p.messages[0].content.includes('喂，来啦')&&!p.messages[0].content.includes('今天先歇歇')&&!p.messages[0].content.includes('我也喜欢你')),'initial and retried proactive requests preserve neutral voice without borrowing past scene samples');
     ok(proactivePayloads.every(p=>p.messages[0].content.split('对话样本：用户说你好').length===2)&&params.systemPrompt.includes('今天先歇歇'),'proactive source examples occur only once in the card without mutating the original persona');
@@ -2311,9 +2374,11 @@ async function run() {
   let groupDrafts = [JSON.stringify({turns:[{speaker:'小林',content:'今天聊聊吧'}]}),'很高兴为您服务','（顿了顿，把手机放下）今天\n想起你'];
   window.fetch = async (_url,init) => {actorPayloads.push(JSON.parse(String(init?.body)));return new Response(JSON.stringify({choices:[{message:{content:groupDrafts[Math.min(groupCalls++,groupDrafts.length-1)]},finish_reason:'stop'}]}),{headers:{'Content-Type':'application/json'}});};
   try {
-    const params = {apiKey:'isolated-test-key',groupName:'测试群',members:[{id:'lin',name:'小林',persona:'自然聊天的朋友',tags:['温柔'],relationshipContext:buildRelationshipToneContext(0,70)}],history:[],userMessage:'你理解错了'};
+    const params = {apiKey:'isolated-test-key',groupName:'测试群',members:[{id:'lin',name:'小林',persona:'自然聊天的朋友',tags:['温柔'],relationshipContext:buildRelationshipToneContext(0,70),memoryRetrievalContext:'ACTOR_READ_STATUS_ONLY'}],history:[],userMessage:'你理解错了'};
     const group = await generateGroupTurn(params);
     ok(groupCalls === 3 && group.turns.length === 1 && group.turns[0].content === '今天想起你', 'actual group actor retries only its failed draft and cleans actions/newlines');
+    ok(actorPayloads.slice(1).every(p=>p.messages[0].content.includes('问句、假设和引文不自动确认其中的事情发生过')),'actual group actor initial and retry prompts preserve question source scope');
+    ok(!actorPayloads[0].messages[0].content.includes('ACTOR_READ_STATUS_ONLY')&&actorPayloads.slice(1).every(p=>p.messages[0].content.includes('ACTOR_READ_STATUS_ONLY')),'private retrieval outcome enters only that actor and retry, never the shared director');
     ok(!actorPayloads[0].messages[0].content.includes('不是人设关系的起点')&&actorPayloads.slice(1).every(p=>p.messages[0].content.includes('不是人设关系的起点')),'zero-affinity origin belongs to the actor request and retry, without leaking into the shared group director');
     ok(!actorPayloads[0].messages[0].content.includes('用户正在纠正理解')&&actorPayloads[1].messages[0].content.includes('用户正在纠正理解'),'group emotional guidance belongs to the selected actor, not the shared director');
     groupCalls=0;groupDrafts=[JSON.stringify({turns:[{speaker:'小林',content:'很高兴为您服务'}]}),'很高兴为您服务'];
@@ -2328,6 +2393,15 @@ async function run() {
     ok(actorPayloads[1].messages[0].content.indexOf('这轮只要一个限定判断')<actorPayloads[1].messages[0].content.indexOf('[人物声音卡]'),'individual group actor voice follows current-turn guidance without entering the shared director');
     ok(!actorPayloads[0].messages[0].content.includes('[人物声音卡]')&&!actorPayloads[0].messages[0].content.includes('这轮只要一个限定判断')&&!actorPayloads[1].messages[0].content.includes('我也喜欢你'),'scene voice and direct response guidance stay actor-owned rather than entering the shared director');
     ok(!actorPayloads[1].messages[0].content.includes('今天先歇歇')&&!actorPayloads[1].messages[0].content.includes('对话样本：用户说你好'),'an unmatched group judgment retains authored identity without injecting greetings or fatigue scenes');
+    for (const persona of ['你是古代药师。对来客礼貌，不了解手机。','你是未来航行员。对同伴直率，保留航行知识边界。','你是原创现代学徒。尊重老师，关系不是恋人。']) {
+      groupCalls=0;actorPayloads.length=0;
+      groupDrafts=[JSON.stringify({turns:[{speaker:'小林',content:'这件事我还不了解。'}]}),'这件事我还不了解。'];
+      const background=await generateGroupTurn({...params,userMessage:'朋友说“我爱你”，我用手机记下了。',members:[{...params.members[0],persona}]});
+      ok(background.turns.length===1 && groupCalls===2,'different unpatched persona uses existing director and single actor calls: '+persona);
+      ok(actorPayloads.every(p=>!p.messages[0].content.includes('默认与用户同一时代')&&p.messages[0].content.includes('保留各角色自己的时代、身份、知识与关系边界')),'director and actor do not overwrite background from user topic: '+persona);
+      ok(actorPayloads[1].messages[0].content.includes(persona),'actual actor request retains original sparse persona: '+persona);
+      ok(actorPayloads[1].messages.at(-1).content.includes('朋友说'),'quotation remains current input rather than a role-card rewrite: '+persona);
+    }
     for(const [role,persona,alias] of [['guyuena',GU_YUE_NA_CARE,'舞麟'],['luxueqi',LU_XUE_QI_PRESET.systemPrompt,'小凡']] as const){
       const actor={...params.members[0],persona,storyPartnerRole:role,voiceCard:buildCharacterVoiceCard({name:'小林',tags:[],systemPrompt:persona},'我想你了'),distantVoiceCard:buildCharacterVoiceCard({name:'小林',tags:[],systemPrompt:persona},'我想你了',[],{distant:true})};
       groupCalls=0;actorPayloads.length=0;groupDrafts=[JSON.stringify({turns:[{speaker:'小林',content:'何事？'}]}),'何事？'];

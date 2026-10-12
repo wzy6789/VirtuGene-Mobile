@@ -89,6 +89,21 @@ button.vg-preference-row:active:not([data-press-cancelled]) { background-color:v
 .vg-settings-profile { display:flex; gap:12px; align-items:center; margin-bottom:24px; }
 .vg-settings-profile strong { font-size:18px; font-weight:600; }
 .vg-settings-profile small { display:block; font-size:12px; color:var(--pref-sub); margin-top:5px; }
+.vg-chat-voice-preview { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; padding:12px 16px; border-top:1px solid var(--pref-line); color:var(--pref-cyan); font-size:14px; line-height:1.5; }
+.vg-chat-voice-preview:disabled { opacity:.55; }
+.vg-chat-voice-preview > svg { flex:none; }
+.vg-chat-reading > summary { display:flex; align-items:center; gap:12px; min-height:56px; list-style:none; cursor:pointer; border-radius:var(--vg-radius-2); }
+.vg-chat-reading > summary::-webkit-details-marker { display:none; }
+.vg-chat-reading > summary > span { flex:1; min-width:0; }
+.vg-chat-reading > summary strong { display:block; color:var(--pref-ink); font-size:15px; font-weight:var(--vg-weight-label); line-height:1.5; }
+.vg-chat-reading > summary small { display:block; margin-top:3px; color:var(--pref-sub); font-size:12px; line-height:1.6; }
+.vg-chat-reading > summary > svg { flex:none; color:var(--pref-accent); }
+.vg-chat-reading > summary > svg:last-child { color:var(--pref-sub); transition:transform var(--vg-motion-quick,200ms) var(--pref-settle); }
+.vg-chat-reading[open] > summary { margin-bottom:16px; }
+.vg-chat-reading[open] > summary > svg:last-child { transform:rotate(90deg); }
+.vg-chat-reading > summary:focus-visible { outline:2px solid var(--pref-accent); outline-offset:4px; }
+.vg-settings-profile > div { min-width:0; }
+.vg-settings-profile strong,.vg-preference-copy :is(strong,small) { overflow-wrap:anywhere; }
 .vg-settings-panel .vg-modal-footer { background:var(--pref-panel); border-color:var(--pref-line); }
 .vg-settings-world { height:100%; overflow-y:auto; }
 .vg-settings-world .vg-setting-card { background:var(--pref-panel); border-color:var(--pref-line); border-radius:16px; padding:16px; font-size:15px; line-height:1.7; }

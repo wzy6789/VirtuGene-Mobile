@@ -35,6 +35,14 @@ function knowledgeId(userId: string, worldId: string, characterId: string, event
 }
 
 export const knowledgeRepo = {
+  /** Exact account/world scope for revalidating references already in a prompt. */
+  async getScopedForEvents(userId: string, worldId: string, characterId: string, eventIds: string[]): Promise<CharacterKnowledge[]> {
+    const ids = [...new Set(eventIds)];
+    if (!userId || !worldId || !characterId || !ids.length) return [];
+    const rows = await db.characterKnowledge.bulkGet(ids.map(eventId => knowledgeId(userId, worldId, characterId, eventId)));
+    return rows.filter((row): row is CharacterKnowledge => !!row && row.userId === userId && row.worldId === worldId
+      && row.characterId === characterId && ids.includes(row.eventId));
+  },
   /**
    * 授予"亲历 / 被告知"的认知，并记录**授予时所依据的来源版本**。
    *

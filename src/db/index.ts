@@ -705,6 +705,8 @@ export interface LifeEvent {
 }
 
 export interface CharacterState {
+  /** Account-scoped stable call voice. Optional non-indexed field, no schema upgrade required. */
+  voiceProfile?: import('../lib/voice-call/profile').VoiceProfile;
   characterId: string;
   userId: string;
   /** 好感度（无上限，只保底不为负） */
@@ -1322,6 +1324,7 @@ export interface SecretaryBinding {
 }
 
 export class VirtuGeneDB extends Dexie {
+  voiceCalls!: Table<import('../lib/voice-call/record').VoiceCallRecord, string>;
   secretarySearch!: Table<import('../lib/secretary/retrieval').SecretarySearchEntry, string>;
   secretarySearchCursors!: Table<import('../lib/secretary/retrieval').SecretarySearchCursor, string>;
   secretaryBindings!: Table<SecretaryBinding, string>;
@@ -1841,6 +1844,9 @@ export class VirtuGeneDB extends Dexie {
         }
       }
     });
+    this.version(33).stores({ voiceCalls: 'id,userId,sessionId,[userId+characterId],[sessionId+endedAt]' });
+    // Index-only upgrade: retain raw rows and existing time-only indexes.
+    this.version(34).stores({ messages: 'id,sessionId,[sessionId+createdAt],[sessionId+createdAt+id]' });
     // Keep the unique key correct even for direct writes outside the character repository.
     this.characters.hook('creating', (_key, row) => {
       row.secretaryOwnerId = row.agentProfile === 'secretary' && !row.isPreset ? row.createdBy : undefined;

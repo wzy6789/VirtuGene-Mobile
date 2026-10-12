@@ -18,6 +18,8 @@ const MEMORY_EXTRACTION_PROMPT =
   '示例输出：["用户喜欢喝咖啡，尤其是拿铁", "用户在学日语，目前 N3 水平", "用户下个月要去东京旅行"]';
 
 export interface ConsolidateParams {
+  /** Optional scoped transport. Parsing and evidence rules stay shared. */
+  transport?: (messages: { role: 'system' | 'user'; content: string }[]) => Promise<string>;
   apiKey: string;
   history: MemorySourceTurn[];
 }
@@ -50,7 +52,8 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
       return acceptExtractedMemories(arr, history);
     };
     try {
-      const parsed = JSON.parse(text);
+      const clean = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      const parsed = JSON.parse(clean);
       const arr = Array.isArray(parsed) ? parsed : (parsed.memories ?? []);
       return parseItems(arr);
     } catch {
@@ -63,6 +66,10 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
       return { error: 'parse:error' };
     }
   };
+  if (params.transport) {
+    try { return parse(await params.transport([{ role: 'system', content: systemPrompt }, { role: 'user', content: `${userMessage}\n\n${sourceText}` }])); }
+    catch { return { error: 'memory:scoped-transport-failed' }; }
+  }
   if (taskUsesGateway(apiKey)) {
     try {
       return await viaGateway();

@@ -6,6 +6,7 @@ import { useChatStore } from '../../store/chat-store';
 import { useEmotionStore } from '../../store/emotion-store';
 import { useCharacterStateStore } from '../../store/character-state-store';
 import { useUIStore } from '../../store/ui-store';
+import { useVoiceCallUIStore } from '../../store/voice-call-ui-store';
 import { SoulOrbButton, SoulOrb, SOUL_ORB_LABELS, type SoulOrbEmotion } from '../ui/SoulOrb';
 import { Modal } from '../ui/Modal';
 import { lazyFeature } from '../ui/lazyFeature';
@@ -88,6 +89,7 @@ function RoleOrb({ character, sending, streaming, failed, emotion: controlled, a
         <div><span className="vg-role-orb-eyebrow">{assistant ? '助理状态' : valid ? '最近的情绪' : '此刻状态'}</span><strong>{status}</strong>
         {valid ? <small>情绪记录于 {new Date(valid.createdAt).toLocaleString('zh-CN')}</small> : <p>{assistant ? '状态来自当前办事进度。' : '暂无情绪记录，交流后可查看图谱。'}</p>}</div>
       </div>
+      {!assistant && sessionId && <button type="button" className="vg-button vg-button-secondary" onClick={() => { setOpen(false); useVoiceCallUIStore.getState().open({ character, userId, sessionId }); }}><Icon name="phone" />语音通话</button>}
       {assistant ? <div className="vg-role-orb-actions">
         <button onClick={() => navigate('today')}>今日安排</button><button onClick={() => navigate('pending')}>待处理</button>
         <button onClick={() => setArchiveOpen(true)}>助理记忆</button>

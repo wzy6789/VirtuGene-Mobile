@@ -116,9 +116,9 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', clos
               type="button"
               onClick={onClose}
               aria-label="关闭"
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-ink hover:bg-surface transition-colors"
+              className="w-12 h-12 shrink-0 flex items-center justify-center rounded-xl text-sub hover:text-ink hover:bg-surface transition-colors"
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <svg aria-hidden="true" width="18" height="18" viewBox="0 0 16 16" fill="none">
                 <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               </svg>
             </button>}

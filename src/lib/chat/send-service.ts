@@ -6,7 +6,7 @@ import { ChatReplyStream, streamedReplyParts } from '../../lib/chat-stream';
 import { messageRepo } from '../../db/message-repo';
 import { sessionRepo } from '../../db/session-repo';
 import { memoryRepo } from '../../db/memory-repo';
-import { buildCharacterMemoryContext, renderCharacterMemoryReferences, detectRecallIntent, indexPromptMemoryReferences, type MemoryReference } from '../../lib/character-memory';
+import { buildCharacterMemoryContext, revalidateCharacterMemoryContext, renderCharacterMemoryReferences, renderMemoryRetrievalStatus, detectRecallIntent, indexPromptMemoryReferences, type MemoryReference } from '../../lib/character-memory';
 import { emotionRepo } from '../../db/emotion-repo';
 import { stateRepo } from '../../db/state-repo';
 import { worldRepo } from '../../db/world-repo';
@@ -19,7 +19,8 @@ import { useNotificationStore } from '../../store/notification-store';
 import { synthesizeSpeech, audioBufToDataUrl, audioDurationSec } from '../../lib/tts';
 import { resolveModel } from '../../lib/ai/llm';
 import {appendSessionUsage,type ChatUsageEvent} from './usage';
-import { compileChatContext } from '../../lib/chat-context-compiler';
+import { compileChatContext, type PromptSection } from '../../lib/chat-context-compiler';
+import { hasLivePrivateSummarySources } from '../chat-summary-evidence';
 import {compactOwnedJudgmentEcho} from '../chat-owned-judgment-compaction';
 import { voiceIdentityWithoutExamples } from '../character-voice';
 import { guYueNaPromptForTurn, guYueNaRelationshipForTurn } from '../gu-yue-na-runtime';
@@ -321,10 +322,11 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         sessionData?.conversation, text, '', undefined, Date.now(), previousUserText,
       );
       const freshTopic = turnAttention.userWantsToShift && !recallIntent.explicit;
-      const summaryContext = sessionData?.summary && (!freshTopic || isTopicRelated(text, sessionData.summary))
+      const liveSummary = await hasLivePrivateSummarySources(sessionData, userId, character.id, suppressedMessages);
+      const summaryContext = liveSummary && sessionData?.summary && (!freshTopic || isTopicRelated(text, sessionData.summary))
         ? `\n\n[早前对话摘要（压缩记录不是独立证据；保留说话人，角色自述往事不等于经历已核实，未标来源时回查原话；若与当前话题相关可自然提及）]\n${sessionData.summary.slice(0, MAX_SUMMARY_CHARS)}`
         : '';
-      const uncoveredChatContext = buildUncoveredChatContext(contextMessages, userMsg.id, sessionData);
+      const uncoveredChatContext = buildUncoveredChatContext(contextMessages, userMsg.id, liveSummary ? sessionData : undefined);
       const conversationStateContext = buildChatConversationStateContext(turnAttention,recallIntent.explicit?undefined:text);
 
       // 主动话题候选只来自当前角色有权知道的本地数据：
@@ -357,7 +359,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
        * 同一句话换个入口召回结果就不一样。现在来源集合、跨模式历史的放开条件、
        * 检索排序与篇幅分配都由服务决定，正则只有服务里那一份。
        */
-      const memoryRecall = await buildCharacterMemoryContext({
+      let memoryRecall = await buildCharacterMemoryContext({
         userId,
         characterId: character.id,
         topic: text,
@@ -376,10 +378,10 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       // Format the selected references once; never re-rank or inject catalog rows here.
       const isHistorical = (reference: MemoryReference) => memoryRecall.sections.historical.includes(reference.text);
       const memoryRowIds = new Set(memoryRecall.catalog?.memories.map(row => row.id) ?? []);
-      const profileReferences = memoryRecall.references.filter(reference => reference.source === 'chat'
+      let profileReferences = memoryRecall.references.filter(reference => reference.source === 'chat'
         && memoryRowIds.has(reference.id) && !isHistorical(reference));
-      const crossReferences = memoryRecall.references.filter(reference => !profileReferences.includes(reference) && !isHistorical(reference));
-      const crossChannelMemory = { ...memoryRecall, references: crossReferences, text: renderCharacterMemoryReferences(crossReferences) };
+      let crossReferences = memoryRecall.references.filter(reference => !profileReferences.includes(reference) && !isHistorical(reference));
+      let crossChannelMemory = { ...memoryRecall, references: crossReferences, text: renderCharacterMemoryReferences(crossReferences) };
       const memoryContext = {
         text: renderCharacterMemoryReferences(profileReferences),
         memories: (memoryRecall.catalog?.memories ?? []).filter(memory => profileReferences.some(reference => reference.id === memory.id)),
@@ -395,7 +397,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         if (!postIds.length) momentActionContext += '\n[朋友圈权限查询] 当前没有召回到可查看的动态，不能假称看过或点过赞。';
       }
       // 用户明确追问旧事时回查到的原文（私聊 / 群聊 / 星域旧片段），由服务统一检索。
-      const historicalChatContext = memoryRecall.sections.historical;
+      let historicalChatContext = memoryRecall.sections.historical;
       const voiceCharacter = await readVoiceSampleCharacter(character, userId);
       const luXueQiTurn = luXueQiRelationshipForTurn(voiceCharacter, text, contextMessages
         .filter(message => message.id !== userMsg.id && message.role === 'user' && message.secretaryDispatch?.bodyOrigin !== 'composed')
@@ -404,9 +406,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
         .filter(message=>message.id!==userMsg.id&&message.role==='user'&&message.secretaryDispatch?.bodyOrigin!=='composed')
         .map(message=>message.content));
       const scopedVoiceCharacter={...luXueQiTurn.character,systemPrompt:guYueNaPromptForTurn(luXueQiTurn.character,text,history.filter(turn=>turn.role==='user').slice(-2).map(turn=>turn.content),guYueNaTurn.recognized)};
-      const compiled = compileChatContext(
-        voiceIdentityWithoutExamples(scopedVoiceCharacter.systemPrompt).slice(0, MAX_CHARACTER_PROMPT_CHARS),
-        [
+      let contextSections: PromptSection[] = [
           // 本轮提示与人物声音卡分别保留预算；声音卡最后输出，
           // 不让可选记忆挤掉当前提示或把声音卡埋在通用规则前面。
           ...buildHumanConversationSections(text, history, scopedVoiceCharacter, {
@@ -419,11 +419,11 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
               recentReplyTurns: collectRecentReplyTurns(contextMessages.filter(m => m.id !== userMsg.id)),
           }),
           { key: 'conversation-state', text: conversationStateContext, priority: 98 },
-          { key: 'relationship', text: relationshipContext, priority: 100 },
-          { key: 'luxueqi-relationship', text: luXueQiTurn.context, priority: 100, placement:'tail', tailOrder:2 },
-          { key: 'guyuena-relationship', text: guYueNaTurn.context, priority:100, placement:'tail', tailOrder:2 },
+          { key: 'relationship', text: relationshipContext, priority: 100, requireComplete:true },
+          { key: 'luxueqi-relationship', text: luXueQiTurn.context, priority: 100, placement:'tail', tailOrder:2, requireComplete:true },
+          { key: 'guyuena-relationship', text: guYueNaTurn.context, priority:100, placement:'tail', tailOrder:2, requireComplete:true },
           { key: 'message-mode', text:buildMessageModeContext(text,history.filter(turn=>turn.role==='user').map(turn=>turn.content),!!guYueNaTurn.context),priority:100,placement:'tail',tailOrder:.75,requireComplete:true },
-          { key: 'story-relationships', text: storyRelationContext, priority: 97 },
+          { key: 'story-relationships', text: storyRelationContext, priority: 97, requireComplete:true },
           { key: 'cross-channel-memory', text: crossChannelMemory.text, priority: recallIntent.explicit ? 97 : 92 },
           { key: 'life', text: freshTopic && !isTopicRelated(text, lifeContext) ? '' : lifeContext, priority: 92 },
           { key: 'current-time', text: timeContext, priority: 95 },
@@ -434,17 +434,19 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           // over ambient world/mood sections; otherwise retrieval succeeds but
           // compilation drops its result before the model sees it.
           { key: 'historical-chat', text: historicalChatContext, priority: 99 },
+          { key: 'memory-retrieval-status', text: renderMemoryRetrievalStatus(memoryRecall), priority: 100, requireComplete:true },
           { key: 'taught-memory', text: teachContext, priority: 100 },
           { key: 'uncovered-chat', text: uncoveredChatContext, priority: 98 },
           { key: 'summary', text: summaryContext, priority: 94 },
           { key: 'moments', text: momentActionContext, priority: isDirectMomentQuestion(text) || momentActionContext ? 99 : 69 },
           { key: 'day', text: dayContext, priority: 45 },
-        ],
-      );
-      const enrichedPrompt = compactOwnedJudgmentEcho(compiled.prompt,voiceCharacter);
+        ];
+      const compileCurrentContext = () => compileChatContext(voiceIdentityWithoutExamples(scopedVoiceCharacter.systemPrompt).slice(0, MAX_CHARACTER_PROMPT_CHARS), contextSections);
+      let compiled = compileCurrentContext();
+      let enrichedPrompt = compactOwnedJudgmentEcho(compiled.prompt,voiceCharacter);
       const recalledHabitSources=compiled.included.includes('memory')
         ? await readRecalledUserHabitSources(userId,character.id,memoryContext.memories,suppressedMessages) : [];
-      const userHabitSources=[...recalledHabitSources,...contextMessages.filter(message=>message.role==='user'&&message.secretaryDispatch?.bodyOrigin!=='composed')]
+      let userHabitSources=[...recalledHabitSources,...contextMessages.filter(message=>message.role==='user'&&message.secretaryDispatch?.bodyOrigin!=='composed')]
         .sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id)).map(message=>message.content)
         .concat(userMsg.secretaryDispatch?.bodyOrigin==='composed'?[]:[text]);
       // Keep only the character-owned life section actually made available to
@@ -494,7 +496,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
       void indexPromptMemoryReferences({ userId, characterId: character.id }, momentActionReferences, userMsg.id).catch(() => undefined);
     }
 
-    const contextTrace = buildContextTrace({
+    let contextTrace = buildContextTrace({
       crossChannelReferences: crossChannelMemory.references.map(({ source, id }) => ({ source, id })),
       // 旧事原文（私聊/群聊/星域旧片段）现在由服务统一回查，不再有本地命中列表；
       // 私聊来源的命中就是这些原文，与旧字段的口径一致。
@@ -507,7 +509,7 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
     if (compiled.included.includes('moments') && momentActionReferences.length) {
       contextTrace.crossChannelReferences = [...(contextTrace.crossChannelReferences ?? []), ...momentActionReferences.map(({ source, id }) => ({ source, id }))];
     }
-    const hasTrace = hasTraceContent(contextTrace);
+    let hasTrace = hasTraceContent(contextTrace);
 
     // 动态温度：按角色主动倾向微调——高冷/疏离用低温度（更克制稳定），活泼/话痨用高温度（更跳脱）
     const temperature = recommendConversationTemperature(
@@ -582,6 +584,28 @@ export async function sendRoleChatReply(character: Character, userMsg: Message, 
           break;
         }
         await options.validate?.();
+        // Recheck after all asynchronous context work and on every retry. Only
+        // rebuild local sections; source changes never spend a new generation.
+        const verifiedMemory = await revalidateCharacterMemoryContext({userId, characterId: character.id}, memoryRecall);
+        if (verifiedMemory.references.length !== memoryRecall.references.length || verifiedMemory.retrieval?.status !== memoryRecall.retrieval?.status) {
+          memoryRecall = verifiedMemory;
+          profileReferences = memoryRecall.references.filter(reference => reference.source === 'chat' && memoryRowIds.has(reference.id) && !isHistorical(reference));
+          crossReferences = memoryRecall.references.filter(reference => !profileReferences.includes(reference) && !isHistorical(reference));
+          crossChannelMemory = {...memoryRecall, references: crossReferences, text: renderCharacterMemoryReferences(crossReferences)};
+          memoryContext.text = renderCharacterMemoryReferences(profileReferences);
+          memoryContext.memories = memoryContext.memories.filter(memory => profileReferences.some(reference => reference.id === memory.id));
+          historicalChatContext = memoryRecall.sections.historical;
+          const refreshedSections: Record<string, string> = {'memory':memoryContext.text,'cross-channel-memory':crossChannelMemory.text,'historical-chat':historicalChatContext,'memory-retrieval-status':renderMemoryRetrievalStatus(memoryRecall)};
+          contextSections = contextSections.map(section => Object.prototype.hasOwnProperty.call(refreshedSections, section.key) ? {...section, text:refreshedSections[section.key]} : section);
+          compiled = compileCurrentContext();
+          enrichedPrompt = compactOwnedJudgmentEcho(compiled.prompt,voiceCharacter);
+          // Conservatively stop using old recalled habit evidence after a
+          // source change; current user utterances remain independent evidence.
+          userHabitSources = contextMessages.filter(message => message.role === 'user' && message.secretaryDispatch?.bodyOrigin !== 'composed').map(message => message.content).concat(userMsg.secretaryDispatch?.bodyOrigin === 'composed' ? [] : [text]);
+          contextTrace = buildContextTrace({crossChannelReferences:crossChannelMemory.references.map(({source,id})=>({source,id})),historicalMemoryReferences:memoryRecall.references.filter(isHistorical).map(({source,id})=>({source,id})),compiled,memories:memoryContext.memories});
+          if(compiled.included.includes('moments')&&momentActionReferences.length)contextTrace.crossChannelReferences=[...(contextTrace.crossChannelReferences??[]),...momentActionReferences.map(({source,id})=>({source,id}))];
+          hasTrace = hasTraceContent(contextTrace);
+        }
         rawResponse = undefined;
         const usageBefore=usageEvents.length;
         result = await ipc.chat.send({

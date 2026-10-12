@@ -49,7 +49,10 @@ export const characterRepo = {
 
   async deleteById(id: string): Promise<void> {
     if ((await db.characters.get(id))?.agentProfile === 'secretary') throw new Error('请从助理管理办理解雇，聊天和办事记录会保留。');
-    await db.characters.delete(id);
+    await db.transaction('rw', db.characters, db.voiceCalls, async () => {
+      await db.voiceCalls.filter(call => call.characterId === id).delete();
+      await db.characters.delete(id);
+    });
   },
 
   async getPublished(): Promise<Character[]> {

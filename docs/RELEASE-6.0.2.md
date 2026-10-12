@@ -15,3 +15,14 @@ SHA-256：`5875ddfeca8aaa1c356459be206cf7a9b6ca16bc0e15163711edb5ee93721ad9`
 [官网下载](https://wzy6789.github.io/VirtuGene-Mobile/#download)
 
 发布流程：原生任务强制重建，核对包内版本、签名及全部网页资产。源码按最新远端主分支增量同步；官网沿用 6.0 演示物料，只更新版本、说明和下载入口。
+
+## 实际发布结果
+
+- 源码提交：`116701737dfd68d7bed6f8e07eceb98dfe50ddc4`。
+- 官网提交：`19bd78446faff54bd5120172c79f3c0ed58d64cf`；Pages 部署成功，线上页面已显示 6.0.2。
+- 安装包 59,405,489 字节；原签名证书 SHA-256：`ef38a01c9c1674a53537330e6de7ed6e3de86359715bc9c61af53ffc9de04016`。
+- APK 全部 139 个网页文件逐字节匹配本次生产构建。
+- 额外复跑角色迁移 91 项、流式聊天 56 项、聊天策略 71 数据 + 18 编辑界面检查通过。
+- 匿名 latest 更新接口、官网下载链接 HEAD 可访问；线上 GitHub 资产 SHA-256 与本地一致。按用户既有要求未回下载 APK。
+- 官网：https://wzy6789.github.io/VirtuGene-Mobile/
+- 安装包：https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v6.0.2/app-release.apk

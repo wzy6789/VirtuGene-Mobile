@@ -97,14 +97,14 @@ function TtsSettings({
         <div className="vg-preference-row"><span className="vg-preference-copy"><strong>角色声线</strong><small>{roleGender ? roleGender === 'male' ? '标准男声' : '标准女声，可选择方言' : '进入聊天生成声线后可调整方言'}</small></span></div>
         {roleGender === 'female' && <details><summary className="vg-preference-row">角色方言<span className="vg-preference-value ml-auto">{currentDialect === 'none' ? '标准音色' : currentDialect === 'liaoning' ? '东北话' : '陕西话'}</span></summary><SettingsChoices label="角色方言" value={currentDialect} onChange={value => { void setDialect(value); }} options={[{ value: 'none', title: '标准音色' }, { value: 'liaoning', title: '东北话' }, { value: 'shaanxi', title: '陕西话' }]} /></details>}
         {roleGender === 'male' && <p className="vg-settings-intro px-4">现有方言音色仅支持女声。</p>}
-        <button type="button" onClick={() => void preview()} disabled={demoBusy} className="w-full text-sm text-life-cyan border-t border-line">{demoBusy ? '合成中…' : `试听${roleGender === 'male' ? '男声' : '女声'}默认音色`}</button>
+        <button type="button" onClick={() => void preview()} disabled={demoBusy} className="vg-chat-voice-preview"><Icon name="volume" size={18}/><span>{demoBusy ? '正在准备试听…' : `试听${roleGender === 'male' ? '男声' : '女声'}默认音色`}</span></button>
       </SettingsGroup>
       <VoicePreferences />
       <SettingsGroup title="当前会话模型" scope="本会话">
         <div className="vg-preference-row"><span className="vg-preference-copy"><strong>{modelLabel || '默认模型'}</strong><small>本会话沿用首次选定的模型。全局默认值不会修改它。</small></span></div>
         {cost && cost.calls > 0 ? <p className="vg-settings-intro px-4">{cost.calls} 次请求 · {(cost.inputTokens / 1000).toFixed(1)}K 输入 / {(cost.outputTokens / 1000).toFixed(1)}K 输出 · {cost.incomplete||!cost.perAttemptAccounting?'已知部分约':'约'} ¥{cost.cost.toFixed(3)}{cost.unknownUsageCalls?` · ${cost.unknownUsageCalls} 次未返回用量`:cost.incomplete||!cost.perAttemptAccounting?' · 统计可能不完整':''}</p> : <p className="vg-settings-intro px-4">暂无消耗记录</p>}
       </SettingsGroup>
-      <details className="vg-settings-form"><summary className="py-3 text-sm">外观与阅读</summary><AppearanceSettings includeOrbColor={false} /></details>
+      <details className="vg-settings-form vg-chat-reading"><summary><Icon name="moon" size={20}/><span><strong>外观与阅读</strong><small>调整主题、字号与动效</small></span><Icon name="chevron" size={16}/></summary><AppearanceSettings includeOrbColor={false} /></details>
     </div>
   );
 }

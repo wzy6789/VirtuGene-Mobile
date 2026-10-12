@@ -7,6 +7,8 @@ import { BackupSection } from '../../src/components/settings/BackupSection';
 import { PinSettingsModal } from '../../src/components/diary/DiaryLock';
 import { MomentsPage } from '../../src/components/moments/MomentsPage';
 import { ChatInput } from '../../src/components/chat/ChatInput';
+import { ChatHeaderMoreMenu } from '../../src/components/chat/ChatHeaderMoreMenu';
+import { Modal } from '../../src/components/ui/Modal';
 import { db } from '../../src/db';
 import { useAuthStore } from '../../src/store/auth-store';
 import { useChatStore } from '../../src/store/chat-store';
@@ -26,6 +28,12 @@ function PinFixture() {
   const [open, setOpen] = useState(true);
   return <PinSettingsModal open={open} currentPin={null} onClose={() => setOpen(false)} onSave={() => setOpen(false)} />;
 }
+function FooterFixture() {
+  return <Modal open onClose={() => undefined} title="选择聊天偏好" presentation="dialog"
+    footer={<div className="p-3"><button className="min-h-12 w-full" type="button">保存偏好</button></div>}>
+    <div className="p-4">{Array.from({ length: 24 }, (_, i) => <p key={i} className="py-2">第 {i + 1} 项：保持阅读舒适，也能随时修改。</p>)}</div>
+  </Modal>;
+}
 async function setup(view: string) {
   root?.unmount(); root = undefined;
   await db.delete(); await db.open(); selected = 0; sent.length = 0;
@@ -41,7 +49,9 @@ async function setup(view: string) {
     : view === 'roles' ? <MobileCharacterPage onSelect={() => undefined} />
     : view === 'password' ? <ChangePasswordSection />
     : view === 'backup' ? <BackupSection />
-    : view === 'pin' ? <PinFixture /> : view === 'composer' ? <ComposerFixture /> : <MomentsPage />);
+    : view === 'pin' ? <PinFixture /> : view === 'composer' ? <ComposerFixture />
+    : view === 'footer' ? <FooterFixture />
+    : view === 'chat-settings' ? <ChatHeaderMoreMenu character={{...character, name:'名字很长也应完整显示的角色'}} /> : <MomentsPage />);
 }
 (window as any).compactDialogs = { setup, selected: () => selected, network: () => network,
   record: () => db.characters.get('dialog-role'), messages: () => db.messages.count(),

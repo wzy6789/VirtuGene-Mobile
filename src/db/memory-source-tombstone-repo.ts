@@ -21,6 +21,10 @@ const STATUS_PRIORITY: Record<MemorySourceTombstone['status'], number> = {
   withdrawn: 2,
   deleted: 3,
 };
+type ImportSource = Pick<RecordMemorySourceTombstoneInput, 'userId' | 'sourceType' | 'sourceId' | 'sourceRevision'>;
+function blocksSource(row: MemorySourceTombstone | undefined, revision = 0): boolean {
+  return !!row && (row.status === 'deleted' || revision <= row.sourceRevision);
+}
 
 function mergeTombstone(input: RecordMemorySourceTombstoneInput, existing?: MemorySourceTombstone): MemorySourceTombstone {
   const sourceRevision = Math.max(0, input.sourceRevision ?? 0);
@@ -78,9 +82,14 @@ export const memorySourceTombstoneRepo = {
     sourceRevision?: number;
   }): Promise<boolean> {
     const row = await db.memorySourceTombstones.get(memorySourceTombstoneId(input.userId, input.sourceType, input.sourceId));
-    if (!row) return false;
-    if (row.status === 'deleted') return true;
-    return (input.sourceRevision ?? 0) <= row.sourceRevision;
+    return blocksSource(row, input.sourceRevision);
+  },
+  async blocksImports(inputs: ImportSource[]): Promise<boolean[]> {
+    if (!inputs.length) return [];
+    const ids = inputs.map(input => memorySourceTombstoneId(input.userId, input.sourceType, input.sourceId));
+    const rows = await db.memorySourceTombstones.where(':id').anyOf([...new Set(ids)]).toArray();
+    const byId = new Map(rows.map(row => [row.id, row]));
+    return inputs.map((input, index) => blocksSource(byId.get(ids[index]), input.sourceRevision));
   },
 
   async merge(rows: MemorySourceTombstone[] = []): Promise<number> {

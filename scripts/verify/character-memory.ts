@@ -7,7 +7,7 @@ import { messageRepo } from '../../src/db/message-repo';
 import { memoryRepo } from '../../src/db/memory-repo';
 import { sessionRepo } from '../../src/db/session-repo';
 import { todoRepo } from '../../src/db/todo-repo';
-import { detectRecallIntent, indexPromptMemoryReferences, recallCharacterMemory, packCharacterMemory } from '../../src/lib/character-memory';
+import { detectRecallIntent, indexPromptMemoryReferences, recallCharacterMemory, packCharacterMemory, buildCharacterMemoryContext, renderMemoryRetrievalStatus } from '../../src/lib/character-memory';
 import {coolingWorldMotifs} from '../../src/lib/world/world-attention';
 import { findSpokenMemoryIds, rankConversationMemories } from '../../src/lib/memory-engine';
 import { buildContextTrace } from '../../src/lib/chat-trace';
@@ -26,6 +26,7 @@ import { recallHistoricalPrivateChat, formatHistoricalPrivateChat } from '../../
 import { buildSummaryBatch, findUncoveredSummaryMessages } from '../../src/lib/ai/summary-batches';
 import { memoryLedgerRepo } from '../../src/db/memory-ledger-repo';
 import { generateGroupTurn } from '../../src/lib/ai/group-chat';
+import { hasLivePrivateSummarySources } from '../../src/lib/chat-summary-evidence';
 
 const report = window.fetch.bind(window);
 async function run() {
@@ -37,6 +38,136 @@ async function run() {
   await db.open();
   const now = Date.now();
   await db.characters.bulkPut(['a','b','c'].map(id => ({ id, createdBy: 'u', name: id, systemPrompt: 'test', createdAt: now })) as any);
+  const raceDiary = await diaryRepo.create({userId:'u',date:'2026-10-12',title:'读取中撤权',content:'RACE_DIARY_PRIVATE',mood:3,tags:[],characterId:'a'});
+  await setDiarySharing({userId:'u',diaryId:raceDiary,visibility:'selected',visibleTo:['a']});
+  const originalVisible = diaryRepo.listVisibleFor;
+  let diaryReads = 0;
+  try {
+    diaryRepo.listVisibleFor = async (...args) => {
+      if (++diaryReads === 2) await clearDiarySharing('u',raceDiary);
+      return originalVisible.apply(diaryRepo,args);
+    };
+    const recalled = await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'查一下读取中撤权的日记',sources:['diary']});
+    check(diaryReads >= 2,'diary permission changes between candidate selection and final validation');
+    check(!recalled.references.some(ref=>ref.id===raceDiary),'mid-read revoked diary is removed from references');
+    check(!recalled.text.includes('RACE_DIARY_PRIVATE')&&!JSON.stringify(recalled.sections).includes('RACE_DIARY_PRIVATE'),'mid-read revoked diary is removed from all prompt renderings');
+    check(!recalled.provenance.some(ref=>ref.id===raceDiary),'mid-read revoked diary is removed from provenance');
+  } finally {diaryRepo.listVisibleFor=originalVisible;}
+  await setDiarySharing({userId:'u',diaryId:raceDiary,visibility:'selected',visibleTo:['a']});
+  diaryReads=0;
+  try {
+    diaryRepo.listVisibleFor=async (...args)=>{
+      if(++diaryReads===2) throw Error('source validation unavailable');
+      return originalVisible.apply(diaryRepo,args);
+    };
+    const recalled=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'查一下读取中撤权的日记',sources:['diary']});
+    check(recalled.retrieval?.status==='unavailable','failed final source read is reported as unavailable, not a confirmed empty history');
+    check(!recalled.text.includes('RACE_DIARY_PRIVATE')&&!recalled.references.some(ref=>ref.id===raceDiary),'read failure cannot fall back to a previously authorized private copy');
+  } finally {diaryRepo.listVisibleFor=originalVisible;}
+  const originalLedgerRecord=memoryLedgerRepo.record;
+  try {
+    memoryLedgerRepo.record=async()=>{throw Error('optional ledger maintenance failed');};
+    const recalled=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'查一下读取中撤权的日记',sources:['diary']});
+    check(recalled.text.includes('RACE_DIARY_PRIVATE')&&recalled.references.some(ref=>ref.id===raceDiary),'optional ledger failure preserves an independently revalidated visible source');
+    check(recalled.retrieval?.status==='references','ledger maintenance failure does not misreport a successful source read');
+  } finally {memoryLedgerRepo.record=originalLedgerRecord;}
+  await clearDiarySharing('u',raceDiary);
+  await db.sessions.put({id:'race-private',userId:'u',characterId:'a',type:'single',title:'读取竞态',createdAt:now,updatedAt:now,unreadCount:0} as any);
+  await db.messages.put({id:'race-deleted-message',sessionId:'race-private',role:'user',content:'RACE_MESSAGE_PRIVATE',createdAt:now,isProactive:false} as any);
+  const originalMemoryGet = db.memories.get;
+  try {
+    db.memories.get = (async (key:any) => {
+      if(key==='race-deleted-message') await db.messages.delete(key);
+      return originalMemoryGet.call(db.memories,key);
+    }) as typeof db.memories.get;
+    const recalled = await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'还记得 RACE_MESSAGE_PRIVATE 吗',sources:['chat']});
+    check(!(await db.messages.get('race-deleted-message')),'source is actually deleted during the full recall flow');
+    check(!recalled.references.some(ref=>ref.id==='race-deleted-message')&&!recalled.text.includes('RACE_MESSAGE_PRIVATE'),'mid-read deleted private message never enters the prompt');
+  } finally {db.memories.get=originalMemoryGet;}
+  await db.messages.put({id:'race-edited-message',sessionId:'race-private',role:'user',content:'EDITED_CHAT_OLD',revision:1,createdAt:now,isProactive:false} as any);
+  try {
+    db.memories.get=(async(key:any)=>{
+      if(key==='race-edited-message') await db.messages.update(key,{content:'EDITED_CHAT_NEW'});
+      return originalMemoryGet.call(db.memories,key);
+    }) as typeof db.memories.get;
+    const recalled=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'还记得 EDITED_CHAT_OLD 吗',sources:['chat']});
+    check((await db.messages.get('race-edited-message'))?.content==='EDITED_CHAT_NEW','chat source is actually edited, even when a legacy writer does not bump revision');
+    check(!recalled.text.includes('EDITED_CHAT_OLD')&&!recalled.references.some(ref=>ref.id==='race-edited-message'),'edited chat cannot reuse the old text under a current source');
+  } finally {db.memories.get=originalMemoryGet;}
+  await db.messages.delete('race-edited-message');
+  await db.messages.bulkPut([
+    {id:'race-old-history',sessionId:'race-private',role:'user',content:'旧约定是星期五到黑沙码头',revision:1,createdAt:now-1000,isProactive:false},
+    {id:'race-old-correction',sessionId:'race-private',role:'user',content:'不是星期五，是星期四',revision:1,createdAt:now-999,isProactive:false},
+    ...Array.from({length:8},(_,i)=>({id:`race-filler-${i}`,sessionId:'race-private',role:'assistant',content:'普通闲聊',createdAt:now-100+i,isProactive:false})),
+  ] as any);
+  try {
+    db.memories.get=(async(key:any)=>{
+      if(key==='race-old-history'||key==='race-old-correction') await db.messages.update('race-old-history',{content:'旧约定是星期三到白沙码头',revision:2});
+      return originalMemoryGet.call(db.memories,key);
+    }) as typeof db.memories.get;
+    const recalled=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'还记得黑沙码头的旧约定吗',sources:['chat']});
+    check((await db.messages.get('race-old-history'))?.revision===2,'historical original is changed after paged selection');
+    check(!recalled.references.some(ref=>ref.id==='race-old-history'||ref.id==='race-old-correction'),'old original and a correction quoting that original both reject the changed dependency');
+    check(!recalled.text.includes('黑沙码头'),'historical snapshot evidence survives score removal, correction linking and prompt packing');
+  } finally {db.memories.get=originalMemoryGet;}
+  await db.messages.update('race-old-history',{content:'旧约定是星期五到黑沙码头',revision:1});
+  const originalHistoryPage=messageRepo.getPage;
+  try {
+    messageRepo.getPage=async(...args)=>{
+      const page=await originalHistoryPage.apply(messageRepo,args);
+      if(args[0]==='race-private') await db.messages.update('race-old-history',{content:'旧约定是星期三到白沙码头',revision:2});
+      return page;
+    };
+    const hits=await recallHistoricalPrivateChat({userId:'u',characterId:'a',query:'还记得黑沙码头的旧约定吗'});
+    check(!hits.some(hit=>hit.messageId==='race-old-history'||hit.messageId==='race-old-correction'),'standalone historical recall used by world turns also revalidates the selected originals and linked corrections');
+  } finally {messageRepo.getPage=originalHistoryPage;}
+  await db.messages.where('sessionId').equals('race-private').delete();
+  await db.todos.put({id:'race-todo',userId:'u',title:'EDIT_TODO_OLD',status:'todo',recurrence:{kind:'none'},visibility:'selected',visibleTo:['a'],createdAt:now,updatedAt:now} as any);
+  const originalPending=todoRepo.visibleOccurrencesForCharacter;
+  try {
+    todoRepo.visibleOccurrencesForCharacter=async(...args)=>{
+      const candidates=await originalPending.apply(todoRepo,args);
+      await db.todos.update('race-todo',{title:'EDIT_TODO_NEW'});
+      return candidates;
+    };
+    const recalled=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'查一下待办',sources:['todo']});
+    check((await db.todos.get('race-todo'))?.title==='EDIT_TODO_NEW','todo definition really changes after occurrence selection');
+    check(!recalled.text.includes('EDIT_TODO_OLD'),'occurrence references validate their parent todo definition as well');
+  } finally {todoRepo.visibleOccurrencesForCharacter=originalPending;}
+  await db.todoOccurrences.where('todoId').equals('race-todo').delete();
+  await db.todos.delete('race-todo');
+  await setDiarySharing({userId:'u',diaryId:raceDiary,visibility:'selected',visibleTo:['a']});
+  diaryReads=0;
+  try {
+    diaryRepo.listVisibleFor=async(...args)=>{
+      const selected=await originalVisible.apply(diaryRepo,args);
+      if(++diaryReads===1) await db.diaries.update(raceDiary,{content:'EDITED_DIARY_NEW'});
+      return selected;
+    };
+    const recalled=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'查一下读取中撤权的日记',sources:['diary']});
+    check((await db.diaries.get(raceDiary))?.content==='EDITED_DIARY_NEW','diary content changes after the candidate read');
+    check(!recalled.text.includes('RACE_DIARY_PRIVATE')&&!recalled.references.some(ref=>ref.id===raceDiary),'old diary content cannot be recorded against a fresh read');
+    check(!(await db.memoryEvidence.toArray()).some(row=>row.sourceId===raceDiary),'changed diary does not create durable source evidence for a stale claim');
+  } finally {diaryRepo.listVisibleFor=originalVisible;}
+  await clearDiarySharing('u',raceDiary);
+  await db.sessions.delete('race-private');
+  const emptyRead=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'还记得上次北港的约定吗？',sources:['chat']});
+  check(emptyRead.retrieval?.status==='no-match'&&emptyRead.retrieval.selectedCount===0,'successful empty recall is distinct from an unavailable read');
+  check(renderMemoryRetrievalStatus(emptyRead).includes('没有选出可引用')&&renderMemoryRetrievalStatus(emptyRead).includes('不等于事情没发生'),'empty lookup frame states uncertainty rather than negating an event');
+  const notRequested=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'你好',sources:[]});
+  check(notRequested.retrieval?.status==='not-requested','a disabled/no-source request cannot claim it searched history');
+  check(renderMemoryRetrievalStatus(notRequested)==='','ordinary no-search turns do not acquire a memory warning');
+  const blockedAudience=await buildCharacterMemoryContext({userId:'u',characterId:'a',audience:['a','b'],topic:'还记得那次吗？',sources:['chat']});
+  check(blockedAudience.retrieval?.status==='not-requested'&&blockedAudience.text==='','private-chat-only sources are not reported as searched for a shared audience');
+  const originalRead=memoryRepo.getByCharacter;
+  try {memoryRepo.getByCharacter=async()=>{throw Error('isolated read failure');};
+    const failedRead=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'还记得北港的约定吗？',sources:['chat']});
+    check(failedRead.retrieval?.status==='unavailable'&&failedRead.references.length===0,'local DB failure cannot become a no-match result');
+    check(renderMemoryRetrievalStatus(failedRead).includes('读取未完成'),'failed read frame does not turn unavailable into a missing past');
+  } finally {memoryRepo.getByCharacter=originalRead;}
+  const deniedRead=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'还记得那次吗？',worldId:'nonexistent-scope'});
+  check(deniedRead.retrieval?.status==='denied'&&deniedRead.text==='','invalid scope keeps empty content and distinct status without disclosing foreign records');
+  check(renderMemoryRetrievalStatus(deniedRead)==='','denied scope cannot leak a record-presence cue');
   await db.characters.put({ id: 'foreign', createdBy: 'other', name: 'foreign' } as any);
   await db.groups.put({ id:'g', userId:'u', characterIds:['a','b'], name:'朋友群', createdAt:now, updatedAt:now });
   await db.sessions.put({ id:'s', userId:'u', type:'group', groupId:'g', characterId:'', createdAt:now, updatedAt:now } as any);
@@ -62,6 +193,9 @@ async function run() {
     id:`private-filler-${index}`,sessionId:'private-history',role:'user',content:`普通闲聊第${index}条`,createdAt:now - 90_000 + index,isProactive:false,
   })) as any);
   check((await recallHistoricalPrivateChat({ userId:'u', characterId:'a', query:'还记得青海那次极光旅行吗' })).some((hit) => hit.messageId === 'old-private-quote'), 'explicit recall reaches older raw chat beyond 160-message window');
+  const foundRead=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'还记得青海那次极光旅行吗',sources:['chat']});
+  check(foundRead.retrieval?.status==='references'&&foundRead.retrieval.selectedCount===foundRead.references.length,'found recall outcome follows actual selected source references');
+  check(renderMemoryRetrievalStatus(foundRead).includes('候选资料')&&!renderMemoryRetrievalStatus(foundRead).includes('已确认发生'),'retrieved user speech is not promoted into a verified event');
   check(!(await recallHistoricalPrivateChat({ userId:'u', characterId:'a', query:'周五一起去看海' })).some((hit) => hit.messageId === 'msg'), 'raw private-chat recall never searches group messages');
   await db.groups.update('g',{characterIds:['a','b','c']});
   check(!(await recall('c')).references.some((item) => item.id === 'msg'), 'late joiner cannot inherit old memory');
@@ -353,19 +487,23 @@ async function run() {
   check(!(await findRelevantHistory({userId:'u',worldId:'old-history-world',characterId:'b',query:'还记得青海极光旧约吗'})).some(hit => hit.id === 'very-old-event'), 'world visibility does not grant an uninformed actor historical knowledge');
   await knowledgeRepo.upsert({userId:'u',worldId:'old-history-world',characterId:'a',eventId:'very-old-event',knowledgeLevel:'full',canMention:true});
   check((await findRelevantHistory({userId:'u',worldId:'old-history-world',characterId:'a',query:'还记得青海极光旧约吗'})).some((hit) => hit.id === 'very-old-event'), 'explicit world recall reaches beyond the former 500-event window');
+  await Promise.all(Array.from({length:510},(_,index)=>knowledgeRepo.upsert({userId:'u',worldId:'old-history-world',characterId:'a',eventId:`newer-event-${index}`,knowledgeLevel:'full',canMention:true,learnedAt:now+index+1000})));
+  const oldWorldContext=await buildCharacterMemoryContext({userId:'u',characterId:'a',worldId:'old-history-world',topic:'还记得青海极光旧约吗',sources:['world']});
+  check(oldWorldContext.references.some(ref=>ref.id==='very-old-event')&&oldWorldContext.text.includes('青海极光旧约'),'final validation checks exact scoped knowledge instead of silently dropping an older known event beyond 500 newer knowledge rows');
   await db.worldScenes.put({id:'live',userId:'u',worldId:'w',characterIds:['a','b'],status:'active',title:'树林',updatedAt:now,state:{participants:[]}} as any);
   await db.worldSceneEntries.put({id:'live-entry',sceneId:'live',index:0,kind:'narration',content:'听到了树梢上的鸟鸣',createdAt:now} as any);
   check((await recall('a',{audience:['b']})).text.includes('鸟鸣'), 'ongoing world memory available before settlement');
   check(!(await recall('c')).text.includes('鸟鸣'), 'absent character cannot recall live world');
   const scene: any = {id:'scene',userId:'u',worldId:'w',characterIds:['a'],place:'海边',timeLabel:'午后',mood:'安静',state:{participants:[],entryMemoryMode:'memory'}};
   const characters = await db.characters.toArray();
-  await db.sessions.update('private-history', {summary:'私聊摘要：一起在海边约好看流星雨'});
+  await db.messages.put({id:'world-summary-source',sessionId:'private-history',role:'user',content:'一起在海边约好看流星雨。',revision:1,createdAt:now-1000,isProactive:false});
+  await db.sessions.update('private-history', {summary:'私聊摘要：一起在海边约好看流星雨',summarySourceMessageIds:['world-summary-source'],summarySourceMessageRevisions:{'world-summary-source':1}});
   await db.characterStates.put({characterId:'a',userId:'u',affinity:64,mood:82,milestones:[],lifeFocus:'准备流星雨观测',storyRelations:[{targetCharacterId:'b',label:'旧友',createdAt:now}],updatedAt:now});
   const context = await buildWorldContext({userId:'u',worldId:'w',scene,characters});
   check(renderCharacterContext(context,'a').includes('GROUP_MEMORY_SENTINEL_42'), 'actual world actor context receives group memory');
   const singleActor = renderCharacterContext(context,'a');
   check(singleActor.includes('私聊摘要：一起在海边约好看流星雨'), 'single-actor world receives current private-chat summary');
-  check(singleActor.includes('挚友') && singleActor.includes('状态较好') && singleActor.includes('准备流星雨观测') && singleActor.includes('旧友'), 'single-actor world uses the same relationship, mood, life and authored links as private chat');
+  check(singleActor.includes('明确关系记录') && !singleActor.includes('你和用户的关系等阶') && singleActor.includes('状态较好') && singleActor.includes('准备流星雨观测') && singleActor.includes('旧友'), 'single-actor world carries authored relationship boundaries, mood and life without inventing a relationship from counters');
   await db.memories.put({ id:'detached-world-profile-summary', userId:'u', characterId:'a', content:'过时的星域密语', type:'summary', memoryKind:'summary', pinned:true, sourceSessionId:'detached-pinned-summary-session', createdAt:now } as any);
   const cleanedWorldContext = await buildWorldContext({userId:'u',worldId:'w',scene,characters,userText:'过时的星域密语'});
   check(!renderCharacterContext(cleanedWorldContext,'a').includes('过时的星域密语')
@@ -392,7 +530,7 @@ async function run() {
   const bWorldContext = renderCharacterContext(sharedContext,'b');
   check(aWorldContext.includes('天文观测营') && aWorldContext.includes('蓝色') && aWorldContext.includes('私聊摘要：一起在海边约好看流星雨'), 'multi-character scene still gives A their own private memory, profile and chat summary');
   check(!bWorldContext.includes('天文观测营') && !bWorldContext.includes('蓝色') && !bWorldContext.includes('私聊摘要：一起在海边约好看流星雨'), 'B does not inherit A-only private memory');
-  check(aWorldContext.includes('挚友') && aWorldContext.includes('状态较好') && aWorldContext.includes('准备流星雨观测') && aWorldContext.includes('旧友'), 'A carries their own current relationship, mood, life and authored links');
+  check(aWorldContext.includes('明确关系记录') && !aWorldContext.includes('你和用户的关系等阶') && aWorldContext.includes('状态较好') && aWorldContext.includes('准备流星雨观测') && aWorldContext.includes('旧友'), 'A carries their own relationship evidence, mood, life and authored links');
   check(aWorldContext.includes('不要主动向其他在场者透露'), 'A sees an explicit boundary against disclosing personal memory to other actors');
   check(!renderWorldLayer(sharedContext).includes('天文观测营') && !renderWorldLayer(sharedContext).includes('蓝色'), 'private character memories stay out of the shared world layer');
   // 出场状态只决定**这场戏的正文**从哪开始，不再决定"这个人记得什么"：
@@ -402,12 +540,12 @@ async function run() {
   const present = await buildWorldContext({userId:'u',worldId:'w',scene,characters});
   check(renderCharacterContext(present,'a').includes('GROUP_MEMORY_SENTINEL_42')
     && renderCharacterContext(present,'a').includes('私聊摘要：一起在海边约好看流星雨'), 'present mode starts from now but keeps the character own history');
-  check(renderCharacterContext(present,'a').includes('挚友'), 'present mode keeps the current relationship');
+  check(renderCharacterContext(present,'a').includes('明确关系记录') && !renderCharacterContext(present,'a').includes('你和用户的关系等阶'), 'present mode retains relationship evidence without treating counters as fact');
   scene.state.entryMemoryMode='amnesiac';
   const amnesiac = await buildWorldContext({userId:'u',worldId:'w',scene,characters});
   check(!renderCharacterContext(amnesiac,'a').includes('GROUP_MEMORY_SENTINEL_42')
     && !renderCharacterContext(amnesiac,'a').includes('私聊摘要：一起在海边约好看流星雨'), 'amnesiac mode is the explicit setting that drops the character own memory');
-  check(renderCharacterContext(amnesiac,'a').includes('挚友'), 'even amnesiac mode keeps the current relationship');
+  check(renderCharacterContext(amnesiac,'a').includes('明确关系记录') && !renderCharacterContext(amnesiac,'a').includes('你和用户的关系等阶'), 'amnesiac mode retains authored relationship boundaries without inventing a counter-based relationship');
   scene.state.entryMemoryMode='memory';
   await db.todos.put({ id:'shared-completed', userId:'u', title:'寄出资料包', note:'已经交给快递', dueDate:'2026-09-20', recurrence:{kind:'none'}, status:'completed', completedAt:now, visibility:'selected', visibleTo:['a'], createdAt:now, updatedAt:now } as any);
   await db.todoOccurrences.put({ id:'todo-occ:shared-completed:2026-09-20', userId:'u', todoId:'shared-completed', dueDate:'2026-09-20', originalDueDate:'2026-09-20', status:'completed', completedAt:now, createdAt:now, updatedAt:now } as any);
@@ -420,6 +558,16 @@ async function run() {
   check(!(await todoRepo.visibleOccurrencesForCharacter('u', 'a', 8)).some(({ todo }) => todo.id === 'private-pending'), 'undated todo is not injected on every ordinary chat turn');
   check((await todoRepo.visibleOccurrencesForCharacter('u', 'a', 8, true)).some(({ todo }) => todo.id === 'private-pending'), 'explicit todo-related chat can still recall an authorized undated task');
   const packed = packCharacterMemory([{source:'chat',id:'1',text:'记住蓝色',at:now,pinned:true},{source:'chat',id:'2',text:'记住蓝色',at:now},{source:'group',id:'3',text:'超长'.repeat(2000),at:now}], '', 600);
+  for(const source of ['chat','group','world','moment','todo','diary'] as const){
+    const unrelatedPins=Array.from({length:14},(_,index)=>({source:'chat' as const,id:'long-pin-'+index,text:'无关的长期收纳资料'+index+'：'+'抽屉物品已经按颜色整理。'.repeat(12),at:now,pinned:true}));
+    const relevant={source,id:'old-relevant-'+source,text:'北港散步约定：周五去岸边。'+'这是已经确认但还没完成的安排，保留原来的日期。'.repeat(5),at:now-86400000};
+    const result=packCharacterMemory([...unrelatedPins,relevant],'还记得北港散步约定吗？',540);
+    check(result.references.some(r=>r.id===relevant.id),source+' budget pressure cannot let unrelated pins crowd out explicitly queried old agreement');
+    check(result.references[0]?.id===relevant.id,source+' topical source is packed before unrelated pins');
+    check(result.text.length<=540,source+' relevance fix preserves bounded prompt length');
+    const neutral=packCharacterMemory([relevant,...unrelatedPins],'',540);
+    check(neutral.references[0]?.pinned===true,source+' pin priority remains for topicless recall');
+  }
   check(packed.references.length === 1 && packed.references[0].id === '1' && packed.text.length <= 600, 'dedup, pinned priority, budget');
   const trace = buildContextTrace({compiled:{prompt:'',included:[],partial:['cross-channel-memory'],omitted:[]},crossChannelReferences:[{source:'group',id:'msg'}]});
   check(!trace.crossChannelReferences, 'partial injection has no false provenance');
@@ -666,6 +814,147 @@ async function run() {
   check(attributedRecall.references.some(row=>row.id==='invented-witness'&&row.text.includes('未经独立核实')),'actual recent-session recall keeps invented witness as attributed speech instead of confirmed experience');
   check(attributedRecall.references.some(row=>row.id==='composed-source'&&row.text.includes('不是用户原话')),'actual recent-session recall distinguishes assistant-composed relay from user facts');
   check(attributedRecall.references.some(row=>row.id==='food-source'&&row.text.includes('用户原话')),'actual user preference remains recallable with its authorship');
+  for (const [index, persona] of ['现代同事，关系为朋友。','古代导师，不了解现代生活。','原创航行员，与对话者是同伴。','稀疏导入角色，无额外关系。'].entries()) {
+    const characterId='global-summary-'+index, sessionId=characterId+'-valid', sourceId=sessionId+'-source';
+    await db.characters.put({id:characterId,createdBy:'u',name:characterId,systemPrompt:persona,createdAt:now} as any);
+    const valid={id:sessionId,userId:'u',characterId,title:'旧约定',createdAt:now,updatedAt:now+100000,unreadCount:0,summary:'旧约定：下次聊茶的味道。',summarySourceMessageIds:[sourceId],summarySourceMessageRevisions:{[sourceId]:1}};
+    await db.sessions.put(valid);
+    await db.messages.put({id:sourceId,sessionId,role:'user',content:'下次聊茶的味道。',revision:1,createdAt:now,isProactive:false});
+    check(await hasLivePrivateSummarySources(valid,'u',characterId),persona+' exact source allows summary');
+    check(!await hasLivePrivateSummarySources({...valid,userId:'foreign'},'u',characterId),persona+' foreign account summary denied');
+    check(!await hasLivePrivateSummarySources(valid,'u','other'),persona+' other character summary denied');
+    check(!await hasLivePrivateSummarySources({...valid,type:'group'},'u',characterId),persona+' group summary cannot become private summary');
+    check(!await hasLivePrivateSummarySources({...valid,summarySourceMessageIds:[]},'u',characterId),persona+' source-less summary is not vacuously verified');
+    check(!await hasLivePrivateSummarySources({...valid,summarySourceMessageRevisions:{}},'u',characterId),persona+' missing revision is not guessed from current content');
+    check(!await hasLivePrivateSummarySources(valid,'u',characterId,new Set([sourceId])),persona+' forgotten source denies summary');
+    check(!await hasLivePrivateSummarySources({...valid,summarySourceMessageIds:[sourceId,sourceId]},'u',characterId),persona+' duplicate source metadata denied');
+    await db.sessions.put({...valid,id:characterId+'-orphan',updatedAt:now+300000,summary:'旧约定：虚构过的共同旅行。',summarySourceMessageIds:[]});
+    await db.sessions.put({...valid,id:characterId+'-unversioned',updatedAt:now+200000,summary:'旧约定：未经核验的偏好。',summarySourceMessageRevisions:{}});
+    for(const mode of ['private-chat','proactive-chat','world-scene'] as const){
+      const recalled=await recallCharacterMemory({userId:'u',characterId,mode,sources:['chat'],query:'还记得旧约定吗',budget:4000});
+      check(recalled.references.some(r=>r.id===sessionId),persona+' '+mode+' invalid newer summaries cannot displace valid older summary');
+      check(!recalled.references.some(r=>r.id===characterId+'-orphan'||r.id===characterId+'-unversioned'),persona+' '+mode+' never recalls orphan or unversioned summary');
+    }
+    await db.messages.update(sourceId,{revision:2,content:'下次改聊咖啡。'});
+    check(!await hasLivePrivateSummarySources(valid,'u',characterId),persona+' source correction invalidates old summary at read time');
+    const corrected=await recallCharacterMemory({userId:'u',characterId,mode:'private-chat',sources:['chat'],query:'还记得旧约定吗',budget:4000});
+    check(!corrected.references.some(r=>r.id===sessionId),persona+' corrected source cannot revive stale summary');
+    check((await db.sessions.get(sessionId))?.summary===valid.summary,persona+' old stored summary retained without rewriting history');
+    await db.messages.update(sourceId,{revision:1,failed:true});
+    check(!await hasLivePrivateSummarySources(valid,'u',characterId),persona+' failed source denied');
+    await db.messages.update(sourceId,{failed:false,sessionId:characterId+'-orphan'});
+    check(!await hasLivePrivateSummarySources(valid,'u',characterId),persona+' another session source denied');
+    await db.messages.delete(sourceId);
+    check(!await hasLivePrivateSummarySources(valid,'u',characterId),persona+' deleted source denied');
+  }
+  for(const [index,persona] of ['现代同伴','古代导师','原创星际向导','资料稀疏的导入角色'].entries()) {
+    const roleId='world-scope-role-'+index,left='world-scope-left-'+index,right='world-scope-right-'+index;
+    await db.characters.put({id:roleId,createdBy:'u',name:persona,systemPrompt:persona,createdAt:now} as any);
+    for(const worldId of [left,right]) {
+      await db.worlds.put({id:worldId,userId:'u',name:worldId,createdAt:now,updatedAt:now+900000} as any);
+      await db.worldEvents.put({id:worldId+'-event',userId:'u',worldId,type:'stage',title:'世界边界记号 '+worldId,summary:'仅属于这个世界的秘密凭据',visibility:'selected',visibleTo:[roleId],timestamp:now,createdAt:now,memoryIds:[]} as any);
+      await knowledgeRepo.upsert({userId:'u',worldId,characterId:roleId,eventId:worldId+'-event',knowledgeLevel:'full',canMention:true});
+      await db.worldScenes.put({id:worldId+'-scene',userId:'u',worldId,characterIds:[roleId],status:'active',title:'边界场景 '+worldId,place:'旧站台',timeLabel:'午后',mood:'安静',updatedAt:now,state:{participants:[]}} as any);
+      await db.worldSceneEntries.put({id:worldId+'-entry',sceneId:worldId+'-scene',index:0,kind:'narration',content:'世界边界记号现场 '+worldId,createdAt:now,witnessedBy:[roleId]} as any);
+    }
+    const request={userId:'u',characterId:roleId,sources:['world' as const],query:'世界边界记号',budget:6000,withCatalog:true};
+    const scoped=await buildCharacterMemoryContext({...request,mode:'world-scene',scene:{worldId:left,sceneId:left+'-scene',liveSegments:true}});
+    check(scoped.references.some(r=>r.id===left+'-event'),persona+' scoped world retains known current-world event');
+    check(!scoped.references.some(r=>r.id===right+'-event'||r.id===right+'-entry'),persona+' scoped world excludes parallel-world event and live entry');
+    check(scoped.catalog?.events.every(e=>e.worldId===left),persona+' structured catalog obeys the same world boundary');
+    const activeScene=(await db.worldScenes.get(left+'-scene'))!;
+    const actorContext=await buildWorldContext({userId:'u',worldId:left,scene:activeScene,characters:await db.characters.toArray(),userText:'世界边界记号'});
+    const rendered=renderCharacterContext(actorContext,roleId);
+    check(rendered.includes(left+'-event')||rendered.includes('世界边界记号 '+left),persona+' actual world actor prompt retains scoped known event');
+    check(!rendered.includes(right+'-event')&&!rendered.includes('世界边界记号 '+right),persona+' actual world actor prompt never contains parallel-world secret');
+    const foreignStage='world-scope-injection-'+index;
+    await indexPromptMemoryReferences({userId:'u',characterId:roleId,worldId:left},[{source:'world',id:right+'-event',text:'世界边界记号 '+right,at:now}],foreignStage);
+    check(!(await db.memoryUsage.toArray()).some(row=>row.messageId===foreignStage),persona+' manual source indexing cannot register foreign-world injection');
+    const direct=await buildCharacterMemoryContext({...request,worldId:right});
+    check(direct.references.some(r=>r.id===right+'-event')&&!direct.references.some(r=>r.id===left+'-event'),persona+' explicit world request scopes without mode inference');
+    const unscoped=await buildCharacterMemoryContext({...request,mode:'private-chat'});
+    check(unscoped.references.some(r=>r.id===left+'-event')&&unscoped.references.some(r=>r.id===right+'-event'),persona+' ordinary private recall retains owned cross-world references');
+    const conflict=await buildCharacterMemoryContext({...request,worldId:right,scene:{worldId:left}});
+    check(conflict.references.length===0,persona+' contradictory world scope is not silently widened');
+    const missing=await buildCharacterMemoryContext({...request,worldId:'missing-world'});
+    check(!missing.references.length&&!missing.catalog,persona+' unknown scope cannot fall back to all worlds');
+    await db.worlds.put({id:'foreign-world-'+index,userId:'other',name:'foreign'} as any);
+    const foreign=await buildCharacterMemoryContext({...request,worldId:'foreign-world-'+index});
+    check(!foreign.references.length&&!foreign.catalog,persona+' foreign world cannot open account-global fallback');
+  }
+  const crossRole='cross-source-role';
+  await db.characters.put({id:crossRole,createdBy:'u',name:'独立的资料稀疏角色',systemPrompt:'表达简短',createdAt:now} as any);
+  const originalLegacyGet=db.sharedStoryEvents.get;
+  for(const mode of ['event','shared','scene','live-entry'] as const){
+    const worldId='cross-source-'+mode, eventId=worldId+'-event', sceneId=worldId+'-scene', entryId=worldId+'-entry', sharedId=worldId+'-memory';
+    const marker='CROSS_OLD_'+mode;
+    await db.worlds.put({id:worldId,userId:'u',name:worldId,createdAt:now,updatedAt:now} as any);
+    await db.worldEvents.put({id:eventId,userId:'u',worldId,type:mode==='shared'?'shared_memory':'stage',title:marker,summary:marker,visibility:'selected',visibleTo:[crossRole],memoryIds:mode==='shared'?[sharedId]:[],createdAt:now,timestamp:now,updatedAt:now} as any);
+    await knowledgeRepo.upsert({userId:'u',worldId,characterId:crossRole,eventId,knowledgeLevel:'full',canMention:true});
+    await db.sharedMemories.put({id:sharedId,userId:'u',worldId,title:marker,summary:marker,visibility:'selected',visibleTo:[crossRole],characterIds:[crossRole],createdAt:now,updatedAt:now} as any);
+    await db.worldScenes.put({id:sceneId,userId:'u',worldId,characterIds:[crossRole],title:marker,status:mode==='live-entry'?'active':'finished',worldEventId:eventId,createdAt:now,updatedAt:now,state:{participants:[]}} as any);
+    await db.worldSceneEntries.put({id:entryId,sceneId,index:0,kind:'user_input',content:marker,createdAt:now,witnessedBy:[crossRole]} as any);
+    const request={userId:'u',characterId:crossRole,worldId,topic:'还记得 '+marker+' 吗',sources:['world' as const],budget:6000};
+    const target=mode==='event'?eventId:mode==='shared'?sharedId:mode==='scene'?sceneId:entryId;
+    check((await buildCharacterMemoryContext(request)).references.some(ref=>ref.id===target),mode+' race fixture proves the target is actually recallable');
+    let edits=0;
+    try{
+      db.sharedStoryEvents.get=(async(key:any)=>{
+        if(key===target && !edits++){
+          if(mode==='shared')await db.sharedMemories.update(sharedId,{summary:'CROSS_NEW_shared'});
+          else if(mode==='live-entry')await db.worldSceneEntries.update(entryId,{content:'CROSS_NEW_live-entry'});
+          else await db.worldEvents.update(eventId,{summary:'CROSS_NEW_'+mode});
+        }
+        return originalLegacyGet.call(db.sharedStoryEvents,key);
+      }) as typeof db.sharedStoryEvents.get;
+      const recalled=await buildCharacterMemoryContext(request);
+      check(edits>0,mode+' source changes after selection inside the full recall flow');
+      check(!recalled.references.some(ref=>ref.id===target),mode+' changed source or parent event removes the stale reference');
+      if(mode==='scene')check(!recalled.references.some(ref=>ref.id===eventId),'final batch cannot retain an earlier event changed while a later scene is validated');
+    }finally{db.sharedStoryEvents.get=originalLegacyGet;}
+  }
+  const permissionWorld='cross-source-scene',permissionEvent=permissionWorld+'-event',permissionScene=permissionWorld+'-scene';
+  const permissionRequest={userId:'u',characterId:crossRole,worldId:permissionWorld,topic:'还记得 CROSS_OLD_scene 吗',sources:['world' as const],budget:6000};
+  const permissionBaseline=await buildCharacterMemoryContext(permissionRequest);
+  const eventPosition=permissionBaseline.references.findIndex(ref=>ref.id===permissionEvent),scenePosition=permissionBaseline.references.findIndex(ref=>ref.id===permissionScene);
+  check(eventPosition>=0&&scenePosition>eventPosition,'permission race fixture retains an event before validating its related scene');
+  let revoked=0;
+  try{
+    db.sharedStoryEvents.get=(async(key:any)=>{
+      if(key===permissionScene&&!revoked++)await knowledgeRepo.upsert({userId:'u',worldId:permissionWorld,characterId:crossRole,eventId:permissionEvent,knowledgeLevel:'full',canMention:false});
+      return originalLegacyGet.call(db.sharedStoryEvents,key);
+    }) as typeof db.sharedStoryEvents.get;
+    const recalled=await buildCharacterMemoryContext(permissionRequest);
+    check(revoked>0,'knowledge permission is actually revoked while a later scene candidate is being checked');
+    check(!recalled.references.some(ref=>ref.id===permissionEvent||ref.id===permissionScene),'final batch rereads knowledge permissions, not only source text snapshots');
+  }finally{db.sharedStoryEvents.get=originalLegacyGet;}
+  await db.moments.put({id:'cross-moment',userId:'u',authorCharacterId:null,text:'CROSS_POST_OLD',mediaIds:[],visibility:'selected',audienceCharacterIds:[crossRole],deleted:false,createdAt:now,updatedAt:now} as any);
+  await db.momentViews.put({id:'cross-view',userId:'u',momentId:'cross-moment',characterId:crossRole,viewedAt:now});
+  await db.momentReactions.bulkPut([
+    {id:'cross-parent',userId:'u',momentId:'cross-moment',characterId:'a',type:'comment',content:'CROSS_PARENT_OLD',status:'active',createdAt:now-1,updatedAt:now},
+    {id:'cross-reply',userId:'u',momentId:'cross-moment',characterId:'b',type:'comment',replyToId:'cross-parent',content:'CROSS_REPLY',status:'active',createdAt:now,updatedAt:now},
+  ] as any);
+  const momentRequest={userId:'u',characterId:crossRole,topic:'查一下 CROSS_POST_OLD 的朋友圈评论',sources:['moment' as const],budget:6000};
+  check((await buildCharacterMemoryContext(momentRequest)).references.some(ref=>ref.id==='cross-reply'),'reaction race fixture proves the nested reply is selected');
+  const originalReactionGet=db.momentReactions.get;
+  for(const dependency of ['post','parent'] as const){
+    await db.moments.update('cross-moment',{text:'CROSS_POST_OLD'});
+    await db.momentReactions.update('cross-parent',{content:'CROSS_PARENT_OLD'});
+    let edits=0;
+    try{
+      db.momentReactions.get=(async(key:any)=>{
+        if(key==='cross-reply'&&!edits++){
+          if(dependency==='post')await db.moments.update('cross-moment',{text:'CROSS_POST_NEW'});
+          else await db.momentReactions.update('cross-parent',{content:'CROSS_PARENT_NEW'});
+        }
+        return originalReactionGet.call(db.momentReactions,key);
+      }) as typeof db.momentReactions.get;
+      const recalled=await buildCharacterMemoryContext(momentRequest);
+      check(edits>0,dependency+' dependency really changes during reaction validation');
+      check(!recalled.references.some(ref=>ref.id==='cross-reply'),dependency+' edit invalidates the nested comment referencing it');
+      if(dependency==='post')check(!recalled.text.includes('CROSS_POST_OLD'),'post edit also removes an earlier retained post in the final batch');
+    }finally{db.momentReactions.get=originalReactionGet;}
+  }
   check(scopedExport.memories.every((item) => item.userId === 'u') && scopedExport.sessions.every((item) => item.userId === 'u'), 'backup export contains only the requested account');
   check(scopedExport.groups?.some((group) => group.id === 'g') && scopedExport.sourceTombstones?.every((row) => row.userId === 'u'), 'backup preserves group continuity and only same-account tombstones');
   document.body.textContent = `ok   ${count} assertions (real IndexedDB, zero network)\n\nALL PASS`;

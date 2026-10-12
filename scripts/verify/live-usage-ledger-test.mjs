@@ -1,0 +1,12 @@
+﻿import assert from 'node:assert/strict';
+import {createLiveUsageLedger} from './live-usage-ledger.mjs';
+let release;const gate=new Promise(resolve=>{release=resolve;});
+const ledger=createLiveUsageLedger({maxCalls:2,maxTotalTokens:1000,maxOutputTokens:50,fetchImpl:async()=>{await gate;return new Response(JSON.stringify({usage:{total_tokens:10},choices:[{message:{content:'好'},finish_reason:'stop'}]}));}});
+const init={body:JSON.stringify({model:'fixture',messages:[{role:'user',content:'你好'}]})};
+const one=ledger.fetchProvider('mock',init),two=ledger.fetchProvider('mock',init);
+assert.equal(ledger.snapshot().chargedRequests,2);assert.equal(ledger.snapshot().pendingCalls,2);assert.equal(ledger.snapshot().incomplete,true);
+await assert.rejects(ledger.fetchProvider('mock',init),/budget/);
+let finished=false;const drain=ledger.drain().then(()=>{finished=true;});await Promise.resolve();assert.equal(finished,false);
+release();await Promise.all([one,two,drain]);assert.equal(ledger.snapshot().totalTokens,20);assert.equal(ledger.snapshot().knownUsageCalls,2);assert.equal(ledger.snapshot().incomplete,false);assert.equal(ledger.records.length,2);
+const missing=createLiveUsageLedger({maxCalls:2,maxTotalTokens:1000,maxOutputTokens:50,fetchImpl:async()=>new Response('{}')});await missing.fetchProvider('mock',init);assert.equal((await missing.drain()).unknownUsageCalls,1);assert.equal(missing.snapshot().incomplete,true);await assert.rejects(missing.fetchProvider('mock',init),/budget/);
+console.log('PASS live-usage-ledger: 12 assertions; overlapping replies/background tasks, pending and missing usage; zero network');
