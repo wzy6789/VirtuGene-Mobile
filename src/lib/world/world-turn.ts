@@ -35,8 +35,9 @@ import { actAsCharacter, actWorldBeat, type ActorBeat } from './world-actor';
 import { narrateWorldBeat, shouldNarrate } from './world-narrator';
 import { applyGuard, guardWorldBeat, requiresPrivateDisclosureReview } from './world-consistency';
 import { settleWorldTurn, type SettleTurnResult } from './world-settlement';
-import { findRelevantHistory } from './world-recall';
-import { recallHistoricalPrivateChat } from '../character-history-recall';
+import { findRelevantHistory,worldHistoryHitsStillLive } from './world-recall';
+import { recallHistoricalPrivateChat,historicalPrivateChatHitsStillLive } from '../character-history-recall';
+import {addWorldSourceGuards,inheritWorldSourceGuards,commitWorldSourceWrite} from './world-source-guard';
 import { upsertWorldFactWithReconcile } from './world-facts';
 import { undoLastTurn, type UndoResult } from './world-undo';
 import type { WorldLlmCaller } from './world-ai-client';
@@ -508,8 +509,9 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     // The saved conversation state describes the previous beat. Give the
     // Director and Actors a preview of this user's new focus right now; only
     // persist it after the turn completes below.
-    ctx = { ...ctx, conversation: updateConversationState(beatScene.state.conversation, text, ctx.recentEntries) };
+    ctx = inheritWorldSourceGuards({ ...ctx, conversation: updateConversationState(beatScene.state.conversation, text, ctx.recentEntries) },ctx);
     canStreamCharacters = ctx.presence.length <= 1 || ctx.presence.every(id => !hasPrivateActorContext(ctx, id));
+    const appendResponseEntry=(input:Parameters<typeof worldSceneRepo.appendEntry>[1])=>commitWorldSourceWrite(ctx,()=>worldSceneRepo.appendEntry(sceneId,input));
 
     // 回忆类意图：把"相关但很久以前"的事也捞回来（§60 相关性优先于时间）
     let recallBlock = '';
@@ -527,7 +529,8 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         })] as const)),
       ]);
       const chatHitsByCharacter = new Map(actorChatHits);
-      ctx = {
+      const previousContext=ctx;
+      ctx = inheritWorldSourceGuards({
         ...ctx,
           recalledHistory: sharedHits.map(({ date, text: hitText }) => ({ date, text: hitText })),
         perCharacter: {
@@ -544,7 +547,12 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
             ],
           }])),
         },
-      };
+      },previousContext);
+      addWorldSourceGuards(ctx,
+        ...(sharedHits.length?[()=>worldHistoryHitsStillLive({userId,worldId,audienceCharacterIds:previousContext.presence},sharedHits)]:[]),
+        ...actorHits.filter(([,hits])=>hits.length).map(([characterId,hits])=>()=>worldHistoryHitsStillLive({userId,worldId,audienceCharacterIds:[characterId]},hits)),
+        ...actorChatHits.filter(([,hits])=>hits.length).map(([characterId,hits])=>()=>historicalPrivateChatHitsStillLive(userId,characterId,hits)),
+      );
       if (sharedHits.length) recallBlock = `【用户正在回忆的共同经历】\n${sharedHits.map((hit) => `- ${hit.date} ${hit.text}`).join('\n')}`;
     }
 
@@ -556,6 +564,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       ...(params.call ? { call: params.call } : {}),
     });
     llmCalls += planBase.llmCalls;
+    if(planBase.error?.startsWith('world:source-changed'))throw Error(planBase.error);
     // 某些模型会返回合法 JSON，但把 speakers 和 narration 都留空。
     // 只要这一轮不是“请保持安静”，就用本地确定性计划接住，让角色 Actor
     // 继续尝试生成；不伪造台词，也不把空计划直接显示成世界停摆。
@@ -582,10 +591,11 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         ...(params.call ? { call: params.call } : {}),
       });
       llmCalls += narrated.llmCalls;
+      if(narrated.error?.startsWith('world:source-changed'))throw Error(narrated.error);
       if (narrated.narration) narration = narrated.narration;
     }
     if (narration) {
-      const entry = await worldSceneRepo.appendEntry(sceneId, {
+      const entry = await appendResponseEntry({
         kind: 'narration',
         content: narration,
         meta: { beatId: turn.id, layer: 'environment', sequence: turnEntries.length, camera: 'wide' } satisfies WorldBeatMeta,
@@ -609,6 +619,8 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       ...(params.call ? { call: params.call } : {}),
     });
     llmCalls += beats.reduce((sum, beat) => sum + (beat.llmCalls ?? 1), 0);
+    const sourceFailure=beats.find(beat=>beat.error?.startsWith('world:source-changed'))?.error;
+    if(sourceFailure)throw Error(sourceFailure);
 
     /**
      * §40「让他们自己聊」：用户让角色自己交流时，在初次回应之后**继续往下走若干小拍**，
@@ -642,6 +654,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         ...(params.call ? { call: params.call } : {}),
       });
       llmCalls += privacyGuard.llmCalls;
+      if(privacyGuard.error?.startsWith('world:source-changed'))throw Error(privacyGuard.error);
       const unresolved = Boolean(privacyGuard.error)
         || privacyGuard.issues.length > privacyGuard.rewrites.length
         || (!privacyGuard.ok && privacyGuard.rewrites.length === 0);
@@ -658,7 +671,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       if (beat.via === 'none') continue;
       const row: { beatIndex: number; characterId: string; actionEntryId?: string; dialogueEntryId?: string } = { beatIndex, characterId: beat.characterId };
       if (beat.action) {
-        const entry = await worldSceneRepo.appendEntry(sceneId, {
+        const entry = await appendResponseEntry({
           kind: 'action',
           content: beat.action,
           speakerId: beat.characterId,
@@ -669,7 +682,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         emit({ type: 'entry', entry });
       }
       if (beat.dialogue) {
-        const entry = await worldSceneRepo.appendEntry(sceneId, {
+        const entry = await appendResponseEntry({
           kind: 'dialogue',
           content: beat.dialogue,
           speakerId: beat.characterId,
@@ -689,10 +702,11 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       ...(params.call ? { call: params.call } : {}),
     });
     if (!privacyGuard) llmCalls += guard.llmCalls;
+    if(guard.error?.startsWith('world:source-changed'))throw Error(guard.error);
     if (!privacyGuard && guard.rewrites.length > 0) {
       const rewritten = applyGuard(beats, guard.rewrites);
       const byCharacter = new Map(guard.rewrites.map((r) => [r.characterId, r]));
-      for (const row of beatRows) {
+      await commitWorldSourceWrite(ctx,async()=>{for (const row of beatRows) {
         const fix = byCharacter.get(row.characterId);
         if (!fix) continue;
         if (fix.drop) {
@@ -702,13 +716,13 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         }
         if (fix.action != null && row.actionEntryId) await worldSceneRepo.updateEntryContent(row.actionEntryId, fix.action);
         if (fix.dialogue != null && row.dialogueEntryId) await worldSceneRepo.updateEntryContent(row.dialogueEntryId, fix.dialogue);
-      }
+      }});
       beats = rewritten;
     }
 
     // ---- 9) 灵感建议（§37/§38：只在导演认为用户站在岔路口时给）
     if (plan.suggestions.length > 0) {
-      const entry = await worldSceneRepo.appendEntry(sceneId, {
+      const entry = await appendResponseEntry({
         kind: 'suggestion',
         content: plan.suggestions[0],
         meta: { options: plan.suggestions, turnId: turn.id },
@@ -764,10 +778,11 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
       emit({ type: 'status', status: 'settling' });
       const settledScene = await worldSceneRepo.getScene(sceneId);
       if (settledScene) {
-        ctx = await buildWorldContext({ userId, worldId, scene: settledScene, characters, userText: text });
+        ctx = inheritWorldSourceGuards(await buildWorldContext({ userId, worldId, scene: settledScene, characters, userText: text }),ctx);
       }
       settlement = await settleWorldTurn({
         ctx,
+        recordTrace:plan.trace??true,
         actionText: text,
         // 结算依据**从数据库读回**：守护可能改写过某些行，内存里的副本未必最新
         transcript: [recallBlock, buildTranscript(
@@ -779,6 +794,7 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
         ...(params.call ? { call: params.call } : {}),
       });
       llmCalls += settlement.llmCalls;
+      if(settlement.error?.startsWith('world:source-changed'))return finish({status:'failed',action,plan,beats,entries:turnEntries,suggestions:plan.suggestions,settlement,error:settlement.error});
       await worldTurnRepo.addFactIds(turn.id, settlement.applied.factIds, 'created');
       await worldTurnRepo.addFactIds(turn.id, settlement.applied.deactivatedFactIds, 'deactivated');
       await worldTurnRepo.patch(turn.id, {
@@ -792,9 +808,9 @@ async function runWorldTurnInner(params: RunWorldTurnParams): Promise<WorldTurnR
     }
     await worldTurnRepo.patch(turn.id, { settled: true });
 
-    if (plan.trace || (settlement && settlement.applied.worldEventIds.length > 0)) {
-      const trace = plan.trace ?? '这一刻被世界记住了。';
-      const entry = await worldSceneRepo.appendEntry(sceneId, { kind: 'system', content: trace, meta: { trace: true, turnId: turn.id } });
+    const traceEntry=settlement?.traceEntry??(!wantSettle&&plan.trace?await appendResponseEntry({kind:'system',content:plan.trace,meta:{trace:true,turnId:turn.id}}):undefined);
+    if (traceEntry) {
+      const entry=traceEntry;
       turnEntries.push(entry);
       await worldTurnRepo.addEntryIds(turn.id, [entry.id]);
       emit({ type: 'entry', entry });
@@ -946,14 +962,17 @@ async function rerunAfterUserEntry(params: {
     if (partial.dialogue !== undefined) emit({ type: 'partial', turnId: turn.id, sceneId: turn.sceneId, speakerId: characterId, field: 'dialogue', text: partial.dialogue });
   };
 
+  const appendResponseEntry=(input:Parameters<typeof worldSceneRepo.appendEntry>[1])=>commitWorldSourceWrite(ctx,()=>worldSceneRepo.appendEntry(turn.sceneId,input));
+  try{
   const plan = await directWorldTurn({ ctx, action, userText: turn.input, ...(params.call ? { call: params.call } : {}) });
   llmCalls += plan.llmCalls;
+  if(plan.error?.startsWith('world:source-changed'))throw Error(plan.error);
   emit({ type: 'status', status: 'planning' });
   emit({ type: 'status', status: 'responding' });
 
   const added: WorldSceneEntry[] = [];
   if (plan.narration) {
-    const entry = await worldSceneRepo.appendEntry(turn.sceneId, {
+    const entry = await appendResponseEntry({
       kind: 'narration',
       content: plan.narration,
       meta: { beatId: turn.id, layer: 'environment', sequence: added.length, camera: 'wide' } satisfies WorldBeatMeta,
@@ -971,6 +990,8 @@ async function rerunAfterUserEntry(params: {
     ...(params.call ? { call: params.call } : {}),
   });
   llmCalls += beats.reduce((sum, beat) => sum + (beat.llmCalls ?? 1), 0);
+  const sourceFailure=beats.find(beat=>beat.error?.startsWith('world:source-changed'))?.error;
+  if(sourceFailure)throw Error(sourceFailure);
   let privacyReviewFailed = false;
   if (requiresPrivateDisclosureReview(ctx, beats)) {
     const privacyGuard = await guardWorldBeat({
@@ -978,6 +999,7 @@ async function rerunAfterUserEntry(params: {
       ...(params.call ? { call: params.call } : {}),
     });
     llmCalls += privacyGuard.llmCalls;
+    if(privacyGuard.error?.startsWith('world:source-changed'))throw Error(privacyGuard.error);
     privacyReviewFailed = Boolean(privacyGuard.error)
       || privacyGuard.issues.length > privacyGuard.rewrites.length
       || (!privacyGuard.ok && privacyGuard.rewrites.length === 0);
@@ -985,7 +1007,7 @@ async function rerunAfterUserEntry(params: {
   }
   for (const beat of beats) {
     if (beat.action) {
-      const entry = await worldSceneRepo.appendEntry(turn.sceneId, {
+      const entry = await appendResponseEntry({
         kind: 'action',
         content: beat.action,
         speakerId: beat.characterId,
@@ -995,7 +1017,7 @@ async function rerunAfterUserEntry(params: {
       emit({ type: 'entry', entry });
     }
     if (beat.dialogue) {
-      const entry = await worldSceneRepo.appendEntry(turn.sceneId, {
+      const entry = await appendResponseEntry({
         kind: 'dialogue',
         content: beat.dialogue,
         speakerId: beat.characterId,
@@ -1051,6 +1073,13 @@ async function rerunAfterUserEntry(params: {
     suggestions: plan.suggestions, ...(plan.narration ? { narration: plan.narration } : {}),
     ...(settlement ? { settlement } : {}), llmCalls,
   };
+  }catch(error){
+    const reason=(error as Error)?.message??'server:error';
+    await worldTurnRepo.addCalls(turn.id,llmCalls);
+    await worldTurnRepo.markFailed(turn.id,'responding',reason);
+    emit({type:'status',status:'failed'});
+    return {turnId:turn.id,status:'failed',action,beats:[],entries:userEntry?[userEntry]:[],suggestions:[],llmCalls,error:reason};
+  }
 }
 
 /** 详情/调试：把这一轮的世界层产物读回来（世界痕迹点开后展示"世界记住了什么"） */

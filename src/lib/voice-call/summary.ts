@@ -26,17 +26,22 @@ export async function summarizeVoiceCall(id: string, userId: string, signal: Abo
   if (running.has(id)) return;
   running.add(id);
   const attempts: NonNullable<VoiceCallRecord['usage']> = [];
-  const readSource = async () => {
+  const assertCurrent = () => {
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     if (useAuthStore.getState().userId !== userId) throw new Error('voice:account_changed');
+  };
+  const readSource = async () => {
+    assertCurrent();
     const record = await db.voiceCalls.get(id);
     if (!record || record.userId !== userId) throw new Error('voice:record_changed');
+    if (record.status === 'active') throw new Error('voice:call_active');
     const projected = projectCallMessages(record);
     const live = await db.messages.bulkGet(projected.map(row => row.id));
     if (live.some((row, index) => !row || row.failed || row.content !== projected[index].content || row.sessionId !== record.sessionId)) throw new Error('voice:record_changed');
     for (const row of live) {
       if (await memorySourceTombstoneRepo.blocksImport({ userId, sourceType: 'message', sourceId: row!.id, sourceRevision: row!.revision ?? 1 })) throw new Error('voice:source_withdrawn');
     }
+    assertCurrent();
     return { record, source: projected.map(row => `${row.role === 'user' ? '用户' : '角色'}：${row.content}`).join('\n'), projected };
   };
   try {
@@ -46,6 +51,7 @@ export async function summarizeVoiceCall(id: string, userId: string, signal: Abo
       await db.transaction('rw', db.voiceCalls, db.messages, db.memorySourceTombstones, async () => {
         const current = await readSource(); if (current.source) throw new Error('voice:record_changed');
         await db.voiceCalls.update(id, { summaryState: 'ready', summary: '本次通话没有可确认的交流原文。', summaryParts: [], summaryTotalParts: 0 });
+        assertCurrent();
       }); return;
     }
     const chunks = chunkCallSummary(initial.projected);
@@ -76,14 +82,17 @@ export async function summarizeVoiceCall(id: string, userId: string, signal: Abo
         const complete = parts.length === chunks.length;
         const text = parts.map(part => chunks.length === 1 ? part.text : `第 ${part.index + 1}/${chunks.length} 段\n${part.text}`).join('\n\n');
         await db.voiceCalls.update(id, { summary: text, summaryParts: [...parts], summaryTotalParts: chunks.length,
-          summaryState: complete ? 'ready' : 'partial', usage: [...(current.record.usage ?? []), ...attempts.splice(0)] });
+          summaryState: complete ? 'ready' : 'partial', usage: [...(current.record.usage ?? []), ...attempts] });
+        assertCurrent();
       });
+      // A cancelled transaction rolls back its text and usage; retain attempts for the audit catch until it commits.
+      attempts.length = 0;
     }
   } catch (error) {
     // Cancellation cannot commit text, but known request attempts still belong in the same account's audit.
     if (useAuthStore.getState().userId === userId) {
       const current = await db.voiceCalls.get(id);
-      if (current?.userId === userId && useAuthStore.getState().userId === userId && current.summaryState !== 'ready') {
+      if (current?.userId === userId && current.status !== 'active' && useAuthStore.getState().userId === userId && current.summaryState !== 'ready') {
         await db.voiceCalls.update(id, { ...(signal.aborted ? {} : { summaryState: current.summaryParts?.length ? 'partial' as const : 'failed' as const }), usage: [...(current.usage ?? []), ...attempts] });
       }
     }

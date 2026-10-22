@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 const { chromium } = createRequire(join(dirname(process.execPath), 'package.json'))('playwright');
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
@@ -14,54 +14,91 @@ await page.route('**/*', route => {
 });
 mkdirSync('.tmp-preview/voice-call', { recursive: true });
 try {
-  await page.addInitScript(() => {
-    localStorage.setItem('virtugene:lastSeenVersion', '6.0.24');
+  await page.addInitScript(version => {
+    performance.setResourceTimingBufferSize(20000);
+    // This suite covers call navigation with an existing account. Separate
+    // onboarding suites own the update, model and assistant introduction flows.
+    localStorage.setItem('virtugene:lastSeenVersion', version);
     localStorage.setItem('virtugene:onboarded:call-app-user', '1');
-  });
+    localStorage.setItem('virtugene:secretary-intro:v2:call-app-user', '1');
+  }, JSON.parse(readFileSync('package.json', 'utf8')).version);
   await page.goto('http://127.0.0.1:5173/?virtugene-preview=mobile', { waitUntil: 'domcontentloaded', timeout: 90000 });
+  // Wait for startup/seed work before signing in the isolated existing account.
+  await page.getByRole('button', { name: '登录', exact: true }).waitFor();
   await page.evaluate(async () => {
-    const { db } = await import('/src/db/index.ts');
-    const { useAuthStore } = await import('/src/store/auth-store.ts');
-    const { useChatStore } = await import('/src/store/chat-store.ts');
-    const { useUIStore } = await import('/src/store/ui-store.ts');
-    const { useVoiceCallStore } = await import('/src/store/voice-call-store.ts');
-    const { useVoiceCallUIStore } = await import('/src/store/voice-call-ui-store.ts');
+    // Vite may rewrite imports with ?t= after another workspace task edits a
+    // dependency. Importing the unversioned path creates a SECOND Zustand store;
+    // the fixture would update state that the actual App never subscribed to.
+    // Reuse the exact module already requested by the page, including its query.
+    const modules = new Map();
+    window.appModuleURLs = {};
+    window.appModule = path => {
+      if (!modules.has(path)) {
+        const loaded = performance.getEntriesByType('resource').filter(entry => new URL(entry.name).pathname === path);
+        const url = loaded.at(-1)?.name ?? path;
+        window.appModuleURLs[path] = url;
+        modules.set(path, import(url));
+      }
+      return modules.get(path);
+    };
+    const { db } = await window.appModule('/src/db/index.ts');
+    const { useAuthStore } = await window.appModule('/src/store/auth-store.ts');
+    const { useChatStore } = await window.appModule('/src/store/chat-store.ts');
+    const { useUIStore } = await window.appModule('/src/store/ui-store.ts');
+    const { useVoiceCallUIStore } = await window.appModule('/src/store/voice-call-ui-store.ts');
     const userId = 'call-app-user', sessionId = 'call-app-session';
     const character = { id: 'call-app-role', name: '星澜', avatar: '🌙', createdBy: userId, createdAt: 1, isPreset: false, isCustom: true, published: false, tags: [], proactivity: 0, systemPrompt: '本地界面验收角色' };
     await db.users.put({ id: userId, username: '界面验收', passwordHash: 'not-a-real-account', createdAt: 1 });
     await db.characters.put(character);
-    await db.sessions.put({ id: sessionId, characterId: character.id, userId, title: character.name, createdAt: 1, updatedAt: 1, unreadCount: 0 });
+    await db.sessions.put({ id: sessionId, characterId: character.id, userId, title: character.name, createdAt: 1, updatedAt: 1, unreadCount: 0, modelAsked: true });
     useAuthStore.getState().login(userId, '界面验收', null, '🌙');
     await useChatStore.getState().loadCharacters();
     await useChatStore.getState().selectCharacter(character.id, sessionId);
     useUIStore.setState({ mobileTab: 'chat', activeView: 'chat', chatFromList: true });
-    let ends = 0;
+    let ends = 0, callStore;
     // Actual App and ChatWindow; only the call's audio/model presentation is mocked.
-    useVoiceCallStore.setState({ end: async () => { ends++; useVoiceCallStore.setState({ busy: false, saving: false, finishing: undefined, view: { ...useVoiceCallStore.getState().view, phase: 'ended' } }); } });
     window.appCallTest = { ends: () => ends,
-      connected() { const actualSession = useVoiceCallUIStore.getState().target?.sessionId;
+      async connected() { const actualSession = useVoiceCallUIStore.getState().target?.sessionId;
         if (!actualSession) throw new Error('Call preparation must own a session');
-        useVoiceCallStore.setState({ owner: { userId, sessionId: actualSession, characterId: character.id }, busy: true, error: undefined,
+        // Wait until the actual lazy call UI has loaded this store, then reuse
+        // that exact Vite module instead of preloading an unversioned duplicate.
+        callStore = (await window.appModule('/src/store/voice-call-store.ts')).useVoiceCallStore;
+        callStore.setState({ end: async () => { ends++; callStore.setState({ busy: false, saving: false, finishing: undefined, view: { ...callStore.getState().view, phase: 'ended' } }); } });
+        callStore.setState({ owner: { userId, sessionId: actualSession, characterId: character.id }, busy: true, error: undefined,
         record: { id: 'app-call', userId, sessionId: actualSession, characterId: character.id, startedAt: Date.now() - 60000, endedAt: Date.now(), voice: '茉莉', status: 'active', exchanges: [], messageIds: [], summaryState: 'pending' },
         view: { phase: 'listening', userText: '', generatedText: '', heardText: '', level: 0, muted: false } }); },
       navigate(tab) { useUIStore.setState({ mobileTab: tab, activeView: 'chat', chatFromList: false, chatFromCharacters: false }); },
       chat() { useUIStore.setState({ mobileTab: 'chat', activeView: 'chat', chatFromList: true }); },
-      summary() { useVoiceCallStore.setState({ busy: false, saving: true, finishing: 'summary', record: { ...useVoiceCallStore.getState().record, status: 'ended' }, view: { ...useVoiceCallStore.getState().view, phase: 'ended' } }); },
+      summary() { callStore.setState({ busy: false, saving: true, finishing: 'summary', record: { ...callStore.getState().record, status: 'ended' }, view: { ...callStore.getState().view, phase: 'ended' } }); },
       callUI: useVoiceCallUIStore,
     };
   });
-  await page.getByRole('button', { name: '与星澜语音通话', exact: true }).waitFor(); checks++;
   const modelSetup = page.getByRole('dialog', { name: /选择对话模型/ });
-  await modelSetup.waitFor({ timeout: 5000 });
-  await page.keyboard.press('Escape'); await modelSetup.waitFor({ state: 'detached' });
-  await page.getByRole('button', { name: /稍后再说/ }).click();
-  await page.getByRole('dialog', { name: /聘用你的私人助理/ }).waitFor({ state: 'detached' });
+  if (await modelSetup.isVisible()) {
+    await page.keyboard.press('Escape'); await modelSetup.waitFor({ state: 'detached' });
+  }
+  // Startup character loading can complete after the isolated fixture was seeded.
+  // Open the saved fixture through the real store after onboarding settles.
+  await page.evaluate(async () => {
+    const { useChatStore } = await window.appModule('/src/store/chat-store.ts');
+    const { db } = await window.appModule('/src/db/index.ts');
+    await useChatStore.getState().loadCharacters();
+    await useChatStore.getState().selectCharacter('call-app-role', 'call-app-session');
+    const character = await db.characters.get('call-app-role');
+    if (!character) throw Error('Fixture role was deleted');
+    if (useChatStore.getState().selectedCharacterId !== character.id || useChatStore.getState().currentSessionId !== 'call-app-session') throw Error('Fixture chat selection did not complete');
+  });
   await page.setViewportSize({ width: 320, height: 844 });
-  assert.ok(await page.getByRole('button', { name: '与星澜语音通话', exact: true }).evaluate(node => { const box = node.getBoundingClientRect(); return box.height >= 48 && box.width >= 48 && node.textContent.includes('语音通话'); })); checks++;
+  const headerCall = page.getByRole('button', { name: '与星澜语音通话', exact: true });
+  await page.locator('[aria-label="与星澜语音通话"], [aria-label="打开星澜的状态与互动"]').first().waitFor();
+  if (!await headerCall.isVisible()) await page.getByRole('button', { name: '打开星澜的状态与互动', exact: true }).click();
+  const callEntry = await headerCall.isVisible() ? headerCall : page.getByRole('button', { name: '语音通话', exact: true });
+  await callEntry.waitFor();
+  assert.ok(await callEntry.evaluate(node => { const box = node.getBoundingClientRect(); return box.height >= 44 && box.width >= 44; })); checks++;
   assert.ok(await page.locator('.chat-header').evaluate(node => node.scrollWidth <= node.clientWidth)); checks++;
   await page.screenshot({ path: '.tmp-preview/voice-call/app-call-entry-dark-320.png' });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: '与星澜语音通话', exact: true }).click();
+  await callEntry.click();
   await page.getByRole('button', { name: '开始通话', exact: true }).waitFor(); checks++;
   await page.evaluate(() => window.appCallTest.connected());
   await page.getByRole('button', { name: '挂断', exact: true }).waitFor();
@@ -93,18 +130,27 @@ try {
   assert.ok(await page.getByRole('textbox', { name: '消息内容', exact: true }).isEnabled()); checks++;
   await page.screenshot({ path: '.tmp-preview/voice-call/app-after-call-dark-390.png' });
   assert.deepEqual(errors, []); checks++;
-  const result = { checks, realApiCalls: 0, modelTokens: 0, blockedExternal, deviceTested: false, mode: 'real-vite-app-navigation-with-call-presentation-mock' };
+  const result = { checks, realApiCalls: 0, modelTokens: 0, blockedExternal, deviceTested: false, mode: 'real-vite-app-navigation-with-call-presentation-mock',
+    modules: await page.evaluate(() => window.appModuleURLs),
+    isolation: 'Fresh Chromium context; synthetic account and character; all non-local requests blocked; call presentation mocked, no model or microphone use.' };
   writeFileSync('.tmp-preview/voice-call/app-result.json', JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
 } catch (error) {
   await page.screenshot({ path: '.tmp-preview/voice-call/app-failure.png' });
   const state = await page.evaluate(async () => {
-    const { useVoiceCallUIStore } = await import('/src/store/voice-call-ui-store.ts');
-    const { useVoiceCallStore } = await import('/src/store/voice-call-store.ts');
-    const { useAuthStore } = await import('/src/store/auth-store.ts');
-    return { target: useVoiceCallUIStore.getState().target, owner: useVoiceCallStore.getState().owner, busy: useVoiceCallStore.getState().busy, phase: useVoiceCallStore.getState().view?.phase, userId: useAuthStore.getState().userId, dialogs: [...document.querySelectorAll('[role=dialog]')].map(node => node.textContent.slice(0, 500)) };
+    const { useVoiceCallUIStore } = await window.appModule('/src/store/voice-call-ui-store.ts');
+    const { useVoiceCallStore } = await window.appModule('/src/store/voice-call-store.ts');
+    const { useAuthStore } = await window.appModule('/src/store/auth-store.ts');
+    const { useChatStore } = await window.appModule('/src/store/chat-store.ts');
+    const { useUIStore } = await window.appModule('/src/store/ui-store.ts');
+    return { target: useVoiceCallUIStore.getState().target, owner: useVoiceCallStore.getState().owner, busy: useVoiceCallStore.getState().busy, phase: useVoiceCallStore.getState().view?.phase, userId: useAuthStore.getState().userId,
+      chat: { selected: useChatStore.getState().selectedCharacterId, session: useChatStore.getState().currentSessionId, characters: useChatStore.getState().characters.map(c => ({id: c.id, owner: c.createdBy})) },
+      ui: { activeView: useUIStore.getState().activeView, tab: useUIStore.getState().mobileTab, chatFromList: useUIStore.getState().chatFromList },
+      text: document.body.innerText.slice(0, 2000),
+      modules: performance.getEntriesByType('resource').map(entry => entry.name).filter(name => /store\/(?:chat|auth|ui|voice-call).*\.ts/.test(name)),
+      dialogs: [...document.querySelectorAll('[role=dialog]')].map(node => node.textContent.slice(0, 500)) };
   }).catch(() => undefined);
-  writeFileSync('.tmp-preview/voice-call/app-failure.json', JSON.stringify({ error: String(error), state }, null, 2));
+  writeFileSync('.tmp-preview/voice-call/app-failure.json', JSON.stringify({ error: String(error), errors, state }, null, 2));
   throw error;
 }
 finally { await browser.close(); }

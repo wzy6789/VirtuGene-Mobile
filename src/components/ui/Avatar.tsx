@@ -1,5 +1,5 @@
 import { avatarImageSrc } from '../../lib/avatar';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { registerSoulElement, type SoulRole } from '../../lib/soul-handoff';
 
 interface AvatarProps {
@@ -8,6 +8,8 @@ interface AvatarProps {
   className?: string;
   soulKey?: string;
   soulRole?: SoulRole;
+  loading?:'eager'|'lazy';
+  fallback?:string;
 }
 
 const SIZES = {
@@ -21,7 +23,8 @@ const SIZES = {
  * 圆形头像（微信/QQ 式）：图片按 object-cover 居中裁剪成圆，
  * 比整图拉伸更清晰、更接近真实头像效果。
  */
-export function Avatar({ avatar, size = 'md', className = '', soulKey, soulRole }: AvatarProps) {
+export function Avatar({ avatar, size = 'md', className = '', soulKey, soulRole, loading='lazy',fallback='TA' }: AvatarProps) {
+  const [failedImage,setFailedImage]=useState('');
   const ref = useCallback((node: HTMLElement | null) => {
     if (node && soulKey && soulRole) return registerSoulElement(node,soulKey,soulRole);
   },[soulKey,soulRole,avatar]);
@@ -29,7 +32,7 @@ export function Avatar({ avatar, size = 'md', className = '', soulKey, soulRole 
   // 空字符串也要有东西可看：旧账号/演示账号可能没有头像，直接渲染会留下一个空圆圈。
   const glyph = avatar.trim() || '🧬';
   const image = avatarImageSrc(glyph);
-  if (image) {
+  if (image&&image!==failedImage) {
     return (
       <img
         ref={ref} data-soul-key={soulKey} data-soul-role={soulRole}
@@ -37,13 +40,14 @@ export function Avatar({ avatar, size = 'md', className = '', soulKey, soulRole 
         alt=""
         className={`${cls} object-cover`}
         style={{ imageRendering: 'auto' }}
-        loading="lazy"
+        loading={loading}
+        onError={()=>setFailedImage(image)}
       />
     );
   }
   return (
     <span ref={ref} data-soul-key={soulKey} data-soul-role={soulRole} className={`${cls} flex items-center justify-center bg-surface`}>
-      {glyph}
+      {image?fallback:glyph}
     </span>
   );
 }

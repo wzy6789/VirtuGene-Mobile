@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAtt
 import { createPortal } from 'react-dom';
 import { breathe } from '../../lib/haptics';
 import { AnimatedValue } from './AnimatedValue';
+import { Icon } from './Icon';
 import { prefersReducedMotion, subscribeReducedMotion } from '../../lib/mobile-motion';
 
 const reduced = prefersReducedMotion;
@@ -10,25 +11,23 @@ const reduced = prefersReducedMotion;
 function useFlowMotion(key: string) {
   const ref = useRef<HTMLDivElement>(null);
   const previous = useRef(new Map<string, { x: number; y: number }>());
-  const height = useRef(0);
   useLayoutEffect(() => {
     const host = ref.current;
     if (!host) return;
     const next = new Map<string, { x: number; y: number }>();
     const animations: Animation[] = [];
-    host.querySelectorAll<HTMLElement>('[data-flow-key]').forEach(el => {
-      const pos = { x: el.offsetLeft, y: el.offsetTop };
+    // Read every layout position before starting any animation. The field keeps
+    // its natural height; animating height would relayout the form every frame.
+    const positions = [...host.querySelectorAll<HTMLElement>('[data-flow-key]')]
+      .map(el => ({ el, pos: { x: el.offsetLeft, y: el.offsetTop } }));
+    positions.forEach(({ el, pos }) => {
       const old = previous.current.get(el.dataset.flowKey!);
       if (old && !reduced() && (pos.x !== old.x || pos.y !== old.y)) {
         animations.push(el.animate([{ transform: `translate(${old.x - pos.x}px, ${old.y - pos.y}px)` }, { transform: 'translate(0,0)' }], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' }));
       }
       next.set(el.dataset.flowKey!, pos);
     });
-    const nextHeight = host.offsetHeight;
-    if (height.current && nextHeight !== height.current && !reduced()) {
-      animations.push(host.animate([{ height: `${height.current}px` }, { height: `${nextHeight}px` }], { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' }));
-    }
-    previous.current = next; height.current = nextHeight;
+    previous.current = next;
     const clear = () => animations.forEach(animation => animation.cancel());
     const unsubscribe = subscribeReducedMotion(clear);
     return () => { unsubscribe(); clear(); };
@@ -118,7 +117,7 @@ export function TagInput({ value, onChange, suggestions, label, placeholder = '�
   return <>
     <div ref={flow} className="vg-tag-field" data-tag-owner={id} data-no-page-swipe data-no-back-swipe>
       {value.map(tag => <span data-flow-key={tag} key={tag} className={`vg-edit-tag ${removing.includes(tag) ? 'is-removing' : ''}`}>
-        <span>{tag}</span><button type="button" aria-label={`删除标签 ${tag}`} disabled={removing.includes(tag)} onClick={() => remove(tag)}>×</button>
+        <span>{tag}</span><button type="button" aria-label={`删除标签 ${tag}`} disabled={removing.includes(tag)} onClick={() => remove(tag)}><Icon name="close" size={14} /></button>
       </span>)}
       <input data-flow-key="__input" ref={input} value={draft} placeholder={placeholder} aria-label={label} role="combobox" aria-autocomplete="list" aria-expanded={shown}
         aria-controls={shown ? `${id}-list` : undefined} aria-activedescendant={shown ? `${id}-${Math.min(active, matches.length - 1)}` : undefined}
@@ -130,7 +129,7 @@ export function TagInput({ value, onChange, suggestions, label, placeholder = '�
           if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); insert(shown && e.key === 'Enter' ? matches[Math.min(active, matches.length - 1)] : clean); }
           if (e.key === 'Backspace' && !draft && value.length) { e.preventDefault(); remove(value[value.length - 1]); }
         }} />
-      {clean && <button type="button" className="vg-tag-add" aria-label={`添加标签 ${clean}`} onPointerDown={e => e.preventDefault()} onClick={() => insert()}>＋</button>}
+      {clean && <button type="button" className="vg-tag-add" aria-label={`添加标签 ${clean}`} onPointerDown={e => e.preventDefault()} onClick={() => insert()}><Icon name="plus" size={18} /></button>}
     </div>
     {shown && createPortal(<div id={`${id}-list`} data-tag-owner={id} className="vg-tag-suggestions" role="listbox" aria-label="标签联想" style={anchor} data-no-page-swipe data-no-back-swipe>
       {matches.map((tag, index) => <button type="button" id={`${id}-${index}`} role="option" aria-selected={active === index} key={tag}
@@ -232,26 +231,44 @@ export function FontRuler({ value, onChange }: { value: number; onChange: (value
 
 export function PressLightCard({ children, className = '', ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   const ref = useRef<HTMLButtonElement>(null);
-  const origin = useRef<{ x: number; y: number } | null>(null);
+  const origin = useRef<{ id: number; x: number; y: number } | null>(null);
   const moved = useRef(false);
-  const frame = useRef(0);
-  const reset = () => { cancelAnimationFrame(frame.current); origin.current = null; ref.current?.removeAttribute('data-pressed'); ref.current?.style.removeProperty('--press-x'); ref.current?.style.removeProperty('--press-y'); };
+  const reset = () => { origin.current = null; ref.current?.removeAttribute('data-pressed'); ref.current?.style.removeProperty('--press-x'); ref.current?.style.removeProperty('--press-y'); };
   useEffect(() => {
-    const unsubscribe = subscribeReducedMotion(reset);
-    return () => { unsubscribe(); reset(); };
+    const interrupt = () => { if (origin.current) moved.current = true; reset(); };
+    const hidden = () => { if (document.hidden) interrupt(); };
+    const unsubscribe = subscribeReducedMotion(interrupt);
+    window.addEventListener('blur', interrupt);
+    window.addEventListener('vg:back-request', interrupt);
+    document.addEventListener('visibilitychange', hidden);
+    return () => {
+      unsubscribe(); reset(); window.removeEventListener('blur', interrupt);
+      window.removeEventListener('vg:back-request', interrupt); document.removeEventListener('visibilitychange', hidden);
+    };
   }, []);
+  useLayoutEffect(() => { if (props.disabled) { moved.current = true; reset(); } }, [props.disabled]);
   return <button {...props} type={props.type ?? 'button'} ref={ref} className={`vg-press-card ${className}`} style={{ ...props.style } as CSSProperties}
     onPointerDown={e => {
-      props.onPointerDown?.(e); moved.current = false; if (e.defaultPrevented || e.button !== 0 || props.disabled || reduced()) return;
-      origin.current = { x: e.clientX, y: e.clientY };
+      props.onPointerDown?.(e);
+      if (!e.isPrimary) { if (origin.current) { moved.current = true; reset(); } return; }
+      if (e.defaultPrevented || e.button !== 0 || props.disabled) return;
+      moved.current = false;
+      // Track intent even in quiet mode, without capturing or cancelling native scrolling.
+      origin.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      if (reduced()) return;
       const el = e.currentTarget; const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
       const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)); const y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
-      el.style.setProperty('--press-x', `${(x - .5) * 7}deg`); el.style.setProperty('--press-y', `${(.5 - y) * 7}deg`);
+      el.style.setProperty('--press-x', `${(x - .5) * 3}deg`); el.style.setProperty('--press-y', `${(.5 - y) * 3}deg`);
       el.style.setProperty('--press-glow-x', `${x * 100}%`); el.style.setProperty('--press-glow-y', `${y * 100}%`); el.setAttribute('data-pressed', '');
     }}
-    onPointerMove={e => { props.onPointerMove?.(e); if (origin.current && Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) > 10) { moved.current = true; reset(); } }}
-    onClick={e => { if (moved.current && e.detail !== 0) { e.preventDefault(); moved.current = false; return; } props.onClick?.(e); }}
-    onPointerUp={e => { props.onPointerUp?.(e); reset(); }} onPointerCancel={e => { props.onPointerCancel?.(e); moved.current = true; reset(); }} onPointerLeave={e => { props.onPointerLeave?.(e); reset(); }} onBlur={e => { props.onBlur?.(e); reset(); }}>
+    onPointerMove={e => { props.onPointerMove?.(e); if (origin.current?.id === e.pointerId && Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) > 8) { moved.current = true; reset(); } }}
+    onClick={e => { if (moved.current && e.detail !== 0) { e.preventDefault(); e.stopPropagation(); moved.current = false; return; } props.onClick?.(e); }}
+    onPointerUp={e => { props.onPointerUp?.(e); if (origin.current?.id === e.pointerId) reset(); }}
+    onPointerCancel={e => { props.onPointerCancel?.(e); if (origin.current?.id === e.pointerId) { moved.current = true; reset(); } }}
+    onLostPointerCapture={e => { props.onLostPointerCapture?.(e); if (origin.current?.id === e.pointerId) { moved.current = true; reset(); } }}
+    onPointerLeave={e => { props.onPointerLeave?.(e); if (origin.current?.id === e.pointerId) { moved.current = true; reset(); } }}
+    onBlur={e => { props.onBlur?.(e); reset(); }}>
     {children}<span className="vg-press-glow" aria-hidden="true" />
   </button>;
 }

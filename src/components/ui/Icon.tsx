@@ -1,9 +1,10 @@
 import type { CSSProperties } from 'react';
 
-type BaseIconName = 'inbox' | 'diary' | 'moment' | 'todo' | 'calendar' | 'search' | 'edit' | 'spark' | 'profile' | 'settings' | 'check' | 'chevron' | 'shield' | 'back' | 'close' | 'arrow' | 'plus' | 'send' | 'heart' | 'clock' | 'trash' | 'more' | 'moon' | 'globe' | 'bell' | 'lock' | 'download' | 'upload' | 'refresh' | 'stop' | 'play' | 'pause' | 'image' | 'mic' | 'folder' | 'flag' | 'warning' | 'eye' | 'volume' | 'copy' | 'connection' | 'database' | 'info';
+type BaseIconName = 'inbox' | 'diary' | 'moment' | 'todo' | 'calendar' | 'search' | 'edit' | 'spark' | 'profile' | 'settings' | 'check' | 'chevron' | 'shield' | 'back' | 'close' | 'arrow' | 'plus' | 'send' | 'heart' | 'clock' | 'trash' | 'more' | 'moon' | 'globe' | 'bell' | 'lock' | 'download' | 'upload' | 'refresh' | 'stop' | 'play' | 'pause' | 'image' | 'mic' | 'folder' | 'flag' | 'warning' | 'eye' | 'volume' | 'copy' | 'connection' | 'database' | 'info' | 'smile';
 
-export type IconName = BaseIconName | 'gear' | 'phone';
+export type IconName = BaseIconName | 'gear' | 'phone' | 'compass';
 const paths: Record<IconName, string> = {
+  compass:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M16 8l-2.5 5.5L8 16l2.5-5.5Z',
   phone: 'M22 16.9v3a2 2 0 0 1-2.2 2A19.8 19.8 0 0 1 3.1 5.2 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.7l.5 2.7a2 2 0 0 1-.6 1.7l-1.3 1.3a16 16 0 0 0 5.8 5.8l1.3-1.3a2 2 0 0 1 1.7-.6l2.7.5a2 2 0 0 1 1.8 2.1Z',
   gear: 'M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6 M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z',
   connection: 'M8 3v5 M16 3v5 M5 8h14v2a7 7 0 0 1-14 0Z M12 17v5',
@@ -15,6 +16,7 @@ const paths: Record<IconName, string> = {
   plus: 'M12 5v14M5 12h14',
   send: 'm22 2-7 20-4-9-9-4Z M22 2 11 13',
   heart: 'M20.8 4.6a5.5 5.5 0 0 0-7.8 0l-1 1-1-1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8Z',
+  smile: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0 M8 14c1 4 7 4 8 0 M8 9h.01 M16 9h.01',
   clock: 'M20 12a8 8 0 1 1-16 0 8 8 0 0 1 16 0 M12 7v5l3 2',
   trash: 'M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7',
   more: 'M5 12h.01 M12 12h.01 M19 12h.01',

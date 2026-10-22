@@ -1,6 +1,6 @@
 /* Opaque mobile chrome does not need to blur the scrolling surface underneath.
    Keeping these layers cheap leaves more of the frame budget for chat and gestures. */
-.mobile-layout :is(.chat-header,.chat-composer,.vg-navigation) {
+.mobile-layout :is(.chat-header,.chat-composer,.vg-navigation):not([data-glass-quality='realtime']) {
   backdrop-filter:none;
   -webkit-backdrop-filter:none;
 }
@@ -17,7 +17,7 @@
 }
 .mobile-layout :is(.vg-navigation button,.chat-header button,.chat-composer button,.vg-conversation-row,.vg-character-shortcuts button,.vg-latest-message-button)[data-touch-pressed]::after { opacity:1; transition-duration:60ms; }
 .mobile-layout .chat-header button > svg { transition:transform 240ms cubic-bezier(.16,1,.3,1); }
-.mobile-layout .chat-header button[data-touch-pressed] > svg { transform:scale(.92); }
+.mobile-layout .chat-header button[data-touch-pressed] > svg { transform:none; }
 .mobile-layout button[data-press-cancelled] { opacity:.8; }
 .mobile-layout button.vg-latest-message-button { position:absolute; }
 .mobile-layout :is(.chat-thread,.vg-conversation-scroll,.vg-canvas-scroll) { overscroll-behavior-y:contain; }
@@ -32,7 +32,7 @@
 }
 .vg-message-generation-status {
   display:flex; align-items:center; gap:5px; margin:6px 0 0;
-  font-size:11px; line-height:20px; color:var(--text-secondary);
+  font-size:12px; line-height:20px; color:var(--text-secondary);
   animation:vg-generation-status-arrive 220ms cubic-bezier(.16,1,.3,1) backwards;
 }
 .vg-message-generation-status svg { flex-shrink:0; color:var(--vg-accent,#ad9bff); opacity:.8; }
@@ -42,21 +42,14 @@ html[data-vg-reduced-motion='true'] .vg-message-generation-status { animation:no
 html[data-vg-reduced-motion='true'] .vg-latest-message-anchor .vg-latest-message-button { transition:none; }
 @media (prefers-reduced-motion:reduce) {
   .vg-message-generation-status { animation:none; }
-  .vg-latest-message-anchor .vg-latest-message-button { transition:none; }
+  .vg-latest-message-anchor .vg-latest-message-button,
+  .vg-latest-message-anchor[data-visible='false'] .vg-latest-message-button { transition:none; }
 }
 
-/* Shared waiting/first-text bubble keeps its avatar and layout anchor alive. */
+/* A short first text fragment keeps a readable minimum width. */
 .vg-chat-message-row[data-streamed] .vg-message-bubble { min-width:66px; }
-.vg-reply-waiting-dots { display:inline-flex; align-items:center; gap:5px; vertical-align:middle; height:1em; }
-.vg-reply-waiting-dots i {
-  width:4px; height:4px; border-radius:50%; background:var(--vg-cyan,#00cec9);
-  animation:vg-reply-breathe 1200ms ease-in-out infinite;
-}
-.vg-reply-waiting-dots i:nth-child(2) { animation-delay:140ms; }
-.vg-reply-waiting-dots i:nth-child(3) { animation-delay:280ms; }
-@keyframes vg-reply-breathe { 0%,100% { opacity:.3; } 50% { opacity:.9; } }
-.vg-stream-text-arrive { animation:vg-reply-text-settle 220ms cubic-bezier(.16,1,.3,1) backwards; }
-@keyframes vg-reply-text-settle { from { opacity:.65; } to { opacity:1; } }
+/* Only the new row arrives; appended text has no separate fade animation. */
+.vg-stream-text-arrive { animation:none; }
 .vg-chat-message-row[data-streamed] .vg-message-bubble {
   transition:border-color 240ms ease-out;
 }
@@ -71,14 +64,14 @@ html[data-vg-reduced-motion='true'] .vg-latest-message-anchor .vg-latest-message
   transition:opacity 150ms ease-out,transform 280ms cubic-bezier(.16,1,.3,1);
 }
 .vg-composer-icon.is-send { opacity:1; transform:translate3d(0,0,0) scale(1) rotate(0); }
-.vg-composer-icon.is-stop { opacity:0; transform:translate3d(0,5px,0) scale(.72); }
-.chat-composer-send[data-generating='true'] .is-send { opacity:0; transform:translate3d(0,-5px,0) scale(.8) rotate(-12deg); }
+.vg-composer-icon.is-stop { opacity:0; transform:translate3d(0,4px,0); }
+.chat-composer-send[data-generating='true'] .is-send { opacity:0; transform:translate3d(0,-4px,0); }
 .chat-composer-send[data-generating='true'] .is-stop { opacity:1; transform:translate3d(0,0,0) scale(1); }
 .vg-chat-presence .vg-animated-value { display:inline-block; }
-html[data-vg-reduced-motion='true'] :is(.vg-stream-text-arrive,.vg-reply-waiting-dots i) { animation:none; }
+html[data-vg-reduced-motion='true'] .vg-stream-text-arrive { animation:none; }
 html[data-vg-reduced-motion='true'] :is(.vg-composer-icon,.chat-composer-send,.vg-chat-message-row[data-streamed] .vg-message-bubble) { transition:none; }
 @media (prefers-reduced-motion:reduce) {
-  :is(.vg-stream-text-arrive,.vg-reply-waiting-dots i) { animation:none; }
+  .vg-stream-text-arrive { animation:none; }
   :is(.vg-composer-icon,.chat-composer-send,.vg-chat-message-row[data-streamed] .vg-message-bubble) { transition:none; }
 }
 
@@ -114,12 +107,24 @@ html[data-vg-reduced-motion='true'] :is(.vg-filter-chip,.vg-chip-check,.vg-tag-f
 html[data-vg-reduced-motion='true'] .vg-press-card[data-pressed] {
   transform:none !important;
 }
-html[data-vg-reduced-motion='true'] :is(.vg-wordmark-reflection,.vg-wordmark-rail,.vg-profile-primary)::after,
+html[data-vg-reduced-motion='true'] :is(.vg-wordmark-reflection,.vg-profile-primary)::after,
 html[data-vg-reduced-motion='true'] .vg-wordmark-reflection::before,
 html[data-vg-reduced-motion='true'] .vg-world-helix-signal {
   opacity:0;
 }
-html[data-vg-reduced-motion='true'] .mobile-layout .vg-world-life-entry:is(:hover,:active),
-html[data-vg-reduced-motion='true'] .mobile-layout .vg-character-shortcuts > button:active {
+html[data-vg-reduced-motion='true'] .mobile-layout .vg-world-life-entry:is(:hover,:active) {
   transform:none;
+}
+
+/* Portals live outside the mobile shell; system quiet mode must cover their
+   focus transitions too, while retaining the visible focus ring. */
+@media (prefers-reduced-motion:reduce) {
+  :is(.mobile-layout,.vg-modal-panel,.vg-settings-design,.vg-secretary-ui,.scene-settings-overlay,.scene-settings-panel),
+  :is(.mobile-layout,.vg-modal-panel,.vg-settings-design,.vg-secretary-ui,.scene-settings-overlay,.scene-settings-panel) *,
+  :is(.mobile-layout,.vg-modal-panel,.vg-settings-design,.vg-secretary-ui,.scene-settings-overlay,.scene-settings-panel) *::before,
+  :is(.mobile-layout,.vg-modal-panel,.vg-settings-design,.vg-secretary-ui,.scene-settings-overlay,.scene-settings-panel) *::after {
+    animation:none !important;
+    transition-duration:0ms !important;
+    scroll-behavior:auto !important;
+  }
 }

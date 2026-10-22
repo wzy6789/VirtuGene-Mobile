@@ -5,6 +5,8 @@
 import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type Group, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent, type WorldFact, type WorldTurn, type WorldLocation, type WorldPresence, type WorldAgentState, type WorldPulse, type WorldObject, type Todo, type TodoOccurrence, type TodoReminder, type Moment, type MomentMedia, type MomentView, type MomentReaction, type MomentContact, type MomentJob, type MomentNotification, type CharacterLifeEvent, type MomentPostPlan, type MemorySourceTombstone } from '../db/index';
 import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
 import { clearDiarySharing } from './world/diary-visibility';
+import {assertSyncOwnership} from './sync-ownership';
+import {emptyChatConversationState} from './chat-conversation-state';
 import { momentsRepo } from '../db/moments-repo';
 import { messageRepo } from '../db/message-repo';
 import type { SecretaryTask } from './secretary/types';
@@ -18,6 +20,7 @@ import type { TodoEvent } from '../db';
 import { mergeTodoWork, validateTodoEvent, validWorkDate } from '../db/todo-work';
 import { mergeVoiceProfile } from './voice-call/profile';
 import { projectCallMessages, type VoiceCallRecord } from './voice-call/record';
+import {normalizeImportedReplyDelivery} from './chat/reply-delivery';
 
 export interface SyncExportData {
   __meta__: {
@@ -222,7 +225,7 @@ async function removeStaleSessionSummary(session: Session, userId: string): Prom
   }
   if (!stale) return session;
   const { summary: _summary, summaryUpdatedAt: _summaryUpdatedAt, summarySourceMessageIds: _sourceIds,
-    summarySourceMessageRevisions: _sourceRevisions, summarySourceMessageOffsets: _sourceOffsets,
+    summarySourceMessageRevisions: _sourceRevisions, summarySourceMessageOffsets: _sourceOffsets, summaryCoveragePolicy: _coveragePolicy,
     summaryWitnessedBy: _witnessedBy, ...rest } = session;
   return rest as Session;
 }
@@ -307,6 +310,7 @@ export async function importSyncData(
         db.moments, db.momentMedia, db.momentViews, db.momentReactions, db.momentContacts, db.momentJobs, db.momentNotifications,
         db.characterLifeEvents, db.momentPostPlans, db.memorySourceTombstones, db.secretaryTasks, db.secretaryBindings, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.voiceCalls],
       async () => {
+        await assertSyncOwnership(ownerId,data);
         await memorySourceTombstoneRepo.merge(data.sourceTombstones ?? []);
         const tombstones = data.sourceTombstones ?? [];
         const incomingDiaryRevision = (id: string) => data.diaries?.find((diary) => diary.id === id)?.revision ?? 0;
@@ -485,7 +489,22 @@ export async function importSyncData(
           const existing = await db.sessions.get(s.id);
           const preferred = existing && existing.updatedAt > s.updatedAt ? existing : s;
           const session = await removeStaleSessionSummary(preferred, ownerId);
-          await db.sessions.put(session);
+          // Local in-flight jobs must not survive a restore/import merely
+          // because text and source versions happen to be identical (ABA).
+          const revision=(value:number|undefined)=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0&&value<Number.MAX_SAFE_INTEGER?value:0;
+          const summaryRevision=existing?Math.max(revision(existing.summaryRevision),revision(session.summaryRevision))+1:revision(session.summaryRevision);
+          const auxiliaryRevision=existing?Math.max(revision(existing.auxiliaryRevision),revision(session.auxiliaryRevision))+1:revision(session.auxiliaryRevision);
+          const conversationVersion=(value:number|undefined)=>{
+            if(value===undefined)return 0;
+            if(!Number.isSafeInteger(value)||value<0||value>=Number.MAX_SAFE_INTEGER)throw Error('会话版本信息不正确，已停止导入。');
+            return value;
+          };
+          const importedVersion=conversationVersion(session.conversation?.version);
+          // Restoring identical text is still a branch boundary. A generation
+          // that started before restore must not pass a reused version (ABA),
+          // including legacy sessions that have no conversation state yet.
+          const conversation=existing?{...(session.conversation??emptyChatConversationState()),version:Math.max(conversationVersion(existing.conversation?.version),importedVersion)+1}:session.conversation;
+          await db.sessions.put({...session,conversation,summaryRevision,auxiliaryRevision});
           n += 1;
         }
         counts.sessions = n;
@@ -496,7 +515,7 @@ export async function importSyncData(
           if (await memorySourceTombstoneRepo.blocksImport({ userId: ownerId, sourceType: 'message', sourceId: m.id, sourceRevision: revision })) continue;
           const existing = await db.messages.get(m.id);
           if (existing && (existing.revision ?? 1) >= revision) continue;
-          await db.messages.put({ ...m, revision });
+          await db.messages.put(normalizeImportedReplyDelivery({ ...m, revision }));
           n += 1;
         }
         counts.messages = n;

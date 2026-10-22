@@ -1668,8 +1668,8 @@ async function run() {
   for(const substantive of ['明天三点开会，晚安','明天再弄之前帮我看看开头','改天再聊，你先告诉我怎么处理'])ok(detectChatIntent(substantive)!=='closing',`deferral pattern retains a substantive request or new fact: ${substantive}`);
   for(const message of ['不要给我建议','先别给建议，陪我聊两句','不用分析，先听我说','别再给我建议','不要再给我建议','我不想听建议','别给我讲怎么处理，我就是想吐槽一下']) {
     const state=updateChatConversationState(undefined,message);
-    ok(state.preferences.adviceStyle==='listen',`negated advice request persists listening preference: ${message}`);
-    ok(buildChatConversationStateContext(state).includes('未经请求不要立刻给解决方案'),'actual attention prompt carries persisted listening preference');
+    ok(state.topicAdvice==='listen'&&state.preferences.adviceStyle==='mixed',`current no-advice request remains subject-scoped: ${message}`);
+    ok(buildChatConversationStateContext(state).includes('不等于不想聊这件事'),'actual attention prompt carries the subject listening scope');
   }
   for(const message of ['她说“别问我”','朋友说别问我','如果我说别问我，你会怎样？','帮我写一句“不要给我建议”','不用展开说','不要给我建议？不是，我现在要你给我建议']) {
     const state=updateChatConversationState(undefined,message);
@@ -1678,7 +1678,7 @@ async function run() {
   }
   const corrections=updateChatConversationState(undefined,'短一点，不对，这里展开说。别问我，等等，你可以问。');
   ok(corrections.preferences.brevity==='detailed'&&corrections.preferences.questionTolerance==='normal','ordered clause corrections update independent preferences to last explicit directive');
-  const listenState=updateChatConversationState(undefined,'不要给我建议，少问一点');
+  const listenState=updateChatConversationState(undefined,'以后聊天不要给我建议，少问一点');
   for (const message of ['不是要建议，吐槽一下而已。', '我只是吐槽，不想要建议。', '我只想吐槽一下']) {
     const local = updateChatConversationState(undefined, message);
     ok(local.topicAdvice === 'listen' && local.preferences.adviceStyle === 'mixed', `explicit venting is scoped to this subject: ${message}`);
@@ -2078,9 +2078,10 @@ async function run() {
   const spokenActions='我翻了个白眼，打了个哈欠，又松了口气。';
   ok(stripRoleplayActions(spokenActions)===spokenActions,'expanded action cleanup never removes ordinary text outside brackets');
   for (const mode of ['private','proactive','group'] as const) {
-    ok(inspectChatOutput('（翻了个白眼，松了口气）随便你',{mode}).content==='随便你',`expanded action cleanup reaches shared ${mode} quality entry`);
+    const inspected=inspectChatOutput('（翻了个白眼，松了口气）随便你',{mode});
+    ok(!inspected.check.ok&&inspected.check.issue==='uninvited-staging'&&inspected.content==='',`raw stage violation is rejected before shared ${mode} display cleanup`);
   }
-  ok(inspectChatOutput('（打了个哈欠）',{mode:'proactive'}).check.issue==='empty','action-only proactive draft cannot become a sent empty message');
+  ok(inspectChatOutput('（打了个哈欠）',{mode:'proactive'}).check.issue==='uninvited-staging','action-only proactive draft is rejected before display cleanup');
   for (const [raw, expected] of [['今天路过那家店\n想起你说过想吃','今天路过那家店想起你说过想吃'],['hello\nworld','hello world'],['你好。\n明天见','你好。明天见'],['今天 API\n很好用','今天 API很好用']]) {
     ok(splitReplyParts(raw).join('') === expected && polishChatResponse(raw) === expected, `shared line boundary: ${raw}`);
   }

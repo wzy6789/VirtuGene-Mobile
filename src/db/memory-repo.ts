@@ -1,8 +1,12 @@
-import { db, type MemoryEvidenceSource, type MemoryItem } from './index';
+import { db, type MemoryItem } from './index';
 import { contradictsSimpleMemory } from '../lib/memory-correction';
 import { normalizeMemoryContent, prepareMemoryMetadata } from '../lib/memory-engine';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import { memoryLedgerRepo } from './memory-ledger-repo';
+import { isSessionAggregateSummary, invalidateSessionSummaryMemory } from './memory-invalidation';
+export { invalidateUnpinnedMemoriesForMessages, invalidateSessionSummaryMemory } from './memory-invalidation';
+import Dexie from 'dexie';
+import { publishMemoryWrite, type MemoryWriteReceipt } from '../lib/memory-write-events';
 
 /** 用于记忆去重的稳定键：忽略大小写、空白和常见标点，但不做模糊匹配。 */
 export function normalizeMemoryKey(content: string): string {
@@ -14,7 +18,7 @@ export function normalizeMemoryKey(content: string): string {
     .slice(0, 240);
 }
 
-async function upsertMemory(memory: MemoryItem): Promise<string> {
+async function upsertMemory(memory: MemoryItem, observe?: (existing?: MemoryItem) => void, keepExisting = false): Promise<string> {
   let candidate = memory;
   // A deleted/superseded id is never reused. Fresh evidence with identical text
   // may become a new row, but an old backup must not be able to revive the old id.
@@ -30,6 +34,8 @@ async function upsertMemory(memory: MemoryItem): Promise<string> {
   if (!key) return candidate.id;
   const existing = (await db.memories.where('characterId').equals(candidate.characterId).toArray())
     .find((item) => item.userId === candidate.userId && (item.status ?? 'active') === 'active' && normalizeMemoryKey(item.content) === key);
+  observe?.(existing);
+  if (existing && keepExisting) return existing.id;
   if (!existing) {
     const metadata = prepareMemoryMetadata(candidate.content, {
       kind: candidate.memoryKind,
@@ -69,25 +75,6 @@ async function upsertMemory(memory: MemoryItem): Promise<string> {
   return existing.id;
 }
 
-function isSessionAggregateSummary(memory: MemoryItem): boolean {
-  return memory.type === 'summary' && Boolean(memory.sourceSessionId);
-}
-
-async function revokeMemoryEvidence(
-  memory: MemoryItem,
-  sourceIds: string[],
-  exhaustedStatus: 'withdrawn' | 'superseded' = 'superseded',
-): Promise<void> {
-  const sourceSession = memory.sourceSessionId ? await db.sessions.get(memory.sourceSessionId) : undefined;
-  const sourceType: MemoryEvidenceSource = memory.importedFromMemoryId
-    ? 'legacy'
-    : sourceSession?.type === 'group' ? 'group'
-      : memory.sourceMessageIds?.length ? 'chat' : 'legacy';
-  const claim = await memoryLedgerRepo.findClaim(memory.userId, memory.memoryKind ?? 'fact', memory.content);
-  if (!claim) return;
-  await memoryLedgerRepo.revokeClaimSources(memory.userId, claim.id, [sourceType], sourceIds, exhaustedStatus);
-}
-
 /** A corrected/deleted durable fact must not remain baked into any summary that cited its source turn. */
 async function invalidateSessionSummariesForMemory(memory: MemoryItem): Promise<void> {
   const sourceIds = [...new Set(memory.sourceMessageIds ?? [])];
@@ -120,10 +107,11 @@ async function invalidateSessionSummariesForMemory(memory: MemoryItem): Promise<
       summarySourceMessageIds: _summarySourceMessageIds,
       summarySourceMessageRevisions: _summarySourceMessageRevisions,
       summarySourceMessageOffsets: _summarySourceMessageOffsets,
+      summaryCoveragePolicy: _summaryCoveragePolicy,
       summaryWitnessedBy: _summaryWitnessedBy,
       ...rest
     } = session;
-    await db.sessions.put(rest);
+    await db.sessions.put({...rest,summaryRevision:(session.summaryRevision??0)+1});
     await invalidateSessionSummaryMemory(session.userId, session.id);
   }
 }
@@ -144,90 +132,21 @@ async function retireDetachedPinnedSessionSummaries(items: MemoryItem[]): Promis
   return items.map((memory) => retired.get(memory.id) ?? memory);
 }
 
-/** 删除或撤回原始消息时，失效由其自动归纳出的记忆；独立置顶事实保留，摘要始终按聚合来源整体失效。 */
-export async function invalidateUnpinnedMemoriesForMessages(userId: string, messageIds: string[]): Promise<number> {
-  const ids = new Set(messageIds);
-  if (!ids.size) return 0;
-  const rows = await db.memories.where('userId').equals(userId).toArray();
-  const affected = rows.filter((memory) =>
-    (memory.status ?? 'active') === 'active' && (memory.sourceMessageIds ?? []).some((id) => ids.has(id)),
-  );
-  let invalidated = 0;
-  const sourceTypes: MemoryEvidenceSource[] = ['chat', 'group', 'legacy'];
-
-  for (const memory of affected) {
-    const allSourceIds = [...new Set(memory.sourceMessageIds ?? [])];
-    const changedIds = allSourceIds.filter((id) => ids.has(id));
-    // A session summary is an aggregate claim: editing any input invalidates the
-    // whole summary. Ordinary extracted memories may keep independent surviving
-    // source messages instead of being discarded wholesale.
-    const isAggregateSummary = isSessionAggregateSummary(memory);
-    const revokedIds = isAggregateSummary ? (allSourceIds.length ? allSourceIds : [memory.id]) : changedIds;
-    const revokedIdSet = new Set(revokedIds);
-    const remainingIds = allSourceIds.filter((id) => !revokedIdSet.has(id));
-    // Legacy batch extraction has no per-fact evidence mapping. Treat that batch
-    // as a dependency set, never as independent confirmations of every fact.
-    const dependentBatch = memory.type === 'auto' && !memory.pinned && allSourceIds.length > 1
-      && memory.sourceEvidenceMode !== 'independent';
-    const shouldSupersede = isAggregateSummary || dependentBatch || (!memory.pinned && remainingIds.length === 0);
-    const retainedIds = remainingIds;
-    const retainedIdSet = new Set(retainedIds);
-    const retainMap = (value?: Record<string, number>) => {
-      if (!value) return undefined;
-      const next = Object.fromEntries(Object.entries(value).filter(([id]) => retainedIdSet.has(id)));
-      return Object.keys(next).length ? next : undefined;
-    };
-    const now = Date.now();
-    const updated: MemoryItem = {
-      ...memory,
-      ...(shouldSupersede ? { status: 'superseded' as const } : {}),
-      ...(shouldSupersede ? { pinned: undefined } : {}),
-      sourceMessageIds: retainedIds.length ? retainedIds : undefined,
-      sourceMessageRevisions: retainMap(memory.sourceMessageRevisions),
-      sourceMessageOffsets: retainMap(memory.sourceMessageOffsets),
-      sourceMessageEndOffsets: retainMap(memory.sourceMessageEndOffsets),
-      updatedAt: now,
-    };
-    await db.memories.put(updated);
-
-    const claim = await memoryLedgerRepo.findClaim(userId, memory.memoryKind ?? 'fact', memory.content);
-    if (claim) {
-      // Revoke only this memory claim's evidence edge. A different fact extracted
-      // from the same message remains supported by that message.
-      await memoryLedgerRepo.revokeClaimSources(userId, claim.id, sourceTypes, revokedIds,
-        shouldSupersede ? 'superseded' : 'withdrawn');
-    }
-
-    if (shouldSupersede) {
-      invalidated += 1;
-      await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: memory.id, sourceRevision: now, status: 'superseded' });
-    } else {
-      // 独立置顶事实按设计保留（用户明确要求记住的不能被一次编辑清掉），
-      // 但它已经和来源脱钩了：**必须留墓碑**，否则一份旧备份会把"还能被原话核对"
-      // 的假象带回来，而那份原话在本机已经不存在了。
-      if (updated.pinned && retainedIds.length === 0) {
-        await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: memory.id, sourceRevision: now, status: 'superseded' });
-      }
-      if (updated.pinned || retainedIds.length) await memoryLedgerRepo.syncMemoryItem(updated);
-    }
-  }
-  return invalidated;
-}
-
-export async function invalidateSessionSummaryMemory(userId: string, sessionId: string): Promise<void> {
-  const rows = await db.memories.where('userId').equals(userId).toArray();
-  for (const memory of rows) {
-    if (!isSessionAggregateSummary(memory) || memory.sourceSessionId !== sessionId || (memory.status ?? 'active') !== 'active') continue;
-    const updatedAt = Date.now();
-    const updated: MemoryItem = { ...memory, status: 'superseded', pinned: undefined, sourceMessageIds: undefined, updatedAt };
-    await db.memories.put(updated);
-    const sourceIds = memory.sourceMessageIds?.length ? memory.sourceMessageIds : [memory.id];
-    await revokeMemoryEvidence(memory, sourceIds, 'superseded');
-    await memorySourceTombstoneRepo.record({ userId, sourceType: 'memory', sourceId: memory.id, sourceRevision: updatedAt, status: 'superseded' });
-  }
-}
-
 export const memoryRepo = {
+  /** Saved archive preview only; does not claim these records are live recall evidence.
+   * Keep reads bounded and apply the same detached-aggregate display retirement
+   * as full archive repair without writing ledger/tombstone state while previewing. */
+  async getArchivePreviewByCharacter(characterId: string, userId: string): Promise<MemoryItem[]> {
+    const recent = await db.memories.where('[userId+characterId+createdAt+id]')
+      .between([userId, characterId, Dexie.minKey, Dexie.minKey], [userId, characterId, Dexie.maxKey, Dexie.maxKey])
+      .reverse().limit(6).toArray();
+    return recent.filter(memory => memory.userId === userId && memory.characterId === characterId).map(memory =>
+      isSessionAggregateSummary(memory) && memory.pinned && !(memory.sourceMessageIds?.length)
+        && (memory.status ?? 'active') === 'active'
+        ? { ...memory, status: 'superseded' as const, pinned: undefined }
+        : memory);
+  },
+
   /** 获取一个用户最近留下的记忆，用于生命回顾等跨角色视图。 */
   async getRecentByUser(userId: string, limit = 60): Promise<MemoryItem[]> {
     const assistantIds = new Set((await db.characters.where('createdBy').equals(userId).filter(c => c.agentProfile === 'secretary').toArray()).map(c => c.id));
@@ -313,10 +232,58 @@ export const memoryRepo = {
   async create(memory: MemoryItem): Promise<string> {
     // 记忆不能因数量上限被物理删除。召回时按相关性与上下文预算裁剪，
     // 原始消息仍可溯源，用户主动删除则走 deleteById 的明确撤回路径。
-    const id = await upsertMemory(memory);
+    let existed = false;
+    const id = await upsertMemory(memory, existing => { existed = !!existing; });
     const stored = await db.memories.get(id);
     if (stored) await memoryLedgerRepo.syncMemoryItem(stored);
+    if (stored && !existed) {
+      const receipt = { memory: stored, created: true };
+      let transaction = Dexie.currentTransaction;
+      while (transaction?.parent) transaction = transaction.parent;
+      if (transaction) transaction.on('complete', () => publishMemoryWrite(receipt));
+      else publishMemoryWrite(receipt);
+    }
     return id;
+  },
+
+  /** Explicit remember does not rewrite or duplicate an already remembered fact. */
+  async remember(memory: MemoryItem, isCurrent: () => boolean): Promise<MemoryWriteReceipt> {
+    return db.transaction('rw', db.tables, async () => {
+      if (!isCurrent()) throw new Error('memory:context_changed');
+      const session = memory.sourceSessionId ? await db.sessions.get(memory.sourceSessionId) : undefined;
+      const ids = memory.sourceMessageIds ?? [];
+      const sources = await db.messages.bulkGet(ids);
+      const suppressed = await memorySourceTombstoneRepo.suppressedMessages(memory.userId, memory.characterId);
+      if (!session || session.userId !== memory.userId || session.characterId !== memory.characterId
+        || session.type === 'group' || !ids.length || ids.some(id => suppressed.has(id)) || sources.some(source => !source || source.sessionId !== session.id || source.failed
+          || (source.revision ?? 1) !== memory.sourceMessageRevisions?.[source.id])) throw new Error('memory:source_changed');
+      let existed = false;
+      const id = await upsertMemory(memory, existing => { existed = !!existing; }, true);
+      const stored = await db.memories.get(id);
+      if (!stored) throw new Error('memory:not_saved');
+      if (!existed) await memoryLedgerRepo.syncMemoryItem(stored);
+      if (!isCurrent()) throw new Error('memory:context_changed');
+      return { memory: stored, created: !existed, sessionId: memory.sourceSessionId };
+    });
+  },
+
+  /** Compare the committed row inside the deletion transaction; later edits always win. */
+  async undoRemember(receipt: MemoryWriteReceipt, userId: string, characterId: string, sessionId: string,
+    isCurrent: () => boolean): Promise<'undone' | 'changed' | 'unavailable'> {
+    if (!receipt.created) return 'changed';
+    return db.transaction('rw', db.tables, async () => {
+      if (!isCurrent()) return 'unavailable';
+      const expected = receipt.memory;
+      const current = await db.memories.get(expected.id);
+      const session = await db.sessions.get(sessionId);
+      if (!current || expected.userId !== userId || expected.characterId !== characterId
+        || current.userId !== userId || current.characterId !== characterId || current.sourceSessionId !== sessionId
+        || !session || session.userId !== userId || session.characterId !== characterId) return 'unavailable';
+      if (JSON.stringify(current) !== JSON.stringify(expected)) return 'changed';
+      await memoryRepo.deleteById(current.id);
+      if (!isCurrent()) throw new Error('memory:context_changed');
+      return 'undone';
+    });
   },
 
   /** 将同一会话的压缩结果更新为一条摘要记忆，避免每次压缩都制造重复记忆。 */
@@ -326,13 +293,16 @@ export const memoryRepo = {
     sessionId: string;
     content: string;
     sourceMessageIds?: string[];
+    expectedSummaryRevision?:number;
+    isCurrent?:()=>boolean;
   }): Promise<string> {
     return db.transaction('rw', [db.memories, db.sessions, db.messages, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.memorySourceTombstones], async () => {
     const content = input.content.trim().slice(0, 2_400);
-    if (!content) return '';
+    if (!content||input.isCurrent?.()===false) return '';
     const session = await db.sessions.get(input.sessionId);
     if (!session || session.userId !== input.userId || session.characterId !== input.characterId
-      || session.summary?.trim().slice(0, 2_400) !== content) return '';
+      || session.summary?.trim().slice(0, 2_400) !== content
+      ||(input.expectedSummaryRevision!==undefined&&(session.summaryRevision??0)!==input.expectedSummaryRevision)) return '';
     const all = await db.memories.where('characterId').equals(input.characterId).toArray();
     const existing = all.find((memory) =>
       memory.userId === input.userId &&
@@ -354,6 +324,7 @@ export const memoryRepo = {
       });
       const stored = await db.memories.get(existing.id);
       if (stored) await memoryLedgerRepo.syncMemoryItem(stored);
+      if(input.isCurrent?.()===false)throw Error('memory:context_changed');
       return existing.id;
     }
     const id = crypto.randomUUID();
@@ -372,6 +343,7 @@ export const memoryRepo = {
     };
     await db.memories.add(summary);
     await memoryLedgerRepo.syncMemoryItem(summary);
+    if(input.isCurrent?.()===false)throw Error('memory:context_changed');
     return id;
     });
   },

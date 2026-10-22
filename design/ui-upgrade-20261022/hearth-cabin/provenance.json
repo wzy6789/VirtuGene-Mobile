@@ -1,0 +1,45 @@
+{
+  "id": "hearth-cabin",
+  "prompt": "Use case: photorealistic-natural. Asset type: original complete interior background for a portrait mobile chat app, image only, no UI. Create an exceptionally convincing editorial interior photograph, tall portrait 9:20 composition. Natural seated eye-level camera, normal 35mm perspective and straight believable architecture, cinematic yet restrained exposure, rich fine texture at real human scale. Fill the portrait with a room, furniture and visible outdoor window, very little empty ceiling. Tactile real wood grain, uneven linen weave, used leather or fabric, fine window reflections, tiny lived-in imperfections and plausible contact shadows. No people, no letters, no branding, no watermark. Never illustration, clay, miniature, dollhouse, CGI, smooth toy objects, extreme wide angle, perfectly symmetrical showroom or glossy unreal materials. Keep window glass clear enough to identify an interior polygon for localized weather; mullions and indoor objects distinct. Real fireplace wooden cabin: intimate mountain timber room, rough grain old beams and walls, darkened realistic stone hearth slightly right of center in middle image with small contained orange flames inside a clearly defined dark firebox opening. Comfortable wool upholstered chair left, a worn wooden side table lower foreground with ceramic tea cup, folded blanket, realistic chopped logs. Small window upper left reveals cold blue forest twilight. Dim warm firelight and subtle lamp fill, ash, soot and irregular stone visible, believable home rather than stage. No floating sparks in room, no excessive orange grading.",
+  "toolPath": "C:\\Users\\34568\\.codex\\generated_images\\01a1614a-fd69-7361-8d20-268d477dc597\\exec-f2b16d44-6df5-4e3c-a3f5-ffe76e43e293.png",
+  "tool": "built-in image_gen",
+  "success": true,
+  "outputHint": "Generated images are saved to C:\\Users\\34568\\.codex\\generated_images\\01a1614a-fd69-7361-8d20-268d477dc597 as C:\\Users\\34568\\.codex\\generated_images\\01a1614a-fd69-7361-8d20-268d477dc597\\exec-f2b16d44-6df5-4e3c-a3f5-ffe76e43e293.png by default.\nIf you need to use a generated image at another path, copy it and leave the original in place unless the user explicitly asks you to delete it.\nThe generated image is already displayed to the user. There is no need to render it in the final response as a Markdown image or file link.",
+  "sourceWidth": 841,
+  "sourceHeight": 1870,
+  "sourceSha256": "b5b36b0ff288ba6c7cfbf5538c3101f56993e3c742cfd4566dc7562db4c29d20",
+  "sourceBytes": 2740893,
+  "productionPoster": {
+    "file": "poster-photo-20261022-841.webp",
+    "width": 841,
+    "height": 1870,
+    "bytes": 515460,
+    "sha256": "590b2200dee2a56414e26a756c567e715dd3feffa4235ba58d2c28bc8e377c74",
+    "decodedRgbaBytes": 6290680
+  },
+  "thumbnail": {
+    "file": "thumbnail-photo-20261022.webp",
+    "width": 360,
+    "height": 800,
+    "bytes": 96560,
+    "sha256": "9f90fa10a36de0ed56f14564cce7e05ea64b7ee1c3ebc2df9ab497c36a65f480",
+    "decodedRgbaBytes": 1152000
+  },
+  "mask": {
+    "file": "window-mask-photo-20261022-841.webp",
+    "width": 206,
+    "height": 206,
+    "bytes": 272,
+    "sha256": "6cf2761553ed38457c67ee8a1f92e676f317614f029fcb112ceccfdf3e9317de",
+    "decodedRgbaBytes": 169744,
+    "rect": [
+      1083.8526,
+      1354.3876,
+      352.7229,
+      352.7229
+    ],
+    "maskMode": "alpha"
+  },
+  "inspection": "Viewed built-in output: convincing wood/textile/glass texture, believable perspective; source is AI-generated photographic style, not documentary photography.",
+  "calls": 1
+}

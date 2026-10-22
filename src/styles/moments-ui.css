@@ -1,0 +1,215 @@
+/* 朋友圈（Moments）：内容优先，图片与互动保持轻量，避免世界页的科幻特效侵入阅读。 */
+.vg-moments-page { padding:0 0 32px; background:var(--vg-glass-reading-bg,var(--vg-elev-0)); }
+.vg-moments-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:22px 16px 14px; }
+.vg-moments-header h1 { margin:0; color:var(--text); font-size:max(26px,1.7333rem); letter-spacing:.1em; }
+.vg-moments-header p:last-child { margin:6px 0 0; color:var(--text-secondary); font-size:max(12px,0.8rem); }
+.vg-moments-camera { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border:1px solid var(--vg-glass-edge,var(--border)); border-radius:14px; color:var(--vg-accent); background:var(--vg-glass-control-bg,var(--bg-surface)); box-shadow:inset 0 1px var(--vg-glass-highlight,var(--vg-elev-highlight)); line-height:0; }
+.vg-moments-camera svg { display:block; }
+.vg-moments-header-actions { display:flex; align-items:center; gap:7px; }
+.vg-moments-settings { display:grid; place-items:center; flex:none; width:44px; height:44px; padding:0; border:1px solid var(--vg-glass-edge,var(--border)); border-radius:14px; color:var(--text-secondary); background:var(--vg-glass-control-bg,var(--bg-surface)); box-shadow:inset 0 1px var(--vg-glass-highlight,var(--vg-elev-highlight)); }
+.vg-moments-settings svg { display:block; }
+.vg-moments-settings:active { background:var(--vg-glass-content-bg,var(--bg-surface)); }
+/* 名片与封面：头像与用户名完整位于亮色封面内，点空白封面展开/收起。 */
+.vg-moments-profile { position:relative; margin:0 0 10px; }
+.vg-moments-cover { position:relative; display:block; width:100%; height:48px; padding:0; border:0; background-color:var(--vg-elev-2); background-image:linear-gradient(135deg,color-mix(in srgb,var(--vg-accent) 12%,transparent),transparent 65%); background-position:center; background-size:cover; transition:height .22s ease; }
+/* 展开时封面下缘加一层压暗，头像和名字保持清晰。 */
+.vg-moments-profile[data-expanded="true"] .vg-moments-cover { height:196px; }
+.vg-moments-cover-actions { position:absolute; z-index:2; top:12px; right:12px; display:flex; gap:8px; }
+.vg-moments-cover-actions button { min-height:44px; padding:6px 11px; border:1px solid var(--vg-elev-edge); border-radius:var(--vg-radius-pill); color:var(--text); background:var(--vg-elev-1); font-size:max(12px,0.8rem); }
+.vg-moments-profile-row { position:relative; display:flex; align-items:center; gap:14px; min-height:76px; padding:12px 16px; background:var(--vg-elev-1); pointer-events:none; }
+.vg-moments-profile-row > img,.vg-moments-profile-row > span { border:1px solid var(--vg-elev-edge); box-shadow:var(--vg-elev-shadow-1); }
+.vg-moments-profile-row strong { display:block; color:var(--text); font-size:max(16px,1.0667rem); }
+.vg-moments-profile-row > div > span { display:block; margin-top:2px; color:var(--text-secondary); font-size:max(12px,0.8rem); }
+/* 互动条与动态行共用同一条左边缘（通栏），但用底色把它和内容区分开 */
+.vg-moments-inbox-wrap { display:flex; justify-content:center; margin:12px 16px 20px; animation:vg-inbox-arrive 240ms cubic-bezier(.2,.8,.2,1) both; }
+.vg-moments-inbox { position:relative; isolation:isolate; display:inline-flex; align-items:center; gap:12px; min-height:48px; max-width:100%; padding:6px 12px 6px 7px; border:0; border-radius:16px; background:transparent; color:var(--text); text-align:left; }
+.vg-moments-inbox::before { content:''; position:absolute; z-index:-1; inset:0; border:1px solid var(--vg-glass-edge,var(--border)); border-radius:inherit; background:var(--vg-glass-content-bg,var(--bg-surface)); box-shadow:inset 0 1px var(--vg-glass-highlight,var(--vg-elev-highlight)),var(--vg-glass-shadow,var(--vg-elev-shadow-1)); transition:transform 180ms cubic-bezier(.2,.8,.2,1); pointer-events:none; }
+.vg-moments-inbox > span:not(.vg-moments-inbox-avatar) { font-size:max(14px,0.9333rem); font-weight:500; letter-spacing:.015em; white-space:nowrap; }
+.vg-moments-inbox .vg-moments-inbox-avatar { width:32px; height:32px; border-radius:8px; }
+.vg-moments-inbox > svg { flex:none; margin-left:10px; color:var(--text-secondary); }
+.vg-moments-inbox:active::before { transform:scale(.98,.96); }
+@keyframes vg-inbox-arrive { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
+@media(prefers-reduced-motion:reduce) { .vg-moments-inbox-wrap { animation:none; } .vg-moments-inbox::before { transition:none; } .vg-moments-inbox:active::before { transform:none; } }
+html[data-vg-reduced-motion='true'] .vg-moments-inbox-wrap { animation:none; }
+html[data-vg-reduced-motion='true'] .vg-moments-inbox::before { transition:none; }
+html[data-vg-reduced-motion='true'] .vg-moments-inbox:active::before { transform:none; }
+/* 动态流：通栏列表 + 极细分隔线（不用卡片盒），头像左置、名字与正文同列 —— 微信的读法 */
+.vg-moment-card { position:relative; display:flex; align-items:flex-start; gap:10px; padding:14px 16px; border-bottom:1px solid rgba(155,139,237,.12); }
+.vg-moment-card:last-of-type { border-bottom:0; }
+.vg-moment-body { min-width:0; flex:1; }
+.vg-moment-name { display:block; color:var(--vg-accent); font-size:max(15px,1rem); font-weight:600; line-height:1.5; overflow-wrap:anywhere; }
+.vg-moment-meta { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:7px; color:var(--text-secondary); font-size:max(12px,0.8rem); }
+/* 微信那套：右下角一个「···」气泡，点开才浮出 赞 | 评论 */
+.vg-moment-interact { position:relative; display:flex; justify-content:flex-end; margin-top:2px; }
+.vg-moment-bubble { padding:1px 8px 3px; border-radius:8px; color:var(--text-secondary); background:rgba(155,139,237,.11); font-size:max(13px,0.8667rem); letter-spacing:1px; line-height:1.5; }
+.vg-moment-bubble.is-liked { color:var(--vg-danger); background:color-mix(in srgb,var(--vg-danger) 9%,var(--vg-elev-1)); }
+.vg-moment-pill { position:absolute; z-index:5; top:-6px; right:34px; display:flex; overflow:hidden; border:1px solid var(--border); border-radius:9px; background:var(--bg-panel); box-shadow:0 10px 24px rgba(0,0,0,.32); }
+.vg-moment-pill button { display:flex; align-items:center; justify-content:center; gap:7px; min-width:76px; padding:8px 12px; color:var(--text); font-size:max(12.5px,0.8333rem); white-space:nowrap; }
+.vg-moment-pill button svg { flex:none; color:var(--vg-cyan); }
+.vg-moment-pill button + button { border-left:1px solid var(--border); }
+.vg-moment-pill button:active { color:var(--text); background:var(--vg-elev-2); }
+/* 点赞与评论合成一个浅底块（微信也是同一个小灰块），中间一条细线 */
+.vg-moment-thread { margin-top:9px; padding:10px 12px; border:1px solid var(--vg-glass-edge,var(--border)); border-radius:14px; background:var(--vg-glass-content-bg,var(--vg-elev-2)); box-shadow:inset 0 1px var(--vg-glass-highlight,var(--vg-elev-highlight)); }
+.vg-moment-likes { display:flex; align-items:center; gap:7px; width:100%; color:var(--text-secondary); font-size:max(12px,0.8rem); text-align:left; }
+.vg-moment-like-heart { color:var(--vg-danger); font-size:max(12px,0.8rem); }
+.vg-moment-like-avatars { display:flex; align-items:center; flex-wrap:wrap; gap:6px; min-width:0; }
+.vg-moment-like-avatars > * { border:1.5px solid var(--bg-panel); }
+.vg-moment-like-avatars > * { margin:0; }
+.vg-moment-likes + .vg-moment-comments { margin-top:8px; padding-top:8px; border-top:1px solid rgba(155,139,237,.14); }
+.vg-moment-menu { position:absolute; z-index:6; top:34px; right:14px; overflow:hidden; border:1px solid var(--border); border-radius:11px; background:var(--bg-panel); box-shadow:0 8px 26px rgba(0,0,0,.16); }
+/* 和 ⋯ 菜单一样带一层透明遮罩：点空白处也能收掉，三套浮层行为一致 */
+.vg-moment-menu-backdrop { position:fixed; z-index:5; inset:0; }
+.vg-moment-menu button { display:block; width:100%; padding:10px 13px; color:var(--text-secondary); font-size:max(12px,0.8rem); text-align:left; white-space:nowrap; }
+.vg-moment-menu button + button { border-top:1px solid var(--border); color:var(--vg-danger); }
+.vg-moment-text { margin:5px 1px 0; color:var(--text); font-size:max(15px,1rem); line-height:1.72; white-space:pre-wrap; overflow-wrap:anywhere; }
+.vg-moment-media { display:grid; gap:4px; margin-top:9px; overflow:hidden; border-radius:12px; }
+.vg-moment-media.count-1 { grid-template-columns:minmax(0,1fr); max-width:76%; }
+.vg-moment-media.count-2, .vg-moment-media.count-4 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.vg-moment-media.count-3, .vg-moment-media.count-5, .vg-moment-media.count-6, .vg-moment-media.count-7, .vg-moment-media.count-8, .vg-moment-media.count-9 { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.vg-moment-media img { display:block; width:100%; min-height:64px; aspect-ratio:1; object-fit:cover; background:var(--vg-inset); color:var(--text-secondary); font-size:13px; }
+.vg-moment-media.count-1 img { aspect-ratio:auto; max-height:330px; object-fit:contain; }
+.vg-moment-comments { display:grid; gap:5px; }
+.vg-moment-comment-row { margin:0; color:var(--text); font-size:max(12px,0.8rem); line-height:1.55; text-align:left; }
+.vg-moment-comment-row:active { color:var(--vg-cyan); }
+.vg-moment-comment-row strong { color:var(--vg-cyan); font-weight:500; }
+.vg-moment-more-comments { color:var(--vg-cyan); font-size:max(12px,0.8rem); text-align:left; }
+.vg-moment-comment-box { display:flex; gap:7px; margin-top:9px; }
+.vg-moment-replying { align-self:center; color:var(--vg-cyan); font-size:max(12px,0.8rem); white-space:nowrap; }
+.vg-moment-comment-box input { min-width:0; flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:10px; color:var(--text); background:var(--bg); font-size:max(12px,0.8rem); outline:none; }
+.vg-moment-comment-box button { padding:0 11px; border-radius:10px; color:var(--vg-cyan); background:var(--vg-elev-2); font-size:max(12px,0.8rem); }
+.vg-moments-empty { display:grid; justify-items:center; padding:78px 20px; text-align:center; color:var(--text-secondary); }
+.vg-moments-empty > span { color:var(--vg-cyan); font-size:max(25px,1.6667rem); text-shadow:none; }
+.vg-moments-empty strong { margin-top:15px; color:var(--text); font-size:max(16px,1.0667rem); }
+.vg-moments-empty p { margin:7px 0 17px; font-size:max(12px,0.8rem); }
+.vg-moments-empty button { padding:9px 15px; border:1px solid rgba(115,246,236,.25); border-radius:12px; color:var(--vg-cyan); background:rgba(115,246,236,.07); font-size:max(12px,0.8rem); }
+
+.vg-moment-sheet { width:100%; min-width:0; padding:17px 16px 18px; color:var(--text); background:var(--vg-glass-reading-bg,var(--bg-panel)); }
+
+
+
+.vg-moment-sheet > textarea { width:100%; min-height:130px; resize:vertical; padding:12px; font-size:max(15px,1rem); line-height:1.75; }
+.vg-moment-sheet > textarea::placeholder { color:var(--text-secondary); }
+.vg-moment-preview-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin:10px 0 17px; }
+.vg-moment-preview-grid > div { position:relative; overflow:hidden; border-radius:9px; aspect-ratio:1; }
+.vg-moment-preview-grid img { width:100%; height:100%; object-fit:cover; }
+.vg-moment-preview-grid > div button { position:absolute; top:2px; right:2px; width:44px; height:44px; display:grid; place-items:center; border-radius:50%; color:#fff; background:rgba(0,0,0,.58); }
+.vg-moment-add-image { display:grid; place-items:center; align-content:center; gap:2px; aspect-ratio:1; border:1px dashed rgba(155,139,237,.28); border-radius:9px; color:var(--vg-cyan); font-size:max(21px,1.4rem); }
+.vg-moment-add-image span { color:var(--text-secondary); font-size:max(12px,0.8rem); }
+.vg-moment-audience { padding:12px 0 14px; border-top:1px solid var(--border); }
+.vg-moment-audience > span { display:block; margin-bottom:9px; color:var(--text); font-size:max(13px,0.8667rem); }
+.vg-moment-audience > div { display:flex; flex-wrap:wrap; gap:6px; }
+.vg-moment-audience > div button { min-height:44px; padding:7px 9px; border:1px solid var(--border); border-radius:9px; color:var(--text-secondary); font-size:max(12px,0.8rem); }
+.vg-moment-audience > div button.is-selected { border-color:var(--vg-cyan); color:var(--vg-cyan); background:var(--vg-elev-2); }
+.vg-moment-contact-picker { display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:10px; padding:9px; border-radius:10px; background:rgba(108,92,231,.06); }
+.vg-moment-contact-picker label { display:flex; align-items:center; gap:6px; min-width:0; min-height:44px; padding:5px 2px; color:var(--text-secondary); font-size:max(12px,0.8rem); overflow-wrap:anywhere; }
+.vg-moment-contact-picker input { flex-shrink:0; }
+.vg-moment-audience small { display:block; margin-top:7px; color:var(--text-secondary); font-size:max(12px,0.8rem); }
+.vg-moment-publish { width:100%; min-height:44px; border-radius:13px; color:var(--vg-on-action); background:var(--vg-action); font-size:max(13px,0.8667rem); font-weight:600; }
+.vg-moment-publish:disabled { opacity:.45; }
+.vg-moment-sheet>.vg-moment-compose-error { padding:10px 12px; border:1px solid color-mix(in srgb,var(--vg-danger) 35%,var(--border)); border-radius:12px; background:var(--vg-elev-1); color:var(--text); font-size:max(13px,.8667rem); line-height:1.6; overflow-wrap:anywhere; }
+.vg-moment-edit-sheet .vg-moment-audience { border-top:0; }
+.vg-moment-edit-sheet .vg-moment-publish { margin-top:8px; }
+.vg-moment-sheet > p { margin:0 0 12px; color:var(--text-secondary); font-size:max(12px,0.8rem); line-height:1.6; }
+.vg-moment-audience-sheet .vg-moment-audience { margin-top:4px; }
+.vg-moment-audience-sheet .vg-moment-publish { margin-top:12px; }
+/* 朋友圈设置面板：分组 + 行 + 开关（微信的设置页也是这个形状）
+   行高与标题间距压到刚好一屏放得下四组九行（412×915 下不再需要滚动） */
+.vg-moment-setting-title { margin:10px 0 5px; color:var(--vg-cyan); font-size:max(12px,0.8rem); letter-spacing:.16em; }
+.vg-moment-setting-title:not(:first-of-type) { padding-top:8px; border-top:1px solid rgba(155,139,237,.12); }
+.vg-moment-settings-sheet .vg-moment-setting-title:first-of-type { margin-top:2px; }
+.vg-moment-settings-sheet { padding-bottom:12px; }
+.vg-moment-setting-row { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:8px 12px; border:1px solid rgba(155,139,237,.16); border-radius:12px; background:rgba(108,92,231,.05); text-align:left; }
+.vg-moment-setting-row + .vg-moment-setting-row, .vg-moment-setting-row + .vg-moment-setting-actions { margin-top:6px; }
+.vg-moment-setting-row > span:first-child { min-width:0; color:var(--text); font-size:max(13px,0.8667rem); }
+.vg-moment-setting-row small { display:block; margin-top:2px; color:var(--text-secondary); font-size:max(12px,0.8rem); }
+.vg-moment-setting-row > i { flex:none; color:var(--text-secondary); font-size:max(15px,1rem); font-style:normal; }
+.vg-moment-setting-buttons { display:flex; flex:none; gap:6px; }
+.vg-moment-setting-buttons button { padding:6px 10px; border:1px solid var(--border); border-radius:9px; color:var(--text-secondary); font-size:max(12px,0.8rem); }
+.vg-moment-setting-buttons button.is-selected { border-color:rgba(115,246,236,.4); color:var(--vg-cyan); background:rgba(115,246,236,.08); }
+.vg-moment-setting-actions { display:flex; gap:8px; margin-top:7px; }
+.vg-moment-setting-actions button { flex:1; padding:10px 0; border:1px solid rgba(155,139,237,.18); border-radius:11px; color:var(--text-secondary); background:rgba(108,92,231,.05); font-size:max(12px,0.8rem); }
+.vg-moment-setting-actions button:disabled { opacity:.4; }
+.vg-moment-publish.is-danger { background:var(--vg-danger); color:var(--vg-on-action); }
+/* 紧凑密度：压封面、名片与条目间距，同屏能看到更多内容（实测多给的是第二条的可见高度） */
+.vg-moments-page[data-density="compact"] .vg-moments-profile-row { min-height:68px; padding:6px 14px; }
+.vg-moments-page[data-density="compact"] .vg-moments-cover { height:44px; }
+.vg-moments-page[data-density="compact"] .vg-moments-profile[data-expanded="true"] .vg-moments-cover { height:168px; }
+.vg-moments-page[data-density="compact"] .vg-moments-cover-actions { top:10px; right:10px; }
+.vg-moments-page[data-density="compact"] .vg-moments-inbox-wrap { margin:10px 16px 14px; }
+.vg-moments-page[data-density="compact"] .vg-moment-card { padding:11px 14px; }
+.vg-moments-page[data-density="compact"] .vg-moment-text { font-size:max(14.5px,0.9667rem); line-height:1.66; }
+.vg-moments-page[data-density="compact"] .vg-moments-cover-actions button { padding:5px 10px; font-size:max(12px,0.8rem); }
+.vg-moment-privacy-sheet > p { margin:0 0 12px; color:var(--text-secondary); font-size:max(12px,0.8rem); line-height:1.6; }
+.vg-moment-notification-list { display:grid; }
+.vg-moment-notification { display:flex; align-items:flex-start; width:100%; gap:12px; min-height:84px; padding:15px 2px; border:0; border-bottom:1px solid var(--border); background:transparent; text-align:left; transition:background 160ms ease; }
+.vg-moment-notification:last-child { border-bottom:0; }
+.vg-moment-notification:active { background:var(--bg-surface); }
+.vg-moment-notification .vg-moment-notification-avatar { width:40px; height:40px; border-radius:10px; }
+.vg-moment-notification-body { display:grid; flex:1; min-width:0; gap:5px; }
+.vg-moment-notification-body > strong { color:var(--vg-accent); font-size:max(14px,0.9333rem); font-weight:500; line-height:1.4; overflow-wrap:anywhere; }
+.vg-moment-notification-content { display:flex; align-items:flex-start; gap:6px; color:var(--text); font-size:max(14px,0.9333rem); line-height:1.55; overflow-wrap:anywhere; }
+.vg-moment-notification-content > svg { flex:none; margin-top:3px; color:var(--vg-accent); }
+.vg-moment-notification-body > small { color:var(--text-secondary); font-size:max(12px,0.8rem); line-height:1.5; }
+.vg-moment-notification-post { display:flex; flex:none; align-items:center; width:52px; height:52px; padding:5px; overflow:hidden; border-radius:7px; color:var(--text-secondary); background:var(--bg-surface); }
+.vg-moment-notification-post > img { width:calc(100% + 10px); height:calc(100% + 10px); max-width:none; margin:-5px; object-fit:cover; }
+.vg-moment-notification-post > span { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; font-size:max(12px,0.8rem); line-height:1.35; overflow-wrap:anywhere; }
+.vg-moment-block-list { display:grid; gap:3px; }
+.vg-moment-block-list label { display:flex; align-items:center; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--border); color:var(--text); font-size:max(13px,0.8667rem); }
+.vg-moment-block-list label > span { display:flex; align-items:center; gap:9px; }
+.vg-moment-block-list b { font-weight:500; }
+.vg-moment-block-list input { width:18px; height:18px; accent-color:var(--vg-accent); }
+/* 朋友圈的单条动态：头像固定 40px 左置，正文 / 图片 / 互动都从同一列开始（通栏列表，非卡片盒） */
+.vg-moment-card { padding:14px 16px; }
+.vg-moment-text { margin-top:5px; }
+.vg-moment-media button { min-width:0; overflow:hidden; border-radius:6px; }
+.vg-moment-media img { cursor:pointer; }
+.vg-moment-likes { width:100%; }
+.vg-moment-like-avatars > img,.vg-moment-like-avatars > span { width:26px; height:26px; flex:none; font-size:max(15px,1rem); }
+.vg-moment-comment-row { display:block; width:100%; padding:2px 0; }
+.vg-moment-comment-box { flex-wrap:wrap; }
+.vg-moment-replying { flex-basis:100%; text-align:left; }
+.vg-moment-like-list { display:grid; gap:2px; }
+.vg-moment-like-list > div { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--border); }
+.vg-moment-like-list strong { flex:1; color:var(--text); font-size:max(14px,0.9333rem); font-weight:500; }
+.vg-moment-like-list span { color:var(--text-secondary); font-size:max(12px,0.8rem); }
+.vg-moment-detail-preview { overflow:hidden; margin:0 0 12px; color:var(--text-secondary); font-size:max(13px,0.8667rem); line-height:1.5; text-overflow:ellipsis; white-space:nowrap; }
+.vg-moment-detail-comment { display:flex; width:100%; align-items:flex-start; gap:9px; padding:10px 0; border-top:1px solid var(--border); text-align:left; }
+.vg-moment-detail-comment > span { display:grid; gap:3px; min-width:0; }
+.vg-moment-detail-comment strong { color:var(--vg-cyan); font-size:max(13px,0.8667rem); }
+.vg-moment-detail-comment span span { color:var(--text); font-size:max(14px,0.9333rem); line-height:1.5; }
+.vg-moment-detail-comment small { color:var(--text-secondary); font-size:max(12px,0.8rem); }
+.mobile-layout .vg-moments-header { padding:22px 18px 18px; gap:12px; flex-wrap:wrap; }
+.mobile-layout .vg-moments-header>div:first-child { min-width:0; flex:1 1 10em; }
+.mobile-layout .vg-moments-header-actions { margin-left:auto; }
+.mobile-layout :is(.vg-moments-settings,.vg-moments-camera) { width:48px; height:48px; display:grid; place-items:center; padding:0; border-radius:var(--vg-radius-3); background:var(--vg-glass-control-bg,var(--vg-elev-1)); border-color:var(--vg-glass-edge,var(--vg-elev-edge)); }
+.vg-moments-profile-row>div { min-width:0; overflow-wrap:anywhere; }
+@media(max-width:360px) { .mobile-layout .vg-moments-header { padding-inline:14px; } }
+.mobile-layout .vg-moments-profile { border-radius:var(--vg-radius-4); background:var(--vg-elev-1); }
+.mobile-layout .vg-moments-profile-row { gap:14px; align-items:center; }
+.mobile-layout .vg-moment-card { margin:0 16px; padding:22px 0; border-color:color-mix(in srgb,var(--text) 10%,transparent); gap:12px; }
+.mobile-layout .vg-moment-body { min-width:0; }
+.mobile-layout .vg-moment-name { font-size:max(15px,1rem); line-height:1.5; overflow-wrap:anywhere; }
+.mobile-layout .vg-moment-text { font-size:max(15px,1rem); line-height:1.8; margin-top:7px; overflow-wrap:anywhere; }
+.mobile-layout .vg-moment-media { gap:5px; margin-top:12px; }
+.mobile-layout .vg-moment-media button { overflow:hidden; border-radius:10px; }
+.mobile-layout .vg-moment-meta { margin-top:12px; font-size:max(12px,0.8rem); }
+.mobile-layout :is(.vg-moment-likes,.vg-moment-comments) { background:none; border-radius:0; }
+.mobile-layout .vg-moment-comment-row { font-size:max(14px,0.9333rem); line-height:1.7; overflow-wrap:anywhere; }
+.mobile-layout .vg-moment-comment-box { gap:8px; }
+.mobile-layout .vg-moment-comment-box input { min-width:0; font-size:max(14px,0.9333rem); min-height:44px; border-radius:12px; }
+.mobile-layout .vg-moments-empty { padding:40px 20px; text-align:center; }
+.mobile-layout .vg-moments-empty p { font-size:max(14px,0.9333rem); line-height:1.8; color:var(--text-secondary); }
+.mobile-layout .vg-moments-empty button { min-height:48px; border-radius:14px; }
+.mobile-layout .vg-moment-media button:active { opacity:.92; }
+.mobile-layout .vg-moments-header h1 { font-size:max(28px,1.8667rem); letter-spacing:normal; }
+.mobile-layout .vg-moments-profile { margin:0 16px 16px; overflow:hidden; border:1px solid var(--vg-glass-edge,var(--vg-elev-edge)); background:var(--vg-glass-content-bg,var(--vg-elev-1)); box-shadow:inset 0 1px var(--vg-glass-highlight,var(--vg-elev-highlight)),var(--vg-glass-shadow,var(--vg-elev-shadow-1)); }
+.mobile-layout .vg-moments-cover { height:48px; }
+.mobile-layout .vg-moments-profile-row { background:var(--vg-glass-reading-bg,var(--bg-panel)); text-shadow:none; }
+.mobile-layout .vg-moments-profile-row strong { color:var(--text); font-size:max(16px,1.0667rem); }
+.mobile-layout .vg-moments-profile-row>div>span { color:var(--text-secondary); }
+.mobile-layout :is(.vg-moment-name,.vg-moment-comment-row strong,.vg-moment-more-comments,.vg-moment-comment-box button,.vg-moment-replying,.vg-moment-pill svg,.vg-moments-camera,.vg-moments-empty>span,.vg-moments-empty button) { color:var(--vg-accent); }
+.mobile-layout .vg-moments-settings { color:var(--text-secondary); }
+.mobile-layout :is(.vg-moment-bubble,.vg-moment-pill button,.vg-moment-comment-row,.vg-moment-more-comments,.vg-moment-likes,.vg-moment-menu button,.vg-moment-comment-box button,.vg-moments-cover-actions button) { min-height:44px; }
+.mobile-layout .vg-moment-bubble { min-width:44px; display:grid; place-items:center; }
+.mobile-layout .vg-moment-pill { top:0; right:52px; border-radius:14px; }
+.mobile-layout .vg-loading-skeleton .vg-skeleton-card { margin:12px 16px; }

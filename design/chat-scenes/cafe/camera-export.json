@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "designWidth": 1440,
+  "designHeight": 3200,
+  "camera": {
+    "location": [
+      -0.47999998927116394,
+      -5.099999904632568,
+      1.850000023841858
+    ],
+    "rotation": [
+      1.5136637687683105,
+      3.1276004008873315e-09,
+      -0.11176253855228424
+    ],
+    "lens": 33.0,
+    "sensorFit": "VERTICAL",
+    "sensorHeight": 36
+  },
+  "cupMouth": [
+    212.332,
+    2240.88
+  ],
+  "windowPolygon": [
+    [
+      765.966,
+      1770.586
+    ],
+    [
+      1613.963,
+      1759.606
+    ],
+    [
+      1627.22,
+      1001.422
+    ],
+    [
+      766.671,
+      986.752
+    ]
+  ],
+  "layers": [
+    "base",
+    "casing",
+    "plant",
+    "table"
+  ],
+  "provenance": "Original procedural Blender geometry and materials; no imported stock or AI-generated imagery."
+}

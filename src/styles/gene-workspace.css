@@ -1,0 +1,18 @@
+/* Discovery and creation keep their own fixed scenery; text reads on quiet glass planes. */
+.vg-modal-overlay>.vg-modal-panel.vg-gene-workspace[data-vg-surface-mode=long-form]{isolation:isolate;background:var(--bg);--vg-gene-reading:rgba(249,250,252,.88)}
+:root.dark .vg-modal-overlay>.vg-modal-panel.vg-gene-workspace{--vg-gene-reading:rgba(20,29,43,.86)}
+.vg-gene-workspace::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background-image:linear-gradient(rgba(5,12,23,.10),rgba(5,12,23,.08)),var(--vg-gene-background);background-size:cover;background-position:center}
+.vg-modal-panel.vg-gene-workspace.vg-mobile-page>.vg-modal-header{background:var(--vg-glass-control-sheen),var(--vg-glass-content-bg);border-color:var(--vg-glass-edge)}
+.vg-gene-workspace>.vg-modal-header>button{width:48px;height:48px;min-width:48px;min-height:48px;justify-self:center}
+.vg-modal-panel.vg-gene-workspace.vg-mobile-page>.vg-modal-footer{background:var(--vg-glass-control-sheen),var(--vg-gene-reading);border-color:var(--vg-glass-edge);box-shadow:0 -4px 20px var(--vg-glass-contact)}
+.vg-gene-workspace .vg-character-editor-tabs{margin:12px 16px 0;padding:4px;border:1px solid var(--vg-glass-edge);border-radius:18px;background:var(--vg-glass-control-sheen),var(--vg-glass-content-bg)}
+.vg-gene-workspace .vg-character-editor-tabs>button{border-radius:14px}
+.vg-gene-workspace :is(.vg-gene-library,.vg-character-editor[data-create]){padding:16px;border:1px solid var(--vg-glass-edge);border-radius:22px;background:var(--vg-glass-control-sheen),var(--vg-gene-reading);box-shadow:inset 0 1px 0 var(--vg-glass-highlight),var(--vg-glass-shadow)}
+.vg-gene-workspace .vg-gene-heading>div{display:none}
+.vg-gene-workspace .vg-gene-heading{justify-content:flex-end}
+.vg-gene-workspace .vg-gene-search .vg-text-field,.vg-gene-workspace .vg-character-editor[data-create] :is(input:not([type=checkbox]),textarea,select){background:var(--vg-glass-reading-bg);border-color:var(--vg-glass-edge);box-shadow:inset 0 1px 2px var(--vg-glass-contact)}
+.vg-gene-workspace .vg-gene-index{background:var(--vg-glass-control-bg);border:1px solid var(--vg-glass-edge)}
+.vg-gene-workspace .vg-create-steps{padding:4px 0 12px;border-bottom:1px solid var(--vg-glass-edge)}
+.vg-gene-workspace .vg-character-editor-tabs button[aria-pressed=true]{background:var(--vg-glass-control-sheen),var(--vg-glass-selection-bg);box-shadow:inset 0 1px 0 var(--vg-glass-highlight)}
+:root[data-vg-transparency=solid] .vg-modal-overlay>.vg-modal-panel.vg-gene-workspace{--vg-gene-reading:var(--bg-panel)}
+@media(max-width:359px){.vg-gene-workspace :is(.vg-gene-library,.vg-character-editor[data-create]){padding:12px;border-radius:18px}.vg-gene-workspace .vg-create-steps button{min-width:0;font-size:12px}}

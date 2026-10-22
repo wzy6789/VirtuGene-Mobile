@@ -1,0 +1,35 @@
+{
+  "passed": true,
+  "scenes": [
+    {
+      "scene": "home-bedroom",
+      "openedActualBlend": true,
+      "cameraMatchesDesignMetadata": true,
+      "designDimensions": [
+        1440,
+        3200
+      ],
+      "objectCount": 72,
+      "materials": 12,
+      "meshAndCurveCount": 67,
+      "externalImagePaths": [],
+      "externalLibraries": [],
+      "sha256": "27ef124a3abb523d6e74db233385ffa93d619a3fcb52a2c6fff0730599d1ce80"
+    },
+    {
+      "scene": "home-living",
+      "openedActualBlend": true,
+      "cameraMatchesDesignMetadata": true,
+      "designDimensions": [
+        1440,
+        3200
+      ],
+      "objectCount": 104,
+      "materials": 12,
+      "meshAndCurveCount": 101,
+      "externalImagePaths": [],
+      "externalLibraries": [],
+      "sha256": "6f440347e548096cd76c9b2b61fc79b408ef9e0e95be742f45619ffa97fb6ffc"
+    }
+  ]
+}

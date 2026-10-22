@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "sceneId": "home-living",
+  "designWidth": 1440,
+  "designHeight": 3200,
+  "camera": {
+    "location": [
+      0.11999999731779099,
+      -6.699999809265137,
+      2.4800000190734863
+    ],
+    "rotation": [
+      1.4427648782730103,
+      2.3563329065723337e-10,
+      0.014998875558376312
+    ],
+    "lens": 30,
+    "sensorFit": "VERTICAL",
+    "sensorHeight": 36
+  },
+  "windowPolygon": [
+    [
+      435.811,
+      1604.09
+    ],
+    [
+      1353.399,
+      1605.871
+    ],
+    [
+      1369.846,
+      1068.162
+    ],
+    [
+      428.47,
+      1069.148
+    ]
+  ],
+  "effectArea": "window",
+  "lightCenter": [
+    892.419,
+    1223.43
+  ],
+  "layers": [
+    "base",
+    "casing",
+    "foreground",
+    "table"
+  ],
+  "provenance": "Original procedural Blender geometry and shaders, offline Cycles render, no imported stock or generated imagery.",
+  "cupMouth": [
+    605.865,
+    2049.346
+  ],
+  "lightRect": [
+    542,
+    773,
+    700,
+    900
+  ]
+}

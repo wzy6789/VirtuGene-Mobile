@@ -21,6 +21,7 @@ import { worldEventRepo } from '../../db/world-event-repo';
 import { knowledgeRepo } from '../../db/knowledge-repo';
 import { isVisibleToCharacter } from './visibility';
 import { formatDate, hitCount, queryTerms } from './world-recall';
+import { memoryExcerpt } from '../memory-excerpt';
 
 export interface RecallableScene {
   scene: WorldScene;
@@ -179,7 +180,7 @@ export async function findSceneSegmentHistory(params: {
       hits.push(withMemorySourceSnapshot(withMemorySourceSnapshot({
         date: formatDate(entry.createdAt),
         timestamp: entry.createdAt,
-        text: text.slice(0, 400),
+        text: memoryExcerpt(text, terms, 400),
         sceneId: scene.id,
         sceneTitle: scene.title,
         entryId: entry.id,

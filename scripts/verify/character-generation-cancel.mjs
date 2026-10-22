@@ -1,0 +1,57 @@
+import { build } from 'esbuild';
+import { chromium } from 'playwright';
+import { createServer } from 'node:http';
+import { mkdirSync,readFileSync,readdirSync,writeFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import AxeBuilder from '@axe-core/playwright';
+const out='.tmp-preview/ui-overhaul-20261015/create-cancellation';mkdirSync(out,{recursive:true});
+const bundle=await build({entryPoints:['scripts/verify/character-generation-cancel.tsx'],bundle:true,write:false,jsx:'automatic',format:'iife',platform:'browser',loader:{'.css':'empty','.png':'dataurl','.webp':'dataurl'},define:{'import.meta.env':'{"DEV":true,"VITE_AI_GATEWAY_URL":"https://gateway-fixture.invalid"}','import.meta.hot':'undefined',__APP_VERSION__:'"test"'}});
+const css=readdirSync('dist/renderer/assets').filter(f=>f.endsWith('.css')).map(f=>readFileSync('dist/renderer/assets/'+f,'utf8')).join('\n');
+const server=createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/test.js'?'application/javascript':'text/html;charset=utf-8');res.end(req.url==='/test.js'?bundle.outputFiles[0].text:`<!doctype html><html class="dark"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}body{margin:0;padding:20px}</style><div class="mobile-layout" id="root"></div><script src="/test.js"></script></html>`);});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({channel:'chrome',headless:true});const checks=[],errors=[];let external=0,transport;
+try{
+ const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'});
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+ await page.route('**/*',route=>{if(new URL(route.request().url()).hostname==='127.0.0.1')return route.continue();external++;return route.abort();});
+ await page.goto(`http://127.0.0.1:${server.address().port}/?virtugene-preview=mobile`);await page.waitForFunction(()=>window.cancelTest);
+ transport=await page.evaluate(()=>cancelTest.transport());
+ await page.evaluate(()=>cancelTest.mount());await page.getByPlaceholder('为数字灵魂命名').fill('取消验收角色');await page.getByRole('button',{name:'下一步',exact:true}).click();await page.getByRole('textbox',{name:'快速描述人物'}).fill('有自己的判断，说话简洁。');
+ const generate=()=>page.getByRole('button',{name:/^(塑造 TA 的性格|重新塑造 TA)$/});
+ await page.evaluate(()=>{const button=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='塑造 TA 的性格');button.click();button.click();});await page.waitForFunction(()=>cancelTest.calls.length===1);await page.waitForTimeout(30);assert.equal(await page.evaluate(()=>cancelTest.calls.length),1);checks.push('Double activation starts only one generation request');await page.getByRole('button',{name:'停止塑造',exact:true}).click();
+ assert.ok(await page.evaluate(()=>cancelTest.calls[0].signal.aborted));assert.equal(await page.getByRole('textbox',{name:'快速描述人物'}).inputValue(),'有自己的判断，说话简洁。');checks.push('Stop aborts signal immediately and preserves current draft');
+ await generate().click();await page.waitForFunction(()=>cancelTest.calls.length===2);
+ await page.evaluate(()=>{cancelTest.calls[0].onProgress('late','OLD_LATE_PROGRESS',.9);cancelTest.calls[0].resolve({candidates:[cancelTest.candidate('旧一轮候选')]});});
+ await page.waitForTimeout(40);assert.ok(await page.getByRole('button',{name:'停止塑造',exact:true}).isVisible());assert.ok(!(await page.locator('body').innerText()).includes('OLD_LATE_PROGRESS'));assert.ok(!(await page.locator('body').innerText()).includes('旧一轮候选'));checks.push('Old progress, result and finally cannot overwrite new request or clear its busy state');
+ await page.evaluate(()=>cancelTest.calls[1].resolve({candidates:[cancelTest.candidate('新一轮候选')]}));await page.getByRole('button',{name:/新一轮候选/}).click();
+ await page.evaluate(()=>cancelTest.installPreviewFetch());await page.getByRole('button',{name:'相遇',exact:true}).click();
+ await page.getByRole('button',{name:'试着聊两句',exact:true}).click();await page.waitForFunction(()=>cancelTest.previewCalls.length===1);
+ await page.getByRole('button',{name:'停止试聊',exact:true}).click();assert.ok(await page.evaluate(()=>cancelTest.previewCalls[0].signal.aborted));checks.push('Stop preview reaches actual task-client fetch abort signal');
+ await page.getByRole('button',{name:'试着聊两句',exact:true}).click();await page.waitForFunction(()=>cancelTest.previewCalls.length===2);await page.evaluate(()=>cancelTest.previewCalls[0].resolve('OLD_PREVIEW_REPLY'));await page.waitForTimeout(40);
+ assert.ok(await page.getByRole('button',{name:'停止试聊',exact:true}).isVisible());assert.ok(!(await page.locator('body').innerText()).includes('OLD_PREVIEW_REPLY'));await page.evaluate(()=>cancelTest.previewCalls[1].resolve('NEW_PREVIEW_REPLY'));await page.getByText('NEW_PREVIEW_REPLY',{exact:true}).waitFor();checks.push('Late cancelled preview cannot overwrite reply or unlock another preview');
+ await page.getByRole('button',{name:'试着聊两句',exact:true}).click();await page.waitForFunction(()=>cancelTest.previewCalls.length===3);await page.getByLabel('试聊一句',{exact:true}).fill('修改后的试聊内容');await page.getByText('试聊内容已更新，已停止之前的回应。',{exact:true}).waitFor();assert.ok(await page.evaluate(()=>cancelTest.previewCalls[2].signal.aborted));checks.push('Changing preview text aborts old response and retains new input');
+ await page.getByRole('button',{name:'试着聊两句',exact:true}).click();await page.waitForFunction(()=>cancelTest.previewCalls.length===4);
+ await page.getByRole('button',{name:'性格',exact:true}).click();await generate().click();await page.waitForFunction(()=>cancelTest.calls.length===3);
+ assert.ok(await page.evaluate(()=>cancelTest.previewCalls[3].signal.aborted));checks.push('Starting character generation stops obsolete preview instead of running both');
+ await page.getByRole('textbox',{name:'快速描述人物'}).fill('修改后的设定。');await page.getByText('设定已更新，已停止之前的塑造。',{exact:true}).waitFor();assert.ok(await page.evaluate(()=>cancelTest.calls[2].signal.aborted));checks.push('Persona edit aborts outdated generation instead of waiting for unusable result');
+ await generate().click();await page.waitForFunction(()=>cancelTest.calls.length===4);await page.evaluate(()=>cancelTest.calls[3].reject(Error('isolated failure')));await page.getByText('人物塑造暂时未完成，填写内容已保留，可以重试。',{exact:true}).waitFor();assert.equal(await page.getByRole('textbox',{name:'快速描述人物'}).inputValue(),'修改后的设定。');checks.push('Generation failure retains fields and enables retry');
+ await generate().click();await page.waitForFunction(()=>cancelTest.calls.length===5);await page.getByRole('button',{name:'表达',exact:true}).click();assert.ok(await page.getByRole('button',{name:'停止塑造',exact:true}).isVisible());checks.push('Cancel remains reachable after moving to another creation step');
+ await page.evaluate(()=>cancelTest.active(false));await page.waitForFunction(()=>cancelTest.calls[4].signal.aborted);await page.evaluate(()=>cancelTest.active(true));checks.push('Leaving creation tab aborts request even though draft component stays mounted');
+ await page.getByRole('button',{name:'性格',exact:true}).click();await generate().click();await page.waitForFunction(()=>cancelTest.calls.length===6);await page.evaluate(()=>cancelTest.owner('other-user'));await page.waitForFunction(()=>cancelTest.calls[5].signal.aborted);checks.push('Account change aborts active UI-owned generation');
+ await page.evaluate(()=>cancelTest.owner('cancel-ui-user'));await generate().click();await page.waitForFunction(()=>cancelTest.calls.length===7);await page.evaluate(()=>cancelTest.unmount());assert.ok(await page.evaluate(()=>cancelTest.calls[6].signal.aborted));checks.push('Unmount aborts in-flight request');
+ await page.evaluate(()=>{for(const call of cancelTest.calls){call.onProgress?.('late','LATE_AFTER_UNMOUNT',1);call.resolve({candidates:[cancelTest.candidate('迟到候选')]});}for(const call of cancelTest.previewCalls)call.resolve('LATE_AFTER_UNMOUNT');});await page.waitForTimeout(40);assert.equal(await page.locator('#root').innerText(),'');
+ await page.evaluate(()=>cancelTest.mountModal());await page.getByRole('button',{name:'创造基因',exact:true}).click();await page.getByPlaceholder('为数字灵魂命名').fill('弹窗取消验收');await page.getByRole('button',{name:'下一步',exact:true}).click();await page.getByRole('textbox',{name:'快速描述人物'}).fill('正在填写的性格。');
+ const titleTop=await page.getByRole('heading',{name:'塑造 TA 的性格',exact:true}).evaluate(el=>el.getBoundingClientRect().top);
+ await generate().click();await page.waitForFunction(()=>cancelTest.calls.length===8);
+ assert.ok(Math.abs(await page.getByRole('heading',{name:'塑造 TA 的性格',exact:true}).evaluate(el=>el.getBoundingClientRect().top)-titleTop)<1);
+ for(const [theme,width] of [['dark',390],['light',320]]){
+  await page.setViewportSize({width,height:844});await page.evaluate(dark=>document.documentElement.classList.toggle('dark',dark),theme==='dark');
+  assert.ok(await page.getByRole('button',{name:'停止塑造',exact:true}).evaluate(el=>{const r=el.getBoundingClientRect();return !!el.closest('.vg-modal-footer')&&r.bottom<=innerHeight&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('button')===el;}));
+  await page.screenshot({path:`${out}/pending-${theme}-${width}.png`});
+  const id=await page.getByRole('dialog',{name:'创建角色',exact:true}).getAttribute('aria-labelledby');
+  const accessibility=await new AxeBuilder({page}).include(`[aria-labelledby="${id}"]`).analyze();writeFileSync(`${out}/axe-${theme}-${width}.json`,JSON.stringify(accessibility,null,2));assert.deepEqual(accessibility.violations.map(v=>v.id),[]);checks.push(`${theme}/${width}: pending generation axe scan has no violations (incomplete retained)`);
+ }
+ checks.push('Actual modal keeps cancel in fixed footer at 390/320 without shifting section heading');
+ await page.getByRole('button',{name:'停止塑造',exact:true}).click();assert.ok(await page.evaluate(()=>cancelTest.calls[7].signal.aborted));await page.evaluate(()=>{cancelTest.unmount();cancelTest.calls[7].resolve({candidates:[cancelTest.candidate('最后的迟到候选')]});});await page.waitForTimeout(20);assert.equal(await page.locator('#root').innerText(),'');
+ assert.deepEqual(errors,[]);assert.equal(external,0);
+}finally{writeFileSync(`${out}/result.json`,JSON.stringify({recordedAt:new Date().toISOString(),transport,uiChecks:checks,errors,externalRequests:external,actualModelCalls:0,scope:'Real browser transport chain with mocked fetch, actual creation UI with controlled deferred generation; no Android or provider server cancellation claim'},null,2));await browser.close();await new Promise(r=>server.close(r));}
+console.log(`PASS ${transport.checks.length} transport + ${checks.length} UI cancellation checks`);

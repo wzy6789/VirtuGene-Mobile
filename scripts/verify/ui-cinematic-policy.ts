@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import {deriveSceneMotion} from '../../src/lib/chat-scene/scene-policy';
+import {resolveEffectiveSceneAppearance,sceneTimeOptions} from '../../src/lib/chat-scene/scene-time';
+import {resolveChatBackground,DEFAULT_CHAT_BACKGROUND} from '../../src/lib/chat-background-config';
+const signals={visible:true,appActive:true,inputFocused:false,keyboardOpen:false,scrolling:false,modalOpen:false,phase:'idle',voiceActive:false,reduceMotion:false} as const;
+const preferences={id:'cafe-afternoon',quality:'auto',motionEnabled:true,parallaxEnabled:true} as const;
+const derive=(s={},p={})=>deriveSceneMotion({...signals,...s},{...preferences,...p},'balanced') as any;
+const checks: string[]=[];
+function check(name:string,run:()=>void){run();checks.push(name);}
+check('ordinary reading keeps ambient and avatar alive',()=>{const p=derive();assert.notEqual(p.ambient,undefined);assert.notEqual(p.ambient,'off');assert.notEqual(p.avatar,'off');});
+check('settled input preserves only low-cost ambient and avatar',()=>{const p=derive({inputFocused:true,keyboardOpen:true});assert.equal(p.ambient,'low');assert.equal(p.avatar,'low');assert.equal(p.particles,'off');assert.equal(p.parallaxEnabled,false);});
+check('streaming keeps subdued light without restarting heavy particles',()=>{const p=derive({phase:'streaming'});assert.equal(p.ambient,'low');assert.equal(p.particles,'off');});
+check('selection and long-form details stop decorative channels',()=>{for(const s of [{selectingText:true},{surfaceMode:'long-form'}]){const p=derive(s);assert.equal(p.ambient,'off');assert.equal(p.avatar,'off');assert.equal(p.particles,'off');}});
+check('hidden/background/reduced motion cannot resume a decoration',()=>{for(const s of [{visible:false},{appActive:false},{reduceMotion:true}]){const p=derive(s);assert.equal(p.mode,s.reduceMotion?'static':'paused');assert.equal(p.ambient,'off');assert.equal(p.avatar,'off');}});
+check('lightweight mode still retains a living environment',()=>{const p=derive({},{experience:{preset:'light',ambient:true,avatar:true,transparency:'balanced'}});assert.notEqual(p.ambient,'off');assert.notEqual(p.avatar,'off');assert.equal(p.glassQuality,'static');});
+check('transparency and motion are independent preferences',()=>{const p=derive({},{experience:{preset:'cinematic',ambient:true,avatar:false,transparency:'solid'}});assert.notEqual(p.ambient,'off');assert.equal(p.avatar,'off');assert.equal(p.glassQuality,'static');});
+check('a static background does not disable an independently enabled avatar',()=>{for(const p of [derive({},{motionEnabled:false}),deriveSceneMotion(signals,preferences,'static')]){assert.equal(p.ambient,'off');assert.equal(p.particles,'off');assert.notEqual(p.avatar,'off');}});
+check('time variants resolve only authored assets and incompatible choices fall back',()=>{assert.equal(resolveEffectiveSceneAppearance({id:'cafe-afternoon',timeVariantId:'rain-night'}).assetSceneId,'cafe-rain-night');const invalid=resolveEffectiveSceneAppearance({id:'cafe-afternoon',timeVariantId:'unmade-dawn'});assert.equal(invalid.assetSceneId,'cafe-afternoon');assert.ok(invalid.reason);for(const variant of sceneTimeOptions('moonlit-bedroom'))assert.equal(variant.id,'original');});
+check('restoring inherited appearance keeps the global presentation and fixed role overrides',()=>{const global={strategy:'fixed' as const,config:{...DEFAULT_CHAT_BACKGROUND,presentation:{preset:'light' as const,transparency:'solid' as const,ambient:true,avatar:false}}};assert.equal(resolveChatBackground(undefined,global,undefined).config.presentation.preset,'light');const own={...DEFAULT_CHAT_BACKGROUND,presentation:{preset:'cinematic' as const,transparency:'clear' as const,ambient:false,avatar:true}};const result=resolveChatBackground(undefined,global,own);assert.equal(result.config.presentation.preset,'cinematic');assert.equal(result.config.presentation.avatar,true);assert.equal(result.config.presentation.ambient,false);});
+console.log(JSON.stringify({pass:true,checks:checks.length}));

@@ -1,0 +1,10 @@
+import { build } from 'esbuild';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+const dir = '.tmp-preview/voice-clock-route-20261015'; mkdirSync(dir, { recursive: true });
+const outfile = `${dir}/bridge.cjs`;
+await build({ entryPoints: ['scripts/verify/voice-clock-route.ts'], outfile, bundle: true, platform: 'node', format: 'cjs' });
+const run = spawnSync(process.execPath, [outfile], { encoding: 'utf8', timeout: 30_000 });
+writeFileSync(`${dir}/bridge.txt`, (run.stdout ?? '') + (run.stderr ?? '')); assert.equal(run.status, 0, run.stderr || String(run.error));
+const report = JSON.parse(run.stdout.trim()); writeFileSync(`${dir}/bridge.json`, JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));

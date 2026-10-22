@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useId,useState } from 'react';
+import {Icon} from '../ui/Icon';
 import type { WorldScene, WorldSceneEntry } from '../../db';
 
 /** Only persisted scene facts are presented as history; actions remain user proposals. */
@@ -10,16 +11,16 @@ export function StoryCompass({ scene, entries, busy, onAct, onGoal }: {
   onGoal: (goal: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const detailsId=useId();
   const [goal, setGoal] = useState(scene.state.sceneGoal ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const traces = entries.filter((entry) => entry.kind === 'user_input' || entry.kind === 'choice').slice(-3);
   return <section className="vg-story-compass">
-    <button className="vg-story-compass-heading" onClick={() => setOpen(!open)} aria-expanded={open}>
-      <span><small>正在经历</small><strong>{scene.title}</strong></span>
-      <span>{open ? '收起' : '世界方向'} {open ? '−' : '+'}</span>
+    <button type="button" className="vg-story-compass-heading" onClick={() => setOpen(!open)} aria-expanded={open} aria-controls={detailsId}>
+      <Icon name="compass" size={20}/><span>这段故事的方向</span><Icon name={open?'close':'chevron'} size={18}/>
     </button>
-    {open && <div className="vg-story-compass-body">
+    {open && <div id={detailsId} className="vg-story-compass-body">
       <label>这一段，你想尝试什么？<input value={goal} maxLength={180} onChange={(event) => setGoal(event.target.value)} placeholder="例如：找出钟楼停止的原因" /></label>
       <button disabled={saving || busy} onClick={async () => {
         setSaving(true); setError('');

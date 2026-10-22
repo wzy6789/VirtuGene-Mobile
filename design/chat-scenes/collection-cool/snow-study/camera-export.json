@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "sceneId": "snow-study",
+  "designWidth": 1440,
+  "designHeight": 3200,
+  "camera": {
+    "location": [
+      0.11999999731779099,
+      -7.699999809265137,
+      2.549999952316284
+    ],
+    "rotation": [
+      1.45404052734375,
+      -2.934863463366355e-09,
+      0.022342650219798088
+    ],
+    "lens": 31.0,
+    "sensorFit": "VERTICAL",
+    "sensorHeight": 36
+  },
+  "layers": [
+    "base",
+    "casing",
+    "foreground",
+    "table"
+  ],
+  "windowOpening": {
+    "location": [
+      0.55,
+      3.57,
+      2.1
+    ],
+    "size": [
+      4.14,
+      0.008,
+      2.4
+    ]
+  },
+  "windowPolygon": [
+    [
+      385.105,
+      1677.696
+    ],
+    [
+      1389.27,
+      1680.948
+    ],
+    [
+      1406.207,
+      1088.452
+    ],
+    [
+      376.7,
+      1090.005
+    ]
+  ],
+  "lightRect": [
+    -101.251,
+    1639.87,
+    420,
+    500
+  ],
+  "provenance": "Original procedural Blender geometry and node materials; no external models, textures, stock or online generation.",
+  "cupMouth": [
+    313.306,
+    2103.556
+  ]
+}

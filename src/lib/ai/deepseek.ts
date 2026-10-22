@@ -57,6 +57,8 @@ export interface ChatParams {
   /** Ephemeral diagnostics before display cleanup; never stored as message text. */
   onRawResponse?: (raw: string) => void;
   onUsage?: (event:ChatUsageEvent)=>void;
+  /** Local-only evidence guard, run immediately before every physical request. */
+  beforeRequest?: (attempt:{recovery:boolean})=>Promise<void>;
 }
 
 export interface ChatResult {
@@ -119,6 +121,17 @@ function toContentBlock(text: string, image?: string): string | Array<Record<str
   ];
 }
 
+class RequestGuardError extends Error {
+  constructor(readonly reason:unknown){super('chat:request_invalidated');}
+}
+async function validateRequest(params:ChatParams,recovery:boolean){
+  try{
+    if(params.signal?.aborted)throw Error('chat:request_cancelled');
+    await params.beforeRequest?.({recovery});
+    if(params.signal?.aborted)throw Error('chat:request_cancelled');
+  }catch(error){throw new RequestGuardError(error);}
+}
+
 /** 按给定模型发送一次请求；useVision=true 时图片以块发送（仅视觉模型），否则图片降级为占位 */
 async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, recovery = false): Promise<ChatResult> {
   const { systemPrompt, message, history, retryHint, temperature, image, apiKey } = params;
@@ -137,7 +150,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
         + (retryHint ? `\n\n${retryHint}` : '')
         + (recovery ? (params.structuredOutput ? '\n\n请直接给出完整 JSON，不输出思考过程。' : '\n\n本轮请直接给出可显示的正文，不输出思考过程。') : ''),
     },
-    ...history.slice(-12).map((h) => ({ role: h.role, content: buildContent(h.content, h.image) })),
+    ...history.map((h) => ({ role: h.role, content: buildContent(h.content, h.image) })),
     { role: 'user', content: buildContent(message, image) },
   ];
 
@@ -167,6 +180,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
         timeoutMs: params.timeoutMs,
         onUsage:params.onUsage,
       };
+      await validateRequest(params,recovery);
       const result: ChatResult = params.onDelta && !params.structuredOutput
         ? await gatewayChatStream({ ...gatewayParams, onDelta: params.onDelta })
         : await gatewayChat(gatewayParams);
@@ -196,6 +210,7 @@ async function doSend(params: ChatParams, model: LLMModel, useVision: boolean, r
     jsonMode: params.structuredOutput,
     onUsage:(usage:LLMStreamResult['usage'])=>params.onUsage?.({modelId:model.id,usage}),
   };
+  await validateRequest(params,recovery);
   const res: LLMStreamResult = params.onDelta && !params.structuredOutput
     ? await llmChatStream({ ...request, onDelta: params.onDelta })
     : await llmChat(request);
@@ -242,6 +257,7 @@ export async function sendMessage(params: ChatParams): Promise<ChatResult> {
       if (r.content.trim()) return r;
       return null;
     } catch (err) {
+      if(err instanceof RequestGuardError)throw err.reason instanceof Error&&err.reason.message.startsWith('chat:')?err.reason:Error('chat:request_invalidated');
       if (!isDegradable(err)) throw err; // 鉴权/额度/限流不兜底
       return null;
     }

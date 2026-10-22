@@ -1,0 +1,50 @@
+[
+  {
+    "scene": "home-bedroom",
+    "job": "--export",
+    "pid": 54600,
+    "exitCode": 0,
+    "seconds": 14.41,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-home\\home-bedroom\\export.log"
+  },
+  {
+    "scene": "home-bedroom",
+    "job": "--mask",
+    "pid": 19372,
+    "exitCode": 0,
+    "seconds": 4.28,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-home\\home-bedroom\\mask.log"
+  },
+  {
+    "scene": "home-bedroom",
+    "job": "--source",
+    "pid": 34956,
+    "exitCode": 0,
+    "seconds": 20.12,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-home\\home-bedroom\\source.log"
+  },
+  {
+    "scene": "home-living",
+    "job": "--export",
+    "pid": 36272,
+    "exitCode": 0,
+    "seconds": 14.29,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-home\\home-living\\export.log"
+  },
+  {
+    "scene": "home-living",
+    "job": "--mask",
+    "pid": 52964,
+    "exitCode": 0,
+    "seconds": 4.74,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-home\\home-living\\mask.log"
+  },
+  {
+    "scene": "home-living",
+    "job": "--source",
+    "pid": 34496,
+    "exitCode": 0,
+    "seconds": 17.76,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-home\\home-living\\source.log"
+  }
+]

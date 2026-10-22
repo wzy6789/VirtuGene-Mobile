@@ -1,0 +1,38 @@
+import {productPreview} from '../preview-product-upgrade.mjs';import {chromium} from 'playwright';import AxeBuilder from '@axe-core/playwright';import fs from 'node:fs';import assert from 'node:assert/strict';
+const phase=process.argv.find(x=>x.startsWith('--phase='))?.split('=')[1]||'before',out=process.env.VG_MOMENTS_FEED_OUT??'.tmp-preview/ui-overhaul-20261016/moments-feed/'+phase;fs.mkdirSync(out,{recursive:true});
+const report={checks:[],errors:[],axe:[],scope:'Actual feed, real local owner-scoped records and reads, one delayed/failed list response; background comment jobs stubbed to avoid model calls. Not Android.'};
+const preview=await productPreview({port:0,production:true,output:out+'/server'}),browser=await chromium.launch({channel:'chrome',headless:true});
+try{for(const theme of ['dark','light']){
+ const context=await browser.newContext({viewport:{width:320,height:844},isMobile:true,hasTouch:true,recordVideo:phase==='after'&&theme==='dark'?{dir:out,size:{width:320,height:844}}:undefined}),page=await context.newPage();page.on('pageerror',e=>report.errors.push(e.message));
+ const check=(ok,label)=>{assert.ok(ok,theme+': '+label);report.checks.push(theme+': '+label);};
+ const audit=async state=>{const axe=await new AxeBuilder({page}).analyze();report.axe.push({theme,state,violations:axe.violations,incomplete:axe.incomplete});check(axe.violations.length===0,state+' has no automatic accessibility violations');};
+ const setup=async()=>{await page.goto(preview.address+'/app');await page.evaluate(async theme=>{while(!window.productUpgradeReady)await new Promise(requestAnimationFrame);productUpgradeTest.theme(theme);productUpgradeTest.quietSocialJobs();await productUpgradeTest.seedSocialNotes();},theme);};
+ await setup();await page.evaluate(async()=>{productUpgradeTest.controlNextSocialRead('fail');await productUpgradeTest.go('moments');});await page.getByText('动态读取失败，请重试。',{exact:true}).waitFor({timeout:3000});
+ await page.waitForTimeout(300);await page.screenshot({path:out+'/'+theme+'-initial-failure.png'});
+ check(await page.getByText('动态读取失败，请重试。',{exact:true}).count()===1,'initial read failure has inline feedback');
+ check(await page.getByText('还没有动态',{exact:true}).count()===0,'read failure is not presented as no posts');
+ if(phase==='after')await audit('error');
+ await page.getByRole('button',{name:'重新读取动态',exact:true}).click();await page.getByText('雨停之后，想去街角走走。',{exact:true}).waitFor();check(true,'inline retry retrieves actual local post');
+ await page.evaluate(()=>productUpgradeTest.controlNextSocialRead('fail'));await page.evaluate(()=>productUpgradeTest.refreshSocialNotes());await page.getByText('动态读取失败，请重试。',{exact:true}).waitFor();
+ check(await page.getByText('雨停之后，想去街角走走。',{exact:true}).count()===1,'failed refresh retains prior real post');
+ await page.getByRole('button',{name:'重新读取动态',exact:true}).click();await page.getByText('动态读取失败，请重试。',{exact:true}).waitFor({state:'hidden'});
+ await page.evaluate(()=>productUpgradeTest.controlNextSocialRead('hold'));await page.evaluate(()=>productUpgradeTest.refreshSocialNotes());await page.waitForFunction(()=>productUpgradeTest.socialReadEntered());
+ await page.evaluate(()=>productUpgradeTest.editSocialNote('最新这一条，已经改过了。'));await page.getByText('最新这一条，已经改过了。',{exact:true}).waitFor();await page.evaluate(()=>productUpgradeTest.releaseSocialRead());await page.waitForTimeout(120);
+ check(await page.getByText('雨停之后，想去街角走走。',{exact:true}).count()===0,'old refresh cannot overwrite newer post');
+ await page.getByRole('button',{name:'发布动态',exact:true}).click();let publish=page.getByRole('dialog',{name:'发布动态',exact:true});await publish.locator('textarea').fill('这条只留给自己。');await publish.getByRole('button',{name:'仅自己',exact:true}).click();await publish.getByRole('button',{name:'发布',exact:true}).click();await publish.waitFor({state:'hidden'});const published=page.locator('.vg-moments-page .vg-moment-text').filter({hasText:'这条只留给自己。'});await published.waitFor();await page.waitForTimeout(80);check(await published.count()===1,'actual private publish is not duplicated by refresh');
+ check(await page.getByText('已发布，仅自己可见。',{exact:true}).count()===1,'private publish receipt does not imply characters can see it');
+ await page.waitForFunction(()=>document.querySelectorAll('.vg-modal-exit').length===0);await page.screenshot({path:out+'/'+theme+'-ready.png'});if(phase==='after')await audit('ready');
+ await page.getByRole('button',{name:'发布动态',exact:true}).click();
+ const composer=page.getByRole('dialog').filter({has:page.locator('textarea')});await composer.waitFor();await composer.locator('textarea').fill('只写在旧账号草稿中的内容。');
+ await page.evaluate(()=>productUpgradeTest.previewPersonalOwner());await page.waitForTimeout(120);
+ check(await page.getByRole('dialog').count()===0,'account switch closes private composer');
+ check(await page.locator('textarea').count()===0,'old owner draft leaves no live or snapshot textarea');
+ check(await page.locator('body').innerText().then(t=>!t.includes('最新这一条，已经改过了。')),'old owner post is not rendered');
+ await setup();await page.evaluate(async()=>{productUpgradeTest.controlNextSocialRead('fail');await productUpgradeTest.go('moments');});await page.getByText('动态读取失败，请重试。',{exact:true}).waitFor();
+ await page.evaluate(()=>{productUpgradeTest.holdSocialJobs();productUpgradeTest.controlNextSocialRead('hold');});
+ await page.getByRole('button',{name:'发布动态',exact:true}).click();publish=page.getByRole('dialog',{name:'发布动态',exact:true});await publish.locator('textarea').fill('首读失败后，也已经发布成功。');await publish.getByRole('button',{name:'仅自己',exact:true}).click();await publish.getByRole('button',{name:'发布',exact:true}).click();await publish.waitFor({state:'hidden'});await page.waitForFunction(()=>document.querySelectorAll('.vg-modal-exit').length===0);await page.screenshot({path:out+'/'+theme+'-published-during-read.png'});
+ check(await page.locator('.vg-moments-page .vg-moment-text').filter({hasText:'首读失败后，也已经发布成功。'}).count()===1,'confirmed local publish is visible before first feed read or jobs finish');
+ await page.evaluate(()=>productUpgradeTest.releaseSocialJobs());await page.waitForFunction(()=>productUpgradeTest.socialReadEntered());await page.evaluate(()=>productUpgradeTest.releaseSocialRead());await page.getByText('雨停之后，想去街角走走。',{exact:true}).waitFor();check(true,'first complete feed can recover after local publish');
+ const isolation=await page.evaluate(()=>productUpgradeTest.snapshot().isolation);check(Object.values(isolation).every(n=>n===0),'no model or media use');
+ if(phase==='after'&&theme==='dark')report.video=await page.video().path();await context.close();
+}assert.equal(report.errors.length,0);report.status='pass';}catch(e){report.status='failed';report.failure=e.stack;process.exitCode=1;}finally{await browser.close();await new Promise(r=>preview.server.close(r));fs.writeFileSync(out+'/result.json',JSON.stringify(report,null,2));console.log(JSON.stringify({status:report.status,checks:report.checks.length,errors:report.errors,failure:report.failure,video:report.video}));}

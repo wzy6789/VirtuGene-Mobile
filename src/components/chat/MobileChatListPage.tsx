@@ -5,7 +5,6 @@ import { useAuthStore } from '../../store/auth-store';
 import { registerSoulElement } from '../../lib/soul-handoff';
 import { useChatStore } from '../../store/chat-store';
 import { useGroupStore } from '../../store/group-store';
-import { useUIStore } from '../../store/ui-store';
 import { SwipeActionItem } from '../ui/SwipeActionItem';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
@@ -17,6 +16,9 @@ import { ConnectionEmptyState } from '../ui/ConnectionEmptyState';
 import type { Character } from '../../db/index';
 import { SecretaryWorkspaceCard } from '../secretary/SecretaryWorkspaceCard';
 import { isStoryCharacter } from '../../lib/character-domain';
+import { ElasticTabs, type ElasticTabItem } from '../ui/ElasticTabs';
+import { DEFAULT_SCENE_ID } from '../../lib/chat-scene/scene-catalog';
+import homeStarfield from '../../assets/chat-scenes/orbital-observatory/poster-841.webp';
 
 // 群聊是次级视图：与手账/角色页/我的同一套按需加载策略，不进首屏主包，打开时才拉取
 const GroupChatPage = lazy(() => import('./GroupChatPage').then((m) => ({ default: m.GroupChatPage })));
@@ -42,9 +44,11 @@ function formatListTime(ts: number): string {
  * - 排序：置顶在前，其余按最后消息时间倒序，没对话的按名字拼音排后
  * - 已隐藏的角色不再出现在列表（可从「我的 → 设置」恢复，或角色页仍可进入聊天）
  */
-let savedPosition: { owner: string | null; top: number; search: string } | undefined;
+type ChatChannel = 'dialogue' | 'assistant';
+const channels: readonly ElasticTabItem<ChatChannel>[] = [{value:'dialogue',label:'对话'},{value:'assistant',label:'助理'}];
+let savedPosition: { owner: string | null; top: number; search: string; channel: ChatChannel; positions: Partial<Record<ChatChannel, number>> } | undefined;
 
-export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => void }) {
+export function MobileChatListPage({ onSelect }: { onSelect: (c: Character, source?: HTMLElement) => void }) {
   const characters = useChatStore((s) => s.characters);
   const charPreviews = useChatStore((s) => s.charPreviews);
   const unreadByCharacter = useChatStore((s) => s.unreadByCharacter);
@@ -95,13 +99,42 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
     finally { menuLock.current = false; setMenuBusy(false); }
   };
   const [charactersLoading, setCharactersLoading] = useState(characters.length === 0);
+  const [charactersLoadError, setCharactersLoadError] = useState(false);
+  const [loadRevision, setLoadRevision] = useState(0);
   const [search, setSearch] = useState(() => savedPosition?.owner === useAuthStore.getState().userId ? savedPosition.search : '');
+  const [searchOpen, setSearchOpen] = useState(() => savedPosition?.owner === useAuthStore.getState().userId && !!savedPosition.search);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const searchButton = useRef<HTMLButtonElement>(null);
+  const restoreSearchFocus = useRef(false);
+  const [channel, setChannel] = useState<ChatChannel>(() => savedPosition?.owner === useAuthStore.getState().userId ? savedPosition.channel : 'dialogue');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const channelPositions = useRef<Partial<Record<ChatChannel, number>>>({});
+  const lastChannel = useRef(channel); lastChannel.current = channel;
   const lastSearch = useRef(search); lastSearch.current = search;
   useLayoutEffect(() => {
-    if (scrollRef.current && savedPosition?.owner === owner) scrollRef.current.scrollTop = savedPosition.top;
-    return () => { if (scrollRef.current) savedPosition = {owner,top:scrollRef.current.scrollTop,search:lastSearch.current}; };
+    const container = scrollRef.current;
+    const previous = savedPosition?.owner === owner ? savedPosition : undefined;
+    restoreSearchFocus.current = false;
+    setSearch(previous?.search ?? '');
+    setSearchOpen(!!previous?.search);
+    setChannel(previous?.channel ?? 'dialogue');
+    channelPositions.current = previous?.positions ? { ...previous.positions } : {};
+    if (container) container.scrollTop = previous?.top ?? 0;
+    return () => { if (container) savedPosition = { owner, top: container.scrollTop, search: lastSearch.current,
+      channel: lastChannel.current, positions: { ...channelPositions.current, [lastChannel.current]: container.scrollTop } }; };
   },[owner]);
+  useLayoutEffect(() => {
+    if (searchOpen) searchInput.current?.focus({ preventScroll: true });
+    else if (restoreSearchFocus.current) {
+      restoreSearchFocus.current = false;
+      searchButton.current?.focus({ preventScroll: true });
+    }
+  }, [searchOpen]);
+  const cancelSearch = () => {
+    restoreSearchFocus.current = true;
+    setSearch('');
+    setSearchOpen(false);
+  };
   /** 群聊覆盖层 */
   const [showGroups, setShowGroups] = useState(false);
   const [entryGroupId, setEntryGroupId] = useState<string | undefined>(undefined);
@@ -111,12 +144,12 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
 
   useEffect(() => {
     let alive = true;
-    setCharactersLoading(true);
-    void loadCharacters().catch(() => { if (alive) feedback('聊天列表读取失败，请重新打开', { tone: 'error' }); }).finally(() => { if (alive) setCharactersLoading(false); });
+    setCharactersLoading(true); setCharactersLoadError(false);
+    void loadCharacters().catch(() => { if (alive) { setCharactersLoadError(true); feedback('聊天列表读取失败，请重试', { tone: 'error' }); } }).finally(() => { if (alive) setCharactersLoading(false); });
     void fetchUnreadCounts();
-    void loadGroups();
+    void loadGroups().catch(() => {});
     return () => { alive = false; };
-  }, [loadCharacters, fetchUnreadCounts, loadGroups]);
+  }, [loadCharacters, fetchUnreadCounts, loadGroups, owner, loadRevision]);
 
   /** 过滤隐藏项 + 搜索 + 置顶优先 + 按时间/名字排序 */
   const sorted = useMemo(() => {
@@ -132,102 +165,56 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
       return a.name.localeCompare(b.name, 'zh-Hans-CN');
     });
   }, [characters, charPreviews, search, owner]);
+  const visibleGroups = useMemo(() => groups.filter(group => group.userId === owner && (!search.trim() || group.name.toLowerCase().includes(search.trim().toLowerCase()))), [groups, owner, search]);
+  const activeChannel = channel;
+  const changeChannel = (next: ChatChannel) => {
+    if (scrollRef.current) channelPositions.current[activeChannel] = scrollRef.current.scrollTop;
+    setChannel(next);
+  };
+  useLayoutEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = channelPositions.current[activeChannel] ?? 0;
+  }, [activeChannel, owner]);
+  const dialogueVisible = activeChannel === 'dialogue';
+  const groupsVisible = dialogueVisible;
+  const assistantMatchesSearch = !search.trim() || characters.some(c => c.createdBy === owner && !isStoryCharacter(c) && c.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const assistantVisible = activeChannel === 'assistant' && assistantMatchesSearch;
 
   return (
-    <div className="vg-conversations h-full flex flex-col">
-      <header className="vg-conversation-brand shrink-0"><BrandWordmark prominent /></header>
+    <div className="vg-conversations vg-home-stage-page h-full flex flex-col" data-home-scene={DEFAULT_SCENE_ID}>
+      {/* Home has its own static scene. Per-chat modes and legacy chat switches must not remove it. */}
+      <div className="vg-home-scene-backdrop" aria-hidden="true"><img src={homeStarfield} width={841} height={1870} alt="" draggable={false} fetchPriority="high" /></div>
+      <header className="vg-conversation-brand vg-message-heading shrink-0"><h1>消息</h1><BrandWordmark /></header>
 
-      {/* 会话搜索（微信式） */}
-      <div className="px-4 pt-2 pb-3 shrink-0">
-        <div className="vg-search-field vg-conversation-search flex items-center gap-2 px-3 py-2">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-gray-400 shrink-0">
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-          <input
-            aria-label="搜索聊天"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索聊天"
-            className="flex-1 bg-transparent text-sm text-ink placeholder:text-gray-500 outline-none min-w-0"
-          />
-          {search && (
-            <button aria-label="清空搜索" onClick={() => setSearch('')} className="vg-search-clear text-gray-400 hover:text-ink transition-colors">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
-            </button>
-          )}
-        </div>
+      <div className="vg-message-toolbar shrink-0" data-no-page-swipe data-no-back-swipe>
+        {searchOpen ? <>
+          <div className="vg-search-field vg-conversation-search vg-message-search" role="search">
+            <Icon name="search" size={18} />
+            <input ref={searchInput} aria-label="搜索聊天" value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索聊天"
+              className="flex-1 bg-transparent text-sm text-ink placeholder:text-gray-500 outline-none min-w-0"
+              onKeyDown={e => { if (e.key === 'Escape' && !e.nativeEvent.isComposing) { e.preventDefault(); e.stopPropagation(); cancelSearch(); } }} />
+            {search && <button type="button" aria-label="清空搜索" className="vg-search-clear"
+              onClick={() => { setSearch(''); searchInput.current?.focus({ preventScroll: true }); }}><Icon name="close" size={16} /></button>}
+          </div>
+          <button type="button" className="vg-message-search-cancel" onClick={cancelSearch}>取消</button>
+        </> : <>
+          {channels.length > 1 && <ElasticTabs items={channels} value={activeChannel} onChange={changeChannel} ariaLabel="聊天频道"
+            className="vg-conversation-channels" gestureKey={owner ?? 'signed-out'} contentRef={scrollRef} />}
+          <button type="button" ref={searchButton} className="vg-message-search-toggle" aria-label="搜索聊天" onClick={() => setSearchOpen(true)}><Icon name="search" size={21} /></button>
+        </>}
       </div>
 
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto vg-conversation-scroll">
-      <div className="px-3 pb-2"><SecretaryWorkspaceCard onOpen={onSelect} /></div>
-      {/* 群聊和私聊共享滚动容器，群聊较多时不会挤走私聊。 */}
-      {groups.length > 0 && (
-        <div className="px-3 pt-2 shrink-0">
-          <p className="text-xs text-sub mb-2 px-1">群聊（{groups.length}）</p>
-          <div className="space-y-1.5">
-            {groups.map((g) => {
-              const preview = groupPreviews[g.id];
-              const members = characters.filter((c) => g.characterIds.includes(c.id));
-              return (
-                <button
-                  key={g.id}
-                  onClick={() => {
-                    setEntryGroupId(g.id);
-                    setShowGroups(true);
-                  }}
-                  className="vg-conversation-row is-group w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-surface border border-line hover:border-gene-purple/40 transition-colors"
-                >
-                  <span className="shrink-0 w-12 h-12 rounded-xl bg-gene-purple/12 flex items-center justify-center relative">
-                    <svg className="text-gene-purple" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                      <circle cx="9" cy="7" r="4" />
-                      <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-                    </svg>
-                    <span className="absolute -bottom-1 -right-1 flex">
-                      {members.slice(0, 3).map((m) => (
-                        <span key={m.id} className="w-4 h-4 -ml-1 first:ml-0 rounded-full ring-1 ring-app overflow-hidden">
-                          <Avatar avatar={m.avatar} size="xs" className="!w-4 !h-4" />
-                        </span>
-                      ))}
-                    </span>
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-ink truncate">{g.name}</span>
-                      <span className="ml-auto text-[12px] text-gray-400 shrink-0">
-                        {preview && preview.createdAt > 0 ? formatListTime(preview.createdAt) : ''}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 truncate mt-0.5">
-                      {preview ? preview.content : '群聊已创建，发句话看看他们的反应'}
-                    </p>
-                  </div>
-                  {preview && preview.unread > 0 && (
-                    <span className="shrink-0 min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] flex items-center justify-center">
-                      {preview.unread > 99 ? '99+' : preview.unread}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 会话列表 */}
-      <div className="py-1">
-        {charactersLoading && !sorted.length ? <LoadingSkeleton label="正在读取聊天列表" rows={4} /> : sorted.length === 0 ? (
-          <ConnectionEmptyState searching={!!search}
-            title={search ? '没有找到匹配的角色' : '从一句话，开始一段连接'}
-            detail={search ? '换个名字试试，或清空搜索看看所有对话。' : '去认识一个新的灵魂，让今天的故事有个听众。'}
-            action={<button onClick={() => search ? setSearch('') : useUIStore.getState().setMobileTab('characters')}>
-              {search ? '清空搜索' : '去选角色'}
+      {charactersLoadError && <div className="vg-home-load-error" role="alert"><span>聊天列表读取失败</span><button type="button" onClick={() => setLoadRevision(value => value + 1)}>重新读取</button></div>}
+      {dialogueVisible && <section className="vg-home-conversation-section vg-scene-glass" aria-label={search.trim() ? '搜索结果' : '对话列表'}>
+        {charactersLoading && !sorted.length ? <LoadingSkeleton label="正在读取聊天列表" rows={2} /> : sorted.length === 0 ? (search.trim() && !visibleGroups.length ? (
+          <ConnectionEmptyState searching
+            title="没有找到匹配的角色"
+            detail="换个名字试试，或清空搜索看看所有对话。"
+            action={<button onClick={() => setSearch('')}>
+              清空搜索
             </button>} />
-        ) : (
-          <div className="px-3 py-1 space-y-2">
+        ) : null) : (
+          <div>
             {sorted.map((c) => {
               const preview = charPreviews[c.id];
               const unread = unreadByCharacter[c.id] ?? 0;
@@ -281,8 +268,8 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
                             <path d="M5 3h14v3a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V3z" />
                           </svg>
                         )}
-                        <span className="text-sm font-medium text-ink truncate">{c.name}</span>
-                        <span className="ml-auto text-[12px] text-gray-400 shrink-0">
+                        <span className="vg-conversation-name font-medium text-ink truncate">{c.name}</span>
+                        <span className="ml-auto text-[12px] text-sub shrink-0">
                           {preview ? formatListTime(preview.createdAt) : ''}
                         </span>
                       </div>
@@ -301,7 +288,64 @@ export function MobileChatListPage({ onSelect }: { onSelect: (c: Character) => v
             })}
           </div>
         )}
-      </div>
+      </section>}
+      {groupsVisible && visibleGroups.length > 0 && (
+        <section className="vg-home-group-list shrink-0" aria-label="群聊">
+          <h2 className="vg-home-section-title">群聊<small>{visibleGroups.length} 个对话</small></h2>
+          <div>
+            {visibleGroups.map((g) => {
+              const preview = groupPreviews[g.id];
+              const members = characters.filter((c) => c.createdBy === owner && g.characterIds.includes(c.id));
+              return (
+                <button
+                  key={g.id}
+                  onClick={() => {
+                    setEntryGroupId(g.id);
+                    setShowGroups(true);
+                  }}
+                  className="vg-conversation-row is-group w-full flex items-center gap-3 px-3 py-2.5 text-left rounded-2xl bg-surface border border-line hover:border-gene-purple/40 transition-colors"
+                >
+                  <span className="shrink-0 w-12 h-12 rounded-xl bg-gene-purple/12 flex items-center justify-center relative">
+                    <svg className="text-gene-purple" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                    <span className="absolute -bottom-1 -right-1 flex">
+                      {members.slice(0, 3).map((m) => (
+                        <span key={m.id} className="w-4 h-4 -ml-1 first:ml-0 rounded-full ring-1 ring-app overflow-hidden">
+                          <Avatar avatar={m.avatar} size="xs" className="!w-4 !h-4" />
+                        </span>
+                      ))}
+                    </span>
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="vg-conversation-name font-medium text-ink truncate">{g.name}</span>
+                      <span className="ml-auto text-[12px] text-sub shrink-0">
+                        {preview && preview.createdAt > 0 ? formatListTime(preview.createdAt) : ''}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                      {preview ? preview.content : '群聊已创建，发句话看看他们的反应'}
+                    </p>
+                  </div>
+                  {preview && preview.unread > 0 && (
+                    <span className="shrink-0 min-w-5 h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] flex items-center justify-center">
+                      {preview.unread > 99 ? '99+' : preview.unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {assistantVisible && <div className="vg-home-assistant"><SecretaryWorkspaceCard onOpen={onSelect} /></div>}
+      {search.trim() && activeChannel === 'assistant' && !assistantMatchesSearch &&
+        <ConnectionEmptyState searching title="没有找到匹配的助理"
+          detail="换个名字试试，或清空搜索。" action={<button type="button" onClick={() => setSearch('')}>清空搜索</button>} />}
       </div>
 
       <Modal presentation="dialog" open={!!menuCharacter} title={menuCharacter?.name} width="max-w-sm"

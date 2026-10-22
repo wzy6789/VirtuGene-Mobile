@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { SWIPE_EDGE, swipeBlocked, swipeDirection } from '../../lib/swipe-policy';
-import { prefersReducedMotion, settleFrames, subscribeReducedMotion } from '../../lib/mobile-motion';
+import { prefersReducedMotion, subscribeReducedMotion } from '../../lib/mobile-motion';
+import { elasticReleaseDuration, elasticSettleFrames } from './useElasticSurface';
 
 import { breathe } from '../../lib/haptics';
 
@@ -55,7 +56,7 @@ export function SwipeActionItem({ children, actions, onClick, swipeDistance = 16
       const current = gesture; gesture = null;
       if (current && content.hasPointerCapture(current.id)) content.releasePointerCapture(current.id);
     };
-    const settle = (open: boolean, immediate = false) => {
+    const settle = (open: boolean, immediate = false, velocity = 0) => {
       const from = read(); stop(); releaseCapture();
       row.removeAttribute('data-swipe-dragging'); row.removeAttribute('data-swipe-landing');
       opened = open && distance > 0;
@@ -68,7 +69,9 @@ export function SwipeActionItem({ children, actions, onClick, swipeDistance = 16
       if (immediate || prefersReducedMotion() || document.hidden || Math.abs(from - target) < .5) return;
       tray.style.visibility = 'visible';
       content.style.willChange = 'transform';
-      const motion = content.animate(settleFrames(from, target, 1, 1, 'x', 3), { duration: 280, easing: 'linear' });
+      const duration = elasticReleaseDuration(target - from, velocity);
+      const releaseVelocity = Math.abs(velocity) > .01 ? velocity : (target - from) * 2.5 / duration;
+      const motion = content.animate(elasticSettleFrames(from, target, releaseVelocity, duration), { duration, easing: 'linear' });
       animation = motion;
       motion.onfinish = () => {
         if (animation !== motion) return;
@@ -91,9 +94,11 @@ export function SwipeActionItem({ children, actions, onClick, swipeDistance = 16
       if (!g || g.id !== event.pointerId) return;
       const dx = event.clientX - g.x, dy = event.clientY - g.y;
       g.dir ??= swipeDirection(dx, dy);
-      if (g.dir === 'y') { settle(opened); return; }
+      if (g.dir === 'y') { suppressClickUntil.current = performance.now() + 400; settle(opened); return; }
       if (g.dir !== 'x') return;
-      if (event.cancelable) event.preventDefault();
+      // Once the browser owns a scroll, this row must not keep dragging under it.
+      if (!event.cancelable) { suppressClickUntil.current = performance.now() + 400; settle(opened); return; }
+      event.preventDefault();
       if (!content.hasPointerCapture(g.id)) content.setPointerCapture(g.id);
       row.setAttribute('data-swipe-dragging', ''); content.style.willChange = 'transform';
       const now = performance.now();
@@ -118,10 +123,14 @@ export function SwipeActionItem({ children, actions, onClick, swipeDistance = 16
       cancelAnimationFrame(frame); frame = 0; paint(nextX);
       const velocity = performance.now() - g.time < 100 ? g.velocity : 0;
       const open = projectedOpen(nextX, velocity);
-      settle(open);
+      settle(open, false, velocity);
       if (open) window.dispatchEvent(new CustomEvent('vg:swipe-action-open', { detail: { id } }));
     };
-    const cancelGesture = () => { if (gesture?.dir === 'x') suppressClickUntil.current = performance.now() + 400; settle(opened); };
+    const cancelGesture = (event?: PointerEvent) => {
+      if (event && gesture?.id !== event.pointerId) return;
+      if (gesture?.dir === 'x') suppressClickUntil.current = performance.now() + 400;
+      settle(opened);
+    };
     const outside = (event: PointerEvent) => { if ((opened || gesture) && event.target instanceof Node && !row.contains(event.target)) settle(false); };
     const other = (event: Event) => { if ((event as CustomEvent<{ id?: string }>).detail?.id !== id) settle(false); };
     const reset = () => settle(false, true);

@@ -9,7 +9,8 @@ export function installThemePreferences(): () => void {
     const theme = useThemeStore.getState().theme;
     document.documentElement.classList.toggle('dark',theme === 'dark');
     document.documentElement.dataset.vgTheme = theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',theme === 'dark' ? '#0c1020' : '#f5f6fc');
+    const background = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim();
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content',background || (theme === 'dark' ? '#10151d' : '#f4f2ed'));
   };
   const updateSystem = () => useThemeStore.getState().syncSystemTheme();
   updateSystem(); sync();

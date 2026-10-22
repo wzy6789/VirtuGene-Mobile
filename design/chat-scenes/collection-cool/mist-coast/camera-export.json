@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "sceneId": "mist-coast",
+  "designWidth": 1440,
+  "designHeight": 3200,
+  "camera": {
+    "location": [
+      -0.25,
+      -7.800000190734863,
+      2.5
+    ],
+    "rotation": [
+      1.4668768644332886,
+      -2.9400863965634016e-09,
+      -0.043927766382694244
+    ],
+    "lens": 30.0,
+    "sensorFit": "VERTICAL",
+    "sensorHeight": 36
+  },
+  "layers": [
+    "base",
+    "casing",
+    "foreground",
+    "table"
+  ],
+  "windowOpening": {
+    "location": [
+      0,
+      3.98,
+      2.3
+    ],
+    "size": [
+      6.08,
+      0.008,
+      2.52
+    ]
+  },
+  "windowPolygon": [
+    [
+      -30.958,
+      1655.457
+    ],
+    [
+      1335.435,
+      1648.076
+    ],
+    [
+      1349.139,
+      1079.778
+    ],
+    [
+      -48.068,
+      1074.175
+    ]
+  ],
+  "lightRect": [
+    650,
+    800,
+    650,
+    1050
+  ],
+  "provenance": "Original procedural Blender geometry and node materials; no external models, textures, stock or online generation."
+}

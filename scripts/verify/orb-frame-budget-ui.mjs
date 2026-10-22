@@ -1,0 +1,23 @@
+import {chromium} from 'playwright';
+import {mkdirSync,writeFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+const address=process.env.VG_ORB_BUDGET_ADDRESS??'http://127.0.0.1:5301',out=process.env.VG_ORB_BUDGET_UI_OUT??'.tmp-preview/stage2-ui-20261018/S09-C2b/ui';mkdirSync(out,{recursive:true});
+const browser=await chromium.launch({channel:'chrome'}),report={checks:[],scope:'Actual call host/dialog/orb, deterministic rAF timestamps in this isolated document only. No production app, model, microphone or audio.'};
+const check=(ok,name,data)=>{report.checks.push({pass:!!ok,name,data});assert(ok,name+' '+JSON.stringify(data??''));};
+try{
+ const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,reducedMotion:'no-preference'});
+ page.setDefaultTimeout(7000);
+ await page.addInitScript(()=>{let next=0,time=performance.now();const tasks=new Map();window.requestAnimationFrame=fn=>{const id=++next;tasks.set(id,fn);return id;};window.cancelAnimationFrame=id=>tasks.delete(id);window.budgetFrames=(count,interval)=>{for(let i=0;i<count;i++){time+=interval;const ready=[...tasks.values()];tasks.clear();for(const fn of ready)fn(time);}};});
+ await page.goto(address+'/?virtugene-preview=mobile');await page.waitForFunction(()=>window.callUiTest,undefined,{polling:50});await page.evaluate(()=>callUiTest.hosted());await page.locator('.vg-voice-call-soul .vg-soul-orb').waitFor();
+ const advance=(count,interval)=>page.evaluate(({count,interval})=>window.budgetFrames(count,interval),{count,interval});
+ const state=()=>page.evaluate(()=>({budget:callUiTest.budget(),clock:callUiTest.motion(),mode:document.querySelector('.vg-voice-call-soul .vg-soul-orb')?.dataset.orbMotion,halo:getComputedStyle(document.querySelector('.vg-voice-call-halo')).animationName}));
+ await advance(260,1000/60);check((await state()).budget.mode==='full','raw60Hz does not trigger budget despite30Hz SVG painting',await state());await advance(100,40);check((await state()).budget.mode==='static'&&(await state()).mode==='paused','sustained slow frames freeze actual SVG',await state());check((await state()).halo==='none','halo stops with the measured orb');
+ const face=page.locator('.vg-voice-call-soul .vg-orb-face'),frozen=await face.evaluate(el=>el.outerHTML);await advance(600,20);check((await state()).budget.mode==='static','live call prevents automatic restart',await state());check(!(await state()).clock.scheduled,'active call suspends the recovery probe itself');check(await face.evaluate(el=>el.outerHTML)===frozen,'recovery probe makes no continuous SVG face writes');
+ await page.evaluate(()=>callUiTest.problem('voice:network'));await page.locator('.vg-voice-call-soul [data-orb-emotion="error"]').waitFor();check(await face.evaluate(el=>el.outerHTML)!==frozen,'business failure updates static expression immediately');await page.screenshot({path:out+'/static-error.png'});
+ await page.evaluate(()=>hostedCall.cleanup());await page.waitForFunction(()=>callUiTest.motion().clients===0,undefined,{polling:50});check(!(await page.evaluate(()=>callUiTest.motion())).scheduled,'background/unmount cancels recovery probe');
+ await page.evaluate(()=>callUiTest.open());await page.locator('.vg-voice-call-soul').waitFor();await page.evaluate(()=>window.dispatchEvent(new PointerEvent('pointerdown',{pointerId:41,buttons:1})));await advance(600,20);check((await state()).budget.mode==='static','drag blocks recovery even after call ends');await page.evaluate(()=>window.dispatchEvent(new PointerEvent('pointerup',{pointerId:41,buttons:0})));await advance(450,20);check((await state()).budget.mode==='static','drag release does not restore before ten stable seconds');await advance(150,20);check((await state()).budget.mode==='gentle'&&(await state()).mode==='active','fresh stable window restores only gentle movement',await state());
+ await advance(100,40);check((await state()).budget.locked&&!(await state()).clock.scheduled,'repeat overload locks static and stops further probes',await state());await page.evaluate(()=>callUiTest.reduceMotion(true));await page.waitForFunction(()=>callUiTest.motion().clients===0,undefined,{polling:50});check(true,'explicit reduced motion also releases registered probe client');
+ check(Object.values(await page.evaluate(()=>voiceIsolation)).every(n=>n===0),'no transport/capture/audio attempts');await page.close();report.pass=true;
+}catch(e){report.pass=false;report.failure=e.stack;process.exitCode=1;}
+finally{await browser.close();writeFileSync(out+'/result.json',JSON.stringify(report,null,2));}
+console.log(JSON.stringify({out,pass:report.pass,checks:report.checks.length,failure:report.failure}));

@@ -2,7 +2,7 @@ import { useFeedback } from '../../lib/feedback';
 import { useAiAvailability } from '../settings/useAiAvailability';
 import { avatarImageSrc } from '../../lib/avatar';
 import { TagInput, DIARY_TAGS } from '../ui/PhysicalInteractions';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { FilterSelect } from '../ui/FilterSelect';
 import { SwipeBackView } from '../ui/SwipeBackView';
@@ -18,6 +18,8 @@ import { ipc } from '../../lib/ipc-client';
 import { DIARY_MOODS, DIARY_WEATHERS, moodEmoji, moodColor, formatDateFull } from '../../lib/diary-utils';
 import { diaryRepo, todayStr } from '../../db/diary-repo';
 import type { Diary } from '../../db/index';
+import { Icon } from '../ui/Icon';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
 
 interface Props {
   date: string;
@@ -30,6 +32,11 @@ interface Props {
  * 写完一段后，AI「灵魂」会回应一句简短的引导（可开关，不写入正文）。
  */
 export function DiaryChatPage({ date, onBack, diaryId }: Props) {
+  const owner = useAuthStore(s => s.userId);
+  return <DiaryChatContent key={`${owner ?? 'signed-out'}:${date}:${diaryId ?? ''}`} date={date} onBack={onBack} diaryId={diaryId} />;
+}
+
+function DiaryChatContent({ date, onBack, diaryId }: Props) {
   const getOrCreateForDate = useDiaryStore((s) => s.getOrCreateForDate);
   const updateDiary = useDiaryStore((s) => s.updateDiary);
   const deleteDiary = useDiaryStore((s) => s.deleteDiary);
@@ -50,6 +57,18 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
   const isPastInitial = date < todayStr();
   const [viewMode, setViewMode] = useState<'write' | 'diary'>(diaryId || isPastInitial ? 'diary' : 'write');
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [sending, setSending] = useState(false);
+  const [composeOptionsOpen, setComposeOptionsOpen] = useState(false);
+  const composeOptionsId = useId();
+  const retrySaveButton = useRef<HTMLButtonElement>(null);
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const saveRevision = useRef(0);
+  const pendingPatch = useRef<Partial<Diary>>({});
+  const pendingInput = useRef<string | null>(null);
+  const sendingRef = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [stickToBottom, setStickToBottom] = useState(true);
   const [showNewHint, setShowNewHint] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -71,7 +90,7 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
   const load = useCallback(async () => {
     const owner = useAuthStore.getState().userId;
     const d = diaryId ? (await diaryRepo.getById(diaryId)) ?? null : await getOrCreateForDate(date);
-    if (diaryId && (!d || d.userId !== owner || d.deletedAt || useAuthStore.getState().userId !== owner)) return;
+    if (!mounted.current || !d || d.userId !== owner || d.deletedAt || useAuthStore.getState().userId !== owner) return;
     diaryRef.current = d;
     setDiary(d);
     // 自动标题：仅当天（写作中的今天）第一篇段落前 24 字；
@@ -155,22 +174,61 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
     setShowNewHint(false);
   };
 
-  const patch = (p: Partial<Diary>) => {
+  const patch = (p: Partial<Diary>): Promise<boolean> => {
     const cur = diaryRef.current;
-    if (!cur) return;
+    if (!cur || useAuthStore.getState().userId !== cur.userId) return Promise.resolve(false);
     // 同步更新 ref + state，保证同一帧内多次 patch/send 读到最新内容
     const next: Diary = { ...cur, ...p, updatedAt: Date.now() };
     diaryRef.current = next;
     setDiary(next);
-    setSavedAt(Date.now());
-    void updateDiary(cur.id, p);
+    pendingPatch.current = { ...pendingPatch.current, ...p };
+    const payload = { ...pendingPatch.current };
+    const revision = ++saveRevision.current;
+    setSaveState('saving');
+    // Serialize writes; a newer snapshot also carries any earlier unsaved fields.
+    const work = saveQueue.current.then(async () => {
+      if (useAuthStore.getState().userId !== cur.userId) return false;
+      try {
+        await updateDiary(cur.id, payload);
+        if (revision === saveRevision.current) {
+          pendingPatch.current = {};
+          if (mounted.current && useAuthStore.getState().userId === cur.userId) {
+            setSavedAt(Date.now()); setSaveState('saved');
+          }
+        }
+        return true;
+      } catch {
+        if (revision === saveRevision.current && mounted.current && useAuthStore.getState().userId === cur.userId) setSaveState('error');
+        return false;
+      }
+    });
+    saveQueue.current = work;
+    return work;
+  };
+
+  const retrySave = async () => {
+    const cur = diaryRef.current;
+    if (!await patch({})) return;
+    if (!mounted.current || !cur || useAuthStore.getState().userId !== cur.userId || diaryRef.current?.id !== cur.id) return;
+    const text = pendingInput.current;
+    if (text != null) setInput(current => current.trim() === text ? '' : current);
+    pendingInput.current = null;
+  };
+  const requestBack = () => {
+    if (saveState === 'error') { retrySaveButton.current?.focus(); retrySaveButton.current?.scrollIntoView({ block:'nearest' }); return; }
+    if (saveState === 'saving') { feedback('还有记录未保存，请先完成保存或重试。', { tone:'error' }); return; }
+    onBack();
   };
 
   const send = async () => {
     const text = input.trim();
     const cur = diaryRef.current;
-    if (!text || !cur) return;
-    setInput('');
+    if (!text || !cur || sendingRef.current) return;
+    sendingRef.current = true; setSending(true);
+    if (saveState === 'error' && pendingInput.current === text) {
+      try { await retrySave(); } finally { sendingRef.current = false; if (mounted.current) setSending(false); }
+      return;
+    }
     // 追加新段后段落索引错位 → 取消进行中的段落编辑
     setEditingIdx(null);
     setEditingText('');
@@ -180,21 +238,27 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
     if (!isPast) {
       patchPayload.title = cur.title.trim() ? cur.title : text.slice(0, 24);
     }
-    patch(patchPayload);
+    pendingInput.current = text;
+    let written: boolean;
+    try { written = await patch(patchPayload); }
+    finally { sendingRef.current = false; if (mounted.current) setSending(false); }
+    if (!written || !mounted.current || useAuthStore.getState().userId !== cur.userId || diaryRef.current?.id !== cur.id) return;
+    setInput(current => current.trim() === text ? '' : current);
+    pendingInput.current = null;
 
     // AI 灵魂引导（可开关，不写入正文；不阻塞正文发送——引导进行中跳过本次引导，避免并发乱序）
     if (diaryAiEnabled && hasAiAccess && !busy) {
       setBusy(true);
       try {
         const r = await ipc.diary.assist({ apiKey, mode: 'guide', text: newContent.slice(-800) });
-        if (r.text) {
+        if (r.text && mounted.current && useAuthStore.getState().userId === cur.userId && diaryRef.current?.id === cur.id) {
           const guideText = r.text;
           setGuides((g) => [...g, { id: crypto.randomUUID(), text: guideText }]);
         }
       } catch {
         /* 引导失败不影响记录 */
       } finally {
-        setBusy(false);
+        if (mounted.current && useAuthStore.getState().userId === cur.userId) setBusy(false);
       }
     }
   };
@@ -363,28 +427,28 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
 
 
   if (!diary) {
-    return <div className="h-full flex items-center justify-center text-gray-500">正在打开日记…</div>;
+    return <div className="vg-loading-skeleton p-4" role="status" aria-label="正在打开日记">{[0, 1, 2].map(i => <div className="vg-skeleton-card" key={i} aria-hidden="true"><i /><span><i /><i /><i /></span></div>)}</div>;
   }
 
   return (
-    <SwipeBackView enabled onBack={onBack} className="bg-app">
-    <div className="h-full flex flex-col bg-app">
+    <SwipeBackView enabled onBack={requestBack} className="bg-app">
+    <div className="vg-diary-writing-page h-full flex flex-col bg-app" data-save-state={saveState}>
       {/* 头部 */}
-      <div className="h-14 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 border-b border-line shrink-0 overflow-x-auto">
+      <div className="vg-diary-header vg-diary-writing-header h-14 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 border-b border-line shrink-0">
         {isPast ? (
           <>
-            <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-ink transition-colors shrink-0">
-              ‹ 返回手账
+            <button onClick={requestBack} className="flex items-center gap-1.5 text-sm text-sub hover:text-ink transition-colors shrink-0">
+              <Icon name="back" size={18} /> 返回手账
             </button>
             <span className="text-sm font-semibold text-ink truncate">{formatDateFull(date)}</span>
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-500/10 text-gray-500 shrink-0 hidden sm:inline">已归档 · 可补写</span>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-gray-500/10 text-sub shrink-0 hidden sm:inline">已归档 · 可补写</span>
 
             {/* 写作 / 日记视图切换（归档日只允许追加，已有段落不可改） */}
             <button
               onClick={() => setViewMode(viewMode === 'write' ? 'diary' : 'write')}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all border border-line-strong text-sub hover:text-ink shrink-0"
             >
-              {viewMode === 'write' ? '📄 日记视图' : '💬 补写'}
+              <Icon name={viewMode === 'write' ? 'diary' : 'edit'} size={16} />{viewMode === 'write' ? '日记视图' : '补写'}
             </button>
           </>
         ) : (
@@ -396,7 +460,7 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
               onClick={() => setViewMode(viewMode === 'write' ? 'diary' : 'write')}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all border border-line-strong text-sub hover:text-ink shrink-0"
             >
-              {viewMode === 'write' ? '📄 日记视图' : '💬 回到写作'}
+              <Icon name={viewMode === 'write' ? 'diary' : 'edit'} size={16} />{viewMode === 'write' ? '日记视图' : '回到写作'}
             </button>
           </>
         )}
@@ -419,6 +483,9 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
         <div className="relative shrink-0">
           <button
             onClick={() => setRoleMenuOpen((v) => !v)}
+            aria-label="日记关联角色"
+            aria-haspopup="dialog"
+            aria-expanded={roleMenuOpen}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface border border-line text-xs text-sub hover:text-ink transition-colors max-w-[130px] sm:max-w-[180px]"
           >
             {linkedChar ? (
@@ -431,19 +498,18 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
                 <span className="truncate">{linkedChar.name}</span>
               </span>
             ) : (
-              '🚫 不关联角色'
+              '不关联角色'
             )}
-            <span className="text-gray-400 shrink-0">▾</span>
+            <Icon name="chevron" size={14} className="rotate-90 shrink-0" />
           </button>
           {roleMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setRoleMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 z-50 min-w-[170px] max-h-72 overflow-y-auto py-1.5 glass-card rounded-xl shadow-xl animate-fade-in">
+            <Modal open presentation="dialog" title="关联一位角色" width="max-w-sm" onClose={()=>setRoleMenuOpen(false)} canSnapshotOnExit={()=>false} panelClassName="vg-diary">
+              <div className="max-h-[70vh] overflow-y-auto py-2">
                 <button
                   onClick={() => { patch({ characterId: undefined }); setRoleMenuOpen(false); }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  <span className="shrink-0">🚫</span> 不关联角色
+                  <Icon name="close" size={18} /> 不关联角色
                 </button>
                 {characters.map((c) => (
                   <button
@@ -460,17 +526,19 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
                   </button>
                 ))}
               </div>
-            </>
+            </Modal>
           )}
         </div>
           </>
         )}
 
         {/* 删除（当天可删；归档日只允许删除、不可编辑） */}
-        <button onClick={() => setShowDelete(true)} title="删除这一天" className="px-2.5 py-1.5 rounded-lg text-sm text-gray-400 hover:bg-red-500/10 hover:text-red-400 transition-colors shrink-0">
-          🗑️
+        <button onClick={() => setShowDelete(true)} title="删除这一天" aria-label="删除这一天" className="vg-diary-icon px-2.5 py-1.5 rounded-lg text-sm text-sub hover:bg-red-500/10 hover:text-red-400 transition-colors shrink-0 flex items-center justify-center">
+          <Icon name="trash" size={18} />
         </button>
       </div>
+
+      {saveState === 'error' && <div className="vg-diary-save-error px-4 py-2"><FeedbackNotice tone="error" message="尚未保存，内容仍在。" /><button ref={retrySaveButton} type="button" className="vg-button vg-button-secondary mt-2" onClick={()=>void retrySave()}>重试保存</button></div>}
 
       {/* 写作模式：聊天气泡（当天可写；归档日只允许追加，已有段落不可改） */}
       {viewMode === 'write' ? (
@@ -483,57 +551,58 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
       >
         <div className="max-w-2xl mx-auto space-y-3">
           <div className="flex justify-center">
-            <span className="text-[10px] text-gray-500 bg-panel px-3 py-0.5 rounded-full">{formatDateFull(date)}</span>
+            <span className="text-xs text-sub bg-panel px-3 py-0.5 rounded-full">{formatDateFull(date)}</span>
           </div>
 
           {segments.length === 0 && (
             <div className="text-center py-10">
-              <p className="text-3xl mb-2">📓</p>
-              <p className="text-sm text-gray-500">写下今天想记住的事…</p>
-              <p className="text-xs text-gray-600 mt-1">每一段都会自动保存到今天的日记里</p>
+              <Icon name="diary" size={32} className="mx-auto mb-3 text-[color:var(--vg-accent)]" />
+              <p className="text-sm text-sub">写下今天想记住的事…</p>
+              <p className="text-xs text-sub mt-1">每一段都会自动保存到今天的日记里</p>
             </div>
           )}
 
           {segments.map((seg, i) => (
-            <div key={i} className="group relative flex justify-end">
+            <div key={i} className="group relative flex flex-col items-end gap-2">
               {/* 段落操作：桌面悬停显示；手机端常显（触摸无 hover） */}
               {!isPast && (
-                <div className="absolute -top-2 right-0 z-10 flex items-center gap-0.5 px-1 py-0.5 rounded-lg glass-card shadow-md transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+                <div className="vg-diary-segment-tools flex items-center gap-0.5 px-1 py-0.5 rounded-lg sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100" role="group" aria-label={`第${i + 1}段操作`}>
                   <button
                     onClick={() => { setEditingIdx(i); setEditingText(seg); }}
                     title="编辑这段"
-                    className="w-6 h-6 flex items-center justify-center text-[11px] text-gray-500 hover:text-gene-purple rounded transition-colors"
+                    className="vg-diary-icon w-6 h-6 flex items-center justify-center text-xs text-sub hover:text-gene-purple rounded transition-colors"
                   >
-                    ✏️
+                    <Icon name="edit" size={16} />
                   </button>
                   <button
                     onClick={() => moveSegment(i, -1)}
                     disabled={i === 0}
                     title="上移"
-                    className="w-6 h-6 flex items-center justify-center text-[11px] text-gray-500 hover:text-gene-purple rounded transition-colors disabled:opacity-30"
+                    className="vg-diary-icon w-6 h-6 flex items-center justify-center text-xs text-sub hover:text-gene-purple rounded transition-colors disabled:opacity-30"
                   >
-                    ↑
+                    <Icon name="back" size={16} className="rotate-90" />
                   </button>
                   <button
                     onClick={() => moveSegment(i, 1)}
                     disabled={i === segments.length - 1}
                     title="下移"
-                    className="w-6 h-6 flex items-center justify-center text-[11px] text-gray-500 hover:text-gene-purple rounded transition-colors disabled:opacity-30"
+                    className="vg-diary-icon w-6 h-6 flex items-center justify-center text-xs text-sub hover:text-gene-purple rounded transition-colors disabled:opacity-30"
                   >
-                    ↓
+                    <Icon name="chevron" size={16} className="rotate-90" />
                   </button>
                   <button
                     onClick={() => deleteSegment(i)}
                     title="删除这段"
-                    className="w-6 h-6 flex items-center justify-center text-[11px] text-gray-500 hover:text-red-400 rounded transition-colors"
+                    className="vg-diary-icon w-6 h-6 flex items-center justify-center text-xs text-sub hover:text-red-400 rounded transition-colors"
                   >
-                    🗑️
+                    <Icon name="trash" size={16} />
                   </button>
                 </div>
               )}
               {editingIdx === i ? (
-                <div className="max-w-[85%] w-full rounded-2xl border border-gene-purple/50 bg-panel px-3 py-2.5 shadow-[0_4px_16px_rgba(108,92,231,0.18)]">
+                <div className="vg-diary-segment-editor max-w-[85%] w-full rounded-2xl px-3 py-2.5">
                   <textarea
+                    aria-label={`编辑第${i + 1}段`}
                     value={editingText}
                     onChange={(e) => setEditingText(e.target.value)}
                     rows={Math.max(2, Math.min(6, editingText.split('\n').length + 1))}
@@ -541,18 +610,18 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
                     className="w-full resize-none bg-transparent text-sm text-ink leading-relaxed outline-none"
                   />
                   <div className="flex items-center justify-end gap-2 mt-1.5">
-                    <button onClick={() => setEditingIdx(null)} className="px-3 py-1 rounded-lg text-xs text-gray-400 hover:bg-surface transition-colors">取消</button>
+                    <button onClick={() => setEditingIdx(null)} className="px-3 py-1 rounded-lg text-xs text-sub hover:bg-surface transition-colors">取消</button>
                     <button
                       onClick={saveSegmentEdit}
                       disabled={!editingText.trim()}
-                      className="px-3 py-1 rounded-lg text-xs bg-gene-purple text-white hover:bg-[#5B4BD4] transition-colors disabled:opacity-40"
+                      className="vg-diary-save px-3 py-1 rounded-lg text-xs transition-colors disabled:opacity-40"
                     >
                       保存
                     </button>
                   </div>
                 </div>
               ) : (
-                <div className="max-w-[78%] px-4 py-3 rounded-2xl rounded-br-md bg-gradient-to-br from-gene-purple to-[#5B4BD4] text-white text-sm leading-relaxed shadow-[0_4px_16px_rgba(108,92,231,0.30)] whitespace-pre-wrap">
+                <div className="vg-diary-segment max-w-[85%] px-4 py-3 rounded-2xl rounded-br-md text-sm leading-relaxed whitespace-pre-wrap">
                   {seg}
                 </div>
               )}
@@ -561,17 +630,17 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
 
           {(diary.images ?? []).length > 0 && (
             <div className="flex justify-end">
-              <div className="max-w-[78%] grid grid-cols-2 gap-2">
+              <div className="vg-diary-illustrations vg-diary-draft-images" data-count={(diary.images ?? []).length}>
                 {(diary.images ?? []).map((img, idx) => (
-                  <div key={idx} className="relative group/img rounded-xl overflow-hidden border border-white/20 shadow-[0_4px_16px_rgba(108,92,231,0.25)]">
-                    <img src={img} alt={`日记插图 ${idx + 1}`} className="max-h-48 w-full object-cover" />
+                  <div key={idx} className="group/img">
+                    <img src={img} alt={`日记插图 ${idx + 1}`} loading="lazy" decoding="async" />
                     {!isPast && (
                       <button
                         onClick={() => removeImage(idx)}
                         title="删除图片"
-                        className="absolute top-1 right-1 flex sm:hidden w-6 h-6 items-center justify-center rounded-full bg-black/60 text-white text-xs hover:bg-red-500/80 transition-colors sm:group-hover/img:flex"
+                        className="vg-diary-icon absolute top-1 right-1 flex sm:hidden w-6 h-6 items-center justify-center rounded-full bg-black/60 text-white text-xs hover:bg-red-500/80 transition-colors sm:group-hover/img:flex"
                       >
-                        ✕
+                        <Icon name="close" size={16} />
                       </button>
                     )}
                   </div>
@@ -582,7 +651,7 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
 
           {guides.map((g) => (
             <div key={g.id} className="flex justify-start items-start gap-2 animate-message-in">
-              <span className="text-lg shrink-0">🧬</span>
+              <Icon name="spark" size={22} className="shrink-0 text-[color:var(--vg-cyan)]" />
               <div className="max-w-[78%] px-4 py-3 rounded-2xl rounded-bl-md bg-msgai text-msgaitxt text-sm leading-relaxed border-l-2 border-life-cyan">
                 {g.text}
               </div>
@@ -591,8 +660,8 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
 
           {busy && (
             <div className="flex justify-start items-center gap-2">
-              <span className="text-lg">🧬</span>
-              <span className="text-xs text-gray-400 animate-pulse">正在聆听…</span>
+              <Icon name="spark" size={22} className="text-[color:var(--vg-cyan)]" />
+              <span className="text-xs text-sub animate-pulse">正在聆听…</span>
             </div>
           )}
           </div>
@@ -611,17 +680,21 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
       </div>
 
       {/* 工具条：心情 + 标签 + AI */}
-      <div className="border-t border-line shrink-0">
-        <div className="max-w-2xl mx-auto px-4 py-2 space-y-2">
+      <div className="vg-diary-compose-shell border-t border-line" data-options-open={composeOptionsOpen}>
+        <div className="vg-diary-compose max-w-2xl mx-auto px-4 py-2 space-y-2">
+          <button type="button" className="vg-diary-compose-toggle" aria-expanded={composeOptionsOpen} aria-controls={composeOptionsId} onClick={()=>setComposeOptionsOpen(open=>!open)}>心情、天气与标签<Icon name="chevron" size={16} /></button>
+          <div id={composeOptionsId} className="vg-diary-compose-options space-y-2" data-expanded={composeOptionsOpen}>
           {/* 心情 + 标签 */}
           <div className="flex items-center gap-2 flex-wrap">
             {DIARY_MOODS.map((m) => (
               <button
                 key={m.value}
                 onClick={() => patch({ mood: m.value })}
+                aria-pressed={diary.mood === m.value}
+                aria-label={m.label}
                 title={m.label}
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-base transition-all ${
-                  diary.mood === m.value ? 'scale-110 ring-2 ring-gene-purple/50 shadow-[0_0_10px_rgba(108,92,231,0.3)]' : 'opacity-60 hover:opacity-100 hover:bg-surface'
+                className={`vg-diary-icon w-8 h-8 rounded-full flex items-center justify-center text-base transition-all ${
+                  diary.mood === m.value ? 'ring-2 ring-gene-purple/50 bg-surface' : 'opacity-60 hover:opacity-100 hover:bg-surface'
                 }`}
               >
                 {m.emoji}
@@ -638,9 +711,11 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
                 <button
                   key={w.value}
                   onClick={() => patch({ weather: diary.weather === w.value ? undefined : w.value })}
+                  aria-pressed={diary.weather === w.value}
+                  aria-label={w.label}
                   title={w.label}
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-base transition-all ${
-                    diary.weather === w.value ? 'scale-110 ring-2 ring-life-cyan/60 shadow-[0_0_10px_rgba(0,206,201,0.35)]' : 'opacity-60 hover:opacity-100 hover:bg-surface'
+                  className={`vg-diary-icon w-8 h-8 rounded-full flex items-center justify-center text-base transition-all ${
+                    diary.weather === w.value ? 'ring-2 ring-life-cyan/60 bg-surface' : 'opacity-60 hover:opacity-100 hover:bg-surface'
                   }`}
                 >
                   {w.value}
@@ -654,9 +729,9 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
             <button
               onClick={() => fileRef.current?.click()}
               title="插入图片"
-              className="px-2.5 py-1 rounded-full bg-surface border border-line text-[11px] text-sub hover:border-gene-purple/40 hover:text-ink transition-colors"
+              className="px-2.5 py-1 rounded-full bg-surface border border-line text-xs text-sub hover:border-gene-purple/40 hover:text-ink transition-colors"
             >
-              🖼️ 插图
+              <span className="inline-flex items-center gap-1"><Icon name="image" size={16} /> 插图</span>
             </button>
             <input
               ref={fileRef}
@@ -674,53 +749,53 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
           {/* AI 辅助 */}
           {diaryAiEnabled && (
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-gray-500">AI</span>
+              <span className="text-xs text-sub">AI</span>
               <button
                 onClick={() => setExtractOpen(true)}
                 disabled={busy}
-                className="px-2.5 py-1 rounded-full bg-surface border border-line text-[11px] text-sub hover:border-gene-purple/40 hover:text-ink transition-colors disabled:opacity-40"
+                className="px-2.5 py-1 rounded-full bg-surface border border-line text-xs text-sub hover:border-gene-purple/40 hover:text-ink transition-colors disabled:opacity-40"
               >
-                ✨ 生成日记草稿
+                <span className="inline-flex items-center gap-1"><Icon name="spark" size={16} /> 生成日记草稿</span>
               </button>
-              <span className="text-[10px] text-gray-400">结合角色对话或整理片段成日记，采纳可替换或追加</span>
+              <span className="text-xs text-sub">结合角色对话或整理片段成日记，采纳可替换或追加</span>
             </div>
           )}
 
+          </div>
           {/* 输入区 */}
-          <div className="flex items-end gap-2 pb-2">
+          <div className="vg-diary-compose-input flex items-end gap-2 pb-2">
             <button
-              onClick={onBack}
+              onClick={requestBack}
               title="返回手账"
-              className="shrink-0 px-2 py-2.5 text-sm text-gray-400 hover:text-ink transition-colors"
+              className="shrink-0 px-2 py-2.5 text-sm text-sub hover:text-ink transition-colors"
             >
-              ‹ 手账
+              <Icon name="back" size={20} />
             </button>
-            <div className="flex-1 flex flex-col gap-1">
+            <div className="flex-1 min-w-0 flex flex-col gap-1">
               <textarea
+                aria-label="写下日记片段"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); }
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); }
                 }}
                 placeholder="写点什么…"
                 rows={1}
-                className="w-full resize-none bg-surface border border-line-strong rounded-xl px-4 py-2.5 text-sm text-ink outline-none focus:border-gene-purple focus:shadow-[0_0_0_3px_rgba(108,92,231,0.12)] transition-all"
+                className="vg-text-field w-full resize-none px-4 py-2.5 text-sm"
               />
               <div className="flex items-center justify-between">
-                <span className="text-[10px] text-gray-400">
-                  {savedAt ? `已保存 ${new Date(savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '自动保存中…'}
+                <span className="text-xs text-sub" role="status" aria-live="polite">
+                  {saveState === 'saving' ? '正在保存…' : saveState === 'error' ? '尚未保存' : savedAt ? `已保存 ${new Date(savedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}` : '保存片段，留下此刻'}
                 </span>
               </div>
             </div>
             <button
               onClick={() => void send()}
-              disabled={!input.trim()}
-              className="shrink-0 w-10 h-10 rounded-xl bg-gene-purple text-white flex items-center justify-center hover:bg-[#5B4BD4] shadow-[0_2px_12px_rgba(108,92,231,0.35)] transition-all disabled:opacity-30 disabled:shadow-none"
+              aria-label="保存日记片段"
+              disabled={!input.trim() || sending}
+              className="vg-diary-save vg-diary-icon shrink-0 w-11 h-11 rounded-xl flex items-center justify-center disabled:opacity-30"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
+              <Icon name="send" size={18} />
             </button>
           </div>
         </div>
@@ -730,51 +805,42 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
         /* 日记视图：正式日记格式 */
         <div className="flex-1 overflow-y-auto px-4 py-6">
           <DiaryView diary={diary} />
-          <div className="max-w-2xl mx-auto mt-6 flex items-center justify-between">
-            <button onClick={onBack} title="返回手账" className="text-sm text-gray-400 hover:text-ink transition-colors">
-              ‹ 手账
-            </button>
-            {isPast ? (
-              <p className="text-xs text-gray-500">📁 这一天已归档，可点击「💬 补写」追加新段落（已有内容不可改）</p>
-            ) : (
+          <div className="max-w-2xl mx-auto mt-6 space-y-3">
+            <div className="flex items-center gap-3">
+              <button onClick={requestBack} title="返回手账" className="vg-button vg-button-ghost shrink-0">
+                <Icon name="back" size={18} /> 手账
+              </button>
               <button
                 onClick={() => setViewMode('write')}
-                className="px-5 py-2.5 rounded-xl bg-gene-purple hover:bg-[#5B4BD4] text-sm font-medium text-white shadow-[0_2px_12px_rgba(108,92,231,0.35)] transition-all"
+                className="vg-button vg-button-primary flex-1"
               >
-                ✏️ 继续写
+                <Icon name="edit" size={18} /> {isPast ? '补写这一天' : '继续写'}
               </button>
-            )}
-            {/* 补写入口（归档日） */}
-            {isPast && (
-              <button
-                onClick={() => setViewMode('write')}
-                className="px-4 py-2 rounded-xl text-sm font-medium text-gene-purple bg-gene-purple/10 hover:bg-gene-purple/20 transition-colors"
-              >
-                💬 补写
-              </button>
-            )}
+            </div>
+            {isPast && <p className="text-xs leading-relaxed text-sub">这一天已归档。补写只追加新段落，已有内容保持原样。</p>}
+            <div className="flex flex-wrap gap-2">
             {/* 发给角色（聊天主界面：让 TA 看看你的一天） */}
             <button
               onClick={() => { setShareCharId(diary.characterId ?? ''); setShareOpen(true); }}
               disabled={characters.length === 0}
               title={characters.length === 0 ? '还没有角色，先去基因实验室培育一个' : '把这一天发给角色聊聊'}
-              className="px-4 py-2 rounded-xl text-sm font-medium text-gene-purple bg-gene-purple/10 hover:bg-gene-purple/20 transition-colors disabled:opacity-30"
+              className="vg-button vg-button-secondary flex-1 whitespace-nowrap disabled:opacity-40"
             >
-              💌 发给角色
+              <Icon name="send" size={18} /> 发给角色
             </button>
             {/* 单篇导出 */}
-            <div className="relative">
               <button
                 onClick={() => setExportMenuOpen((v) => !v)}
                 title="导出这一天"
-                className="px-4 py-2 rounded-xl text-sm font-medium text-sub bg-surface border border-line hover:border-life-cyan/40 hover:text-ink transition-colors"
+                aria-haspopup="dialog"
+                aria-expanded={exportMenuOpen}
+                className="vg-button vg-button-secondary flex-1 whitespace-nowrap"
               >
-                📤 导出这一天
+                <Icon name="download" size={18} /> 导出这一天
               </button>
               {exportMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setExportMenuOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-50 min-w-[140px] py-1.5 glass-card rounded-xl shadow-xl animate-fade-in">
+                <Modal open presentation="dialog" title="导出这一天" width="max-w-sm" onClose={()=>setExportMenuOpen(false)} canSnapshotOnExit={()=>false} panelClassName="vg-diary">
+                  <div className="py-2">
                     {([['pdf', '导出 PDF'], ['docx', '导出 Word'], ['txt', '导出文本']] as const).map(([k, label]) => (
                       <button
                         key={k}
@@ -786,7 +852,7 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
                       </button>
                     ))}
                   </div>
-                </>
+                </Modal>
               )}
             </div>
           </div>
@@ -797,9 +863,9 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
       <Modal presentation="dialog" open={showDelete} onClose={() => setShowDelete(false)} width="max-w-sm" closeOnBackdrop={false}>
         <div className="vg-delete-confirmation m-5">
           <p className="text-sm text-sub mb-2">删除这一天（{formatDateFull(date)}）的日记？</p>
-          <p className="text-xs text-gray-500 mb-6">日记会移入回收站，7 天内可以恢复。</p>
+          <p className="text-xs text-sub mb-6">日记会移入回收站，7 天内可以恢复。</p>
           <div className="flex gap-3 justify-end">
-            <button onClick={() => setShowDelete(false)} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
+            <button onClick={() => setShowDelete(false)} className="px-4 py-2 rounded-lg text-sm text-sub hover:bg-surface transition-colors">取消</button>
             <button
               onClick={() => {
                 void deleteDiary(diary.id).then(() => { if (useAuthStore.getState().userId !== diary.userId) return; feedback('日记已移入回收站，7 天内可以恢复', { tone: 'success' }); setShowDelete(false); onBack(); }).catch(() => feedback('日记未能删除，内容已保留', { tone: 'error' }));
@@ -827,7 +893,7 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
       <Modal presentation="dialog" open={shareOpen} onClose={() => setShareOpen(false)} title="分享日记" width="max-w-sm" closeOnBackdrop={false}>
         <div className="p-6">
           <p className="text-sm text-sub mb-1">把这一天发给角色</p>
-          <p className="text-xs text-gray-500 mb-4">会以你的身份把这篇日记发到 TA 的会话里，TA 会回应你的一天。</p>
+          <p className="text-xs text-sub mb-4">会以你的身份把这篇日记发到 TA 的会话里，TA 会回应你的一天。</p>
           <FilterSelect
             value={shareCharId}
             onChange={setShareCharId}
@@ -837,7 +903,7 @@ export function DiaryChatPage({ date, onBack, diaryId }: Props) {
             buttonClassName="flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-surface border border-line text-sm text-ink hover:border-gene-purple/40 transition-colors"
           />
           <div className="flex gap-3 justify-end mt-5">
-            <button onClick={() => setShareOpen(false)} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
+            <button onClick={() => setShareOpen(false)} className="px-4 py-2 rounded-lg text-sm text-sub hover:bg-surface transition-colors">取消</button>
             <button
               onClick={() => void shareToCharacter()}
               disabled={!shareCharId}

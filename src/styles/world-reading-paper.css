@@ -1,0 +1,41 @@
+/* S04-C: one reading surface; visual scene metadata and turn semantics stay intact. */
+.vg-canvas.vg-reading-paper{background:var(--bg);color:var(--text)}
+.vg-canvas.vg-reading-paper::before,.vg-canvas.vg-reading-paper::after{content:none;animation:none}
+.vg-reading-paper .vg-canvas-top{min-height:56px;padding:6px 12px;gap:4px;border-bottom:1px solid var(--border);background:var(--bg)}
+.vg-reading-paper .vg-canvas-title{font-size:max(18px,1.125rem);line-height:1.4;letter-spacing:normal;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.vg-reading-paper .vg-canvas-place{font-size:max(13px,.8125rem);line-height:1.5}
+.vg-reading-paper .vg-canvas-panel{font-size:max(13px,.8125rem);line-height:1.65;overflow-wrap:anywhere}
+.vg-reading-paper .vg-canvas-panel-title{font-size:max(18px,1.125rem);line-height:1.5;color:var(--text);margin-bottom:12px;overflow-wrap:anywhere}
+.vg-reading-paper .vg-canvas-scroll{padding:24px 16px;scroll-behavior:auto}
+.vg-reading-paper .vg-stream{max-width:42rem;margin-inline:auto;gap:24px}
+.vg-reading-paper :is(.vg-narration,.vg-beat-line,.vg-beat-action,.vg-user-action){font-size:max(16px,1rem);line-height:1.75;font-weight:400;letter-spacing:normal;text-shadow:none}
+.vg-reading-paper .vg-narration{color:var(--text)}
+.vg-reading-paper .vg-beat{gap:12px}
+.vg-reading-paper .vg-beat::after{background:var(--border)}
+.vg-reading-paper .vg-beat-name{font-size:max(13px,.8125rem);line-height:1.55}
+.vg-reading-paper .vg-user-action{align-self:stretch;max-width:100%;padding:8px 12px;border-radius:0;border-left:2px solid var(--vg-accent);background:var(--bg-surface);color:var(--text)}
+.vg-reading-paper :is(.vg-system-note,.vg-canvas-saved,.vg-canvas-finished p,.vg-canvas-loading){font-size:max(13px,.8125rem);line-height:1.55;color:var(--text-secondary)}
+.vg-reading-paper .vg-canvas-empty p{font-size:max(16px,1rem);line-height:1.75}
+.vg-reading-paper .vg-canvas-empty>span{background:var(--vg-accent);box-shadow:none}
+.vg-reading-paper .vg-canvas-bottom{background:var(--bg);border-top:1px solid var(--border)}
+.vg-reading-paper .vg-new-content{background:var(--bg-panel);color:var(--vg-accent);border-color:var(--border)}
+.vg-reading-paper .vg-feedback-actions>.vg-button-secondary{color:var(--text);background:var(--bg-surface)}
+.vg-reading-paper .vg-feedback-card[data-tone='error']{animation:none}
+.vg-reading-paper .vg-composer{padding:8px 12px 12px}
+.vg-reading-paper .vg-composer-row{border-radius:12px;background:var(--bg-panel);box-shadow:none}
+.vg-reading-paper .vg-composer-input{font-size:max(16px,1rem);line-height:1.6;font-weight:400;letter-spacing:normal}
+.vg-reading-paper .vg-composer-control{background:var(--bg-surface)}
+.vg-reading-paper .vg-composer-control:active{transform:scale(.97);background:var(--bg-surface-strong)}
+.vg-reading-paper .vg-composer-warn{font-size:max(13px,.8125rem);line-height:1.55}
+.vg-composer-availability{margin-bottom:8px;color:var(--text-secondary)}
+.vg-composer-availability summary{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:8px 10px;border:1px solid var(--border);border-radius:12px;background:var(--bg-panel);font-size:max(13px,.8125rem);line-height:1.55;cursor:pointer;list-style:none}
+.vg-composer-availability summary::-webkit-details-marker{display:none}
+.vg-composer-availability .vg-composer-warn{margin:8px 0 0}
+.vg-reading-paper .vg-canvas-finished button{min-height:48px;width:100%;border-radius:12px;background:var(--vg-action);color:var(--vg-on-action);font-size:max(15px,.9375rem);box-shadow:none}
+.vg-reading-paper :is(.vg-canvas-back,.vg-canvas-more):active{background:var(--bg-surface)}
+.vg-reading-paper .vg-trace-line{min-height:44px;border-color:var(--border);border-radius:12px;background:var(--bg-panel);color:var(--vg-accent);font-size:max(13px,.8125rem);line-height:1.55;flex-wrap:wrap}
+.vg-reading-paper .vg-trace-more{font-size:inherit;color:var(--text-secondary)}
+.vg-world-control-paper.vg-modal-panel{background:var(--bg);color:var(--text)}
+.vg-reading-paper:has(.vg-composer-input:focus) :is(.vg-story-compass,.vg-suggestions,.vg-canvas-place){display:none}
+.vg-reading-paper:has(.vg-composer-input:focus) .vg-canvas-title{-webkit-line-clamp:1}
+.vg-reading-paper:has(.vg-composer-input:focus) .vg-canvas-scroll{padding-block:8px}

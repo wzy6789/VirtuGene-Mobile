@@ -1,0 +1,16 @@
+{
+  "art": {
+    "file": "design/chat-scenes/immersive-20261021/moonlit-bedroom-source.png",
+    "width": 841,
+    "height": 1870,
+    "sha256": "2047ea02a26a95581cc73b75d20ef598e5eb33f353426a4d74f050afa1e83ae8",
+    "origin": "Built-in image generation; original photographic-style environment artwork, not a Blender render.",
+    "nativeResolution": true,
+    "upscaled": false,
+    "model": "未确认",
+    "reasoning": "未确认"
+  },
+  "encoding": "Native WebP quality96; thumbnail is a downsample. No upscaling or scene repaint.",
+  "depth": "design/chat-scenes/immersive-20261021/moonlit-bedroom-depth.blend",
+  "promptFile": "design/chat-scenes/immersive-20261021/prompts.json"
+}

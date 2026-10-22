@@ -1,19 +1,35 @@
-import { useAuthStore } from '../../store/auth-store';
+﻿import { useAuthStore } from '../../store/auth-store';
 import { Modal } from '../ui/Modal';
 import { GeneGlyph } from '../ui/GeneGlyph';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
 import { useChatStore } from '../../store/chat-store';
 import { fuseSouls, type FusionResult } from '../../lib/ai/fusion';
+import { avatarImageSrc } from '../../lib/avatar';
+import { ensureOwnedChatCharacter } from '../../lib/character-chat';
 import type { Character } from '../../db/index';
+import '../../styles/gene-library.css';
 
-/**
- * 基因融合 · 灵魂杂交：选两个角色，让 AI 融合出新的数字灵魂。
- * 融合结果可预览/改名/微调后再创建。
- */
-export function FusionModal({ onClose }: { onClose: () => void }) {
-  const userId = useAuthStore(state => state.userId);
-  const characters = useChatStore((s) => s.characters);
-  const createCharacter = useChatStore((s) => s.createCharacter);
+interface FusionModalProps {
+  onClose: () => void;
+  onSaved?: (character: Character) => void;
+  sourceCharacters?: Character[];
+}
+
+/** An account change invalidates the whole draft and every pending response. */
+export function FusionModal({ onClose, onSaved, sourceCharacters }: FusionModalProps) {
+  const owner = useAuthStore((state) => state.userId);
+  const initialOwner = useRef(owner);
+  const valid = !!owner && initialOwner.current === owner;
+  useEffect(() => { if (!valid) onClose(); }, [valid, onClose]);
+  return valid ? <FusionContent key={owner} onClose={onClose} onSaved={onSaved} sourceCharacters={sourceCharacters} /> : null;
+}
+
+function FusionContent({ onClose, onSaved, sourceCharacters }: FusionModalProps) {
+  const userId = useAuthStore((state) => state.userId);
+  const available = useChatStore((state) => state.characters);
+  const createCharacter = useChatStore((state) => state.createCharacter);
+  const characters = (sourceCharacters ?? available).filter((character) => character.agentProfile !== 'secretary' && (character.isPreset || character.published || character.createdBy === userId));
   const [aId, setAId] = useState('');
   const [bId, setBId] = useState('');
   const [fusing, setFusing] = useState(false);
@@ -25,174 +41,182 @@ export function FusionModal({ onClose }: { onClose: () => void }) {
   const [prompt, setPrompt] = useState('');
   const [tagsText, setTagsText] = useState('');
   const [creating, setCreating] = useState(false);
+  const [saved, setSaved] = useState<Character | null>(null);
+  const [opening, setOpening] = useState(false);
+  const lock = useRef(false);
+  const mounted = useRef(true);
+  const requestVersion = useRef(0);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    mounted.current = true;
+    const unsubscribe = useAuthStore.subscribe((next, previous) => {
+      if (next.userId === previous.userId) return;
+      mounted.current = false;
+      requestVersion.current += 1;
+      onCloseRef.current();
+    });
+    return () => { unsubscribe(); mounted.current = false; requestVersion.current += 1; };
+  }, []);
+  const current = () => mounted.current && !!userId && useAuthStore.getState().userId === userId;
 
-  const a = characters.find((c) => c.id === aId);
-  const b = characters.find((c) => c.id === bId);
+  const a = characters.find((character) => character.id === aId);
+  const b = characters.find((character) => character.id === bId);
+  const busy = fusing || creating || opening;
+  const canFuse = !!a && !!b && a.id !== b.id;
+
+  const close = () => {
+    // Persistence has no abort contract; wait for its known outcome before leaving.
+    if (creating || opening || lock.current && !fusing) return;
+    mounted.current = false;
+    requestVersion.current += 1;
+    onClose();
+  };
 
   const handleFuse = async () => {
-    if (!a || !b || a.id === b.id) return;
+    if (!a || !b || a.id === b.id || lock.current || saved || !current()) return;
+    lock.current = true;
+    const request = ++requestVersion.current;
     setFusing(true);
     setError(null);
-    const r = await fuseSouls(
-      { name: a.name, systemPrompt: a.systemPrompt, tags: a.tags },
-      { name: b.name, systemPrompt: b.systemPrompt, tags: b.tags },
-    );
-    setFusing(false);
-    if (r.data) {
-      setResult(r.data);
-      setName(r.data.name ?? '');
-      setSignature(r.data.signature);
-      setGreeting(r.data.greeting);
-      setPrompt(r.data.systemPrompt);
-      setTagsText(r.data.tags.join('、'));
-    } else {
-      setError(r.error === 'fusion:invalid' ? '融合结果不完整，请重试' : '基因融合失败，请重试');
+    try {
+      const response = await fuseSouls(
+        { name: a.name, systemPrompt: a.systemPrompt, tags: a.tags },
+        { name: b.name, systemPrompt: b.systemPrompt, tags: b.tags },
+      );
+      if (!current() || request !== requestVersion.current) return;
+      if (!response.data) {
+        setError(response.error === 'fusion:invalid' ? '生成的角色资料不完整，请重试。' : result ? '重新生成失败，原来的编辑稿已保留。' : '预览生成失败，所选角色已保留，请重试。');
+        return;
+      }
+      setResult(response.data);
+      setName(response.data.name ?? '');
+      setSignature(response.data.signature);
+      setGreeting(response.data.greeting);
+      setPrompt(response.data.systemPrompt);
+      setTagsText(response.data.tags.join('、'));
+    } catch {
+      if (current() && request === requestVersion.current) setError(result ? '重新生成失败，原来的编辑稿已保留。' : '预览生成失败，请重试。');
+    } finally {
+      if (request === requestVersion.current) {
+        lock.current = false;
+        if (current()) setFusing(false);
+      }
     }
   };
 
   const handleCreate = async () => {
+    if (lock.current || !result || saved || !current()) return;
     const finalName = name.trim();
-    if (finalName.length < 2) {
-      setError('请为新灵魂取一个名字（至少 2 个字）');
-      return;
-    }
-    if (!prompt.trim()) {
-      setError('基因序列为空，请检查');
-      return;
-    }
+    if (finalName.length < 2) { setError('请为新角色取一个名字（至少 2 个字）。'); return; }
+    if (!prompt.trim()) { setError('请补充新角色的完整设定。'); return; }
+    lock.current = true;
     setCreating(true);
+    setError(null);
     try {
-      const char: Character = await createCharacter({
+      const character = await createCharacter({
         name: finalName,
         avatar: '✨',
         systemPrompt: prompt.trim(),
-        tags: tagsText.split(/[、,，\s]+/).filter(Boolean).slice(0, 5),
+        tags: [...new Set(tagsText.split(/[、,，\s]+/).filter(Boolean))].slice(0, 5),
         signature: signature.trim(),
         greeting: greeting.trim(),
         isPreset: false,
         isCustom: true,
         published: false,
-        createdBy: '',
-      });
-      // 融合成功 → 关闭并让上层选中新灵魂
-      onClose();
-      useChatStore.getState().selectCharacter(char.id);
+        createdBy: userId ?? '',
+      }, { deferActivation: true });
+      if (!current()) return;
+      // The durable ID is recorded before refresh, so a refresh error cannot
+      // expose a second create action for the same saved draft.
+      setSaved(character);
+      onSaved?.(character);
+      try {
+        await useChatStore.getState().loadCharacters();
+      } catch {
+        if (current()) setError('角色已保存，角色列表暂未刷新。可以稍后重新打开基因库。');
+      }
     } catch {
-      setError('创建失败，请重试');
+      if (current()) setError('保存失败，编辑稿已保留，请重试。');
     } finally {
-      setCreating(false);
+      lock.current = false;
+      if (current()) setCreating(false);
     }
   };
 
-  return (
-    <Modal open onClose={onClose} title="基因融合 · 灵魂杂交" canSnapshotOnExit={() => useAuthStore.getState().userId === userId}><div>
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {/* 选择两个角色 */}
-          {!result ? (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: '基因 A', val: aId, set: setAId, src: a },
-                  { label: '基因 B', val: bId, set: setBId, src: b },
-                ].map(({ label, val, set, src }) => (
-                  <div key={label}>
-                    <p className="text-xs text-gray-500 mb-1.5">{label}</p>
-                    <select
-                      value={val}
-                      onChange={(e) => set(e.target.value)}
-                      className="w-full bg-panel border border-line-strong rounded-lg px-2.5 py-2 text-xs text-ink outline-none focus:border-gene-purple"
-                    >
-                      <option value="">选择角色…</option>
-                      {characters
-                        .filter((c) => (label === '基因 A' ? c.id !== bId : c.id !== aId))
-                        .map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                    </select>
-                    {src && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{src.signature}</p>}
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => void handleFuse()}
-                disabled={fusing || !a || !b || a.id === b.id}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-gene-purple to-life-cyan text-white text-sm font-medium hover:opacity-90 transition-all disabled:opacity-30 flex items-center justify-center gap-2"
-              >
-                {fusing ? (
-                  <>
-                    <svg className="animate-spin w-4 h-4" viewBox="0 0 16 16" fill="none">
-                      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="20" />
-                    </svg>
-                    正在融合基因序列…
-                  </>
-                ) : (
-                  <><GeneGlyph size={18} />融合两颗灵魂</>
-                )}
-              </button>
-              {error && <p className="text-xs text-red-400 text-center">{error}</p>}
-            </>
-          ) : (
-            /* 融合结果预览：可改名/微调后再创建 */
-            <>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                融合完成——「{a?.name}」与「{b?.name}」的基因孵化出了新的灵魂。给它起个名字，也可以微调基因序列：
-              </p>
-              <div>
-                <p className="text-xs text-gray-500 mb-1.5">名字</p>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="新灵魂的名字"
-                  className="w-full bg-panel border border-line-strong rounded-lg px-3 py-2 text-sm text-ink placeholder-gray-500 outline-none focus:border-gene-purple"
-                />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1.5">一句话签名</p>
-                <input
-                  value={signature}
-                  onChange={(e) => setSignature(e.target.value)}
-                  className="w-full bg-panel border border-line-strong rounded-lg px-3 py-2 text-sm text-ink outline-none focus:border-gene-purple"
-                />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1.5">开场白</p>
-                <input
-                  value={greeting}
-                  onChange={(e) => setGreeting(e.target.value)}
-                  className="w-full bg-panel border border-line-strong rounded-lg px-3 py-2 text-sm text-ink outline-none focus:border-gene-purple"
-                />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1.5">标签（顿号分隔）</p>
-                <input
-                  value={tagsText}
-                  onChange={(e) => setTagsText(e.target.value)}
-                  className="w-full bg-panel border border-line-strong rounded-lg px-3 py-2 text-sm text-ink outline-none focus:border-gene-purple"
-                />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1.5">基因序列（System Prompt，可微调）</p>
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  rows={8}
-                  className="w-full bg-panel border border-line-strong rounded-lg px-3 py-2 text-xs text-ink outline-none focus:border-gene-purple resize-none leading-relaxed"
-                />
-              </div>
-              {error && <p className="text-xs text-red-400 text-center">{error}</p>}
-              <button
-                onClick={() => void handleCreate()}
-                disabled={creating}
-                className="w-full py-2.5 rounded-xl bg-gene-purple text-white text-sm font-medium hover:bg-[#5B4BD4] transition-all disabled:opacity-30 flex items-center justify-center gap-2"
-              >
-                {creating ? '正在孵化…' : <><GeneGlyph size={18} />孵化这个数字灵魂</>}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </Modal>
-  );
+  const startChat = async () => {
+    if (!saved || lock.current || !current() || !userId) return;
+    lock.current = true;
+    setOpening(true);
+    setError(null);
+    try {
+      const target = await ensureOwnedChatCharacter(saved, userId);
+      if (!current()) return;
+      await useChatStore.getState().selectCharacter(target.id);
+      if (!current()) return;
+      mounted.current = false;
+      onClose();
+    } catch {
+      if (current()) setError('角色已保存，但聊天暂时无法打开，请重试。');
+    } finally {
+      lock.current = false;
+      if (current()) setOpening(false);
+    }
+  };
+
+  return <Modal open mobileFullHeight onClose={close} title="融合角色" panelClassName="vg-fusion-modal" canSnapshotOnExit={() => false}
+    footer={<div className="vg-fusion-footer">
+      {saved ? <><button type="button" className="vg-button vg-button-secondary" onClick={close} disabled={busy}>完成</button><button type="button" className="vg-button vg-button-primary" onClick={startChat} disabled={busy}>{opening ? '正在打开…' : '开始聊天'}</button></>
+        : result ? <><button type="button" className="vg-button vg-button-secondary" onClick={handleFuse} disabled={busy || !canFuse}>{fusing ? '正在重新生成…' : '重新生成'}</button><button type="button" className="vg-button vg-button-primary" onClick={handleCreate} disabled={busy}>{creating ? '正在保存…' : '保存新角色'}</button></>
+        : <button type="button" className="vg-button vg-button-primary" onClick={handleFuse} disabled={busy || !canFuse}><GeneGlyph size={18} />{fusing ? '正在生成预览…' : '生成预览'}</button>}
+    </div>}
+  >
+    <div className="vg-fusion-content" aria-busy={busy}>
+      <ol className="vg-fusion-steps" aria-label="融合步骤">
+        {['选择两位角色', '编辑预览', '保存新角色'].map((label, index) => <li key={label} aria-current={(saved ? 2 : result ? 1 : 0) === index ? 'step' : undefined}><span aria-hidden="true">{index + 1}</span>{label}</li>)}
+      </ol>
+      {saved ? <div className="vg-fusion-success">
+        <div className="vg-fusion-new-portrait" aria-hidden="true">✨</div>
+        <h3>{saved.name}已保存</h3>
+        {saved.signature && <p>{saved.signature}</p>}
+        <span>新角色已加入“我的”，随时可以开始聊天。</span>
+      </div> : <>
+        <p className="vg-fusion-intro">选择两位角色，生成一个新的可编辑角色。确认预览后再保存。</p>
+        <fieldset className="vg-fusion-sources" disabled={busy || !!result}>
+          {[
+            { label: '基因 A', id: 'fusion-a', value: aId, set: setAId, source: a, otherId: bId },
+            { label: '基因 B', id: 'fusion-b', value: bId, set: setBId, source: b, otherId: aId },
+          ].map(({ label, id, value, set, source, otherId }) => <div className="vg-fusion-source" key={id}>
+            <label htmlFor={id}>{label}</label>
+            <span className="vg-fusion-source-portrait" aria-hidden="true">{avatarImageSrc(source?.avatar) ? <img src={avatarImageSrc(source?.avatar)} alt="" /> : source?.avatar || <GeneGlyph size={28} />}</span>
+            <select id={id} value={value} onChange={(event) => { set(event.target.value); setError(null); }}>
+              <option value="">选择角色…</option>
+              {characters.filter((character) => character.id !== otherId).map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}
+            </select>
+            {source?.signature && <p>{source.signature}</p>}
+          </div>)}
+        </fieldset>
+        {characters.length < 2 && <FeedbackNotice message="需要两位不同的角色才能融合。请先在基因库添加角色，或创建自己的角色。" />}
+        {fusing && <div className="vg-fusion-wait" role="status"><span className="vg-fusion-request-dot" aria-hidden="true" /><span>正在请求生成预览…{result ? '完成后将替换当前编辑稿。' : '你可以取消并返回基因库。'}</span></div>}
+        {result && <fieldset className="vg-fusion-editor" disabled={busy}>
+          <legend>角色预览</legend>
+          <p className="vg-fusion-draft-note">当前为未保存的草稿。重新生成成功后会替换下面的编辑内容。</p>
+          <label htmlFor="fusion-name">名字</label>
+          <input id="fusion-name" className="vg-text-field" value={name} onChange={(event) => setName(event.target.value)} placeholder="新角色的名字" />
+          <label htmlFor="fusion-signature">一句话签名</label>
+          <input id="fusion-signature" className="vg-text-field" value={signature} onChange={(event) => setSignature(event.target.value)} />
+          <label htmlFor="fusion-greeting">开场白</label>
+          <textarea id="fusion-greeting" className="vg-text-field" value={greeting} onChange={(event) => setGreeting(event.target.value)} rows={3} />
+          <label htmlFor="fusion-tags">标签（最多 5 个，顿号分隔）</label>
+          <input id="fusion-tags" className="vg-text-field" value={tagsText} onChange={(event) => setTagsText(event.target.value)} />
+          <details className="vg-fusion-advanced">
+            <summary>完整设定<span>可展开编辑</span></summary>
+            <label htmlFor="fusion-prompt">角色的完整设定</label>
+            <textarea id="fusion-prompt" className="vg-text-field" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={10} />
+          </details>
+        </fieldset>}
+      </>}
+      {error && <FeedbackNotice tone="error" message={error} />}
+    </div>
+  </Modal>;
 }

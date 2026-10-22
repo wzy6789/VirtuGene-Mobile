@@ -11,9 +11,14 @@ async function run(){
  const at=Date.now()-10000,rows=Array.from({length:850},(_,i)=>({id:'tie-'+String(i).padStart(4,'0'),sessionId:'ties',role:'user',content:i===0?'北港旧约定码：周五下午三点':'普通闲聊'+i,createdAt:at,isProactive:false,revision:1})) as Message[];
  await legacy.table('messages').bulkPut(rows);await legacy.table('sessions').put({id:'ties',characterId:'actor',userId:'owner',title:'导入历史',createdAt:at,updatedAt:at,unreadCount:0});legacy.close();
  const upgradeStart=performance.now();await db.open();const upgradeMs=performance.now()-upgradeStart;
+ await db.messages.delete('already-absent-source');
+ await db.messages.bulkDelete(['already-absent-source','also-absent-source']);
+ check(await db.messages.count()===rows.length,'repeated deletion of missing sources is an idempotent no-op');
  const hits=await recallHistoricalPrivateChat({userId:'owner',characterId:'actor',query:'还记得北港旧约定码吗？'});
  check(hits.some(hit=>hit.messageId==='tie-0000'),'oldest source survives more than 400 equal-timestamp imported messages');
- check(JSON.stringify(await db.messages.bulkGet(rows.map(row=>row.id)))===JSON.stringify(rows),'index upgrade preserves every original row and revision');
+ const upgradedRows=await db.messages.bulkGet(rows.map(row=>row.id));
+ check(upgradedRows.length===rows.length&&rows.every((source,i)=>Object.entries(source).every(([key,value])=>JSON.stringify((upgradedRows[i] as any)?.[key])===JSON.stringify(value))),'index upgrade preserves every original field and revision');
+ check(rows.every((source,i)=>upgradedRows[i]?.sourceEvidenceKey===JSON.stringify([source.sessionId,source.revision,true,source.id])),'upgrade adds the expected source identity projection without altering originals');
  check(db.messages.schema.indexes.some(index=>index.name==='[sessionId+createdAt+id]'),'migration creates the tuple cursor index');
  const seen:string[]=[];let beforeMessage:Pick<Message,'id'|'createdAt'>|undefined;
  for(let page=0;page<10;page++){const part=await messageRepo.getPage('ties',{limit:200,beforeMessage});if(!part.length)break;seen.push(...part.map(row=>row.id));beforeMessage=part[0];}

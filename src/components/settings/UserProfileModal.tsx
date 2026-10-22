@@ -2,140 +2,96 @@ import { useEffect, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Avatar } from '../ui/Avatar';
 import { EmojiPicker } from '../ui/EmojiPicker';
+import { Icon } from '../ui/Icon';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
 import { userRepo } from '../../db/user-repo';
 
-interface Props {
-  open: boolean;
-  onClose: () => void;
+interface Props { open: boolean; onClose: () => void }
+export function UserProfileModal(props: Props) {
+  const owner = useAuthStore(s => s.userId);
+  return <ProfileEditor key={owner ?? 'guest'} {...props} />;
 }
-
-export function UserProfileModal({ open, onClose }: Props) {
-  const userId = useAuthStore((s) => s.userId);
-  const username = useAuthStore((s) => s.username);
-  const avatar = useAuthStore((s) => s.avatar);
-  const setAvatar = useAuthStore((s) => s.setAvatar);
-
+function ProfileEditor({ open, onClose }: Props) {
+  const { userId, username, avatar, setAvatar } = useAuthStore();
   const [preview, setPreview] = useState(avatar ?? DEFAULT_USER_AVATAR);
   const [showEmoji, setShowEmoji] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState('');
   const imageInputRef = useRef<HTMLInputElement>(null);
-
+  const imageEpoch = useRef(0);
+  const lock = useRef(false);
+  const visible = useRef(open);
+  visible.current = open;
   useEffect(() => {
-    if (open) setPreview(avatar ?? DEFAULT_USER_AVATAR);
-  }, [open, avatar]);
+    visible.current = open;
+    setPreview(useAuthStore.getState().avatar ?? DEFAULT_USER_AVATAR);
+    setShowEmoji(false); setError(''); setProcessing(false); setSaving(false); imageEpoch.current++;
+    return () => { visible.current = false; imageEpoch.current++; };
+  }, [open]);
+  const current = () => visible.current && useAuthStore.getState().userId === userId;
+  const close = () => { if (!lock.current) onClose(); };
 
-  /** 读取图片 → 圆形裁剪 + 压缩（微信/QQ 式：居中截取方形中心为圆，输出小图清晰） */
   const readImage = (file: File) => {
-    if (!file.type.startsWith('image/')) return;
+    if (lock.current) return;
+    if (!file.type.startsWith('image/')) { setError('请选择图片文件。'); return; }
+    const epoch = ++imageEpoch.current;
+    const valid = () => current() && epoch === imageEpoch.current;
+    setProcessing(true); setError('');
+    const fail = () => { if (valid()) { setProcessing(false); setError('这张图片暂时无法读取，请换一张再试。'); } };
     const reader = new FileReader();
+    reader.onerror = fail;
     reader.onload = () => {
+      if (!valid()) return;
       const img = new Image();
+      img.onerror = fail;
       img.onload = () => {
+        if (!valid()) return;
         try {
-          const SIZE = 256;
+          const size = 256;
           const canvas = document.createElement('canvas');
-          canvas.width = SIZE;
-          canvas.height = SIZE;
+          canvas.width = size; canvas.height = size;
           const ctx = canvas.getContext('2d');
-          if (!ctx) return;
-          // 取图片中心方形区域，等比裁剪
+          if (!ctx || !img.width || !img.height) { fail(); return; }
           const side = Math.min(img.width, img.height);
-          const sx = (img.width - side) / 2;
-          const sy = (img.height - side) / 2;
-          ctx.drawImage(img, sx, sy, side, side, 0, 0, SIZE, SIZE);
-          // 圆形遮罩（透明背景圆头像）
-          ctx.globalCompositeOperation = 'destination-in';
-          ctx.beginPath();
-          ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2, 0, Math.PI * 2);
-          ctx.fill();
-          setPreview(canvas.toDataURL('image/png'));
-        } catch {
-          setPreview(reader.result as string);
-        }
+          ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+          ctx.globalCompositeOperation = 'destination-in'; ctx.beginPath();
+          ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2); ctx.fill();
+          setPreview(canvas.toDataURL('image/png')); setProcessing(false);
+        } catch { fail(); }
       };
-      img.onerror = () => setPreview(reader.result as string);
       img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
   };
-
-  const handleSave = async () => {
-    if (!userId) return;
-    setSaving(true);
-    await userRepo.update(userId, { avatar: preview });
-    setAvatar(preview);
-    setSaving(false);
-    onClose();
+  const save = async () => {
+    if (!userId || lock.current || processing || !current()) return;
+    lock.current = true; setSaving(true); setError('');
+    try {
+      await userRepo.update(userId, { avatar: preview });
+      if (!current()) return;
+      setAvatar(preview); onClose();
+    } catch {
+      if (current()) setError('头像没有保存成功，已保留你的选择，请重试。');
+    } finally {
+      lock.current = false;
+      if (current()) setSaving(false);
+    }
   };
-
-  return (
-    <Modal panelClassName="vg-settings-panel" open={open} onClose={onClose} title="我的头像" mobileFullHeight footer={<div className="vg-settings-design !py-3">        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full py-2.5 rounded-lg bg-gene-purple text-white text-sm hover:bg-[#5B4BD4] disabled:opacity-50 transition-colors"
-        >
-          {saving ? '保存中...' : '保存头像'}
-        </button></div>}>
-      <div className="vg-settings-design space-y-5">
-        {/* Current preview */}
-        <div className="flex items-center gap-4">
-          <Avatar avatar={preview} size="lg" />
-          <div>
-            <p className="text-sm font-medium text-ink">{username}</p>
-            <p className="text-xs text-gray-500">选择 emoji 或拖拽图片更换头像</p>
-          </div>
-        </div>
-
-        {/* Image drop zone */}
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOver(false);
-            const f = e.dataTransfer.files?.[0];
-            if (f) readImage(f);
-          }}
-          onClick={() => imageInputRef.current?.click()}
-          className={`p-6 rounded-xl border border-dashed text-center cursor-pointer transition-colors ${
-            dragOver ? 'border-life-cyan bg-life-cyan/5' : 'border-line-strong hover:border-gene-purple/50'
-          }`}
-        >
-          <span className="text-2xl">🖼️</span>
-          <p className="text-xs text-gray-500 mt-1">拖拽图片到此处，或点击上传</p>
-          <input
-            ref={imageInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) readImage(f);
-              e.target.value = '';
-            }}
-          />
-        </div>
-
-        {/* Emoji picker */}
-        <button
-          onClick={() => setShowEmoji(!showEmoji)}
-          className="text-xs text-life-cyan hover:underline"
-        >
-          {showEmoji ? '收起 emoji' : '选择 emoji 头像'}
+  return <>
+    <Modal presentation="dialog" panelClassName="vg-settings-panel" open={open} onClose={close} title="我的头像" width="max-w-sm" canSnapshotOnExit={() => false} footer={<div className="vg-settings-design !py-3"><button type="button" onClick={() => void save()} disabled={saving || processing} className="vg-button vg-button-primary w-full">{saving ? '保存中…' : processing ? '正在读取图片…' : '保存头像'}</button></div>}>
+      <div className="vg-settings-design space-y-5" aria-busy={saving || processing}>
+        <div className="flex items-center gap-4"><Avatar avatar={preview} size="lg" /><div className="min-w-0"><p className="text-base font-medium text-ink break-words">{username}</p><p className="text-xs leading-6 text-sub">挑选一张照片，或使用表情头像。</p></div></div>
+        <button type="button" disabled={saving || processing} onDragOver={event => { event.preventDefault(); if (!saving) setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={event => { event.preventDefault(); setDragOver(false); const file = event.dataTransfer.files?.[0]; if (file) readImage(file); }} onClick={() => imageInputRef.current?.click()} className={`w-full p-5 rounded-2xl border border-dashed text-center ${dragOver ? 'border-life-cyan bg-life-cyan/5' : 'border-line-strong bg-surface'}`}>
+          <Icon name="image" size={28} className="mx-auto mb-2 text-sub" /><span className="block text-sm text-ink">选择照片</span><span className="vg-avatar-drop-hint block mt-1 text-xs leading-6 text-sub">也可以把图片拖到这里</span>
         </button>
-        {showEmoji && (
-          <EmojiPicker
-            onSelect={(emoji) => {
-              setPreview(emoji);
-              setShowEmoji(false);
-            }}
-          />
-        )}
-
-
+        <input ref={imageInputRef} type="file" accept="image/*" className="hidden" aria-label="上传头像图片" onChange={event => { const file = event.target.files?.[0]; if (file) readImage(file); event.target.value = ''; }} />
+        <button type="button" disabled={saving || processing} onClick={() => setShowEmoji(true)} className="vg-button vg-button-secondary w-full">表情头像</button>
+        {error && <FeedbackNotice message={error} tone="error" />}
       </div>
     </Modal>
-  );
+    <Modal presentation="dialog" open={showEmoji && open} onClose={() => setShowEmoji(false)} title="选择表情头像" width="max-w-sm" canSnapshotOnExit={() => false}><div className="p-4"><EmojiPicker onSelect={emoji => { setPreview(emoji); setError(''); setShowEmoji(false); }} /></div></Modal>
+  </>;
 }

@@ -3,9 +3,11 @@ import { MomentsInbox, MomentsInteractionList } from './MomentsInteractions';
 import { ImagePreview } from '../ui/ImagePreview';
 import { useFeedback } from '../../lib/feedback';
 import { useAuthStore } from '../../store/auth-store';
-import { useChatStore } from '../../store/chat-store';
 import { useUIStore } from '../../store/ui-store';
-import { momentsRepo, type MomentWithMedia } from '../../db/moments-repo';
+import { momentsRepo } from '../../db/moments-repo';
+import { useMomentsFeed } from './useMomentsFeed';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
+import { LoadingSkeleton } from '../ui/LoadingSkeleton';
 import {
   AUDIENCE_MODE_LABELS,
   AUDIENCE_MODES,
@@ -22,11 +24,13 @@ import {
   type MomentsPreferences,
   type MomentPostFrequency,
 } from '../../lib/moments/preferences';
-import type { Moment, MomentNotification, MomentReaction } from '../../db/index';
+import type { Moment, MomentReaction } from '../../db/index';
 import { beginSoulHandoff } from '../../lib/soul-handoff';
 import { Avatar } from '../ui/Avatar';
 import { Modal } from '../ui/Modal';
 import { SettingsChoices, SettingsGroup, SettingsRow, SettingsSwitch } from '../settings/SettingsUI';
+import { Icon } from '../ui/Icon';
+import '../../styles/moments-ui.css';
 
 type AudienceMode = Moment['visibility'];
 
@@ -78,34 +82,35 @@ function audienceLabel(moment: Moment): string {
 }
 
 export function MomentsPage() {
+  const owner = useAuthStore(s => s.userId);
+  return owner ? <MomentsPageForUser key={owner} /> : null;
+}
+
+function MomentsPageForUser() {
   const lifeRecordFocus = useUIStore(s => s.lifeRecordFocus);
   const userId = useAuthStore((state) => state.userId) ?? '';
   const username = useAuthStore((state) => state.username) ?? '我';
   const avatar = useAuthStore((state) => state.avatar) ?? '🧬';
-  const characters = useChatStore((state) => state.characters);
-  const [rows, setRows] = useState<MomentWithMedia[]>([]);
-  const [contacts, setContacts] = useState<typeof characters>([]);
-  const [loading, setLoading] = useState(true);
+  const { rows, setRows, contacts, blockedIds, setBlockedIds, mutedIds, setMutedIds, notifications, setNotifications,
+    unreadInteractions, setUnreadInteractions, reactionMap, setReactionMap, loading, loaded, loadError, load, processInteractions } = useMomentsFeed(userId);
   const [composerOpen, setComposerOpen] = useState(false);
   const [text, setText] = useState('');
   const [audience, setAudience] = useState<AudienceMode>('all');
   const [selected, setSelected] = useState<string[]>([]);
   const [images, setImages] = useState<{ dataUrl: string; width: number; height: number; mime: string }[]>([]);
   const [saving, setSaving] = useState(false);
+  const [publishError, setPublishError] = useState('');
+  useEffect(() => { setPublishError(''); }, [audience, selected]);
   const setToast = useFeedback();
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [editingMomentId, setEditingMomentId] = useState<string | null>(null);
   const [editAudience, setEditAudience] = useState<AudienceMode>('all');
   const [editSelected, setEditSelected] = useState<string[]>([]);
-  const [reactionMap, setReactionMap] = useState<Record<string, MomentReaction[]>>({});
   const [commenting, setCommenting] = useState<string | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
   const [replyingTo, setReplyingTo] = useState<MomentReaction | null>(null);
   const [commentSaving, setCommentSaving] = useState(false);
   const [contactSheetOpen, setContactSheetOpen] = useState(false);
-  const [blockedIds, setBlockedIds] = useState<string[]>([]);
-  const [unreadInteractions, setUnreadInteractions] = useState(0);
-  const [notifications, setNotifications] = useState<MomentNotification[]>([]);
   const [notificationSheetOpen, setNotificationSheetOpen] = useState(false);
   const [likesMomentId, setLikesMomentId] = useState<string | null>(null);
   const [detailMomentId, setDetailMomentId] = useState<string | null>(null);
@@ -126,7 +131,6 @@ export function MomentsPage() {
   const [preferences, setPreferences] = useState<MomentsPreferences>(DEFAULT_MOMENTS_PREFERENCES);
   const [prefDraftMode, setPrefDraftMode] = useState<AudienceMode>('all');
   const [prefDraftSelected, setPrefDraftSelected] = useState<string[]>([]);
-  const [mutedIds, setMutedIds] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRequested = useUIStore(s => s.momentsSettingsRequested);
   useEffect(() => {
@@ -160,95 +164,12 @@ export function MomentsPage() {
     setDetailMomentId(momentId);
   };
 
-  const load = async (showSpinner = true) => {
-    if (!userId) return;
-    if (showSpinner) setLoading(true);
-    try {
-      const [nextRows, nextContacts, settings] = await Promise.all([momentsRepo.list(userId), momentsRepo.contacts(userId), momentsRepo.contactSettings(userId)]);
-      if (useAuthStore.getState().userId !== userId) return;
-      setRows(nextRows);
-      setContacts(nextContacts.filter(c => c.agentProfile !== 'secretary'));
-      setBlockedIds(settings.filter((item) => item.blocked).map((item) => item.characterId));
-      // 前台恢复时处理已到期的角色互动；任务有版本校验，撤回权限不会迟到泄露。
-      void momentsRepo.processJobs(userId).then(async () => {
-        if (useAuthStore.getState().userId !== userId) return;
-        const nextRows = await momentsRepo.list(userId);
-        setRows(nextRows);
-        setNotifications(await momentsRepo.notifications(userId));
-        setUnreadInteractions((await momentsRepo.unreadNotifications(userId)).length);
-        setReactionMap(Object.fromEntries(await Promise.all(nextRows.map(async ({ moment }) => [moment.id, await momentsRepo.reactions(moment.id, userId)] as const))));
-      }).catch(() => undefined);
-      const refreshed = await momentsRepo.list(userId);
-      if (useAuthStore.getState().userId !== userId) return;
-      setRows(refreshed);
-      setUnreadInteractions((await momentsRepo.unreadNotifications(userId)).length);
-      setNotifications(await momentsRepo.notifications(userId));
-      const pairs = await Promise.all(refreshed.map(async ({ moment }) => [moment.id, await momentsRepo.reactions(moment.id, userId)] as const));
-      setReactionMap(Object.fromEntries(pairs));
-    } finally {
-      if (showSpinner) setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    setRows([]);
-    setReactionMap({});
-    setNotifications([]);
-    setUnreadInteractions(0);
-    if (userId) void load();
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) return;
-    const onMomentsUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<{ userId?: string }>).detail;
-      if (detail?.userId === userId) void load(false);
-    };
-    window.addEventListener('virtugene:moments-updated', onMomentsUpdated);
-    return () => window.removeEventListener('virtugene:moments-updated', onMomentsUpdated);
-  }, [userId]);
-
   useEffect(() => {
     // 换账号要换一套朋友圈偏好；登出后 userId 为空则回到出厂值。
     const loaded = loadMomentsPreferences(userId);
     setPreferences(loaded);
     setAudience(loaded.audience.mode);
     setSelected(loaded.audience.contactIds);
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) {
-      setMutedIds([]);
-      return;
-    }
-    let alive = true;
-    void momentsRepo.mutedCharacterIds(userId).then((ids) => {
-      if (alive) setMutedIds(ids);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [userId, rows]);
-
-  useEffect(() => {
-    if (!userId) return;
-    const timer = window.setInterval(() => {
-      void (async () => {
-        try {
-          await momentsRepo.processJobs(userId);
-          if (useAuthStore.getState().userId !== userId) return;
-          const nextRows = await momentsRepo.list(userId);
-          setRows(nextRows);
-          setUnreadInteractions((await momentsRepo.unreadNotifications(userId)).length);
-          setNotifications(await momentsRepo.notifications(userId));
-          const pairs = await Promise.all(nextRows.map(async ({ moment }) => [moment.id, await momentsRepo.reactions(moment.id, userId)] as const));
-          setReactionMap(Object.fromEntries(pairs));
-        } catch {
-          // 后台刷新失败不打断用户正在阅读的内容；下次进入页面会再次校验。
-        }
-      })();
-    }, 30_000);
-    return () => window.clearInterval(timer);
   }, [userId]);
 
   const selectedNames = useMemo(() => contacts.filter((c) => selected.includes(c.id)).map((c) => c.name), [contacts, selected]);
@@ -373,6 +294,7 @@ export function MomentsPage() {
   const closeComposer = () => {
     if (saving) return;
     setComposerOpen(false);
+    setPublishError('');
     setText('');
     setImages([]);
     // 收起草稿时回到用户设定的默认可见范围，而不是硬编码的「全部角色」
@@ -407,21 +329,22 @@ export function MomentsPage() {
   const publish = async () => {
     if (!userId || saving || (!text.trim() && images.length === 0)) return;
     if (audience === 'selected' && selected.length === 0) {
-      setToast('请至少选择一个可以看到的人。');
+      setPublishError('请至少选择一个可以看到的人。');
       return;
     }
+    setPublishError('');
     setSaving(true);
     try {
       const moment = await momentsRepo.create(userId, text, { visibility: audience, characterIds: selected }, images.map((image, order) => ({ ...image, order })));
-      setRows((current) => [{ moment, media: images.map((image, order) => ({ ...image, id: moment.mediaIds[order], userId, momentId: moment.id, order, createdAt: moment.createdAt })) }, ...current]);
+      setRows((current) => [{ moment, media: images.map((image, order) => ({ ...image, id: moment.mediaIds[order], userId, momentId: moment.id, order, createdAt: moment.createdAt })) }, ...current.filter(row => row.moment.id !== moment.id)]);
       setReactionMap((current) => ({ ...current, [moment.id]: [] }));
       setSaving(false);
       closeComposer();
-      if (preferences.notifyAfterPublish) setToast('已发布。角色会按自己的节奏看到它。');
+      if (preferences.notifyAfterPublish) setToast(moment.visibility === 'private' ? '已发布，仅自己可见。' : '已发布，可见范围已保存。', { tone: 'success' });
       // 不等待互动，发布本身始终立即完成。
-      void momentsRepo.processJobs(userId);
+      void processInteractions();
     } catch {
-      setToast('这条动态没有保存成功，草稿还在。', { tone: 'error' });
+      setPublishError('这条动态没有保存成功，草稿还在。');
     } finally {
       setSaving(false);
     }
@@ -501,19 +424,15 @@ export function MomentsPage() {
     <div className="vg-moments-page h-full overflow-y-auto pb-8" data-density={preferences.density}>
       <header className="vg-moments-header">
         <div>
-          <p className="vg-moments-eyebrow">LIVING NOTES</p>
           <h1>朋友圈</h1>
           <p>把今天留在世界里。</p>
         </div>
         <div className="vg-moments-header-actions">
           <button type="button" className="vg-moments-settings" onClick={() => setSettingsOpen(true)} aria-label="朋友圈设置">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M9.7 2.7h4.6l.6 2.3c.5.2 1 .5 1.4.8l2.3-.7 2.3 4-1.7 1.6a8 8 0 0 1 0 2.6l1.7 1.6-2.3 4-2.3-.7c-.4.3-.9.6-1.4.8l-.6 2.3H9.7l-.6-2.3c-.5-.2-1-.5-1.4-.8l-2.3.7-2.3-4 1.7-1.6a8 8 0 0 1 0-2.6L3.1 9.1l2.3-4 2.3.7c.4-.3.9-.6 1.4-.8l.6-2.3Z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
+            <Icon name="gear" size={20} />
           </button>
           <button type="button" className="vg-moments-camera" onClick={() => setComposerOpen(true)} aria-label="发布动态">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            <Icon name="plus" size={20} />
           </button>
         </div>
       </header>
@@ -539,9 +458,10 @@ export function MomentsPage() {
 
       {/* 只在有未读互动时占用动态流位置；看过后收起，历史仍可从设置查看。 */}
       <MomentsInbox count={unreadInteractions} avatar={newestInteraction ? actorAvatar(newestInteraction.characterId) : '✦'} onOpen={() => void openNotifications()} />
-
-      {loading ? <div className="vg-moments-empty">正在整理最近的生活…</div> : visibleRows.length === 0 ? (
-        <div className="vg-moments-empty"><span>✦</span><strong>还没有动态</strong><p>发一张照片，或写下此刻正在发生的事。</p><button type="button" onClick={() => setComposerOpen(true)}>写下第一条</button></div>
+      {loadError && <FeedbackNotice className="mx-4 mb-4" message={loadError} tone="error"><button type="button" className="vg-button vg-button-secondary" aria-label="重新读取动态" onClick={() => void load()}>重新读取</button></FeedbackNotice>}
+      {loading && (loaded || visibleRows.length > 0) && <p className="mx-4 mb-4 text-sm text-sub" role="status">正在更新动态…</p>}
+      {!loaded && visibleRows.length === 0 ? loading ? <LoadingSkeleton label="正在整理最近的生活" rows={3}/> : null : visibleRows.length === 0 ? (
+        <div className="vg-moments-empty"><span><Icon name="spark" size={32} /></span><strong>还没有动态</strong><p>发一张照片，或写下此刻正在发生的事。</p><button type="button" onClick={() => setComposerOpen(true)}>写下第一条</button></div>
       ) : visibleRows.map(({ moment, media }) => {
         const reactions = reactionMap[moment.id] ?? [];
         const likes = reactions.filter((item) => item.type === 'like' && item.status === 'active');
@@ -592,7 +512,7 @@ export function MomentsPage() {
                   aria-expanded={pillOpen}
                   aria-label="赞或评论"
                 >
-                  ···
+                  <Icon name="more" size={20} />
                 </button>
                 {pillOpen && (
                   <div className="vg-moment-pill" role="menu">
@@ -610,7 +530,7 @@ export function MomentsPage() {
 
               {(likes.length > 0 || comments.length > 0) && (
                 <div className="vg-moment-thread">
-                  {likes.length > 0 && <button type="button" className="vg-moment-likes" onClick={() => setLikesMomentId(moment.id)} aria-label="查看点赞记录"><span className="vg-moment-like-heart" aria-hidden="true">♥</span><span className="vg-moment-like-avatars">{likes.slice(0, 6).map((like) => <Avatar key={like.id} avatar={actorAvatar(like.characterId)} size="sm" />)}</span></button>}
+                  {likes.length > 0 && <button type="button" className="vg-moment-likes" onClick={() => setLikesMomentId(moment.id)} aria-label="查看点赞记录"><span className="vg-moment-like-heart" aria-hidden="true"><Icon name="heart" size={16} /></span><span className="vg-moment-like-avatars">{likes.slice(0, 6).map((like) => <Avatar key={like.id} avatar={actorAvatar(like.characterId)} size="sm" />)}</span></button>}
                   {comments.length > 0 && <div className="vg-moment-comments">{comments.slice(0, 4).map((comment) => { const target = comments.find((item) => item.id === comment.replyToId); const targetName = replyTargetName(comment, target); const mine = !comment.characterId; return <button type="button" className={`vg-moment-comment-row ${mine ? 'is-mine' : ''}`} key={comment.id} onClick={() => { setCommenting(moment.id); setReplyingTo(comment); }} onContextMenu={(event) => { if (!mine) return; event.preventDefault(); setDeleteComment({ momentId: moment.id, reactionId: comment.id }); }} onTouchStart={() => startCommentLongPress(moment.id, comment.id, mine)} onTouchEnd={cancelCommentLongPress} onTouchMove={cancelCommentLongPress}><strong>{actorName(comment.characterId)}</strong>{targetName && <> 回复 <strong>{targetName}</strong></>}：{comment.content}</button>; })}{comments.length > 4 && <button type="button" className="vg-moment-more-comments" onClick={() => setDetailMomentId(moment.id)}>查看全部 {comments.length} 条评论</button>}</div>}
                 </div>
               )}
@@ -684,7 +604,7 @@ export function MomentsPage() {
 
       {editingMomentId && <Modal open title="修改谁可以看" onClose={() => setEditingMomentId(null)} canSnapshotOnExit={() => useAuthStore.getState().userId === userId}><section className="vg-moment-sheet vg-moment-edit-sheet"><div className="vg-moment-audience"><span>这条动态的可见范围</span><div>{(['all', 'selected', 'excluded', 'private'] as AudienceMode[]).map((mode) => <button type="button" key={mode} className={editAudience === mode ? 'is-selected' : ''} onClick={() => setEditAudience(mode)}>{mode === 'all' ? '全部角色' : mode === 'selected' ? '部分可见' : mode === 'excluded' ? '不给谁看' : '仅自己'}</button>)}</div>{(editAudience === 'selected' || editAudience === 'excluded') && <div className="vg-moment-contact-picker">{contacts.map((contact) => <label key={contact.id}><input type="checkbox" checked={editSelected.includes(contact.id)} onChange={(event) => setEditSelected((current) => event.target.checked ? [...current, contact.id] : current.filter((id) => id !== contact.id))} />{contact.name}</label>)}</div>}</div><button type="button" className="vg-moment-publish" onClick={() => void saveAudienceEdit()}>保存可见范围</button></section></Modal>}
 
-      {composerOpen && <Modal open title="发布动态" onClose={closeComposer} canSnapshotOnExit={() => useAuthStore.getState().userId === userId}><section className="vg-moment-sheet"><textarea autoFocus value={text} onChange={(event) => setText(event.target.value)} placeholder="此刻想留下什么？" maxLength={2000} /><div className="vg-moment-preview-grid">{images.map((image, index) => <div key={`${image.dataUrl.slice(0, 20)}-${index}`}><img src={image.dataUrl} alt="待发布图片" /><button type="button" onClick={() => setImages((current) => current.filter((_, item) => item !== index))}>×</button></div>)}<button type="button" className="vg-moment-add-image" onClick={() => fileRef.current?.click()}>＋<span>图片</span></button></div><input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(event) => { void pickImages(event.target.files); event.currentTarget.value = ''; }} /><div className="vg-moment-audience"><span>谁可以看</span><div>{(['all', 'selected', 'excluded', 'private'] as AudienceMode[]).map((mode) => <button type="button" key={mode} className={audience === mode ? 'is-selected' : ''} onClick={() => setAudience(mode)}>{mode === 'all' ? '全部角色' : mode === 'selected' ? '部分可见' : mode === 'excluded' ? '不给谁看' : '仅自己'}</button>)}</div>{(audience === 'selected' || audience === 'excluded') && <div className="vg-moment-contact-picker">{contacts.map((contact) => <label key={contact.id}><input type="checkbox" checked={selected.includes(contact.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, contact.id] : current.filter((id) => id !== contact.id))} />{contact.name}</label>)}</div>}{selectedNames.length > 0 && <small>已选：{selectedNames.join('、')}</small>}</div><button type="button" className="vg-moment-publish" disabled={saving || (!text.trim() && images.length === 0)} onClick={() => void publish()}>{saving ? '保存中…' : '发布'}</button></section></Modal>}
+      {composerOpen && <Modal open title="发布动态" onClose={closeComposer} canSnapshotOnExit={() => useAuthStore.getState().userId === userId}><section className="vg-moment-sheet"><textarea className="vg-text-field" autoFocus value={text} onChange={(event) => setText(event.target.value)} placeholder="此刻想留下什么？" maxLength={2000} /><div className="vg-moment-preview-grid">{images.map((image, index) => <div key={`${image.dataUrl.slice(0, 20)}-${index}`}><img src={image.dataUrl} alt="待发布图片" /><button type="button" onClick={() => setImages((current) => current.filter((_, item) => item !== index)) } aria-label="移除待发布图片"><Icon name="close" size={16} /></button></div>)}<button type="button" className="vg-moment-add-image" aria-label="添加动态图片" onClick={() => fileRef.current?.click()}><Icon name="image" size={22} /><span>图片</span></button></div><input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(event) => { void pickImages(event.target.files); event.currentTarget.value = ''; }} /><div className="vg-moment-audience"><span>谁可以看</span><div>{(['all', 'selected', 'excluded', 'private'] as AudienceMode[]).map((mode) => <button type="button" key={mode} className={audience === mode ? 'is-selected' : ''} onClick={() => setAudience(mode)}>{mode === 'all' ? '全部角色' : mode === 'selected' ? '部分可见' : mode === 'excluded' ? '不给谁看' : '仅自己'}</button>)}</div>{(audience === 'selected' || audience === 'excluded') && <div className="vg-moment-contact-picker">{contacts.map((contact) => <label key={contact.id}><input type="checkbox" checked={selected.includes(contact.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, contact.id] : current.filter((id) => id !== contact.id))} />{contact.name}</label>)}</div>}{selectedNames.length > 0 && (audience === 'selected' || audience === 'excluded') && <small>{audience === 'selected' ? '可见' : '不可见'}：{selectedNames.join('、')}</small>}</div>{publishError && <p className="vg-moment-compose-error" role="alert">{publishError}</p>}<button type="button" className="vg-moment-publish" disabled={saving || (!text.trim() && images.length === 0)} onClick={() => void publish()}>{saving ? '保存中…' : '发布'}</button></section></Modal>}
     </div>
   );
 }

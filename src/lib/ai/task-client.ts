@@ -17,7 +17,7 @@ function textAndImage(content: unknown): { content: string; image?: string } {
 }
 
 /** All auxiliary text tasks honor the default provider and exact configured model ID. */
-export async function taskChat(params: Omit<LLMChatParams, 'provider' | 'model'>, selected: LLMModel = resolveModel()): Promise<LLMChatResult> {
+export async function taskChat(params: Omit<LLMChatParams, 'provider' | 'model'> & {beforeRequest?:()=>Promise<void>}, selected: LLMModel = resolveModel()): Promise<LLMChatResult> {
   if (!getProviderConfig(selected.provider).enabled) throw new Error('provider:disabled');
   const apiKey = selected.provider === 'deepseek' ? params.apiKey || await getProviderKey('deepseek') || '' : await getProviderKey(selected.provider) || '';
   if (!apiKey && selected.provider === 'deepseek' && hasAiGatewayAccess()) {
@@ -25,6 +25,7 @@ export async function taskChat(params: Omit<LLMChatParams, 'provider' | 'model'>
     const turns = params.messages.filter(message => message.role !== 'system');
     const last = turns[turns.length - 1];
     const input = textAndImage(last?.content);
+    await params.beforeRequest?.();
     const result = await gatewayChat({
       apiKey: '', systemPrompt, message: input.content, image: input.image,
       history: turns.slice(0, -1).map(message => ({ role: message.role === 'assistant' ? 'assistant' : 'user', ...textAndImage(message.content) })),
@@ -36,5 +37,7 @@ export async function taskChat(params: Omit<LLMChatParams, 'provider' | 'model'>
     return { ...result, content: result.content };
   }
   if (!apiKey && providerRequiresKey(selected.provider)) throw new Error('auth:invalid_key');
-  return llmChat({ ...params, apiKey, provider: selected.provider, model: selected.id });
+  await params.beforeRequest?.();
+  const {beforeRequest:_beforeRequest,...transport}=params;
+  return llmChat({ ...transport, apiKey, provider: selected.provider, model: selected.id });
 }

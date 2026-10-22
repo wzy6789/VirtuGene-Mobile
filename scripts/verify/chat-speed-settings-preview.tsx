@@ -1,0 +1,11 @@
+import {createRoot} from 'react-dom/client';
+import {ChatQualityPanel} from '../../src/components/settings/ChatQualityPanel';
+import {useAuthStore} from '../../src/store/auth-store';
+import {useSettingsStore} from '../../src/store/settings-store';
+window.fetch=async()=>{throw Error('Isolated preview blocks all model/network calls');};
+if(navigator.mediaDevices)navigator.mediaDevices.getUserMedia=async()=>{throw Error('Microphone disabled in isolated preview');};
+useAuthStore.getState().login('chat-speed-preview','隔离预览','','');
+useSettingsStore.getState().setChatThinkingEnabled(false);
+document.documentElement.classList.add('dark');
+Object.assign(window,{speedSettingsPreview:{thinking:()=>useSettingsStore.getState().chatThinkingEnabled}});
+createRoot(document.getElementById('root')!).render(<ChatQualityPanel open onClose={()=>{}} />);

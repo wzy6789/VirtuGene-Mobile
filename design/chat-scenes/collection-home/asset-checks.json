@@ -1,0 +1,442 @@
+{
+  "status": "pass",
+  "checks": [
+    {
+      "name": "home-bedroom native source",
+      "pass": true,
+      "detail": [
+        2160,
+        4800
+      ]
+    },
+    {
+      "name": "home-bedroom project source",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom independent native source and runtime camera agree",
+      "pass": true,
+      "detail": 0.7532607783564815
+    },
+    {
+      "name": "home-bedroom/poster-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/poster-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/clean-plate-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/clean-plate-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/window-mask-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/window-mask-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-casing-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-casing-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-foreground-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-foreground-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-table-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-table-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1080 decoded memory",
+      "pass": true,
+      "detail": 26711856
+    },
+    {
+      "name": "home-bedroom/1080 complete opaque clean plate",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1080 static overlap safety",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1080/casing effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1080/foreground effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1080/table effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1080 actual WebP neutral composite",
+      "pass": true,
+      "detail": 0.31798469650205763
+    },
+    {
+      "name": "home-bedroom/poster-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/poster-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/clean-plate-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/clean-plate-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/window-mask-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/window-mask-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-casing-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-casing-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-foreground-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-foreground-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-table-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/foreground-table-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1440 decoded memory",
+      "pass": true,
+      "detail": 47494432
+    },
+    {
+      "name": "home-bedroom/1440 complete opaque clean plate",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1440 static overlap safety",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1440/casing effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1440/foreground effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1440/table effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom/1440 actual WebP neutral composite",
+      "pass": true,
+      "detail": 0.44086762152777775
+    },
+    {
+      "name": "home-bedroom thumbnail",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-bedroom truthful steam anchor",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living native source",
+      "pass": true,
+      "detail": [
+        2160,
+        4800
+      ]
+    },
+    {
+      "name": "home-living project source",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living independent native source and runtime camera agree",
+      "pass": true,
+      "detail": 0.8040235098379629
+    },
+    {
+      "name": "home-living/poster-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/poster-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/clean-plate-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/clean-plate-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/window-mask-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/window-mask-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-casing-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-casing-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-foreground-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-foreground-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-table-1080.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-table-1080.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1080 decoded memory",
+      "pass": true,
+      "detail": 28840508
+    },
+    {
+      "name": "home-living/1080 complete opaque clean plate",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1080 static overlap safety",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1080/casing effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1080/foreground effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1080/table effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1080 actual WebP neutral composite",
+      "pass": true,
+      "detail": 0.4549987139917695
+    },
+    {
+      "name": "home-living/poster-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/poster-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/clean-plate-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/clean-plate-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/window-mask-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/window-mask-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-casing-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-casing-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-foreground-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-foreground-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-table-1440.webp file hash",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/foreground-table-1440.webp actual dimensions",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1440 decoded memory",
+      "pass": true,
+      "detail": 51268892
+    },
+    {
+      "name": "home-living/1440 complete opaque clean plate",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1440 static overlap safety",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1440/casing effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1440/foreground effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1440/table effect occlusion",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living/1440 actual WebP neutral composite",
+      "pass": true,
+      "detail": 0.4261148003472222
+    },
+    {
+      "name": "home-living thumbnail",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "home-living truthful steam anchor",
+      "pass": true,
+      "detail": null
+    }
+  ],
+  "limitations": "Decoded-pixel estimates, not Android memory measurements."
+}

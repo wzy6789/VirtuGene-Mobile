@@ -3,6 +3,7 @@ import type { Diary } from '../../db/index';
 import { moodEmoji, moodColor, formatDateFull } from '../../lib/diary-utils';
 import { HighlightText } from '../../lib/diary-highlight';
 import { DiarySharingBadge } from './DiarySharing';
+import { Icon } from '../ui/Icon';
 
 interface Props {
   entries: Diary[];
@@ -34,10 +35,10 @@ export function DiaryTimeline({ entries, onEdit, highlight }: Props) {
 
   if (entries.length === 0) {
     return (
-      <div className="py-16 text-center text-gray-500">
-        <p className="text-3xl mb-2">📓</p>
+      <div className="py-16 text-center text-sub">
+        <Icon name="diary" size={32} className="mx-auto mb-3" />
         <p className="text-sm">没有找到日记</p>
-        <p className="text-xs text-gray-600 mt-1">换个筛选条件，或点右上角写一篇</p>
+        <p className="text-xs text-sub mt-1">换个筛选条件，或点右上角写一篇</p>
       </div>
     );
   }
@@ -60,13 +61,14 @@ export function DiaryTimeline({ entries, onEdit, highlight }: Props) {
           <div key={key}>
             <button
               onClick={() => toggle(key)}
+              aria-expanded={!isCollapsed}
               className="w-full flex items-center gap-2 px-1 py-1.5 text-left group"
             >
-              <span className="text-xs font-semibold text-sub group-hover:text-gene-purple transition-colors">
+              <span className="text-sm font-semibold text-ink group-hover:text-gene-purple transition-colors">
                 {y}年{Number(m)}月
               </span>
-              <span className="text-[10px] text-gray-400">({list.length} 篇)</span>
-              <span className={`text-[10px] text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>▶</span>
+              <span className="text-xs text-sub">{list.length} 篇</span>
+              <Icon name="chevron" size={16} className={isCollapsed ? 'text-sub' : 'text-sub rotate-90'} />
               <span className="flex-1 h-px bg-line" />
             </button>
             {!isCollapsed && (
@@ -75,20 +77,20 @@ export function DiaryTimeline({ entries, onEdit, highlight }: Props) {
                   <button
                     key={d.id}
                     onClick={() => onEdit(d)}
-                    className="w-full text-left rounded-xl border border-line bg-panel/60 p-4 hover:border-gene-purple/40 hover:shadow-[0_2px_14px_rgba(108,92,231,0.10)] transition-all"
+                    className="vg-diary-card w-full text-left rounded-xl border border-line p-4 hover:border-gene-purple/40 transition-colors"
                   >
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
                         <span className="text-lg">{moodEmoji(d.mood)}</span>
-                        <span className="text-sm font-semibold text-ink truncate">
+                        <span className="vg-diary-entry-title text-sm font-semibold text-ink">
                           <HighlightText text={d.title || '无标题'} terms={terms} />
                         </span>
                         <DiarySharingBadge diary={d} />
                         {d.images && d.images.length > 0 && (
-                          <span className="text-[10px] text-gray-400 shrink-0">🖼️{d.images.length}</span>
+                          <span className="text-xs text-sub shrink-0 inline-flex items-center gap-1"><Icon name="image" size={14} />{d.images.length}</span>
                         )}
                       </div>
-                      <span className="text-xs text-gray-400 shrink-0">{formatDateFull(d.date)}</span>
+                      <span className="text-xs text-sub shrink-0">{formatDateFull(d.date)}</span>
                     </div>
                     {d.images && d.images.length > 0 && (
                       <div className="flex gap-1.5 mb-2">
@@ -103,7 +105,7 @@ export function DiaryTimeline({ entries, onEdit, highlight }: Props) {
                       {(d.tags ?? []).length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {(d.tags ?? []).map((t) => (
-                            <span key={t} className="px-2 py-0.5 rounded-full bg-gene-purple/10 text-gene-purple text-[10px]">#{t}</span>
+                            <span key={t} className="px-2 py-0.5 rounded-full bg-gene-purple/10 text-[color:var(--vg-accent)] text-xs">#{t}</span>
                           ))}
                         </div>
                       )}

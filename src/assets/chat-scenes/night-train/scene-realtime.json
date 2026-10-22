@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "sceneId": "night-train",
+  "file": "scene.glb",
+  "bytes": 814336,
+  "sha256": "224c02fd2933626ba02ad7d00c90fb5c92499376f2881aa1323daeaa31225c7d",
+  "triangles": 44169,
+  "vertices": 22541,
+  "drawCalls": 2,
+  "geometryBoundsBlender": {
+    "min": [
+      -2.8499999046325684,
+      -6.0,
+      -0.11999999731779099
+    ],
+    "max": [
+      2.8499999046325684,
+      8.0,
+      3.799999952316284
+    ]
+  },
+  "camera": {
+    "position": [
+      0.08,
+      2.05,
+      5.2
+    ],
+    "rotationQuaternion": [
+      0.7362759709358215,
+      0.6766799092292786,
+      -0.0009530684328638017,
+      -0.001037006382830441
+    ],
+    "verticalFovDegrees": 58.71550708558255
+  },
+  "effectQuad": [
+    [
+      -1.27,
+      1.1,
+      -3.4
+    ],
+    [
+      2.1,
+      1.1,
+      -3.4
+    ],
+    [
+      2.1,
+      2.94,
+      -3.4
+    ],
+    [
+      -1.27,
+      2.94,
+      -3.4
+    ]
+  ],
+  "lightPoint": [
+    1.64,
+    2.3,
+    -2.88
+  ],
+  "cup": [
+    0.44,
+    0.984,
+    1.05
+  ],
+  "source": {
+    "file": "design/chat-scenes/collection-warm/night-train/VirtuGene-night-train-Original.blend",
+    "sha256": "ed6a32a4d690607e3eee898352475713146c2221fe933216bb2ee3ef0fdf39bf",
+    "originalObjects": 93,
+    "originalTriangles": 93729
+  },
+  "apertureCutForRealtime": true,
+  "distantBackgroundDepthWrite": false,
+  "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认"
+}

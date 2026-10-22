@@ -4,11 +4,13 @@ import { useAuthStore } from '../../store/auth-store';
 import { persistSecret, loadSecret, clearSecret } from '../../lib/api-key-storage';
 import { fetchProviderModels, getAvailableModels, getProviderKey, LLM_MODELS, LLM_PROVIDERS, validateProviderConnection, type LLMModel, type ProviderId } from '../../lib/ai/llm';
 import { getProviderConfig, normalizeProviderBaseUrl, providerRequiresKey, saveProviderConfig } from '../../lib/ai/provider-config';
-import { checkGatewayHealth, hasAiGatewayAccess } from '../../lib/ai/gateway';
+import { checkGatewayHealth, hasAiGatewayAccess } from '../../lib/ai/gateway-session';
 import { CLOUD_ASR_KEY_NAME } from '../../lib/cloud-asr';
 import { FeedbackNotice } from '../ui/FeedbackNotice';
 import { Modal } from '../ui/Modal';
 import { notifyProviderCredentialsChanged, useModelCatalog } from './useModelCatalog';
+import { beginConnectionCheck, cancelConnectionCheck, finishConnectionCheck, type ConnectionCheckTicket } from '../../lib/ai/connection-check';
+import { ProviderConnectionStatus } from './ProviderConnectionStatus';
 import '../../styles/model-settings.css';
 
 type Feedback = { tone: 'success' | 'error' | 'info'; text: string };
@@ -32,7 +34,7 @@ function FeedbackLine({ feedback }: { feedback: Feedback | null }) {
   return feedback ? <FeedbackNotice className="mt-3" message={feedback.text} tone={feedback.tone} /> : null;
 }
 
-function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId; onBack: () => void; onChanged: () => void }) {
+function ProviderEditor({ provider, active, onBack, onChanged }: { provider: ProviderId; active: boolean; onBack: () => void; onChanged: () => void }) {
   const definition = LLM_PROVIDERS[provider];
   const owner = useAuthStore(s => s.userId);
   const accountKey = useAuthStore(s => s.apiKey);
@@ -51,19 +53,22 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const live = useRef(true);
   const request = useRef<AbortController | null>(null);
+  const connectionCheck = useRef<ConnectionCheckTicket | null>(null);
   const sequence = useRef(0);
   const isCurrent = (token: number) => live.current && token === sequence.current && useAuthStore.getState().userId === owner;
 
   useEffect(() => {
     live.current = true;
+    if (!active) { setBusy(null); return () => { live.current = false; sequence.current++; request.current?.abort(); cancelConnectionCheck(connectionCheck.current); }; }
     const token = sequence.current;
     if (definition.keyStorage) void loadSecret(definition.keyStorage).then(key => { if (isCurrent(token)) setHasKey(Boolean(key)); });
     else setHasKey(Boolean(accountKey));
-    return () => { live.current = false; sequence.current++; request.current?.abort(); };
-  }, [owner, accountKey, definition.keyStorage]);
+    return () => { live.current = false; sequence.current++; request.current?.abort(); cancelConnectionCheck(connectionCheck.current); };
+  }, [owner, accountKey, definition.keyStorage, active]);
 
   const begin = (kind: NonNullable<typeof busy>) => {
     request.current?.abort();
+    cancelConnectionCheck(connectionCheck.current); connectionCheck.current = null;
     const token = ++sequence.current;
     const controller = new AbortController();
     request.current = controller;
@@ -75,6 +80,7 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
   const cancel = () => {
     sequence.current++;
     request.current?.abort();
+    cancelConnectionCheck(connectionCheck.current); connectionCheck.current = null;
     request.current = null;
     setBusy(null);
     setFeedback({ tone: 'info', text: '已取消本次请求。' });
@@ -153,6 +159,7 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
 
   const connect = async (kind: 'test' | 'discover') => {
     const { token, controller } = begin(kind);
+    let ticket: ConnectionCheckTicket | null = null;
     try {
       const url = normalizeProviderBaseUrl(baseUrl, provider);
       const key = apiKey.trim() || await getProviderKey(provider) || '';
@@ -162,8 +169,14 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
           setFeedback({ tone: 'info', text: '托管账号由网关提供模型。服务商模型列表需要该平台的直连 API Key。' });
           return;
         }
-        const health = await checkGatewayHealth();
-        if (isCurrent(token)) setFeedback(health === 'connected' ? { tone: 'success', text: '网关在线。模型可用权限以实际聊天请求为准。' } : { tone: 'error', text: '网关当前无法连接，请稍后重试。' });
+        ticket = await beginConnectionCheck(owner ?? '', provider, testModel, { baseUrl: url, key, enabled, gateway: true });
+        if (!isCurrent(token)) { cancelConnectionCheck(ticket); return; }
+        connectionCheck.current = ticket;
+        const health = await checkGatewayHealth(controller.signal);
+        if (isCurrent(token)) {
+          await finishConnectionCheck(ticket, health === 'connected' ? 'success' : 'failure');
+          if (isCurrent(token)) setFeedback(health === 'connected' ? { tone: 'success', text: '网关在线。模型可用权限以实际聊天请求为准。' } : { tone: 'error', text: '网关当前无法连接，请稍后重试。' });
+        }
         return;
       }
       if (providerRequiresKey(provider, url) && !key) {
@@ -177,13 +190,22 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
         setDiscoveredId(found[0]?.id ?? '');
         setFeedback(found.length ? { tone: 'success', text: `已读取 ${found.length} 个模型。选择需要的模型并加入配置。` } : { tone: 'info', text: '接口未返回可用模型，请按平台说明手动填写模型 ID。' });
       } else {
-        await validateProviderConnection(provider, { apiKey: key, baseUrl: url, model: modelId.trim() || testModel, signal: controller.signal });
+        const selectedModel = modelId.trim() || testModel;
+        ticket = await beginConnectionCheck(owner ?? '', provider, selectedModel, { baseUrl: url, key, enabled });
+        if (!isCurrent(token)) { cancelConnectionCheck(ticket); return; }
+        connectionCheck.current = ticket;
+        await validateProviderConnection(provider, { apiKey: key, baseUrl: url, model: selectedModel, signal: controller.signal });
         if (!isCurrent(token)) return;
-        setFeedback({ tone: 'success', text: provider === 'deepseek' ? 'DeepSeek Flash 实际调用成功。未保存的地址仍需要保存配置。' : definition.modelDiscovery ? '服务商已响应，密钥可读取模型列表。具体模型权限以实际调用为准。' : '服务商已响应，测试模型调用成功。未保存的内容仍需要保存配置。' });
+        const recorded = await finishConnectionCheck(ticket, 'success');
+        if (!isCurrent(token)) return;
+        setFeedback({ tone: 'success', text: (provider === 'deepseek' ? 'DeepSeek Flash 实际调用成功。' : definition.modelDiscovery ? '服务商已响应，密钥可读取模型列表。具体模型权限以实际调用为准。' : '服务商已响应，测试模型调用成功。') + (recorded ? '' : '本次结果未写入已保存连接的检测记录，请确认已保存配置。') });
       }
     } catch (error) {
-      if (isCurrent(token)) setFeedback({ tone: 'error', text: connectionError(error) });
-    } finally { finish(token); }
+      if (isCurrent(token)) {
+        await finishConnectionCheck(ticket, 'failure').catch(() => false);
+        if (isCurrent(token)) setFeedback({ tone: 'error', text: connectionError(error) });
+      }
+    } finally { cancelConnectionCheck(ticket); if (connectionCheck.current === ticket) connectionCheck.current = null; finish(token); }
   };
 
   const options = new Map(LLM_MODELS.filter(model => model.provider === provider).map(model => [model.id, model]));
@@ -218,6 +240,8 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
       <div className="vg-provider-actions">
         <div className="vg-provider-savebar"><button type="button" className="vg-provider-button is-primary" onClick={() => void save()} disabled={Boolean(busy)}>{busy === 'save' ? '保存中…' : '保存配置'}</button><button type="button" className="vg-provider-button" onClick={() => void connect('test')} disabled={Boolean(busy)}>{busy === 'test' ? '测试中…' : '测试连接'}</button>{(busy === 'test' || busy === 'discover') && <button type="button" className="vg-provider-button" onClick={cancel}>取消请求</button>}</div>
         {(!definition.modelDiscovery || provider === 'deepseek') && <p className="vg-provider-note mt-2">测试会向所选模型发送一个极短请求，可能产生少量接口费用。</p>}
+        <ProviderConnectionStatus provider={provider} model={modelId.trim() || testModel} active={active}/>
+        <p className="vg-provider-note mt-2">记录仅对应已保存的连接和测试模型，24 小时后需要重新检测。未保存内容的测试单独反馈。</p>
         <FeedbackLine feedback={feedback}/>
       </div>
       <a className="vg-provider-docs" href={definition.docsUrl} target="_blank" rel="noreferrer">查看服务商 API 文档 <Icon name="arrow" size={16} /></a>
@@ -225,7 +249,8 @@ function ProviderEditor({ provider, onBack, onChanged }: { provider: ProviderId;
   </div>;
 }
 
-function SpeechKeyEditor() {
+function SpeechKeyEditor({ standalone = false }: { standalone?: boolean }) {
+  const Heading = standalone ? 'h3' : 'h4';
   const owner = useAuthStore(s => s.userId);
   const [value, setValue] = useState('');
   const [saved, setSaved] = useState(false);
@@ -253,41 +278,58 @@ function SpeechKeyEditor() {
     } catch { if (live.current && useAuthStore.getState().userId === owner) setFeedback({ tone: 'error', text: '密钥未能保存或清除，请重试。' }); }
     finally { if (live.current && useAuthStore.getState().userId === owner) setBusy(false); }
   };
-  return <section className="vg-provider-section" aria-label="语音识别密钥"><div className="vg-provider-key-status"><h4 className="!mb-0">硅基 SiliconFlow</h4><span className="vg-provider-status" data-ready={saved}>{saved ? '已配置' : '未配置'}</span></div><p className="vg-provider-note mb-3">用于云端语音转文字，与对话模型的密钥分别保存。</p><label className="vg-provider-field"><span>语音识别 API Key</span><input type="password" aria-label="语音识别 API Key" placeholder={saved ? '输入新密钥可替换' : '硅基 SiliconFlow Key…'} autoComplete="off" spellCheck={false} disabled={busy} data-sensitive value={value} onChange={event => setValue(event.target.value)} /></label><div className="vg-provider-inline-actions"><button type="button" className="vg-provider-button is-primary" disabled={busy || !value.trim()} onClick={() => void update(false)}>{busy ? '处理中…' : '保存语音密钥'}</button>{saved && <button type="button" className="vg-provider-button" disabled={busy} onClick={() => void update(true)}>清除语音密钥</button>}</div><FeedbackLine feedback={feedback}/></section>;
+  return <section className="vg-provider-section" aria-label="语音识别密钥"><div className="vg-provider-key-status"><Heading className="!mb-0">硅基 SiliconFlow</Heading><span className="vg-provider-status" data-ready={saved}>{saved ? '已配置' : '未配置'}</span></div><p className="vg-provider-note mb-3">用于云端语音转文字，与对话模型的密钥分别保存。</p><label className="vg-provider-field"><span>语音识别 API Key</span><input type="password" aria-label="语音识别 API Key" placeholder={saved ? '输入新密钥可替换' : '硅基 SiliconFlow Key…'} autoComplete="off" spellCheck={false} disabled={busy} data-sensitive value={value} onChange={event => setValue(event.target.value)} /></label><div className="vg-provider-inline-actions"><button type="button" className="vg-provider-button is-primary" disabled={busy || !value.trim()} onClick={() => void update(false)}>{busy ? '处理中…' : '保存语音密钥'}</button>{saved && <button type="button" className="vg-provider-button" disabled={busy} onClick={() => void update(true)}>清除语音密钥</button>}</div><FeedbackLine feedback={feedback}/></section>;
 }
 
 /** The provider directory keeps advanced forms out of the everyday settings screen. */
-export function ApiKeyManager({ onClose, embedded = false, onlySpeech = false }: { onClose: () => void; embedded?: boolean; onlySpeech?: boolean }) {
+export function ApiKeyManager({ onClose, embedded = false, onlySpeech = false, onBackHandlerChange }: { onClose: () => void; embedded?: boolean; onlySpeech?: boolean; onBackHandlerChange?: (handler: (() => void) | null) => void }) {
   const { owner, ready, loading } = useModelCatalog();
   const [provider, setProvider] = useState<ProviderId | null>(null);
+  // Drafts live only in this mounted settings visit, never in persistent storage.
+  const [visited, setVisited] = useState<ProviderId[]>([]);
   const [query, setQuery] = useState('');
   const [configuredOnly, setConfiguredOnly] = useState(false);
   const [revision, setRevision] = useState(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const directoryScroll = useRef(0);
   const scrollOwner = useRef(owner);
+  const lastProvider = useRef<ProviderId | null>(null);
+  useLayoutEffect(() => {
+    onBackHandlerChange?.(provider && !onlySpeech ? () => setProvider(null) : null);
+    return () => onBackHandlerChange?.(null);
+  }, [provider, onlySpeech, onBackHandlerChange]);
   useLayoutEffect(() => {
     const scroll = surfaceRef.current?.closest<HTMLElement>('[data-modal-scroll]');
     if (scrollOwner.current !== owner) { scrollOwner.current = owner; directoryScroll.current = 0; }
     if (scroll) scroll.scrollTop = provider ? 0 : directoryScroll.current;
+    if (provider) {
+      lastProvider.current = provider;
+      surfaceRef.current?.querySelector<HTMLElement>('[data-provider-editor]:not([hidden]) .vg-provider-back')?.focus({ preventScroll: true });
+    } else if (lastProvider.current) {
+      surfaceRef.current?.querySelector<HTMLElement>(`[data-provider-id="${lastProvider.current}"]`)?.focus({ preventScroll: true });
+    }
   }, [provider, owner]);
-  useEffect(() => { setProvider(null); setQuery(''); setConfiguredOnly(false); }, [owner]);
+  useEffect(() => { setProvider(null); setVisited([]); setQuery(''); setConfiguredOnly(false); lastProvider.current = null; }, [owner]);
   const openProvider = (id: ProviderId) => {
     directoryScroll.current = surfaceRef.current?.closest<HTMLElement>('[data-modal-scroll]')?.scrollTop ?? 0;
+    setVisited(current => current.includes(id) ? current : [...current, id]);
     setProvider(id);
   };
   const search = query.trim().toLocaleLowerCase();
   const filtered = PROVIDERS.filter(id => (!configuredOnly || ready[id]) && `${LLM_PROVIDERS[id].name} ${id}`.toLocaleLowerCase().includes(search));
   const configured = PROVIDERS.filter(id => ready[id]).length;
   const content = <div ref={surfaceRef} className="vg-settings-design vg-provider-settings">
-    {onlySpeech ? <><p className="vg-settings-intro">云端识别在设备没有系统识别服务时使用。密钥仅保存在此设备，对话模型和语音服务分开管理。</p><SpeechKeyEditor key={owner}/></> : provider ? <ProviderEditor key={`${owner}:${provider}`} provider={provider} onBack={() => setProvider(null)} onChanged={() => setRevision(value => value + 1)}/> : <>
+    {onlySpeech ? <><p className="vg-settings-intro">云端识别在设备没有系统识别服务时使用。密钥仅保存在此设备，对话模型和语音服务分开管理。</p><SpeechKeyEditor key={owner} standalone/></> : <>
+      {visited.map(id => <div key={`${owner}:${id}`} data-provider-editor={id} hidden={provider !== id} inert={provider !== id}><ProviderEditor provider={id} active={provider === id} onBack={() => setProvider(null)} onChanged={() => setRevision(value => value + 1)}/></div>)}
+      <div hidden={provider !== null} inert={provider !== null}>
       <div className="vg-provider-intro"><h3>连接你习惯的 AI</h3><p>选择服务商，配置密钥和模型。支持官方接口、区域地址以及本机或局域网的兼容服务。</p></div>
       <label className="vg-search-field vg-model-search"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input type="search" aria-label="搜索服务商" placeholder="搜索服务商，如 Claude、Kimi" value={query} onChange={event => setQuery(event.target.value)}/></label>
       <div className="vg-provider-filters" aria-label="服务商筛选"><button type="button" aria-pressed={!configuredOnly} onClick={() => setConfiguredOnly(false)}>全部服务商 · {PROVIDERS.length}</button><button type="button" aria-pressed={configuredOnly} onClick={() => setConfiguredOnly(true)}>已配置 · {loading ? '…' : configured}</button></div>
-      <div className="vg-provider-directory" key={revision}>{filtered.map(id => <button type="button" className="vg-provider-row" key={id} onClick={() => openProvider(id)} aria-label={`配置 ${LLM_PROVIDERS[id].name}`}><span className="vg-provider-mark" aria-hidden="true">{MARKS[id]}</span><span className="vg-provider-copy"><strong>{LLM_PROVIDERS[id].name}</strong><small>{id === 'deepseek' ? '使用登录账号连接' : id === 'custom' ? '本地模型、代理及兼容服务' : LLM_PROVIDERS[id].protocol === 'openai' ? '兼容接口 · 可自定义模型' : '原生接口 · 可自定义模型'}</small></span><span className="vg-provider-status" data-ready={Boolean(ready[id])}>{loading ? '读取中' : getProviderConfig(id).enabled === false ? '已暂停' : ready[id] ? '已配置' : '待配置'}</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m9 5 7 7-7 7"/></svg></button>)}</div>
+      <div className="vg-provider-directory" key={revision}>{filtered.map(id => <button type="button" className="vg-provider-row" key={id} data-provider-id={id} onClick={() => openProvider(id)} aria-label={`配置 ${LLM_PROVIDERS[id].name}`}><span className="vg-provider-mark" aria-hidden="true">{MARKS[id]}</span><span className="vg-provider-copy"><strong>{LLM_PROVIDERS[id].name}</strong><small>{id === 'deepseek' ? '使用登录账号连接' : id === 'custom' ? '本地模型、代理及兼容服务' : LLM_PROVIDERS[id].protocol === 'openai' ? '兼容接口 · 可自定义模型' : '原生接口 · 可自定义模型'}</small></span><span className="vg-provider-status" data-ready={Boolean(ready[id])}>{loading ? '读取中' : getProviderConfig(id).enabled === false ? '已暂停' : ready[id] ? '已配置' : '待配置'}</span><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m9 5 7 7-7 7"/></svg></button>)}</div>
       {filtered.length === 0 && <p className="vg-model-empty">{configuredOnly ? '没有符合条件的已配置服务商。切换到全部服务商即可添加。' : '没有找到匹配的服务商。兼容接口可通过「自定义」接入。'}</p>}
       <section className="vg-provider-speech"><h3>语音服务</h3><SpeechKeyEditor key={owner}/></section>
+      </div>
     </>}
   </div>;
-  return embedded ? content : <Modal open onClose={onClose} title={onlySpeech ? '语音识别密钥' : '服务商与 API'} mobileFullHeight panelClassName="vg-settings-panel" canSnapshotOnExit={() => false}>{content}</Modal>;
+  return embedded ? content : <Modal open onClose={onClose} onBack={provider && !onlySpeech ? () => setProvider(null) : undefined} title={onlySpeech ? '语音识别密钥' : '服务商与 API'} mobileFullHeight panelClassName="vg-settings-panel" canSnapshotOnExit={() => false}>{content}</Modal>;
 }

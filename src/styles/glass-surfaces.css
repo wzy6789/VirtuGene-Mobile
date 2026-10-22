@@ -1,0 +1,64 @@
+/* Shared optical language. Sampling is reserved for active chrome, never each row. */
+:root {
+ --vg-glass-control-bg:rgba(248,250,252,.68);--vg-glass-content-bg:rgba(249,250,251,.84);--vg-glass-reading-bg:rgba(252,251,248,.97);
+ --vg-glass-edge:rgba(67,92,119,.18);--vg-glass-highlight:rgba(255,255,255,.88);--vg-glass-shadow:0 2px 5px rgba(23,35,48,.04),0 12px 28px -12px rgba(23,35,48,.20);
+ --vg-glass-blur:12px;--vg-glass-sample:blur(var(--vg-glass-blur)) saturate(1.08);--vg-glass-reflection:rgba(255,255,255,.26);--vg-glass-contact:rgba(28,39,52,.09);
+ --vg-glass-refraction:rgba(180,206,232,.07);--vg-glass-selection-bg:rgba(255,255,255,.74);--vg-glass-selection-light:rgba(255,255,255,.44);
+ --vg-glass-control-sheen:linear-gradient(145deg,var(--vg-glass-reflection),transparent 38%,transparent 72%,var(--vg-glass-refraction));
+ /* Scene and component surfaces share semantic sources, with separate content opacity. */
+ --vg-glass-scene-fill:rgba(248,250,253,.68);--vg-glass-scene-bloom:rgba(255,255,255,.24);--vg-glass-scene-glaze:rgba(226,237,249,.055);
+ --vg-glass-scene-edge:rgba(235,244,255,.28);--vg-glass-scene-rim:rgba(255,255,255,.76);--vg-glass-scene-shadow:rgba(25,40,61,.14);
+}
+:root.dark {
+ --vg-glass-control-bg:rgba(24,34,47,.55);--vg-glass-content-bg:rgba(25,34,46,.84);--vg-glass-reading-bg:rgba(24,31,41,.97);
+ --vg-glass-edge:rgba(184,207,233,.18);--vg-glass-highlight:rgba(237,247,255,.30);--vg-glass-shadow:0 2px 5px rgba(0,4,12,.14),0 14px 30px -12px rgba(0,4,12,.30);
+ --vg-glass-reflection:rgba(219,235,252,.095);--vg-glass-contact:rgba(0,0,0,.22);
+ --vg-glass-refraction:rgba(238,218,194,.04);--vg-glass-selection-bg:rgba(117,146,178,.15);--vg-glass-selection-light:rgba(235,245,255,.18);
+ --vg-glass-scene-fill:rgba(23,34,49,.38);--vg-glass-scene-bloom:rgba(205,227,255,.11);--vg-glass-scene-glaze:rgba(224,238,255,.025);
+ --vg-glass-scene-edge:rgba(213,231,255,.17);--vg-glass-scene-rim:rgba(247,252,255,.43);--vg-glass-scene-shadow:rgba(0,4,13,.23);
+}
+:root[data-vg-transparency=solid]{--vg-glass-control-bg:var(--bg-panel);--vg-glass-content-bg:var(--bg-panel);--vg-glass-reading-bg:var(--bg-panel);--vg-glass-selection-bg:var(--bg-surface);--vg-glass-blur:0px}
+:root:is([data-vg-transparency=solid],[data-vg-experience=light],[data-vg-experience=focus]),html:has(.vg-modal-overlay){--vg-glass-sample:none}
+.vg-glass-surface{position:relative;isolation:isolate;border-radius:var(--vg-radius-4);color:var(--text)}
+.vg-glass-material{position:absolute;inset:0;z-index:0;pointer-events:none;border:1px solid var(--vg-glass-edge);border-radius:inherit;background:var(--vg-glass-control-sheen),var(--vg-glass-content-bg);box-shadow:var(--vg-glass-shadow);transform:scale(var(--vg-material-scale,1));transition:transform var(--vg-motion-fast) var(--vg-motion-standard),border-color 180ms ease}
+.vg-glass-material::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;box-shadow:inset 0 1px 0 var(--vg-glass-highlight),inset 0 -1px 0 var(--vg-glass-contact)}
+.vg-glass-content{position:relative;z-index:1;min-width:0}
+/* The dialog shell receives programmatic focus; its controls retain visible rings. */
+.vg-modal-panel[tabindex='-1']:focus-visible{outline:none}
+[data-glass-role=control]>.vg-glass-material{background:var(--vg-glass-control-sheen),var(--vg-glass-control-bg)}
+[data-glass-role=reading]>.vg-glass-material{background:var(--vg-glass-reading-bg)}
+@supports(backdrop-filter:blur(1px)){
+ [data-glass-role=control][data-glass-quality=realtime]>.vg-glass-material{backdrop-filter:var(--vg-glass-sample);-webkit-backdrop-filter:var(--vg-glass-sample)}
+}
+.vg-glass-surface[data-touch-pressed]{--vg-material-scale:.98}
+/* Text and glyphs never scale with a button's shell. */
+.mobile-layout .chat-header button[data-touch-pressed]>svg{transform:none}
+:is(html[data-vg-reduced-motion=true],html[data-vg-background]) .vg-glass-material{transition:none}
+@media(prefers-reduced-motion:reduce){.vg-glass-material{transition:none}}
+
+/* Scene cards sample once per panel. Letterforms and hit targets stay untouched. */
+.vg-scene-glass{
+ --vg-optic-fill:var(--vg-glass-scene-fill);--vg-optic-bloom:var(--vg-glass-scene-bloom);--vg-optic-glaze:var(--vg-glass-scene-glaze);
+ --vg-optic-edge:var(--vg-glass-scene-edge);--vg-optic-rim:var(--vg-glass-scene-rim);--vg-optic-contact:var(--vg-glass-contact);--vg-optic-shadow:var(--vg-glass-scene-shadow);
+ --vg-optic-sample:var(--vg-glass-sample);
+}
+.mobile-layout :is(.vg-world-page,.vg-home-stage-page,.vg-destination-page) .vg-scene-glass{
+ position:relative;isolation:isolate;border:1px solid var(--vg-optic-edge);background-clip:padding-box;
+ background:radial-gradient(ellipse at 0% 0%,var(--vg-optic-bloom),transparent 40%),linear-gradient(160deg,transparent 62%,var(--vg-optic-glaze)),var(--vg-optic-fill);
+ box-shadow:inset 0 -1px 1px var(--vg-optic-contact),0 2px 4px color-mix(in srgb,var(--vg-optic-contact) 55%,transparent),0 14px 30px -12px var(--vg-optic-shadow);
+ backdrop-filter:var(--vg-optic-sample);-webkit-backdrop-filter:var(--vg-optic-sample);
+}
+.mobile-layout :is(.vg-world-page,.vg-home-stage-page,.vg-destination-page) .vg-scene-glass::before{
+ content:'';position:absolute;inset:0;z-index:2;padding:1px;border-radius:inherit;pointer-events:none;
+ background:linear-gradient(135deg,var(--vg-optic-rim),rgba(202,226,255,.12) 19%,transparent 38%,transparent 78%,rgba(246,224,190,.08));
+ -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;
+}
+.mobile-layout :is(.vg-world-page,.vg-home-stage-page,.vg-destination-page) .vg-scene-glass::after{
+ content:'';position:absolute;inset:1px;z-index:-1;border-radius:inherit;pointer-events:none;
+ box-shadow:inset 0 -1px 1px var(--vg-optic-contact);
+}
+html:has(.vg-modal-overlay) .vg-scene-glass{--vg-optic-sample:none}
+:root:is([data-vg-transparency=solid],[data-vg-experience=light],[data-vg-experience=focus]) .vg-scene-glass{--vg-optic-sample:none}
+:root[data-vg-transparency=solid] .vg-scene-glass{--vg-optic-fill:var(--bg-panel);--vg-optic-bloom:transparent;--vg-optic-glaze:transparent}
+:root[data-vg-transparency=solid] .vg-scene-glass::before,:root[data-vg-transparency=solid] .vg-scene-glass::after{display:none}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.vg-scene-glass{--vg-optic-fill:var(--bg-panel)}}

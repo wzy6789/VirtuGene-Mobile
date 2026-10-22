@@ -1,0 +1,32 @@
+import {build} from 'esbuild';
+import {readFileSync,writeFileSync,mkdirSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+const sources=['src/lib/chat-topic-replies.ts','src/lib/chat-topic-outcomes.ts','src/lib/chat-conversation-state.ts'];
+const hashes=()=>Object.fromEntries(sources.map(path=>[path,createHash('sha256').update(readFileSync(path)).digest('hex')]));
+const before=hashes();
+const built=await build({stdin:{contents:"export {updateChatConversationState} from './src/lib/chat-conversation-state'; export {renderExplicitTopics} from './src/lib/chat-topic-outcomes'; export * from './src/lib/chat-topic-replies';",resolveDir:process.cwd(),loader:'ts'},bundle:true,write:false,platform:'node',format:'esm'});
+const api=await import('data:text/javascript;base64,'+Buffer.from(built.outputFiles[0].text).toString('base64'));
+const user={id:'edge-user',sessionId:'edge-session',role:'user',content:'周六14点去博物馆，坐地铁。',revision:1,createdAt:1,isProactive:false};
+const question={...user,id:'edge-question',content:'安排是几点？',createdAt:2};
+const state=api.updateChatConversationState(undefined,user.content,'',undefined,1,'',{message:user,domain:'user-reality'});
+const asking=api.updateChatConversationState(state,question.content,'',undefined,2,'',{message:question,domain:'user-reality'});
+const checks=[],cases=[];
+const check=(ok,label)=>checks.push({ok:!!ok,label});
+for(const content of ['14点。','是14点。','时间定在14点。','14点半。','114点。','14点前先过来。','14点以后。','14点，15点都可以。']){
+  const row={...user,id:'edge-reply',role:'assistant',content,replyToUserMessageId:question.id,replyCompletion:'complete',createdAt:3};
+  const next=api.appendTopicReplyEvidence(asking,question,[row],'user-reality'),topic=next.topics[0],record=topic.responses?.at(-1);
+  const answer=record?.acts.find(act=>act.kind==='answered-slot');
+  const positive=['14点。','是14点。','时间定在14点。'].includes(content);
+  check(!!record,'actual complete speech is retained: '+content);
+  check(positive?answer?.value==='14点':!answer,'exact affirmative value only: '+content);
+  cases.push({content,record,supported:!!record&&api.supportsTopicReply(topic,record,new Map([user,question,row].map(row=>[row.id,row])),new Set())});
+}
+const budget=350,plain=api.renderExplicitTopics(state,undefined,'user-reality',budget),diagnosed=api.renderExplicitTopics({...state,topicRepliesLimited:true,topicRepliesInvalidated:true},undefined,'user-reality',budget);
+check(plain.includes('已知字段')&&plain.includes('14点'),'budget fixture fits actual user-confirmed slots');
+check(diagnosed.includes('已知字段')&&diagnosed.includes('14点')&&diagnosed.includes('周六')&&diagnosed.includes('地铁'),'role diagnostics do not displace fitting user facts');
+check(diagnosed.length<=budget,'diagnostic projection retains the real context budget');
+const after=hashes(),report={complete:checks.every(check=>check.ok),checks,failures:checks.filter(check=>!check.ok),cases,budget:{budget,plain,diagnosed},sourceHashesBefore:before,sourceHashesAfter:after,stableSources:JSON.stringify(before)===JSON.stringify(after),apiCalls:0,model:'未确认',reasoning:'未确认',scope:'Actual pure production functions in memory, deterministic synthetic rows only; no browser/model/Android claim'};
+mkdirSync('release/chat-topic-replies-20261019',{recursive:true});
+const path='release/chat-topic-replies-20261019/edges-'+Date.now()+'.json';writeFileSync(path,JSON.stringify(report,null,2));
+if(!report.complete)process.exitCode=1;
+console.log(JSON.stringify({path,complete:report.complete,checks:checks.length,failures:report.failures},null,2));

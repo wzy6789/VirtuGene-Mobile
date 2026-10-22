@@ -6,6 +6,7 @@ import { useChatStore } from '../../store/chat-store';
 import { setDiarySharing, describeSharing } from '../../lib/world/diary-visibility';
 import { Modal } from '../ui/Modal';
 import { formatDateFull } from '../../lib/diary-utils';
+import { Icon } from '../ui/Icon';
 
 /**
  * 日记的「谁能看到这一页」（5.0 Phase 2b-4）
@@ -61,37 +62,38 @@ export function DiarySharingControl({
         type="button"
         onClick={() => setOpen((v) => !v)}
         title={label}
+        aria-label={`日记可见范围：${label}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
         className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs transition-colors ${
           isWorld
             ? 'border-gene-purple/40 bg-gene-purple/10 text-gene-purple'
             : isSelected
               ? 'border-life-cyan/40 bg-life-cyan/10 text-life-cyan'
-              : 'border-line bg-surface text-gray-500 hover:text-ink'
+              : 'border-line bg-surface text-sub hover:text-ink'
         }`}
       >
-        <span>{isWorld ? '🌍' : isSelected ? '🤝' : '🔒'}</span>
+        <Icon name={isWorld ? 'globe' : isSelected ? 'profile' : 'lock'} size={16} />
         {!compact && <span className="max-w-[132px] truncate">{label}</span>}
       </button>
 
       {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 w-[268px] py-1.5 glass-card rounded-xl shadow-xl animate-fade-in">
-            <p className="px-4 pt-1.5 pb-1 text-[10px] tracking-[0.14em] text-gray-500 uppercase">谁能看到这一页</p>
+        <Modal open presentation="dialog" title="谁能看到这一页" width="max-w-sm" onClose={()=>setOpen(false)} canSnapshotOnExit={()=>false} panelClassName="vg-diary">
+          <div className="py-2">
             <button
               type="button"
               onClick={() => void apply('private')}
               className="w-full flex items-start gap-2 px-4 py-2 text-left hover:bg-surface transition-colors"
             >
-              <span className="shrink-0">🔒</span>
+              <Icon name="lock" size={18} className="shrink-0" />
               <span className="min-w-0">
                 <span className="block text-sm text-sub">仅自己可见</span>
-                <span className="block text-[10px] leading-4 text-gray-500">默认。任何角色都不会知道，也不会提起</span>
+                <span className="block text-xs leading-4 text-sub">默认。任何角色都不会知道，也不会提起</span>
               </span>
             </button>
             <div className="my-1 mx-3 h-px bg-line" />
-            <p className="px-4 py-1 text-[10px] text-gray-500">告诉某一个角色（只给 TA 知道，不进世界年表）</p>
-            {mine.length === 0 && <p className="px-4 py-2 text-[11px] text-gray-500">还没有可以告诉的角色</p>}
+            <p className="px-4 py-1 text-xs text-sub">告诉某一个角色（只给 TA 知道，不进世界年表）</p>
+            {mine.length === 0 && <p className="px-4 py-2 text-xs text-sub">还没有可以告诉的角色</p>}
             {mine.map((c) => {
               const active = isSelected && (diary.visibleTo ?? []).includes(c.id);
               return (
@@ -104,7 +106,7 @@ export function DiarySharingControl({
                 >
                   <span className="shrink-0">{avatarImageSrc(c.avatar) ? '🙂' : c.avatar}</span>
                   <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                  {active && <span className="shrink-0 text-[10px] text-life-cyan">已授权</span>}
+                  {active && <span className="shrink-0 text-xs text-life-cyan">已授权</span>}
                 </button>
               );
             })}
@@ -114,15 +116,15 @@ export function DiarySharingControl({
               onClick={() => void apply('world')}
               className="w-full flex items-start gap-2 px-4 py-2 text-left hover:bg-surface transition-colors"
             >
-              <span className="shrink-0">🌍</span>
+              <Icon name="globe" size={18} className="shrink-0" />
               <span className="min-w-0">
                 <span className="block text-sm text-sub">加入共同世界</span>
-                <span className="block text-[10px] leading-4 text-gray-500">写进世界年表（你的生活），并让关联角色知道</span>
+                <span className="block text-xs leading-4 text-sub">写进世界年表（你的生活），并让关联角色知道</span>
               </span>
             </button>
-            {error && <p className="px-4 py-1.5 text-[11px] text-rose-400">{error}</p>}
+            {error && <p className="px-4 py-1.5 text-xs text-rose-400">{error}</p>}
           </div>
-        </>
+        </Modal>
       )}
     </div>
   );
@@ -137,7 +139,7 @@ export function DiarySharingBadge({ diary }: { diary: Diary }) {
   return (
     <span
       title={describeSharing(diary, nameOf)}
-      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] ${
+      className={`shrink-0 rounded-full px-1.5 py-0.5 text-xs ${
         world ? 'bg-gene-purple/12 text-gene-purple' : 'bg-life-cyan/12 text-life-cyan'
       }`}
     >
@@ -179,13 +181,13 @@ export function DiarySharingOverviewModal({ open, onClose }: { open: boolean; on
   return (
     <Modal panelClassName="vg-settings-panel" open={open} onClose={onClose} title="谁能看到我的日记" width="max-w-md">
       <div className="vg-settings-design space-y-3">
-        <p className="text-[11px] leading-relaxed text-gray-500">
+        <p className="text-xs leading-relaxed text-sub">
           日记**默认只有你自己知道**。只有你在这里逐条授权过的内容，才可能被对应角色知道或提起；
           收回授权后立刻失效。
         </p>
-        {loading && <p className="py-6 text-center text-xs text-gray-500">正在读取…</p>}
+        {loading && <p className="py-6 text-center text-xs text-sub">正在读取…</p>}
         {!loading && shared.length === 0 && (
-          <p className="py-6 text-center text-xs text-gray-500">
+          <p className="py-6 text-center text-xs text-sub">
             还没有授权给任何角色的日记——它们全都只属于你。
           </p>
         )}
@@ -195,16 +197,16 @@ export function DiarySharingOverviewModal({ open, onClose }: { open: boolean; on
               <li key={d.id} className="rounded-xl border border-line bg-surface/60 px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
                   <p className="min-w-0 truncate text-[12px] font-medium text-ink">{d.title || '无标题'}</p>
-                  <span className="shrink-0 text-[10px] text-gray-500">{formatDateFull(d.date)}</span>
+                  <span className="shrink-0 text-xs text-sub">{formatDateFull(d.date)}</span>
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-2">
-                  <span className="text-[10px] text-gray-500">{describeSharing(d, nameOf)}</span>
+                  <span className="text-xs text-sub">{describeSharing(d, nameOf)}</span>
                   <button
                     type="button"
                     onClick={() => {
                       void setDiarySharing({ userId, diaryId: d.id, visibility: 'private' }).then(() => setVersion((v) => v + 1));
                     }}
-                    className="shrink-0 text-[10px] text-life-cyan"
+                    className="shrink-0 text-xs text-life-cyan"
                   >
                     收回
                   </button>

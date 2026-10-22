@@ -10,12 +10,14 @@
  *
  * 排序 = 命中词数 → 重要度 → 新鲜度。宁可少召回，也不把整个数据库塞进 Prompt。
  */
-import type { SharedMemory, WorldEvent } from '../../db/index';
-import { withMemorySourceSnapshot, memorySourceSnapshotsStillLive } from '../memory-source-snapshot';
-import { isMentionableDiaryEvent, worldEventRepo } from '../../db/world-event-repo';
+import { db, type SharedMemory, type WorldEvent } from '../../db/index';
+import { withMemorySourceSnapshot, memorySourceSnapshotsStillLive,memorySourceSnapshotIds,memorySourceSnapshotsBatchStillLive } from '../memory-source-snapshot';
+import {readContinuityEventSources,withContinuitySourceSnapshots,continuityReferenceText} from '../continuity-sources';
+import { mentionableDiaryEvents, worldEventRepo } from '../../db/world-event-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { isVisibleToCharacter } from './visibility';
-import { knowledgeRepo } from '../../db/knowledge-repo';
+import { spreadMemoryTerms } from '../memory-excerpt';
+import {memorySourceTombstoneRepo} from '../../db/memory-source-tombstone-repo';
 
 export interface HistoryHit {
   /** 人话日期（用于"那是很久以前"这种自然表达） */
@@ -26,6 +28,36 @@ export interface HistoryHit {
   kind: 'event' | 'memory';
   id: string;
   score: number;
+}
+
+/** Recheck selected originals only; never repeat the world's candidate scan. */
+export async function worldHistoryHitsStillLive(params:{userId:string;worldId:string;audienceCharacterIds:string[]},hits:HistoryHit[]):Promise<boolean>{
+  if(!hits.length)return true;
+  const eventIds=[...new Set(hits.flatMap(hit=>memorySourceSnapshotIds(hit,'worldEvents')))];
+  const memoryIds=[...new Set(hits.filter(hit=>hit.kind==='memory').map(hit=>hit.id))];
+  const [world,eventRows,memoryRows]=await Promise.all([db.worlds.get(params.worldId),db.worldEvents.bulkGet(eventIds),db.sharedMemories.bulkGet(memoryIds)]);
+  if(world?.userId!==params.userId||eventRows.some(row=>!row||row.userId!==params.userId||row.worldId!==params.worldId)||memoryRows.some(row=>!row||row.userId!==params.userId||row.worldId!==params.worldId))return false;
+  const events=eventRows.filter((row):row is WorldEvent=>!!row);
+  const blocked=await memorySourceTombstoneRepo.blocksImports([
+    ...events.map(event=>({userId:params.userId,sourceType:'worldEvent' as const,sourceId:event.id,sourceRevision:event.updatedAt})),
+    ...memoryRows.filter((row):row is SharedMemory=>!!row).map(memory=>({userId:params.userId,sourceType:'sharedMemory' as const,sourceId:memory.id,sourceRevision:memory.updatedAt})),
+  ]);
+  if(blocked.some(Boolean))return false;
+  const directEventIds=new Set(hits.filter(hit=>hit.kind==='event').map(hit=>hit.id));
+  const proofs=await readContinuityEventSources(events);
+  if(events.some(event=>event.sourceType==='continuity'&&!proofs.has(event.id)))return false;
+  for(const characterId of [...new Set(params.audienceCharacterIds)]){
+    const [known,diaries]=await Promise.all([
+      db.characterKnowledge.where('[characterId+eventId]').anyOf(eventIds.map(id=>[characterId,id])).toArray(),
+      mentionableDiaryEvents(events,characterId,params.userId),
+    ]);
+    const allowed=new Set(known.filter(row=>row.userId===params.userId&&row.worldId===params.worldId&&row.canMention&&row.knowledgeLevel==='full').map(row=>row.eventId));
+    const canMention=(event:WorldEvent,index:number)=>isVisibleToCharacter(event,characterId)&&(event.sourceType==='diary'?diaries[index]:allowed.has(event.id));
+    if(events.some((event,index)=>directEventIds.has(event.id)&&!canMention(event,index)))return false;
+    if(memoryRows.some(row=>!row||!isVisibleToCharacter(row,characterId)||!events.some((event,index)=>event.type==='shared_memory'&&event.memoryIds.includes(row.id)&&canMention(event,index))))return false;
+  }
+  const live=await memorySourceSnapshotsBatchStillLive(hits);
+  return hits.every(hit=>live.get(hit)===true);
 }
 
 /** 从中文/英文查询里取"实词"：去掉语气词与常见疑问词，取 2 字以上的片段 */
@@ -43,7 +75,7 @@ export function queryTerms(query: string): string[] {
       for (let i = 0; i + 2 <= part.length; i += 1) terms.add(part.slice(i, i + 2));
     }
   }
-  return [...terms].filter((t) => t.length >= 2).slice(0, 12);
+  return spreadMemoryTerms([...terms].filter((t) => t.length >= 2), 12);
 }
 
 export function hitCount(text: string, terms: string[]): number {
@@ -95,19 +127,24 @@ export async function findRelevantHistory(params: {
     ...(params.audienceCharacterIds ?? []),
   ])];
   const mentionableByCharacter = new Map<string, Set<string>>();
+  const diaryConsentByCharacter = new Map<string, boolean[]>();
   await Promise.all(characterIds.map(async (characterId) => {
-    const known = await knowledgeRepo.listKnownBy(characterId, params.worldId, {
-      minLevel: 'full', limit: Number.MAX_SAFE_INTEGER, userId: params.userId,
-    });
+    // The candidate events are already selected by world; read only their authorizations.
+    const [known, diaryConsent] = await Promise.all([
+      db.characterKnowledge.where('[characterId+eventId]').anyOf(events.map(event => [characterId, event.id])).toArray(),
+      mentionableDiaryEvents(events, characterId, params.userId),
+    ]);
+    diaryConsentByCharacter.set(characterId, diaryConsent);
     mentionableByCharacter.set(characterId, new Set(known
-      .filter((row) => row.canMention && row.knowledgeLevel === 'full')
+      .filter((row) => row.worldId === params.worldId && (params.userId === undefined || row.userId === params.userId)
+        && row.canMention && row.knowledgeLevel === 'full')
       .map((row) => row.eventId)));
   }));
-  const audienceCanMentionEvent = async (event: WorldEvent) => {
+  const audienceCanMentionEvent = (event: WorldEvent, index: number) => {
     for (const characterId of characterIds) {
       if (!isVisibleToCharacter(event, characterId)) return false;
       if (event.sourceType === 'diary') {
-        if (!(await isMentionableDiaryEvent(event, characterId, params.userId))) return false;
+        if (!diaryConsentByCharacter.get(characterId)?.[index]) return false;
       } else if (!mentionableByCharacter.get(characterId)?.has(event.id)) {
         return false;
       }
@@ -137,14 +174,19 @@ export async function findRelevantHistory(params: {
     const score = hitCount(text, terms) * 2 + (row.importance ?? 0.5);
     if (score < 2) return;
     const ts = kind === 'event' ? (row as WorldEvent).timestamp : (row as SharedMemory).createdAt;
-    hits.push(withMemorySourceSnapshot({ date: formatDate(ts), timestamp: ts, text, kind, id: row.id, score }, kind === 'event' ? 'worldEvents' : 'sharedMemories', row));
+    const hit = withMemorySourceSnapshot({ date: formatDate(ts), timestamp: ts, text, kind, id: row.id, score }, kind === 'event' ? 'worldEvents' : 'sharedMemories', row);
+    if (kind === 'memory') for (const event of events) {
+      if (event.type === 'shared_memory' && event.memoryIds.includes(row.id)
+        &&(!characterIds.length||characterIds.some(id=>audienceCanMentionSingle(event,id,mentionableByCharacter))))withMemorySourceSnapshot(hit, 'worldEvents', event);
+    }
+    hits.push(hit);
   };
 
-  for (const event of events) {
+  for (const [index, event] of events.entries()) {
     // This API is also used by character recall; without an identified
     // audience there is no safe way to authorize a personal diary event.
     if (event.sourceType === 'diary' && characterIds.length === 0) continue;
-    if (characterIds.length > 0 && !(await audienceCanMentionEvent(event))) continue;
+    if (characterIds.length > 0 && !audienceCanMentionEvent(event, index)) continue;
     push(event, 'event');
   }
   for (const memory of memories) push(memory, 'memory');
@@ -152,8 +194,18 @@ export async function findRelevantHistory(params: {
   const selected = hits
     .sort((a, b) => b.score - a.score || (a.date < b.date ? 1 : -1))
     .slice(0, limit);
+  // World turns consume these hits directly, outside character-memory's final
+  // gate. Check only selected event dependencies and retain their snapshots.
+  const byEvent=new Map(events.map(event=>[event.id,event]));
+  const continuity=await readContinuityEventSources(selected.filter(hit=>hit.kind==='event').flatMap(hit=>byEvent.get(hit.id)??[]));
   const current: HistoryHit[] = [];
-  for (const hit of selected) if (await memorySourceSnapshotsStillLive(hit)) current.push(hit);
+  for (const hit of selected){
+    if(hit.kind==='event'&&byEvent.get(hit.id)?.sourceType==='continuity'){
+      const source=continuity.get(hit.id);if(!source)continue;
+      hit.text=continuityReferenceText(source);withContinuitySourceSnapshots(hit,source);
+    }
+    if (await memorySourceSnapshotsStillLive(hit)) current.push(hit);
+  }
   return current;
 }
 

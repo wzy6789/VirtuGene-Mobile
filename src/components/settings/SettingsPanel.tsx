@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { checkUpdate as checkMobileUpdate, openApkDownload, type UpdateInfo } from '../../lib/mobile-update';
 import { FeedbackNotice } from '../ui/FeedbackNotice';
 import { Modal } from '../ui/Modal';
 import { resonate } from '../../lib/haptics';
@@ -23,21 +24,26 @@ import { UserProfileModal } from './UserProfileModal';
 import { GatewayStatusBadge } from './GatewayStatusBadge';
 import { AppearanceSettings } from './AppearanceSettings';
 import { VoicePreferences } from './VoicePreferences';
-import { SettingsGroup, SettingsIcon, SettingsOverview, SettingsRow } from './SettingsUI';
+import { SettingsField, SettingsGroup, SettingsIcon, SettingsOverview, SettingsRow } from './SettingsUI';
+import { Icon } from '../ui/Icon';
 import { useThemeStore } from '../../store/theme-store';
 import { useUIStore } from '../../store/ui-store';
 import { DiaryPreferences } from './DiaryPreferences';
 import { useSettingsDetailMotion } from './useSettingsDetailMotion';
 import { resolveModel } from '../../lib/ai/llm';
 import { useAiAvailability } from './useAiAvailability';
+import { ProviderConnectionStatus } from './ProviderConnectionStatus';
 
 export type { SettingsPage } from './settings-directory';
-import { directory, detailSearch, pageTitles, SETTINGS_PAGES, type SettingsPage } from './settings-directory';
+import { directory, detailSearch, pageTitles, type SettingsPage } from './settings-directory';
 import { settingsLabelIndex } from './settings-label-index';
 import { IS_ELECTRON, IS_MOBILE } from '../../lib/platform';
-import { deleteGatewayAccount, isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from '../../lib/ai/gateway';
+import { deleteGatewayAccount, isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from '../../lib/ai/gateway-session';
 import { LegalNoticeModal, type LegalDocument } from '../compliance/LegalNoticeModal';
 const ChatQualityPanel=lazy(()=>import('./ChatQualityPanel').then(module=>({default:module.ChatQualityPanel})));
+const CacheSettings=lazy(()=>import('./CacheSettings').then(module=>({default:module.CacheSettings})));
+
+type UpdateState = 'idle' | 'checking' | 'found' | 'opening' | 'opened' | 'latest' | 'error';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -56,9 +62,54 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
   const updateStatus = useUpdateStore((s) => s.status);
   const updateChecking = useUpdateStore((s) => s.checking);
   const checkUpdate = useUpdateStore((s) => s.check);
-  const downloadUpdate = useUpdateStore((s) => s.download);
+  const downloadDesktopUpdate = useUpdateStore((s) => s.download);
   const installUpdate = useUpdateStore((s) => s.install);
 
+  const [version, setVersion] = useState<string | null>(null);
+  const [updateState, setUpdateState] = useState<UpdateState>('idle');
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const pending = useRef<AbortController | null>(null);
+  const context = useRef({ userId, mounted: false });
+  context.current.userId = userId;
+  useEffect(() => {
+    context.current.mounted = true;
+    let alive = true;
+    void ipc.app.getVersion().then(value => { if (alive) setVersion(value); }).catch(() => { if (alive) setVersion(''); });
+    return () => { alive = false; context.current.mounted = false; pending.current?.abort(); pending.current = null; };
+  }, []);
+  useEffect(() => {
+    pending.current?.abort(); pending.current = null;
+    setUpdateState('idle'); setUpdateInfo(null);
+  }, [userId, open]);
+  const isCurrent = (controller: AbortController, owner: string) => context.current.mounted &&
+    context.current.userId === owner && useAuthStore.getState().userId === owner &&
+    pending.current === controller && !controller.signal.aborted;
+  const checkForUpdate = async () => {
+    if (!userId || pending.current) return;
+    const owner = userId, controller = new AbortController();
+    pending.current = controller; setUpdateState('checking');
+    try {
+      const info = await checkMobileUpdate(controller.signal);
+      if (!isCurrent(controller, owner)) return;
+      if (!info) setUpdateState('error');
+      else if (!info.hasUpdate) setUpdateState('latest');
+      else { setUpdateInfo(info); setUpdateState('found'); }
+    } catch { if (isCurrent(controller, owner)) setUpdateState('error'); }
+    finally { if (pending.current === controller) pending.current = null; }
+  };
+  const cancelUpdate = () => { pending.current?.abort(); pending.current = null; setUpdateInfo(null); setUpdateState('idle'); };
+  const downloadMobileUpdate = async () => {
+    if (!userId || !updateInfo || pending.current) return;
+    const owner = userId, controller = new AbortController();
+    pending.current = controller; setUpdateState('opening');
+    try {
+      const url = await openApkDownload(updateInfo.apkUrl, controller.signal);
+      if (!isCurrent(controller, owner)) return;
+      if (url) { setUpdateInfo(null); setUpdateState('opened'); }
+      else setUpdateState('error');
+    } catch { if (isCurrent(controller, owner)) setUpdateState('error'); }
+    finally { if (pending.current === controller) pending.current = null; }
+  };
   const [page, setPage] = useState<SettingsPage>(initialPage);
   const [search, setSearch] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
@@ -71,6 +122,8 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
   const contentRef = useRef<HTMLDivElement>(null);
   const positions = useRef(new Map<SettingsPage, number>());
   const navigation = useRef<SettingsPage[]>([]);
+  const providerBack = useRef<(() => void) | null>(null);
+  const registerProviderBack = useCallback((handler: (() => void) | null) => { providerBack.current = handler; }, []);
   const motionDirection = useRef<1 | -1>(1);
   const detailMotionRef = useSettingsDetailMotion({ page, open, owner: userId, direction: motionDirection.current, scrollTop: positions.current.get(page) ?? 0, allowSnapshot: !['keys', 'credentials', 'inputVoice', 'account', 'diary', 'sync'].includes(page) });
   const navigate = (next: SettingsPage) => {
@@ -87,12 +140,14 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
   useLayoutEffect(() => {
     (contentRef.current?.closest('[role="dialog"]') as HTMLElement | null)?.focus({ preventScroll: true });
   }, [page, open]);
-  const parentPage = (): SettingsPage => (SETTINGS_PAGES[page].parent ?? 'home') as SettingsPage;
   const goBack = () => {
+    if (page === 'keys' && providerBack.current) { providerBack.current(); return; }
+    const previous = navigation.current.pop();
+    if (!previous) { onClose(); return; }
     const scroller = contentRef.current?.closest('[data-modal-scroll]');
     if (scroller) positions.current.set(page, scroller.scrollTop);
     motionDirection.current = -1;
-    setPage(navigation.current.pop() ?? parentPage());
+    setPage(previous);
   };
   const openContent = (view: 'moments' | 'worldSettings') => { onClose(); useUIStore.getState().setActiveView(view); if (view === 'moments') useUIStore.getState().setMomentsSettingsRequested(true); };
 
@@ -102,6 +157,7 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
   const [showKey, setShowKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [isValidating, setIsValidating] = useState(false);
+  const keyRequest = useRef(0);
 
   // Password for re-encryption
   const [password, setPassword] = useState('');
@@ -111,10 +167,9 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const deleteRequest = useRef(0);
+  const deleteLock = useRef<number | null>(null);
   const [legalDocument, setLegalDocument] = useState<LegalDocument | null>(null);
-
-  // App version
-  const [appVersion, setAppVersion] = useState('');
 
   // 语音（TTS）设置
   const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
@@ -122,11 +177,20 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
 
   useEffect(() => {
     setIsReplacing(false); setNewKey(''); setPassword(''); setShowKey(false); setShowPassword(false); setProfileOpen(false);
+    setShowDeleteConfirm(false); setDeleteError(''); setLegalDocument(null);
+    deleteRequest.current++; deleteLock.current = null; setIsDeleting(false);
+    keyRequest.current++; setIsValidating(false);
   }, [open, userId]);
 
   useEffect(() => {
+    if (page !== 'credentials') {
+      keyRequest.current++; setIsValidating(false); setIsReplacing(false);
+      setNewKey(''); setPassword(''); setShowKey(false); setShowPassword(false); setKeyError(null);
+    }
+  }, [page]);
+
+  useEffect(() => {
     if (!open) return;
-    ipc.app.getVersion().then((v) => setAppVersion(v));
     void loadSecret(CLOUD_ASR_KEY_NAME).then((k) => setHasAsrKey(!!k));
   }, [open, page]);
 
@@ -146,7 +210,8 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
 
   const handleValidateAndSave = async () => {
     if (!newKey.trim() || !password || isValidating) return;
-    const isCurrent = () => useAuthStore.getState().userId === userId;
+    const epoch = ++keyRequest.current;
+    const isCurrent = () => useAuthStore.getState().userId === userId && keyRequest.current === epoch;
     setIsValidating(true);
     setKeyError(null);
     try {
@@ -166,6 +231,7 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
     }
 
     const user = await userRepo.findByUsername(username);
+    if (!isCurrent()) return;
     if (!user) {
       setKeyError('用户信息丢失，请重新登录');
       setIsValidating(false);
@@ -208,6 +274,10 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
   };
 
   const handleDeleteAccount = async () => {
+    if (!userId || deleteLock.current !== null) return;
+    const epoch = ++deleteRequest.current;
+    const isCurrent = () => deleteRequest.current === epoch && useAuthStore.getState().userId === userId;
+    deleteLock.current = epoch;
     resonate('warning');
     setIsDeleting(true);
     setDeleteError('');
@@ -215,12 +285,16 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
       if (isAiGatewayConfigured()) {
         if (gatewayRefreshToken) {
           const session = await refreshGatewaySession(gatewayRefreshToken);
+          if (!isCurrent()) return;
           setGatewayAccessToken(session.accessToken);
           useAuthStore.getState().setGatewayTokens(session);
         }
         await deleteGatewayAccount();
+        if (!isCurrent()) return;
       }
+      if (!isCurrent()) return;
       await deleteAccount();
+      if (!isCurrent()) return;
       useCharacterStateStore.getState().clear();
       useEmotionStore.getState().clearCurrent();
       resetDiaryUnlock();
@@ -230,11 +304,14 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
       setShowDeleteConfirm(false);
       onClose();
     } catch {
-      setDeleteError('服务器账号未能删除，请检查网络后重试。本机数据尚未清除。');
+      if (isCurrent()) setDeleteError('注销未完成，请重新检查账号状态后重试。');
     } finally {
-      setIsDeleting(false);
+      if (deleteLock.current === epoch) deleteLock.current = null;
+      if (isCurrent()) setIsDeleting(false);
     }
   };
+
+  const updateLabel = updateState === 'latest' ? '已是最新版本' : updateState === 'error' ? '检查失败，可重试' : updateState === 'opened' ? '请在系统下载器中继续' : updateState === 'found' ? '发现新版本' : '';
 
   const masked = apiKey ? maskKey(apiKey) : '尚未配置';
 
@@ -242,9 +319,9 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
 
   return (
     <>
-      <Modal open={open} onClose={onClose} title={pageTitles[page]} mobileFullHeight panelClassName="vg-settings-panel" canSnapshotOnExit={() => useAuthStore.getState().userId === userId} onBack={page === 'home' ? undefined : goBack}>
+      <Modal open={open} onClose={onClose} title={pageTitles[page]} mobileFullHeight panelClassName="vg-settings-panel" canSnapshotOnExit={() => useAuthStore.getState().userId === userId && !['keys', 'credentials', 'inputVoice', 'account', 'diary', 'sync'].includes(page)} onBack={page === 'home' ? undefined : goBack}>
         <div ref={contentRef} className="vg-settings-design vg-settings-transition" >
-          <div key={page} ref={detailMotionRef} className="vg-settings-detail">
+          <div key={page} ref={detailMotionRef} className={`vg-settings-detail ${page === 'home' || page === 'connection' ? 'vg-settings-open-list' : ''}`}>
           {page === 'home' && <>
             <SettingsOverview />
             <label className="vg-search-field vg-settings-search"><SettingsIcon name="search" /><input aria-label="搜索设置" type="search" placeholder="搜索设置，例如声音、备份" value={search} onChange={e => setSearch(e.target.value)} /></label>
@@ -256,42 +333,47 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
             {search && ![...directory, ...detailSearch].some(item => matchesSearch(item)) && <p className="vg-settings-intro" role="status">没有找到这项设置，试试“语音”“密钥”或“备份”。</p>}
           </>}
           {page === 'appearance' && <AppearanceSettings />}
-          {page === 'account' && <><SettingsGroup title="个人资料"><SettingsRow title="头像与个人资料" icon="account" value={username ?? undefined} onClick={() => setProfileOpen(true)} /></SettingsGroup>{IS_MOBILE && <div className="vg-settings-form"><ChangePasswordSection /></div>}
+          {page === 'account' && <><SettingsGroup title="头像"><SettingsRow title="更换头像" icon="account" value={username ?? undefined} onClick={() => setProfileOpen(true)} /></SettingsGroup>{IS_MOBILE && <div className="vg-settings-form"><ChangePasswordSection /></div>}
           {/* Danger zone */}
-          <div className="p-4 rounded-xl bg-red-500/5 border border-red-500/10">
-            <h3 className="text-sm font-medium text-red-400 mb-2">账号管理</h3>
-            <p className="text-xs text-gray-500 mb-3">
+          <div className="vg-settings-form">
+            <h3 className="text-sm font-medium text-ink mb-2">账号管理</h3>
+            <p className="text-sm leading-7 text-sub mb-3">
               注销后账号与全部本机记录将被永久抹除，此操作不可撤销。
             </p>
             <button
               onClick={() => { setDeleteError(''); setShowDeleteConfirm(true); }}
-              className="px-4 py-2 rounded-lg text-sm bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+              className="vg-button vg-button-danger"
             >
               注销账号
             </button>
           </div>
 
           </>}
-          {page === 'voice' && <><p className="vg-settings-intro">这里的偏好影响所有角色聊天。专属声线可在对应角色的聊天设置中调整。</p><VoicePreferences /><SettingsGroup title="语音输入"><SettingsRow title="云端识别" icon="voice" value={hasAsrKey ? '已配置' : '未配置'} detail="系统识别不可用时的备用通道" onClick={() => navigate('inputVoice')} /></SettingsGroup></>}
+          {page === 'voice' && <><VoicePreferences /><SettingsGroup title="语音输入"><SettingsRow title="云端识别" icon="voice" value={hasAsrKey ? '已配置' : '未配置'} onClick={() => navigate('inputVoice')} /></SettingsGroup></>}
           {page === 'inputVoice' && <ApiKeyManager embedded onlySpeech onClose={() => navigate('voice')} />}
-          {page === 'connection' && <><GatewayStatusBadge /><p className="vg-settings-intro">选择默认模型，或管理已有服务的连接。配置密钥不等于连接测试成功。</p><SettingsGroup title="模型与服务"><SettingsRow title="默认对话模型" icon="connection" value={currentModelConfigured ? '已配置' : '待配置'} detail={currentModel.label + (currentModel.provider === 'deepseek' ? ' · DeepSeek 会话统一使用 Flash' : ' · 已固定模型的会话保留原选择')} onClick={() => navigate('model')} /><SettingsRow title="服务商密钥" icon="connection" detail="OpenAI、Claude、Gemini 等平台与自定义 API" onClick={() => navigate('keys')} /><SettingsRow title="账号绑定密钥" icon="account" value={apiKey ? '已配置' : '未配置'} detail="DeepSeek 账号密钥，可选配置" onClick={() => navigate('credentials')} /></SettingsGroup></>}
+          {page === 'connection' && <><section className="vg-settings-model-summary" aria-label="当前默认模型">
+            <div><span>默认对话模型</span><span>{currentModelConfigured ? '配置已就绪' : '还需配置连接'}</span></div>
+            <h3>{currentModel.label}</h3>
+            <ProviderConnectionStatus provider={currentModel.provider} model={currentModel.id} active={open && page === 'connection'}/>
+            <button type="button" className="vg-button vg-button-secondary" onClick={() => navigate('model')}>选择模型<Icon name="chevron" size={18}/></button>
+          </section><SettingsGroup title="连接管理"><SettingsRow title="服务商密钥" icon="connection" detail="OpenAI、Claude、Gemini 等平台与自定义 API" onClick={() => navigate('keys')} /><SettingsRow title="账号绑定密钥" icon="account" value={apiKey ? '已配置' : '未配置'} detail="DeepSeek 账号密钥，可选配置" onClick={() => navigate('credentials')} /></SettingsGroup><GatewayStatusBadge /></>}
           {page === 'model' && <ModelSection onManageProviders={() => navigate('keys')} />}
-          {page === 'keys' && <ApiKeyManager embedded onClose={() => navigate('connection')} />}
+          {page === 'keys' && <ApiKeyManager embedded onClose={() => navigate('connection')} onBackHandlerChange={registerProviderBack} />}
           {page === 'credentials' && <>
           {/* API Key section */}
           <div>
             <h3 className="text-sm font-medium text-ink mb-3">账号绑定密钥</h3>
-            <div className="p-4 rounded-xl bg-surface border border-line space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400">API Key</span>
-                  <span className="text-sm text-ink font-mono">
+            <div className="vg-settings-form space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0 flex-1 space-y-1">
+                  <span className="text-xs text-sub">API Key</span>
+                  <span className="block text-sm text-ink font-mono break-all" data-sensitive>
                     {showKey ? apiKey : masked}
                   </span>
                 </div>
                 <button
                   onClick={() => setShowKey(!showKey)}
-                  className="text-xs text-gray-500 hover:text-sub transition-colors"
+                  type="button" aria-pressed={showKey} aria-label={showKey ? '隐藏账号密钥' : '显示账号密钥'} className="vg-button vg-button-secondary shrink-0"
                 >
                   {showKey ? '隐藏' : '显示'}
                 </button>
@@ -300,13 +382,13 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
               {!isReplacing ? (
                 <button
                   onClick={handleStartReplace}
-                  className="text-xs text-life-cyan hover:underline"
+                  className="vg-button vg-button-secondary"
                 >
                   更换密钥
                 </button>
               ) : (
                 <div className="space-y-3 pt-2 border-t border-line">
-                  <input
+                  <SettingsField label="新的 API Key" autoComplete="off" spellCheck={false} autoCapitalize="none" disabled={isValidating} data-sensitive
                     type={showKey ? 'text' : 'password'}
                     value={newKey}
                     onChange={(e) => {
@@ -314,37 +396,35 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
                       setKeyError(null);
                     }}
                     placeholder="输入新的 API Key (sk-...)"
-                    className="w-full px-3 py-2 bg-surface border border-line-strong rounded-lg text-sm text-ink placeholder-gray-500 focus:outline-none focus:border-gene-purple/50 transition-colors"
                   />
-                  <div className="relative">
-                    <input
+                  <div className="space-y-2">
+                    <SettingsField label="登录密码" autoComplete="current-password" disabled={isValidating} data-sensitive
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="输入登录密码以确认"
-                      className="w-full px-3 py-2 bg-surface border border-line-strong rounded-lg text-sm text-ink placeholder-gray-500 focus:outline-none focus:border-gene-purple/50 transition-colors"
                     />
                     <button
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-sub"
+                      type="button" aria-pressed={showPassword} className="vg-button vg-button-ghost"
                     >
-                      {showPassword ? '隐藏' : '显示'}
+                      <Icon name="eye" />{showPassword ? '隐藏密码' : '显示密码'}
                     </button>
                   </div>
                   {keyError && (
-                    <p className="text-xs text-red-400">{keyError}</p>
+                    <FeedbackNotice message={keyError} tone="error" />
                   )}
                   <div className="flex gap-2">
                     <button
                       onClick={handleValidateAndSave}
                       disabled={!newKey.trim() || !password.trim() || isValidating}
-                      className="px-4 py-2 rounded-lg text-sm bg-gene-purple hover:bg-[#5B4BD4] disabled:opacity-30 text-white transition-colors"
+                      className="vg-button vg-button-primary"
                     >
                       {isValidating ? '验证中...' : '确认更换'}
                     </button>
                     <button
                       onClick={handleCancelReplace}
-                      className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors"
+                      disabled={isValidating} className="vg-button vg-button-secondary"
                     >
                       取消
                     </button>
@@ -356,10 +436,11 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
 
 
           </>}
-          {page === 'privacy' && <><p className="vg-settings-intro">决定哪些内容属于自己，哪些可以与角色分享。</p><SettingsGroup title="内容设置"><SettingsRow title="日记设置" icon="diary" detail="隐私锁、提醒与分享授权" onClick={() => navigate('diary')} /><SettingsRow title="朋友圈设置" icon="account" detail="好友分享节奏与可见范围" onClick={() => openContent('moments')} /><SettingsRow title="世界设定" icon="world" detail="长期规则、地点与人物事实" onClick={() => openContent('worldSettings')} /></SettingsGroup></>}
+          {page === 'privacy' && <><SettingsGroup title="内容设置"><SettingsRow title="日记设置" icon="diary" detail="隐私锁、提醒与分享授权" onClick={() => navigate('diary')} /><SettingsRow title="朋友圈设置" icon="account" detail="好友分享节奏与可见范围" onClick={() => openContent('moments')} /><SettingsRow title="世界设定" icon="world" detail="长期规则、地点与人物事实" onClick={() => openContent('worldSettings')} /></SettingsGroup></>}
           {page === 'diary' && <DiaryPreferences />}
-          {page === 'data' && <><p className="vg-settings-intro">把记录妥善留下，也可以与同一网络中的电脑互传。</p><SettingsGroup title="记录与设备"><SettingsRow title="备份与恢复" icon="data" onClick={() => navigate('backup')} /><SettingsRow title="局域网同步" icon="connection" detail="手机与电脑连接同一 Wi-Fi" onClick={() => navigate('sync')} /><SettingsRow title="聊天质量" icon="data" detail="本机统计、声音样本与表达验收" onClick={()=>setQualityOpen(true)} /></SettingsGroup></>}
+          {page === 'data' && <><SettingsGroup title="记录与设备"><SettingsRow title="备份与恢复" icon="data" onClick={() => navigate('backup')} /><SettingsRow title="局域网同步" icon="connection" detail="手机与电脑连接同一 Wi-Fi" onClick={() => navigate('sync')} /><SettingsRow title="聊天质量" icon="data" detail="本机统计、声音样本与表达验收" onClick={()=>setQualityOpen(true)} /><SettingsRow title="清理缓存" icon="data" detail="保留聊天与生活记录" onClick={() => navigate('cache')} /></SettingsGroup></>}
           {page === 'backup' && <BackupSection />}
+          {page === 'cache' && <Suspense fallback={<p className="vg-settings-intro">正在检查缓存…</p>}><CacheSettings /></Suspense>}
           {page === 'sync' && <SyncSection />}
           {page === 'about' && <>
           {/* App update（仅桌面端支持自动更新） */}
@@ -369,12 +450,12 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
             <div className="p-4 rounded-xl bg-surface border border-line space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400">当前版本</span>
-                <span className="text-sm text-ink font-mono">{appVersion ? `v${appVersion}` : 'v...'}</span>
+                <span className="text-sm text-ink font-mono">{version === null ? '读取中…' : version ? `v${version}` : '未读取到'}</span>
               </div>
 
               {updateStatus?.state === 'available' && (
                 <button
-                  onClick={downloadUpdate}
+                  onClick={downloadDesktopUpdate}
                   className="w-full px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] transition-colors"
                 >
                   下载新版本 v{updateStatus.version}
@@ -412,27 +493,27 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
           {/* 关于与帮助（手机端微信/QQ 式） */}
           {IS_MOBILE && (
             <div>
-              <h3 className="text-sm font-medium text-ink mb-3">关于</h3>
-              <div className="p-4 rounded-xl bg-surface border border-line space-y-1 divide-y divide-line">
+              <h3 className="text-xl font-bold text-ink mb-3">VirtuGene</h3>
+              <div className="vg-settings-form space-y-1 divide-y divide-line">
                 <div className="flex items-center justify-between py-2">
                   <span className="text-sm text-sub">版本</span>
-                  <span className="text-sm text-ink font-mono">v{appVersion || '...'}</span>
-                </div>
-                <div className="flex items-center justify-between py-2">
-                  <span className="text-sm text-sub">口号</span>
-                  <span className="text-xs text-life-cyan">Unlock Your Digital Soul</span>
+                  <span className="text-sm text-ink font-mono">{version === null ? '读取中…' : version ? `v${version}` : '未读取到'}</span>
                 </div>
                 <div className="py-2">
-                  <div className="space-y-2 text-[11px] text-gray-500 leading-relaxed">
+                  <button type="button" className="vg-button vg-button-secondary w-full" onClick={() => void checkForUpdate()} disabled={updateState === 'checking' || updateState === 'opening'}>{updateState === 'checking' ? '检查更新中…' : updateState === 'opening' ? '正在打开下载链接…' : '检查更新'}</button>
+                  {updateLabel && <p role="status" aria-live="polite" className="mt-2 text-sm text-sub">{updateLabel}</p>}
+                </div>
+                <div className="py-2">
+                  <div className="space-y-3 text-sm text-sub leading-7">
                     <p>聊天记录与日记优先保存在本机，支持局域网同步与加密备份。</p>
                     <p>角色回复由人工智能模型生成，可能存在不准确或不符合预期的内容，请结合自己的判断使用。</p>
-                    <p>连接云端 AI 服务时，必要的角色设定、最近对话和当前输入会被发送至 VirtuGene 网关及模型服务商；不会上传你的供应商密钥。</p>
+                    <p>云端 AI 会处理本轮输入与必要上下文。网关模式经 VirtuGene 转发；自带密钥模式向所选服务商或自定义地址发送请求，密钥随该请求用于认证。详见隐私说明。</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-5 py-3">
-                  <button type="button" onClick={() => setLegalDocument('privacy')} className="text-xs text-life-cyan hover:underline">隐私说明</button>
-                  <button type="button" onClick={() => setLegalDocument('terms')} className="text-xs text-life-cyan hover:underline">使用说明</button>
-                  <button type="button" onClick={() => { onClose(); window.dispatchEvent(new Event('virtugene:open-onboarding')); }} className="text-xs text-life-cyan hover:underline">重新查看引导</button>
+                <div className="flex flex-wrap gap-2 py-3">
+                  <button type="button" onClick={() => setLegalDocument('privacy')} className="vg-button vg-button-ghost"><Icon name="shield" />隐私说明</button>
+                  <button type="button" onClick={() => setLegalDocument('terms')} className="vg-button vg-button-ghost"><Icon name="info" />使用说明</button>
+                  <button type="button" onClick={() => { onClose(); window.dispatchEvent(new Event('virtugene:open-onboarding')); }} className="vg-button vg-button-ghost"><Icon name="spark" />重新查看引导</button>
                 </div>
               </div>
             </div>
@@ -443,29 +524,36 @@ export function SettingsPanel({ open, onClose, initialPage = 'home' }: SettingsP
           </div>
         </div>
       </Modal>
+    <Modal presentation="dialog" open={open && !!updateInfo} title="发现新版本" onClose={cancelUpdate} canSnapshotOnExit={() => false}>
+      <div className="p-5 space-y-4 text-ink">
+        <p className="text-xl break-words">{updateInfo && 'v' + updateInfo.version}</p>
+        <p className="text-sm leading-7 whitespace-pre-wrap break-words">{updateInfo?.notes.slice(0, 2000) || '可以继续使用当前版本，确认后再打开下载链接。'}</p>
+        {updateState === 'error' && <p role="alert" className="text-sm text-sub">下载链接暂时没有打开，可以再试一次。</p>}
+        <div className="flex flex-wrap justify-end gap-2"><button type="button" className="vg-button vg-button-secondary" onClick={cancelUpdate}>暂不更新</button><button type="button" className="vg-button vg-button-primary" onClick={() => void downloadMobileUpdate()} disabled={updateState === 'opening'}>{updateState === 'opening' ? '正在打开…' : '下载更新'}</button></div>
+      </div>
+    </Modal>
       <UserProfileModal open={profileOpen && open} onClose={() => setProfileOpen(false)} />
       {qualityOpen&&open&&<Suspense fallback={null}><ChatQualityPanel open onClose={()=>setQualityOpen(false)} /></Suspense>}
-      <LegalNoticeModal document={legalDocument} onClose={() => setLegalDocument(null)} />
+      <LegalNoticeModal document={open ? legalDocument : null} onClose={() => setLegalDocument(null)} />
 
       {/* Delete account confirmation modal */}
-      <Modal presentation="dialog" panelClassName="vg-settings-panel" open={showDeleteConfirm} title="注销账号" onClose={() => setShowDeleteConfirm(false)}>
-        <div className="vg-settings-design vg-delete-confirmation m-5">
-          <p className="text-sm text-sub mb-2">
+      <Modal presentation="dialog" panelClassName="vg-settings-panel" open={showDeleteConfirm && open} title="注销账号" onClose={() => { if (!isDeleting) setShowDeleteConfirm(false); }} canSnapshotOnExit={() => false}>
+        <div className="vg-settings-design space-y-4" aria-busy={isDeleting}>
+          <p className="text-sm leading-7 text-sub">
             账号与全部本机记录将被永久抹除，此操作不可撤销。
           </p>
-          <p className="text-xs text-gray-500 mb-6">确认注销？</p>
           {deleteError && <FeedbackNotice message={deleteError} tone="error" className="mb-4" />}
           <div className="flex gap-3 justify-end">
             <button
               onClick={() => setShowDeleteConfirm(false)}
-              className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors"
+              disabled={isDeleting} className="vg-button vg-button-secondary"
             >
               取消
             </button>
             <button
               onClick={handleDeleteAccount}
               disabled={isDeleting}
-              className="px-4 py-2 rounded-lg text-sm bg-red-500/20 text-red-400 hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+              className="vg-button vg-button-danger"
             >
               {isDeleting ? '注销中...' : '确认注销'}
             </button>

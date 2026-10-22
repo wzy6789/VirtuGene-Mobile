@@ -60,9 +60,9 @@ export const diaryRepo = {
    * 闸门实现统一在 `lib/world/visibility.ts`（与共同记忆/世界事件同一份实现）。
    */
   async listVisibleFor(characterId: string, userId: string, limit = 20): Promise<Diary[]> {
-    const all = await db.diaries.where('userId').equals(userId).toArray();
+    const all = await db.diaries.where('readScopeKeys').equals([userId,characterId]).toArray();
     return all
-      .filter((d) => !d.deletedAt)
+      .filter((d) => d.userId===userId&&!d.deletedAt)
       .filter((d) => isVisibleToCharacter(d, characterId))
       // `world` on a diary means the character explicitly attached to that
       // life entry participated in the shared world. Other characters must

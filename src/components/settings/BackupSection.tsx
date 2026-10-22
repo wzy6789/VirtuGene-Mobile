@@ -1,141 +1,105 @@
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
-import { createBackup, restoreBackup, hasBackup, deleteBackup } from '../../lib/backup';
+import { Icon } from '../ui/Icon';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
+import { LoadingSkeleton } from '../ui/LoadingSkeleton';
+import { SettingsField } from './SettingsUI';
+import { createBackup, restoreBackup, hasBackup } from '../../lib/backup';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { useDiaryStore } from '../../store/diary-store';
-import { useCharacterStateStore } from '../../store/character-state-store';
-import { useEmotionStore } from '../../store/emotion-store';
-import { resetDiaryUnlock } from '../../lib/diary-unlock';
 
-/**
- * 数据备份 / 一键恢复（2.1.0）：
- * - 备份：全量数据（含账号）密码加密 → 写共享存储（卸载不丢）
- * - 恢复：输密码解密 → 全量导入 → 账号自动重建
- * - 设置页内嵌区块 + 首启恢复引导共用
- */
+/** Encrypted local backup; native storage and import remain in backup.ts. */
 export function BackupSection() {
-  const [backupOpen, setBackupOpen] = useState(false);
-  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [mode, setMode] = useState<'backup' | 'restore' | null>(null);
   const [pwd, setPwd] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [hasBackupFile, setHasBackupFile] = useState(false);
   const [confirmPwd, setConfirmPwd] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [hasBackupFile, setHasBackupFile] = useState(false);
+  const [checkError, setCheckError] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState('');
+  const lock = useRef(false);
+  const alive = useRef(true);
+  const checkEpoch = useRef(0);
+  const formId = useId();
+  useEffect(() => { alive.current = true; return () => { alive.current = false; checkEpoch.current++; }; }, []);
 
-  const inputCls =
-    'w-full px-3 py-2 bg-surface border border-line-strong rounded-lg text-sm text-ink placeholder-gray-500 focus:outline-none focus:border-gene-purple/50 transition-colors';
-
-  // 检测备份文件是否存在
   const checkBackup = async () => {
-    setHasBackupFile(await hasBackup().catch(() => false));
-  };
-
-  const doBackup = async () => {
-    if (!pwd || pwd.length < 4) { setMsg('备份密码至少 4 位'); return; }
-    if (pwd !== confirmPwd) { setMsg('两次输入的密码不一致'); return; }
-    setBusy(true);
-    setMsg(null);
+    const epoch = ++checkEpoch.current;
+    setChecking(true); setCheckError(false); setHasBackupFile(false);
     try {
-      const path = await createBackup(pwd);
-      setMsg(`备份成功！已保存到 ${path}`);
-      setBackupOpen(false);
-      setPwd('');
-      setConfirmPwd('');
-    } catch (e) {
-      setMsg('备份失败：' + ((e as Error)?.message ?? '未知错误'));
+      const exists = await hasBackup();
+      if (alive.current && checkEpoch.current === epoch) setHasBackupFile(exists);
+    } catch {
+      if (alive.current && checkEpoch.current === epoch) setCheckError(true);
     } finally {
-      setBusy(false);
+      if (alive.current && checkEpoch.current === epoch) setChecking(false);
     }
   };
-
-  const doRestore = async () => {
-    if (!pwd) { setMsg('请输入备份密码'); return; }
-    setBusy(true);
-    setMsg(null);
+  const open = (next: 'backup' | 'restore') => {
+    if (lock.current) return;
+    checkEpoch.current++; setChecking(false); setCheckError(false);
+    setPwd(''); setConfirmPwd(''); setError(''); setResult(''); setMode(next);
+    if (next === 'restore') void checkBackup();
+  };
+  const close = () => {
+    if (lock.current) return;
+    checkEpoch.current++; setChecking(false); setMode(null); setPwd(''); setConfirmPwd(''); setError('');
+  };
+  const submit = async () => {
+    if (lock.current || !mode || checking || (mode === 'restore' && (!hasBackupFile || checkError))) return;
+    if (!pwd) { setError('请输入备份密码'); return; }
+    if (mode === 'backup' && pwd.length < 4) { setError('备份密码至少 4 位'); return; }
+    if (mode === 'backup' && pwd !== confirmPwd) { setError('两次输入的密码不一致'); return; }
+    lock.current = true; setBusy(true); setError('');
     try {
-      const r = await restoreBackup(pwd);
-      if (!r.ok) {
-        setMsg(r.error ?? '恢复失败');
-        return;
+      let message: string;
+      if (mode === 'backup') {
+        const path = await createBackup(pwd);
+        message = `备份已保存到 ${path}`;
+      } else {
+        const restored = await restoreBackup(pwd);
+        if (!restored.ok) { if (alive.current) setError(restored.error ?? '恢复失败，请重试'); return; }
+        if (restored.account) {
+          useAuthStore.getState().login(restored.account.userId, restored.account.username, '', '🧬');
+          void useChatStore.getState().loadCharacters();
+          void useDiaryStore.getState().load();
+        }
+        message = '恢复成功，账号与数据已还原。';
       }
-      // 账号恢复后自动登录
-      if (r.account) {
-        useAuthStore.getState().login(r.account.userId, r.account.username, '', '🧬');
-        useChatStore.getState().loadCharacters();
-        useDiaryStore.getState().load();
-      }
-      setMsg('恢复成功！账号与全部数据已还原。');
-      setRestoreOpen(false);
-      setPwd('');
-      setHasBackupFile(false);
-    } catch (e) {
-      setMsg('恢复失败：' + ((e as Error)?.message ?? '可能是密码错误'));
+      if (alive.current) { setResult(message); setMode(null); setPwd(''); setConfirmPwd(''); }
+    } catch (cause) {
+      if (alive.current) setError(`${mode === 'backup' ? '备份' : '恢复'}未完成：${cause instanceof Error ? cause.message : '请重试'}`);
     } finally {
-      setBusy(false);
+      lock.current = false;
+      if (alive.current) setBusy(false);
     }
   };
-
-  return (
-    <div>
-      <h3 className="text-sm font-medium text-ink mb-3">数据备份与恢复</h3>
-      <div className="p-4 rounded-xl bg-surface border border-line space-y-3">
-        <p className="text-[11px] text-gray-500">
-          备份会把账号、角色、聊天与日记加密保存到手机存储。卸载重装后可用备份一键恢复，无需重新注册。
-        </p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => { checkBackup(); setBackupOpen(true); }}
-            className="flex-1 px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] disabled:opacity-50 transition-all"
-          >
-            立即备份
-          </button>
-          <button
-            onClick={() => { checkBackup(); setRestoreOpen(true); }}
-            className="flex-1 px-4 py-2 rounded-lg text-sm text-life-cyan bg-life-cyan/10 border border-life-cyan/30 hover:bg-life-cyan/20 transition-all"
-          >
-            从备份恢复
-          </button>
-        </div>
-        {msg && <p className="text-xs text-gray-500 break-all">{msg}</p>}
-
-        {/* 备份弹窗 */}
-        <Modal presentation="dialog" canSnapshotOnExit={() => false} panelClassName="vg-settings-panel" open={backupOpen} onClose={() => { setBackupOpen(false); setMsg(null); }} title="备份数据" width="max-w-sm" closeOnBackdrop={false} footer={<div className="vg-settings-design !py-3">            <div className="flex justify-end gap-2">
-              <button onClick={() => { setBackupOpen(false); setMsg(null); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
-              <button onClick={() => void doBackup()} disabled={busy} className="px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] transition-all disabled:opacity-50">
-                {busy ? '备份中…' : '开始备份'}
-              </button>
-            </div></div>}>
-          <div className="vg-settings-design space-y-4">
-            <p className="text-xs text-gray-500">设置一个备份密码（独立于登录密码）。备份文件会加密保存，卸载 App 也不丢失。</p>
-            <input type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} placeholder="备份密码（至少 4 位）" className={inputCls} />
-            <input type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} placeholder="确认备份密码" className={inputCls} />
-            {msg && <p className="text-xs text-red-400">{msg}</p>}
-
-          </div>
-        </Modal>
-
-        {/* 恢复弹窗 */}
-        <Modal presentation="dialog" canSnapshotOnExit={() => false} panelClassName="vg-settings-panel" open={restoreOpen} onClose={() => { setRestoreOpen(false); setMsg(null); }} title="一键恢复" width="max-w-sm" closeOnBackdrop={false} footer={hasBackupFile ? <div className="vg-settings-design !py-3">                <div className="flex justify-end gap-2">
-                  <button onClick={() => { setRestoreOpen(false); setMsg(null); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
-                  <button onClick={() => void doRestore()} disabled={busy} className="px-4 py-2 rounded-lg text-sm bg-life-cyan text-[#0F0F1A] hover:bg-[#00B8B3] transition-all disabled:opacity-50">
-                    {busy ? '恢复中…' : '一键恢复'}
-                  </button>
-                </div></div> : undefined}>
-          <div className="vg-settings-design space-y-4">
-            {!hasBackupFile ? (
-              <p className="text-xs text-gray-500">未检测到备份文件。请先在原设备上「立即备份」，并把备份文件保留在同一存储位置。</p>
-            ) : (
-              <>
-                <p className="text-xs text-gray-500">检测到备份文件。输入备份密码即可恢复账号与全部数据（当前设备数据会被合并覆盖）。</p>
-                <input type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} placeholder="备份密码" className={inputCls} />
-                {msg && <p className="text-xs text-red-400">{msg}</p>}
-
-              </>
-            )}
-          </div>
-        </Modal>
+  const ready = mode === 'backup' || (hasBackupFile && !checking && !checkError);
+  return <section>
+    <h3 className="text-sm font-medium text-ink mb-3">数据备份与恢复</h3>
+    <div className="vg-settings-form space-y-4">
+      <p className="text-sm leading-7 text-sub">把账号、角色、聊天与手账加密保存在手机存储，方便重装后恢复。</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button type="button" onClick={() => open('backup')} className="vg-button vg-button-primary"><Icon name="download" />立即备份</button>
+        <button type="button" onClick={() => open('restore')} className="vg-button vg-button-secondary"><Icon name="refresh" />从备份恢复</button>
       </div>
+      {result && !mode && <FeedbackNotice message={result} tone="success" />}
     </div>
-  );
+    <Modal presentation="dialog" canSnapshotOnExit={() => false} panelClassName="vg-settings-panel" open={mode !== null} onClose={close} title={mode === 'backup' ? '备份数据' : '从备份恢复'} width="max-w-sm" closeOnBackdrop={false} footer={<div className="vg-settings-design !py-3 flex justify-end gap-2">
+      <button type="button" onClick={close} disabled={busy} className="vg-button vg-button-secondary">{ready ? '取消' : '返回'}</button>
+      {ready && <button type="submit" form={formId} disabled={busy} className="vg-button vg-button-primary">{busy ? mode === 'backup' ? '备份中…' : '恢复中…' : mode === 'backup' ? '开始备份' : '恢复数据'}</button>}
+    </div>}>
+      <form id={formId} className="vg-settings-design space-y-4" aria-busy={busy || checking} onSubmit={event => { event.preventDefault(); void submit(); }}>
+        {mode === 'restore' && checking ? <LoadingSkeleton label="正在查找备份" rows={2} /> : mode === 'restore' && checkError ? <FeedbackNotice message="暂时无法读取备份位置，请重试。" tone="error"><button type="button" onClick={() => void checkBackup()} className="vg-button vg-button-secondary">重新读取</button></FeedbackNotice> : mode === 'restore' && !hasBackupFile ? <p className="text-sm leading-7 text-sub">还没有找到备份文件。请先在原设备上备份，并将文件保留在同一存储位置。</p> : <>
+          <p className="text-sm leading-7 text-sub">{mode === 'backup' ? '备份密码与登录密码独立。请妥善保存，恢复时需要用到。' : '备份文件已找到。恢复会合并覆盖当前设备数据，请确认使用的是需要恢复的备份。'}</p>
+          <SettingsField label="备份密码" type="password" autoComplete={mode === 'backup' ? 'new-password' : 'current-password'} value={pwd} disabled={busy} onChange={event => { setPwd(event.target.value); setError(''); }} hint={mode === 'backup' ? '至少 4 位，建议使用不易猜测的密码。' : undefined} />
+          {mode === 'backup' && <SettingsField label="再次输入备份密码" type="password" autoComplete="new-password" value={confirmPwd} disabled={busy} onChange={event => { setConfirmPwd(event.target.value); setError(''); }} />}
+          {error && <FeedbackNotice message={error} tone="error" />}
+        </>}
+      </form>
+    </Modal>
+  </section>;
 }

@@ -1,0 +1,290 @@
+{
+  "status": "pass",
+  "checkCount": 67,
+  "checks": [
+    {
+      "name": "cafe-afternoon/1080/poster-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/poster-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/clean-plate-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/clean-plate-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/window-mask-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/window-mask-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/foreground-casing-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/foreground-casing-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/foreground-plant-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/foreground-plant-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/foreground-table-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/foreground-table-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/decoded-cost",
+      "pass": true,
+      "bytes": 28264580
+    },
+    {
+      "name": "cafe-afternoon/1080/local-window-mask",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/lossy-neutral-match",
+      "pass": true,
+      "meanAbsoluteRgbDifference": 0.7502,
+      "maxChannelDifference": 72
+    },
+    {
+      "name": "cafe-afternoon/1440/poster-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/poster-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/clean-plate-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/clean-plate-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/window-mask-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/window-mask-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/foreground-casing-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/foreground-casing-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/foreground-plant-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/foreground-plant-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/foreground-table-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/foreground-table-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/decoded-cost",
+      "pass": true,
+      "bytes": 50251132
+    },
+    {
+      "name": "cafe-afternoon/1440/local-window-mask",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/lossy-neutral-match",
+      "pass": true,
+      "meanAbsoluteRgbDifference": 0.5713,
+      "maxChannelDifference": 43
+    },
+    {
+      "name": "cafe-afternoon/same-camera-and-size",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/cup-anchor-in-cup",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/poster-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/poster-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/clean-plate-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/clean-plate-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/window-mask-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/window-mask-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/foreground-casing-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/foreground-casing-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/foreground-plant-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/foreground-plant-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/foreground-table-1080.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/foreground-table-1080.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/decoded-cost",
+      "pass": true,
+      "bytes": 28264580
+    },
+    {
+      "name": "cafe-rain-night/1080/local-window-mask",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/lossy-neutral-match",
+      "pass": true,
+      "meanAbsoluteRgbDifference": 0.8668,
+      "maxChannelDifference": 81
+    },
+    {
+      "name": "cafe-rain-night/1440/poster-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/poster-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/clean-plate-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/clean-plate-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/window-mask-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/window-mask-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/foreground-casing-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/foreground-casing-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/foreground-plant-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/foreground-plant-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/foreground-table-1440.webp/dimensions",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/foreground-table-1440.webp/hash",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/decoded-cost",
+      "pass": true,
+      "bytes": 50251132
+    },
+    {
+      "name": "cafe-rain-night/1440/local-window-mask",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/lossy-neutral-match",
+      "pass": true,
+      "meanAbsoluteRgbDifference": 0.6924,
+      "maxChannelDifference": 38
+    },
+    {
+      "name": "cafe-rain-night/same-camera-and-size",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/cup-anchor-in-cup",
+      "pass": true
+    },
+    {
+      "name": "rain/banquette-excluded",
+      "pass": true
+    },
+    {
+      "name": "rain/visible-window-included",
+      "pass": true
+    },
+    {
+      "name": "casing/banquette-occludes-sill",
+      "pass": true
+    }
+  ],
+  "scope": "Offline authored assets only; no mobile GPU, no actual app interaction",
+  "workingDirectory": "F:\\VirtuGene-Mobile",
+  "model": "未确认",
+  "reasoning": "未确认"
+}

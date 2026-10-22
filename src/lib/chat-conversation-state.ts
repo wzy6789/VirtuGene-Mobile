@@ -1,14 +1,15 @@
 ﻿/**
  * 私聊的轻量节奏状态。
  *
- * 这不是另一套记忆库，也不保存原始对话；它只回答“这轮该怎么聊”——
+ * 这不是另一套记忆库，不保存整段对话；它回答“这轮该怎么聊”——
  * 当前话题、用户是否想换题、用户偏好的回复方式，以及最近已经用过的回复动作。
- * 状态写在当前 Session 上，因此天然按用户和角色隔离。
+ * 状态写在当前 Session 上。已答记录另附有来源的短摘录，读写均核验用户和角色。
  */
 
 import { assessExpressionSignals,replyContainsSubstantiveQuestion } from './chat-expression-guidance';
 import { isDirectAffection, isViewExchange } from './chat-expression-boundary';
-import { hasExplicitTopicShift, isStandaloneClosing, isTopicClarification,requestsRepetition,isDirectTimeAnswer,conversationDeparture } from './chat-turn-cues';
+import { hasExplicitTopicShift, isStandaloneClosing, isTopicClarification,requestsRepetition,isDirectTimeAnswer,conversationDeparture,withoutSetAsideTopicClauses } from './chat-turn-cues';
+import {advanceExplicitTopics,type TopicStateFields,type TopicSourceContext} from './chat-topic-outcomes';
 
 export type ChatIntent = 'casual' | 'emotional' | 'question' | 'request' | 'topic-shift' | 'closing';
 export type ChatTopicStatus = 'active' | 'paused' | 'closed';
@@ -21,7 +22,8 @@ export interface ChatPreferences {
   confidence: number;
 }
 
-export interface ChatConversationState {
+export interface ChatConversationState extends TopicStateFields {
+  version?:number;
   currentTopic?: string;
   topicStatus: ChatTopicStatus;
   pausedTopics: string[];
@@ -100,7 +102,7 @@ export function topicTerms(text: string): Set<string> {
 }
 
 export function isTopicRelated(current: string, context: string): boolean {
-  const terms = topicTerms(current);
+  const terms = topicTerms(withoutSetAsideTopicClauses(current));
   if (!terms.size) return false;
   const known = topicTerms(context);
   for (const term of terms) if (known.has(term)) return true;
@@ -109,6 +111,7 @@ export function isTopicRelated(current: string, context: string): boolean {
 
 export function detectTopicMove(current: string, previous = ''): boolean {
   if (isTopicShift(current)) return true;
+  if (isSubjectStyleOnly(current)) return false;
   const value = compact(current);
   if (value.length < 4 || compact(previous).length < 4 || CONTINUATION.test(value) || isTopicClarification(value)||isDirectTimeAnswer(value,previous)) return false;
   // An anaphoric object may lack the previous noun (“这个味道” after
@@ -201,12 +204,30 @@ function updatePreferences(previous: ChatPreferences, text: string): ChatPrefere
       if(currentTask&&preference.field==='brevity')continue;
       if(preference.field==='brevity')next.brevity=preference.value as ChatPreferences['brevity'];
       else if(preference.field==='questionTolerance')next.questionTolerance=preference.value as ChatPreferences['questionTolerance'];
-      else next.adviceStyle=preference.value as ChatPreferences['adviceStyle'];
+      else {
+        // Current-subject listening belongs to topicAdvice, not a permanent
+        // no-advice preference that survives an unrelated topic tomorrow.
+        if(preference.value==='listen'&&adviceForCurrentTopic(text)==='listen'
+          &&!/(?:以后|今后|后面|以后都|一直|默认)/u.test(clause))continue;
+        next.adviceStyle=preference.value as ChatPreferences['adviceStyle'];
+      }
       signal=true;
     }
   }
   if (signal) next.confidence = Math.min(1, next.confidence + 0.35);
   return next;
+}
+
+function localStyleDirective(clause:string):RegExpExecArray|null{
+  return /^(?:我)?(?:现在|今天|这次|暂时)?(?:先)?(?:别|不要|不用|不必)(?:再|急着)?(?:给我|帮我|替我)?(?:分析(?:这件事|原因)?|讲道理|给(?:我)?建议|给我讲怎么处理)(?:了|吧|啊|呢)?$/u.exec(clause)
+    ?? /^(?:先)?(?:听我说(?:完)?|让我说完)(?:吧|了)?$/u.exec(clause);
+}
+
+/** A narrow conversation-style interjection is not a new subject. */
+function isSubjectStyleOnly(text:string):boolean{
+  const clauses=preferenceClauses(text).filter(Boolean);
+  return clauses.length>0&&clauses.every(clause=>localStyleDirective(clause)
+    ||/^(?:现在|那|先)?(?:给我建议|告诉我怎么办|直接说怎么做)$/u.test(clause));
 }
 
 export function adviceForCurrentTopic(text: string): 'listen' | 'direct' | undefined {
@@ -217,6 +238,8 @@ export function adviceForCurrentTopic(text: string): 'listen' | 'direct' | undef
     // the new forms to a declaration so reports, questions and doubled
     // negation cannot install this scope.
     const directives = [...clause.matchAll(/不是(?:想|要|来)(?:听|让你给|让你提)?建议|不想(?:要|听)(?:你的|你给的)?建议|(?:先|暂时)?(?:别|不要|不用|不必)(?:再|急着)?(?:给我|帮我|替我)?(?:出主意|支招|想办法|提建议)|(?:我)?(?:只是|就是|只想)吐槽(?:一下)?|给我建议|告诉我怎么办|直接说怎么做|^(?:但|不过|可是)?(?:我)?(?:现在|今天|这次|暂时)?(?:也|还|先)?不想(?:马上|现在|急着)?(?:分析(?:这件事|原因)?|(?:找|想)?办法|找谁的错|解决这件事)(?:了|吧|啊|呢)?$/gu)];
+    const localDirective=localStyleDirective(clause);
+    if(localDirective)directives.push(localDirective);
     for (const match of directives) {
       if (/(?:别|不要|不用|不是|不想).{0,5}$/u.test(clause.slice(0, match.index))) continue;
       advice = /^(?:给我建议|告诉我怎么办|直接说怎么做)$/u.test(match[0]) ? 'direct' : 'listen';
@@ -232,6 +255,7 @@ export function updateChatConversationState(
   action?: ChatReplyAction,
   now = Date.now(),
   previousUserText = '',
+  topicSource?:TopicSourceContext,
 ): ChatConversationState {
   const base = { ...emptyChatConversationState(), ...(previous ?? {}) };
   const previousPreferences = { ...DEFAULT_CHAT_PREFERENCES, ...(previous?.preferences ?? {}) };
@@ -239,11 +263,12 @@ export function updateChatConversationState(
   const preferences = updatePreferences(previousPreferences, userText);
   const topicAdvice = adviceForCurrentTopic(userText);
   const rawLabel = topicLabel(userText);
-  const label = rawLabel.length >= 3 ? rawLabel : '';
+  const label = !isSubjectStyleOnly(userText)&&rawLabel.length >= 3 ? rawLabel : '';
   const oldTopic = base.currentTopic?.trim();
   const resumesPausedTopic=!!oldTopic&&base.topicStatus==='paused'&&userText.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').split(/[。！？!?，,；;\n]/u)
     .some(part=>/^(?:那|我们|咱们)?(?:继续|接着)(?:聊|说)?(?:刚才|前面|上次|那个)(?:的|那个)?(?:话题|问题)(?:吧|了)?$/u.test(part.trim()));
-  const shifting = intent!=='closing'&&!resumesPausedTopic&&detectTopicMove(userText, previousUserText);
+  const previousSubject=isSubjectStyleOnly(previousUserText)?oldTopic??previousUserText:previousUserText;
+  const shifting = intent!=='closing'&&!resumesPausedTopic&&detectTopicMove(userText, previousSubject);
   const pausedTopics = [...(base.pausedTopics ?? [])];
 
   if (shifting && oldTopic && oldTopic !== label) {
@@ -262,11 +287,13 @@ export function updateChatConversationState(
   const recentActions = action
     ? [...(base.recentActions ?? []), action].slice(-5)
     : (base.recentActions ?? []).slice(-5);
-  // assistantText 仅保留在接口中，方便未来按角色回复更新主题摘要；
-  // 当前不保存整段回复，避免会话状态膨胀。
+  // 原始模型文字不充当来源；角色回应由发送事务根据实际落库气泡
+  // appendTopicReplyEvidence单独记录，不在这里把它写成用户事实。
   void assistantText;
 
   return {
+    ...(topicSource?advanceExplicitTopics(previous??{},topicSource):{}),
+    version:previous?.version,
     currentTopic: nextTopic,
     topicStatus: nextStatus,
     pausedTopics: boundedPaused,

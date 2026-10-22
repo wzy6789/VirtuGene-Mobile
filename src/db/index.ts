@@ -1,4 +1,7 @@
 import Dexie, { type Table } from 'dexie';
+import { messageEvidenceKey } from './message-evidence-key';
+import { diaryReadScopeKeys } from './diary-read-scope';
+import { messageHistoryProjection, messageHistoryIdentity, type HistorySearchRow } from './message-history-index';
 import { runWorldMigration } from '../lib/world/migrate-4x';
 import type { ChatConversationState } from '../lib/chat-conversation-state';
 import { secretaryLook } from '../lib/secretary/appearance';
@@ -82,6 +85,12 @@ export interface RelationMilestone {
  * 未完成事件（生命连续性）：用户与角色之间「说好了、但还没发生完」的事。
  * 只记录对话里明确出现的约定 / 计划 / 悬而未决的话题 / 冲突 / 提醒，寒暄闲聊绝不入库。
  */
+export interface ContinuityChatEvidence {
+  kind:'private-chat';
+  /** A private conversation is not proof that its contents happened in reality. */
+  domain:'unclassified';
+  sources:Array<{messageId:string;sessionId:string;revision:number;start:number;end:number}>;
+}
 export interface ContinuityThread {
   id: string;
   characterId: string;
@@ -102,6 +111,10 @@ export interface ContinuityThread {
   dueAt?: number;
   /** 这条线索来自哪些消息（真实存在的消息 id；未知时为空数组，绝不编造） */
   sourceMessageIds?: string[];
+  /** Only the original bounded user text observed by the extracting job. */
+  sourceEvidence?:ContinuityChatEvidence;
+  /** Latest explicit reopen control, independent of the original premises. */
+  reopenEvidence?:ContinuityChatEvidence;
   /** 由谁创建：ai=自动分析产生 user=用户手动添加 */
   origin?: 'ai' | 'user';
   /** 5.0：如果这条未完成故事来自某场 World Stage / 某条世界事件，记录来源 */
@@ -713,6 +726,8 @@ export interface CharacterState {
   affinity: number;
   mood: number;
   milestones: RelationMilestone[];
+  /** Local continuity mutation fence for late private settlement jobs. */
+  continuityRevision?: number;
   /** 角色此刻最在意的事情，由共同经历逐步形成。 */
   lifeFocus?: string;
   /** 用户与角色共同经历后留下的成长轨迹。 */
@@ -748,6 +763,8 @@ export interface Session {
   modelAsked?: boolean;
   /** 长会话滚动摘要（早期对话的压缩文本，超出保留窗口后生成） */
   summary?: string;
+  /** Monotonic summary generation/invalidation revision; absent legacy value is 0. */
+  summaryRevision?: number;
   /** 最近一次完整结算已覆盖的用户消息数量；失败时不推进，后续发送可补结算。 */
   lastSettledUserMessageCount?: number;
   /** 群聊记忆提取成功覆盖的、全体当时成员都见过的用户消息数。 */
@@ -756,7 +773,12 @@ export interface Session {
   groupMemoryWitnessedBy?: string[];
   /** 私聊连续注意力：当前话题、用户交流偏好与最近回复动作（仅本用户本会话）。 */
   conversation?: ChatConversationState;
-  /** 摘要覆盖到的时间点（早于该时间戳的消息均已纳入摘要） */
+  /** One attempted return opening per unchanged owned conversation tail.
+   * An attempt is not delivery, answered evidence or an authorization cache. */
+  proactiveVisit?: { anchorId: string; anchorRevision: number; attemptId: string; attemptedAt: number; deliveredMessageId?: string };
+  /** Native CAS for private analysis/settlement jobs; absent legacy value is 0. */
+  auxiliaryRevision?: number;
+  /** 摘要生成时间；不代表早于此时间的原文已经全部覆盖。 */
   summaryUpdatedAt?: number;
   /** 群摘要覆盖的完整成员快照；不匹配时禁止注入该摘要。 */
   summaryWitnessedBy?: string[];
@@ -766,6 +788,8 @@ export interface Session {
   summarySourceMessageRevisions?: Record<string, number>;
   /** 每条来源消息已被压缩的字符偏移；长消息分段总结时防止跳过后半段。 */
   summarySourceMessageOffsets?: Record<string, number>;
+  /** Exact segment transport contract; older offsets may predate wire clipping fixes. */
+  summaryCoveragePolicy?: 'lossless-segments-v1';
   /** 摘要失败重试节流；不代表已覆盖来源消息。 */
   summaryAttemptedAt?: number;
   /** 本会话选择的叙事时段；只影响模型营造的氛围，不改变消息 createdAt。 */
@@ -793,10 +817,23 @@ export interface Group {
 }
 
 export interface Message {
+  /** A completed local direction's cooldown annotation, never a user fact or grant. */
+  replyDirection?: import('../lib/chat/topic-candidates').ReplyDirectionReceipt;
+  /** Maintained by database hooks; an index projection, never accepted from imported metadata. */
+  sourceEvidenceKey?: string;
+  /** Local substring search index, maintained atomically; raw messages remain authoritative. */
+  historySearchReadyKey?: string;
   /** A user-selected owned occurrence, not an instruction or copied private text. */
   secretaryTodoContext?: import('../lib/secretary/workspace-todo').SecretaryTodoContext;
   /** The initiating user row for this logical role reply (including multipart replies). */
   replyToUserMessageId?: string;
+  /** Exact input digest for resend idempotence; never substitutes for fresh ownership checks. */
+  replyInputKey?: string;
+  /** Final transport completion, never inferred from a legacy reply's wording. */
+  replyCompletion?: 'complete' | 'interrupted' | 'truncated';
+  /** A reviewed durable prefix is readable but is not a complete reply.
+   * Legacy absence remains compatible; imports never use this as authority. */
+  replyDelivery?: 'in-progress' | 'settled';
   secretaryDispatch?: { taskId: string; assistantName: string; bodyOrigin: 'literal' | 'composed' | 'edited' };
   /** A partially received reply remains readable and is never silently regenerated. */
   interrupted?: boolean;
@@ -970,11 +1007,15 @@ export interface MemoryJob {
   sourceRevisions?: Record<string, number>;
   sourceOffsets?: Record<string, number>;
   sourceEndOffsets?: Record<string, number>;
+  /** Missing on legacy jobs whose offsets address content.trim(). */
+  sourceCoordinateSystem?: 'original';
   task: 'extract' | 'reconcile' | 'revoke' | 'reindex';
   status: 'queued' | 'running' | 'retry' | 'done' | 'failed' | 'cancelled';
   attempts: number;
   availableAt: number;
   leaseUntil?: number;
+  /** Unique claim identity; a takeover must never accept the old writer. */
+  leaseToken?: string;
   payload?: unknown;
   lastError?: string;
   createdAt: number;
@@ -1166,6 +1207,8 @@ export interface EmotionSnapshot {
 export interface Diary {
   id: string;
   userId: string;
+  /** Native lookup projection; recomputed atomically and never accepted as a grant. */
+  readScopeKeys?:Array<[string,string]>;
   /** 归属日期 YYYY-MM-DD（本地时区） */
   date: string;
   title: string;
@@ -1331,8 +1374,10 @@ export class VirtuGeneDB extends Dexie {
   secretaryTasks!: Table<import('../lib/secretary/types').SecretaryTask, string>;
   users!: Table<User, string>;
   characters!: Table<Character, string>;
+  characterEditorDrafts!: Table<import('./character-editor-draft').CharacterEditorDraftRow, string>;
   sessions!: Table<Session, string>;
   messages!: Table<Message, string>;
+  messageHistorySearch!: Table<HistorySearchRow, string>;
   memories!: Table<MemoryItem, string>;
   emotionSnapshots!: Table<EmotionSnapshot, string>;
   characterStates!: Table<CharacterState, [string, string]>;
@@ -1846,7 +1891,105 @@ export class VirtuGeneDB extends Dexie {
     });
     this.version(33).stores({ voiceCalls: 'id,userId,sessionId,[userId+characterId],[sessionId+endedAt]' });
     // Index-only upgrade: retain raw rows and existing time-only indexes.
-    this.version(34).stores({ messages: 'id,sessionId,[sessionId+createdAt],[sessionId+createdAt+id]' });
+    this.version(34).stores({ messages: 'id,sessionId,[sessionId+createdAt],[sessionId+createdAt+id],replyToUserMessageId' });
+    // Repair devices that already opened the initial v34 development schema.
+    this.version(35).stores({ messages: 'id,sessionId,[sessionId+createdAt],[sessionId+createdAt+id],replyToUserMessageId' });
+    // Summary validation needs source identity/version/status, not old bodies
+    // or image data. Backfill once, then maintain the projection atomically on
+    // every write, including sync/import, direct updates and bulk operations.
+    this.version(36).stores({ messages: 'id,sessionId,[sessionId+createdAt],[sessionId+createdAt+id],replyToUserMessageId,sourceEvidenceKey' })
+      .upgrade(tx => tx.table('messages').toCollection().modify(row => {
+        row.sourceEvidenceKey = messageEvidenceKey(row);
+      }).then(() => undefined));
+    // Old rows are backfilled in idle batches, not during a blocking upgrade.
+    this.version(37).stores({
+      messages: 'id,sessionId,[sessionId+createdAt],[sessionId+createdAt+id],[sessionId+role],replyToUserMessageId,sourceEvidenceKey,historySearchReadyKey',
+      messageHistorySearch: 'key,sessionId,*entries',
+    });
+    // Ownership checks need session identity/type, not multi-megabyte summary
+    // provenance. Native indexes are populated without rewriting session rows.
+    this.version(38).stores({sessions: 'id,characterId,userId,[characterId+userId],updatedAt,groupId,[characterId+userId+type]'});
+    // Source revocation checks run for each recalled item. Seek the account /
+    // character scope directly instead of scanning all account tombstones.
+    this.version(39).stores({memorySourceTombstones: 'id,userId,sourceType,sourceId,[userId+sourceType+sourceId],updatedAt,[userId+characterId]'});
+    // v38 replaced the session index declaration and accidentally removed
+    // secretary history ordering. Keep both retrieval and ownership indexes.
+    this.version(40).stores({sessions: 'id,characterId,userId,[characterId+userId],updatedAt,groupId,[characterId+userId+type],[characterId+userId+createdAt+id]'});
+    // Validate already selected message evidence without rereading unrelated
+    // role tombstones. IndexedDB indexes existing arrays without rewriting rows.
+    this.version(41).stores({memorySourceTombstones: 'id,userId,sourceType,sourceId,[userId+sourceType+sourceId],updatedAt,[userId+characterId],*suppressedMessageIds'});
+    // Additive UI drafts only; established source/history indexes are retained.
+    this.version(42).stores({characterEditorDrafts: 'id,userId,characterId,[userId+characterId],updatedAt'});
+    // Native length/revision keys locate unchanged summary prefixes without
+    // rewriting originals or trusting imported/derived source metadata.
+    // Missing legacy revisions stay unindexed and fall back to body reads.
+    this.version(43).stores({messages: 'id,sessionId,[sessionId+createdAt],[sessionId+createdAt+id],[sessionId+role],replyToUserMessageId,sourceEvidenceKey,historySearchReadyKey,[sessionId+revision+content.length]'});
+    // Index-only: locate a specifically named old item without reading every
+    // closed record. Existing/imported rows are indexed without rewriting them.
+    this.version(44).stores({continuityThreads:'id,characterId,userId,[characterId+userId],[characterId+status],status,createdAt,[userId+characterId+title],[userId+characterId+title+dueAt]'});
+    // Index-only: the role preview reads six recent records without scanning
+    // other accounts/roles. Existing rows and all prior indexes are retained.
+    this.version(45).stores({memories:'id,characterId,userId,createdAt,[userId+characterId+createdAt+id]'});
+    // Existing summary keys predate partial-delivery receipts. Rebuild only
+    // this derived projection once; normal source checks remain index-only.
+    // The versionchange hook retains original content, revisions and indexes.
+    this.version(46).stores({}).upgrade(tx => tx.table('messages').toCollection().modify(row => {
+      row.sourceEvidenceKey = messageEvidenceKey(row);
+    }).then(() => undefined));
+    // A private diary must not be read just to discover that no role can see
+    // it. Rebuild current declared scopes once, preserving original fields.
+    this.version(47).stores({diaries:'id,userId,date,[userId+date],*readScopeKeys'})
+      .upgrade(tx=>tx.table('diaries').toCollection().modify(row=>{
+        row.readScopeKeys=diaryReadScopeKeys(row);
+      }).then(()=>undefined));
+    // Include the derived store in the same native write transaction even for
+    // implicit put/update/bulk writes. Hook writes use native IDB requests so
+    // existing repository transaction declarations do not need to change.
+    this.use({stack: 'dbcore', name: 'atomic-history-search', create: core => ({
+      ...core,
+      transaction: (stores, mode, options) => core.transaction(
+        mode === 'readwrite' && stores.includes('messages') && !stores.includes('messageHistorySearch')
+          ? [...stores, 'messageHistorySearch'] : stores, mode, options),
+    })});
+    this.diaries.hook('creating',(_key,row)=>{row.readScopeKeys=diaryReadScopeKeys(row);});
+    this.diaries.hook('updating',(changes,_key,row)=>{
+      const next={...row,visibleTo:Array.isArray(row.visibleTo)?[...row.visibleTo]:row.visibleTo};
+      for(const [path,value] of Object.entries(changes))Dexie.setByKeyPath(next,path,value);
+      return {readScopeKeys:diaryReadScopeKeys(next)};
+    });
+    this.messages.hook('creating', function (_key, row, tx) {
+      row.sourceEvidenceKey = messageEvidenceKey(row);
+      if (tx.idbtrans.mode === 'versionchange') return;
+      row.historySearchReadyKey = row.sessionId;
+      const projection = messageHistoryProjection(row);
+      this.onsuccess = () => { tx.idbtrans.objectStore('messageHistorySearch').put(projection); };
+    });
+    this.messages.hook('updating', function (changes, _key, row, tx) {
+      const next = {...row, ...changes};
+      if (tx.idbtrans.mode === 'versionchange') return {sourceEvidenceKey: messageEvidenceKey(next)};
+      // Audio/status UI metadata must not tokenize and rewrite a long original
+      // again. Text, identity, source state and provenance edits still rebuild
+      // in this same transaction; imported readiness is never trusted.
+      const searchChanged = row.historySearchReadyKey !== row.sessionId
+        || next.historySearchReadyKey !== row.sessionId
+        || next.id !== row.id || next.sessionId !== row.sessionId || next.createdAt !== row.createdAt
+        || next.revision !== row.revision || next.role !== row.role || next.failed !== row.failed
+        || next.content !== row.content || next.secretaryDispatch?.bodyOrigin !== row.secretaryDispatch?.bodyOrigin;
+      if (!searchChanged) return {sourceEvidenceKey: messageEvidenceKey(next), historySearchReadyKey: next.sessionId};
+      const oldKey = messageHistoryIdentity(row), projection = messageHistoryProjection(next);
+      this.onsuccess = () => {
+        const store = tx.idbtrans.objectStore('messageHistorySearch');
+        if (oldKey !== projection.key) store.delete(oldKey);
+        store.put(projection);
+      };
+      return {sourceEvidenceKey: messageEvidenceKey(next), historySearchReadyKey: next.sessionId};
+    });
+    this.messages.hook('deleting', function (_key, row, tx) {
+      // Dexie also invokes this hook for an absent key (e.g. repeated sync or
+      // a second delete). There is no source identity to project in that case.
+      if (!row || tx.idbtrans.mode === 'versionchange') return;
+      this.onsuccess = () => { tx.idbtrans.objectStore('messageHistorySearch').delete(messageHistoryIdentity(row)); };
+    });
     // Keep the unique key correct even for direct writes outside the character repository.
     this.characters.hook('creating', (_key, row) => {
       row.secretaryOwnerId = row.agentProfile === 'secretary' && !row.isPreset ? row.createdBy : undefined;
@@ -1859,3 +2002,7 @@ export class VirtuGeneDB extends Dexie {
 }
 
 export const db = new VirtuGeneDB();
+db.on('ready', () => {
+  // Do not make database opening or a first reply wait for an archive rebuild.
+  void import('../lib/chat-history-index').then(module => module.scheduleHistorySearchBackfill()).catch(() => undefined);
+});

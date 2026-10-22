@@ -8,9 +8,8 @@
  * 用人话标签（"你写下的生活" / "你们一起经历的" / "关系变了" / "这个世界记住了"……）
  * 按时间排序。排序是稳定且可解释的：时间倒序，同刻按照重要度。
  */
-import type { WorldEvent, WorldFact, WorldScene, Diary } from '../../db/index';
+import type { WorldEvent } from '../../db/index';
 import { db } from '../../db/index';
-import { worldEventRepo } from '../../db/world-event-repo';
 import { worldFactRepo } from '../../db/world-fact-repo';
 import { worldSceneRepo } from '../../db/world-scene-repo';
 import { relationshipRepo } from '../../db/relationship-repo';
@@ -28,6 +27,36 @@ export interface TimelineItem {
   /** 相关角色名（用于头像/名字行） */
   names: string[];
   importance: number;
+  /** 展示来源；不是角色知情授权，也不改变原有时间线 id。 */
+  record?: {
+    kind: 'event' | 'relationship' | 'fact' | 'diary' | 'scene';
+    id: string;
+    revision?: number;
+  };
+}
+
+/**
+ * 沿现有世界时间索引取最近候选，账号过滤先于限量。
+ * 同刻边界补齐后按主键升序恢复旧查询的稳定顺序；不能让倒序索引改变截断对象。
+ * 缺少账号+世界+时间索引时，同世界其它账号及大量同刻记录仍可能增加读取量。
+ */
+async function recentTimelineEvents(userId: string, worldId: string): Promise<WorldEvent[]> {
+  const limit = 200;
+  let rows = await db.worldEvents.where('[worldId+timestamp]')
+    .between([worldId, -Infinity], [worldId, Infinity], true, true)
+    .reverse()
+    .filter(event => event.userId === userId)
+    .limit(limit)
+    .toArray();
+  if (rows.length === limit) {
+    const boundary = rows[rows.length - 1].timestamp;
+    const tied = await db.worldEvents.where('[worldId+timestamp]')
+      .equals([worldId, boundary])
+      .filter(event => event.userId === userId)
+      .toArray();
+    rows = [...rows.filter(event => event.timestamp > boundary), ...tied];
+  }
+  return rows.sort((a, b) => b.timestamp - a.timestamp || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).slice(0, limit);
 }
 
 /** 数据库类型 → 用户能读懂的一句话（§46：不显示数据库类型） */
@@ -65,7 +94,7 @@ export async function buildTimeline(params: {
   const limit = Math.max(1, params.limit ?? 120);
 
   const [events, facts, scenes, relEvents, diaries] = await Promise.all([
-    worldEventRepo.getRecent(worldId, 200, userId),
+    recentTimelineEvents(userId, worldId),
     worldFactRepo.listByWorld(worldId, { userId }),
     worldSceneRepo.listScenes(worldId, { limit: 50, userId }),
     relationshipRepo.listEventsByWorld(worldId, 200, userId),
@@ -87,6 +116,7 @@ export async function buildTimeline(params: {
       timestamp: event.timestamp,
       names: namesOf(event.participants),
       importance: event.importance,
+      record: { kind: 'event', id: event.id, revision: event.updatedAt },
     });
   }
 
@@ -99,6 +129,7 @@ export async function buildTimeline(params: {
       timestamp: rel.createdAt,
       names: rel.subjects.filter((s) => s.startsWith('c:')).map((s) => nameOf(s.slice(2))),
       importance: 0.6,
+      record: { kind: 'relationship', id: rel.id, revision: rel.createdAt },
     });
   }
 
@@ -109,13 +140,15 @@ export async function buildTimeline(params: {
       label: '这个世界记住了',
       title: fact.content,
       timestamp: fact.createdAt,
-      names: fact.visibleTo?.map(nameOf) ?? [],
+      // visibleTo 是知情名单，不是实际参与者。
+      names: [],
       importance: fact.priority,
+      record: { kind: 'fact', id: fact.id, revision: fact.updatedAt },
     });
   }
 
   // 现实生活：只把**用户允许进入世界**的那些放进时间线（private 页永远不出现在这里）
-  for (const diary of diaries as Diary[]) {
+  for (const diary of diaries) {
     if (diary.deletedAt) continue;
     if (!diary.visibility || diary.visibility === 'private') continue;
     items.push({
@@ -127,11 +160,12 @@ export async function buildTimeline(params: {
       timestamp: diary.createdAt,
       names: diary.characterId ? [nameOf(diary.characterId)] : [],
       importance: 0.55,
+      record: { kind: 'diary', id: diary.id, revision: diary.revision ?? diary.updatedAt },
     });
   }
 
   // 尚未被任何事件覆盖的片段（例如"保存为故事"之前的片段）也要在时间线上有一席之地
-  const covered = new Set(scenes.filter((s: WorldScene) => s.worldEventId).map((s) => s.worldEventId));
+  const covered = new Set(events.map(event => event.id));
   for (const scene of scenes) {
     if (scene.worldEventId && covered.has(scene.worldEventId)) continue;
     items.push({
@@ -143,6 +177,7 @@ export async function buildTimeline(params: {
       timestamp: scene.finishedAt ?? scene.updatedAt,
       names: scene.characterIds.map(nameOf),
       importance: 0.5,
+      record: { kind: 'scene', id: scene.id, revision: scene.updatedAt },
     });
   }
 
@@ -153,22 +188,27 @@ export async function buildTimeline(params: {
 
 /** 人话日期（今天 / 昨天 / N 天前 / 具体日期） */
 export function timelineDate(timestamp: number): string {
-  const days = Math.floor((Date.now() - timestamp) / 86_400_000);
+  const d = new Date(timestamp);
+  const now = new Date(Date.now());
+  // 把各自本地年月日投影成日序，避免午夜和夏令时把一天误算成24小时。
+  const days = Math.round((Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+    - Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())) / 86_400_000);
   if (days <= 0) return '今天';
   if (days === 1) return '昨天';
   if (days < 7) return `${days} 天前`;
-  const d = new Date(timestamp);
   return `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
 }
 
 /** 按"天"分组（时间线渲染用；不显示数据库结构） */
-export function groupByDay(items: TimelineItem[]): { label: string; items: TimelineItem[] }[] {
-  const groups: { label: string; items: TimelineItem[] }[] = [];
+export function groupByDay(items: TimelineItem[]): { key: string; label: string; items: TimelineItem[] }[] {
+  const groups: { key: string; label: string; items: TimelineItem[] }[] = [];
   for (const item of items) {
+    const date = new Date(item.timestamp);
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     const label = timelineDate(item.timestamp);
     const last = groups[groups.length - 1];
-    if (last && last.label === label) last.items.push(item);
-    else groups.push({ label, items: [item] });
+    if (last && last.key === key) last.items.push(item);
+    else groups.push({ key, label, items: [item] });
   }
   return groups;
 }

@@ -1,16 +1,21 @@
-import { avatarImageSrc } from '../../lib/avatar';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { liveQuery } from 'dexie';
 import { GeneGlyph } from '../ui/GeneGlyph';
 import { useChatStore } from '../../store/chat-store';
 import { useAuthStore } from '../../store/auth-store';
 import { characterRepo } from '../../db/character-repo';
 import { categorizeTag, CATEGORY_LABELS, CATEGORY_ORDER, type TagCategory } from '../../lib/tag-categories';
-import { getInitial, getSortKey, INDEX_LETTERS } from '../../lib/pinyin';
+import { getInitial, getSortKey } from '../../lib/pinyin';
+import { Icon } from '../ui/Icon';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
 import { IS_MOBILE } from '../../lib/platform';
 import { CharacterProfileModal } from './CharacterProfileModal';
 import { FusionModal } from './FusionModal';
+import { CharacterPortrait } from './CharacterCover';
+import { useGeneProfileHandoff } from './useGeneProfileHandoff';
 import type { Character } from '../../db/index';
 import { ensureOwnedChatCharacter } from '../../lib/character-chat';
+import '../../styles/gene-library.css';
 
 interface GenePoolTabProps {
   onSelect: (character: Character) => void;
@@ -23,22 +28,15 @@ type ViewMode = 'grid' | 'az';
 
 const FILTERS: { key: FilterTab; label: string }[] = [
   { key: 'all', label: '全部' },
-  { key: 'preset', label: '预设基因' },
-  { key: 'shared', label: '共享基因' },
+  { key: 'preset', label: '预设' },
+  { key: 'shared', label: '共享' },
   { key: 'mine', label: '我的' },
 ];
 
-function getBadge(char: Character, userId: string, cloned: boolean) {
-  if (cloned || !char.isPreset && char.createdBy === userId && char.sourcePresetId) {
-    return { text: '已添加', className: 'bg-life-cyan/15 text-life-cyan' };
-  }
-  if (char.isPreset) {
-    return { text: '预设基因', className: 'bg-gene-purple/20 text-gene-purple' };
-  }
-  if (char.published && char.createdBy !== userId) {
-    return { text: '共享基因', className: 'bg-amber-500/20 text-amber-400' };
-  }
-  return { text: '自定义基因', className: 'bg-life-cyan/10 text-life-cyan' };
+function sourceLabel(character: Character, userId: string) {
+  if (character.isPreset) return '预设';
+  if (character.createdBy === userId) return '我的';
+  return '共享';
 }
 
 export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps) {
@@ -47,94 +45,101 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
   const [catFilter, setCatFilter] = useState<CatFilter>('all');
   const [view, setView] = useState<ViewMode>('az');
   const [poolCharacters, setPoolCharacters] = useState<Character[]>([]);
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [reload, setReload] = useState(0);
   const [profileChar, setProfileChar] = useState<Character | null>(null);
   const [showFusion, setShowFusion] = useState(false);
+  const [returningId, setReturningId] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const profileOwner = useRef('');
   const selectedCharacterId = useChatStore((s) => s.selectedCharacterId);
   const selectCharacter = useChatStore((s) => s.selectCharacter);
   const userId = useAuthStore((s) => s.userId) ?? '';
-  /** 手机端屏幕小：强制列表视图，不用网格（微信/QQ 通讯录式） */
+  const { open: openHandoff, returnToCard, invalidate: invalidateHandoff } = useGeneProfileHandoff(userId);
   const effectiveView: ViewMode = IS_MOBILE ? 'az' : view;
 
-  // The gene pool is independent of the sidebar: it also surfaces others'
-  // published characters (which are hidden from the left sidebar).
+  // Read the catalog once per load, never once per card or verification.
   useEffect(() => {
     let alive = true;
-    characterRepo.getAll().then((all) => {
-      if (alive) setPoolCharacters(all);
+    setLoadState('loading');
+    setPoolCharacters([]);
+    void characterRepo.getAll().then((all) => {
+      if (!alive || (useAuthStore.getState().userId ?? '') !== userId) return;
+      setPoolCharacters(all);
+      setLoadState('ready');
+    }).catch(() => {
+      if (alive && (useAuthStore.getState().userId ?? '') === userId) setLoadState('error');
     });
-    return () => {
-      alive = false;
-    };
-  }, []);
+    return () => { alive = false; };
+  }, [userId, reload]);
 
-  const poolBase = poolCharacters.filter(
-    (c) => c.isPreset || c.published || c.createdBy === userId,
-  );
+  useEffect(() => {
+    setProfileChar(null);
+    setShowFusion(false);
+  }, [userId]);
 
-  /** 我的克隆映射：sourcePresetId → 我的克隆 id（用于预设上标记"已添加"） */
+  useEffect(() => {
+    if (!profileChar) return;
+    const characterId = profileChar.id;
+    // Watch only the open resource by primary key, never rescan the catalog.
+    const subscription = liveQuery(() => characterRepo.getById(characterId)).subscribe({
+      next: (source) => {
+        if (useAuthStore.getState().userId !== userId || source && (source.isPreset || source.published || source.createdBy === userId)) return;
+        invalidateHandoff();
+        setPoolCharacters((rows) => rows.filter((row) => row.id !== characterId));
+      },
+      error: () => { invalidateHandoff(); },
+    });
+    return () => subscription.unsubscribe();
+  }, [profileChar, userId, invalidateHandoff]);
+
+  useEffect(() => {
+    if (!returningId) return;
+    const timer = window.setTimeout(() => setReturningId(''), 850);
+    return () => window.clearTimeout(timer);
+  }, [returningId]);
+
+  const poolBase = useMemo(() => poolCharacters.filter(
+    (c) => c.agentProfile !== 'secretary' && (c.isPreset || c.published || c.createdBy === userId),
+  ), [poolCharacters, userId]);
+
   const mineBySource = useMemo(() => {
     const map = new Map<string, string>();
-    for (const c of poolCharacters) {
-      if (c.createdBy === userId && c.sourcePresetId) map.set(c.sourcePresetId, c.id);
+    for (const c of poolBase) {
+      if (!c.isPreset && c.createdBy === userId && c.sourcePresetId) map.set(c.sourcePresetId, c.id);
     }
     return map;
-  }, [poolCharacters, userId]);
+  }, [poolBase, userId]);
+  const visibleResourceIds = useMemo(() => new Set(
+    poolBase.filter((c) => c.isPreset || c.published && c.createdBy !== userId).map((c) => c.id),
+  ), [poolBase, userId]);
 
-  const preFiltered = (() => {
-    switch (filter) {
-      case 'preset':
-        return poolBase.filter((c) => c.isPreset);
-      case 'shared':
-        return poolBase.filter((c) => c.published && !c.isPreset && c.createdBy !== userId);
-      case 'mine':
-        return poolBase.filter((c) => c.createdBy === userId && !c.isPreset);
-      default:
-        return poolBase;
-    }
-  })();
-
-  const catFiltered =
-    catFilter === 'all'
-      ? preFiltered
-      : preFiltered.filter((c) => c.tags.some((t) => categorizeTag(t) === catFilter));
-
-  const filtered = catFiltered
-    .filter(
-      (c) =>
-        c.name.includes(query) ||
-        c.tags.some((t) => t.includes(query)) ||
-        c.systemPrompt.includes(query),
-    )
-    .filter((c) => {
-      // 防重复（修复"加了一个人在基因实验室出现两遍"）：
-      // 我的克隆（带 sourcePresetId）只在「我的」分类里展示；
-      // 全部/预设视图里由对应预设代表，预设上标记「已添加」。
-      if (c.createdBy === userId && c.sourcePresetId && filter !== 'mine') return false;
-      return true;
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return poolBase.filter((c) => {
+      if (filter === 'preset' && !c.isPreset) return false;
+      if (filter === 'shared' && (!c.published || c.isPreset || c.createdBy === userId)) return false;
+      if (filter === 'mine' && (c.createdBy !== userId || c.isPreset)) return false;
+      // A withdrawn resource must not hide the account's surviving private copy.
+      if (filter !== 'mine' && c.createdBy === userId && c.sourcePresetId && visibleResourceIds.has(c.sourcePresetId)) return false;
+      if (catFilter !== 'all' && !c.tags.some((tag) => categorizeTag(tag) === catFilter)) return false;
+      return !needle || [c.name, c.signature, c.systemPrompt, ...c.tags].some((value) => value?.toLocaleLowerCase().includes(needle));
     });
+  }, [poolBase, filter, userId, visibleResourceIds, catFilter, query]);
 
   const grouped = useMemo(() => {
-    const sorted = [...filtered].sort((a, b) =>
-      getSortKey(a.name).localeCompare(getSortKey(b.name)),
-    );
+    const sorted = [...filtered].sort((a, b) => getSortKey(a.name).localeCompare(getSortKey(b.name)));
     const map = new Map<string, Character[]>();
     for (const c of sorted) {
       const letter = getInitial(c.name);
-      const arr = map.get(letter) ?? [];
-      arr.push(c);
-      map.set(letter, arr);
+      const characters = map.get(letter) ?? [];
+      characters.push(c);
+      map.set(letter, characters);
     }
-    const letters = [...map.keys()].sort((a, b) => {
-      if (a === '#') return 1;
-      if (b === '#') return -1;
-      return a.localeCompare(b);
-    });
-    return letters.map((letter) => ({ letter, chars: map.get(letter)! }));
+    return [...map.keys()].sort((a, b) => a === '#' ? 1 : b === '#' ? -1 : a.localeCompare(b))
+      .map((letter) => ({ letter, chars: map.get(letter)! }));
   }, [filtered]);
-
-  const presentLetters = useMemo(() => new Set(grouped.map((g) => g.letter)), [grouped]);
 
   const handleChat = async (character: Character) => {
     const target = await ensureOwnedChatCharacter(character, userId);
@@ -145,239 +150,112 @@ export function GenePoolTab({ onSelect, singleScroll = false }: GenePoolTabProps
     onSelect(target);
   };
 
-  const scrollToLetter = (letter: string) => {
+  const getScroller = () => {
     const container = listRef.current;
-    const el = groupRefs.current[letter];
-    if (!container || !el) return;
-    const scroller = IS_MOBILE && singleScroll ? container.closest<HTMLElement>('[data-modal-scroll]') : container;
-    if (scroller) scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - (singleScroll ? 56 : 0);
+    return IS_MOBILE && singleScroll ? container?.closest<HTMLElement>('[data-modal-scroll]') : container;
   };
 
-  return (
-    <div className="space-y-4">
-      {/* Search + view toggle */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <svg
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
-            viewBox="0 0 16 16"
-            fill="none"
-          >
-            <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.2" />
-            <path d="M11 11L14.5 14.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-          </svg>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="搜索基因序列"
-            placeholder="搜索基因序列..."
-            className="vg-text-field w-full pl-10 pr-4 py-2.5 text-sm"
-          />
-        </div>
-        {/* 视图切换（手机端屏幕小，强制列表视图，隐藏网格切换） */}
-        {!IS_MOBILE && (
-        <div className="flex shrink-0 bg-surface rounded-lg p-0.5 border border-line">
-          <button
-            onClick={() => setView('grid')}
-            className={`px-2.5 py-1 rounded-md text-xs transition-colors ${
-              view === 'grid' ? 'bg-gene-purple text-white' : 'text-gray-500 hover:text-sub'
-            }`}
-          >
-            网格
-          </button>
-          <button
-            onClick={() => setView('az')}
-            className={`px-2.5 py-1 rounded-md text-xs transition-colors ${
-              view === 'az' ? 'bg-gene-purple text-white' : 'text-gray-500 hover:text-sub'
-            }`}
-          >
-            A-Z
-          </button>
-        </div>
-        )}
-      </div>
+  const openProfile = (character: Character, card: HTMLButtonElement) => {
+    openHandoff(character.id, card, getScroller());
+    profileOwner.current = userId;
+    setReturningId('');
+    setProfileChar(character);
+  };
 
-      {/* 基因融合入口 */}
-      <button
-        onClick={() => setShowFusion(true)}
-        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gene-purple/30 bg-gene-purple/8 text-gene-purple text-xs font-medium hover:bg-gene-purple/15 transition-colors"
-      >
-        <GeneGlyph size={18} /> 基因融合 · 杂交出新的数字灵魂
-      </button>
+  const closeProfile = () => {
+    const id = profileChar?.id;
+    returnToCard();
+    setProfileChar(null);
+    if (id) setReturningId(id);
+  };
 
-      {/* Source filter tabs */}
-      <div className="flex gap-1.5">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setFilter(f.key)}
-            className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
-              filter === f.key
-                ? 'bg-gene-purple/20 text-gene-purple'
-                : 'text-gray-500 hover:text-sub hover:bg-surface'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+  const scrollToLetter = (letter: string) => {
+    const scroller = getScroller();
+    const group = groupRefs.current[letter];
+    if (!scroller || !group) return;
+    const tabsHeight = IS_MOBILE && singleScroll ? scroller.querySelector('.vg-character-editor-tabs')?.getBoundingClientRect().height ?? 56 : 0;
+    scroller.scrollTop += group.getBoundingClientRect().top - scroller.getBoundingClientRect().top - tabsHeight;
+  };
 
-      {/* Tag category filter */}
-      <div className="flex gap-1.5">
-        {(['all', ...CATEGORY_ORDER] as CatFilter[]).map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setCatFilter(cat)}
-            className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
-              catFilter === cat
-                ? 'bg-life-cyan/15 text-life-cyan'
-                : 'text-gray-500 hover:text-sub hover:bg-surface'
-            }`}
-          >
-            {cat === 'all' ? '全部' : CATEGORY_LABELS[cat]}
-          </button>
-        ))}
-      </div>
+  const clearFilters = () => { setQuery(''); setFilter('all'); setCatFilter('all'); };
+  const hasFilters = !!query.trim() || filter !== 'all' || catFilter !== 'all';
 
-      {/* Results */}
-      {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-          <GeneGlyph size={40} className="mb-3 text-[color:var(--vg-accent)]" />
-          <span className="text-sm">未找到匹配的基因序列</span>
-        </div>
-      ) : effectiveView === 'grid' ? (
-        <div className="grid grid-cols-2 gap-3 max-h-[45vh] overflow-y-auto pr-1">
-          {filtered.map((char) => {
-            const isSelected = char.id === selectedCharacterId;
-            const isShared = char.published && !char.isPreset && char.createdBy !== userId;
-            const badge = getBadge(char, userId, mineBySource.has(char.id));
-            return (
-              <button
-                key={char.id}
-                onClick={() => setProfileChar(char)}
-                className={`relative text-left p-4 rounded-xl border transition-all hover:bg-surface ${
-                  isSelected
-                    ? 'border-gene-purple bg-gene-purple/10'
-                    : 'border-line'
-                }`}
-              >
-                {isSelected && (
-                  <span className="absolute top-2 right-2 text-gene-purple text-xs">✓</span>
-                )}
-                <div className="flex items-start gap-3">
-                  {avatarImageSrc(char.avatar) ? (
-                    <img src={avatarImageSrc(char.avatar)} alt={char.name} className="w-9 h-9 rounded-lg object-cover shrink-0" />
-                  ) : (
-                    <span className="text-3xl shrink-0">{char.avatar}</span>
-                  )}
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-ink truncate">{char.name}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${badge.className}`}>
-                        {badge.text}
-                      </span>
-                    </div>
-                    {char.signature && (
-                      <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">{char.signature}</p>
-                    )}
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {char.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="text-xs px-1.5 py-0.5 rounded bg-surface text-gray-400"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                    {isShared && (
-                      <span className="inline-block mt-2 text-xs text-life-cyan">
-                        ⧉ 点击查看档案
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="flex gap-1">
-          <div ref={listRef} className={`flex-1 min-w-0 pr-1 ${IS_MOBILE && singleScroll ? '' : 'max-h-[45vh] overflow-y-auto'}`}>
-            {grouped.map((group) => (
-              <div
-                key={group.letter}
-                ref={(el) => {
-                  groupRefs.current[group.letter] = el;
-                }}
-              >
-                <div className="px-2 pt-3 pb-1 text-xs font-semibold text-life-cyan">
-                  {group.letter}
-                </div>
-                {group.chars.map((char) => {
-                  const isSelected = char.id === selectedCharacterId;
-                  const badge = getBadge(char, userId, mineBySource.has(char.id));
-                  return (
-                    <button
-                      key={char.id}
-                      onClick={() => setProfileChar(char)}
-                      className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-left transition-colors hover:bg-surface ${
-                        isSelected ? 'bg-gene-purple/10' : ''
-                      }`}
-                    >
-                      {avatarImageSrc(char.avatar) ? (
-                        <img src={avatarImageSrc(char.avatar)} alt={char.name} className="w-8 h-8 rounded-lg object-cover shrink-0" />
-                      ) : (
-                        <span className="text-xl shrink-0">{char.avatar}</span>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-ink truncate">{char.name}</span>
-                          <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${badge.className}`}>
-                            {badge.text}
-                          </span>
-                        </div>
-                        {char.signature && (
-                          <p className="text-xs text-gray-500 truncate mt-0.5">{char.signature}</p>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
+  const renderCard = (character: Character) => {
+    const added = mineBySource.has(character.id) || !character.isPreset && character.createdBy === userId && !!character.sourcePresetId;
+    const ownedId = mineBySource.get(character.id) ?? character.id;
+    return <button
+      key={character.id}
+      type="button"
+      className="vg-gene-card"
+      data-selected={ownedId === selectedCharacterId || undefined}
+      data-returning={returningId === character.id || undefined}
+      onClick={(event) => openProfile(character, event.currentTarget)}
+      aria-label={`查看${character.name}的角色档案，${sourceLabel(character, userId)}${added ? '，已添加' : ''}`}
+    >
+      <span className="vg-gene-portrait" aria-hidden="true">
+        <CharacterPortrait character={character} className="vg-gene-portrait-visual" soulRole="list" />
+      </span>
+      <span className="vg-gene-card-copy">
+        <span className="vg-gene-card-heading">
+          <span className="vg-gene-name">{character.name}</span>
+          <span className="vg-gene-source">{sourceLabel(character, userId)}</span>
+        </span>
+        {character.signature && <span className="vg-gene-signature">{character.signature}</span>}
+        <span className="vg-gene-card-meta">
+          <span className="vg-gene-tags">
+            {character.tags.slice(0, 2).map((tag, index) => <span key={`${tag}:${index}`} className="vg-gene-tag">{tag}</span>)}
+            {character.tags.length > 2 && <span className="vg-gene-tag-count" aria-label={`另有 ${character.tags.length - 2} 个标签`}>+{character.tags.length - 2}</span>}
+          </span>
+          {added && <span className="vg-gene-added"><Icon name="check" size={12} />已添加</span>}
+        </span>
+      </span>
+    </button>;
+  };
 
-          {/* Letter index bar */}
-          <div className="shrink-0 self-start sticky top-16 flex flex-col justify-center gap-0.5 text-xs text-gray-500">
-            {INDEX_LETTERS.map((l) => (
-              <button
-                key={l}
-                onClick={() => scrollToLetter(l)}
-                className={`w-4 h-4 flex items-center justify-center rounded transition-colors ${
-                  presentLetters.has(l)
-                    ? 'text-life-cyan hover:bg-life-cyan/10'
-                    : 'text-gray-600/40'
-                }`}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {profileChar && (
-        <CharacterProfileModal
-          character={profileChar}
-          userId={userId}
-          onClose={() => setProfileChar(null)}
-          onChat={handleChat}
-        />
-      )}
-
-      {showFusion && <FusionModal onClose={() => setShowFusion(false)} />}
+  return <div className="vg-gene-library" data-gene-library tabIndex={-1}>
+    <div className="vg-gene-heading">
+      <div><h3>基因库</h3><p>发现与创造角色</p></div>
+      <button type="button" onClick={() => setShowFusion(true)} className="vg-gene-tool"><GeneGlyph size={19} /><span>融合角色</span></button>
     </div>
-  );
+    <div className="vg-gene-search-row">
+      <div className="vg-gene-search">
+        <Icon name="search" size={18} />
+        <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="搜索角色名字、签名或标签" placeholder="搜索名字、签名、标签…" className="vg-text-field" />
+      </div>
+      {!IS_MOBILE && <div className="vg-gene-view" role="group" aria-label="目录视图">
+        <button type="button" aria-pressed={view === 'grid'} onClick={() => setView('grid')}>网格</button>
+        <button type="button" aria-pressed={view === 'az'} onClick={() => setView('az')}>A–Z</button>
+      </div>}
+    </div>
+    <div className="vg-gene-sources" role="group" aria-label="基因来源">
+      {FILTERS.map((item) => <button key={item.key} type="button" aria-pressed={filter === item.key} onClick={() => setFilter(item.key)}>{item.label}</button>)}
+    </div>
+    <div className="vg-gene-filter-line">
+      <span className="vg-gene-result-count" role="status" aria-live="polite">{loadState === 'ready' ? `${filtered.length} 位角色` : loadState === 'loading' ? '正在读取角色' : '读取未完成'}</span>
+      <details className="vg-gene-filters">
+        <summary>特质筛选{catFilter !== 'all' && <span> · {CATEGORY_LABELS[catFilter]}</span>}<Icon name="chevron" size={14} /></summary>
+        <div className="vg-gene-filter-options" role="group" aria-label="角色特质">
+          {(['all', ...CATEGORY_ORDER] as CatFilter[]).map((category) => <button key={category} type="button" aria-pressed={catFilter === category} onClick={() => setCatFilter(category)}>{category === 'all' ? '全部特质' : CATEGORY_LABELS[category]}</button>)}
+        </div>
+      </details>
+      {hasFilters && <button className="vg-gene-clear" type="button" onClick={clearFilters}>清除</button>}
+    </div>
+
+    {loadState === 'loading' ? <div className="vg-gene-empty" role="status"><GeneGlyph size={30} /><p>正在读取角色目录…</p></div>
+      : loadState === 'error' ? <FeedbackNotice tone="error" message="角色目录暂时无法读取，筛选条件已保留。"><button type="button" className="vg-button vg-button-secondary" onClick={() => setReload((value) => value + 1)}>重新读取</button></FeedbackNotice>
+      : filtered.length === 0 ? <div className="vg-gene-empty"><GeneGlyph size={32} /><p>{hasFilters ? '没有找到符合条件的角色' : '这里还没有角色'}</p><span>{hasFilters ? '换个名字或特质，再找找看。' : '创建角色，或通过融合开始新的相遇。'}</span>{hasFilters && <button type="button" className="vg-button vg-button-secondary" onClick={clearFilters}>清除筛选</button>}</div>
+      : effectiveView === 'grid' ? <div ref={listRef} className="vg-gene-grid">{filtered.map(renderCard)}</div>
+      : <div className="vg-gene-directory">
+        <div ref={listRef} className="vg-gene-list" data-single-scroll={IS_MOBILE && singleScroll || undefined}>
+          {grouped.map((group) => <div key={group.letter} className="vg-gene-group" ref={(element) => { groupRefs.current[group.letter] = element; }}>
+            <div className="vg-gene-letter" aria-label={`${group.letter} 开头`}><span>{group.letter}</span></div>
+            <div className="vg-gene-group-cards">{group.chars.map(renderCard)}</div>
+          </div>)}
+        </div>
+        <nav className="vg-gene-index" aria-label="按字母定位角色">{grouped.map(({ letter }) => <button key={letter} type="button" aria-label={`定位到 ${letter} 开头的角色`} onClick={() => scrollToLetter(letter)}>{letter}</button>)}</nav>
+      </div>}
+
+    {profileChar && profileOwner.current === userId && <CharacterProfileModal character={profileChar} userId={userId} onClose={closeProfile} onChat={handleChat} />}
+    {showFusion && <FusionModal sourceCharacters={poolBase} onClose={() => setShowFusion(false)} onSaved={() => setReload((value) => value + 1)} />}
+  </div>;
 }

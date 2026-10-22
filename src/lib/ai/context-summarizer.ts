@@ -1,5 +1,5 @@
 import { taskChat, taskUsesGateway } from './task-client';
-import { boundAuxiliaryHistory } from './history-window';
+import {isCompleteSummaryHistory} from '../../../server/summary-history-policy.mjs';
 import { gatewayAux } from './gateway';
 import { MEMORY_SOURCE_POLICY, memorySpeaker } from '../../../server/memory-source-policy.mjs';
 
@@ -20,7 +20,7 @@ const SUMMARY_PROMPT =
 
 export interface SummarizeParams {
   apiKey: string;
-  history: { role: string; content: string; userAuthored?: boolean }[];
+  history: { role: string; content: string; userAuthored?: boolean; groupMember?:boolean }[];
   previousSummary?: string;
   /** 用户明确要求长期保留的事实；压缩时必须带上，不能被旧对话截断丢掉。 */
   protectedMemories?: string[];
@@ -56,7 +56,8 @@ export function buildLocalFallbackSummary(history: SummarizeParams['history'], p
 
 export async function summarizeContext(params: SummarizeParams): Promise<SummarizeResult> {
   const { apiKey } = params;
-  const history = boundAuxiliaryHistory(params.history);
+  if (!isCompleteSummaryHistory(params.history)) return {complete:false,error:'invalid_summary_batch'};
+  const history = params.history;
   const previousSummary = params.previousSummary?.trim().slice(0, 2_500) ?? '';
   const protectedMemories = [...new Set((params.protectedMemories ?? [])
     .map((item) => item.trim().replace(/\s+/g, ' ').slice(0, 180))
@@ -72,7 +73,7 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
     { role: 'system', content: SUMMARY_PROMPT },
     {
       role: 'user',
-      content: '请压缩以下早期对话，并与之前的压缩摘要合并：\n\n' + history.map((m) => `${memorySpeaker(m.role, m.userAuthored)}: ${m.content}`).join('\n') + protectedBlock + previousBlock,
+      content: '请压缩以下早期对话，并与之前的压缩摘要合并：\n\n' + history.map((m) => `${m.groupMember?'群成员：':''}${memorySpeaker(m.role, m.userAuthored)}: ${m.content}`).join('\n') + protectedBlock + previousBlock,
     },
   ];
 
@@ -80,6 +81,7 @@ export async function summarizeContext(params: SummarizeParams): Promise<Summari
 
   try {
     const result = await taskChat({ apiKey, messages, maxTokens: 1600, temperature: .3, disableThinking: true, timeoutMs: 30_000 });
+    if (result.truncated) return {summary:buildLocalFallbackSummary(history,previousSummary,protectedMemories),complete:false};
     const text = result.content;
     const summary = text.trim();
     if (summary.length > 2_400) return { summary: buildLocalFallbackSummary(history, previousSummary, protectedMemories), complete: false };

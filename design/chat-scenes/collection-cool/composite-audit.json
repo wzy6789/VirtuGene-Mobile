@@ -1,0 +1,320 @@
+{
+  "snow-study": {
+    "cameraMatchesSourceMetadata": true,
+    "losslessPngReconstruction": {
+      "meanAbsRgb": 0.0,
+      "maxAbsChannel": 0,
+      "p95": 0,
+      "p99": 0,
+      "p999": 0,
+      "fractionChannelsOver16": 0.0,
+      "rgbDifferenceBBox": null
+    },
+    "native2160VsComposite": {
+      "meanAbsRgb": 0.48113114872685186,
+      "maxAbsChannel": 141,
+      "p95": 2,
+      "p99": 6,
+      "p999": 14,
+      "fractionChannelsOver16": 0.0007190393518518519,
+      "rgbDifferenceBBox": [
+        0,
+        0,
+        1440,
+        3200
+      ]
+    },
+    "uncompressedForegroundVisibility": {
+      "casing": {
+        "visibleLayerPixels": 158867,
+        "coveredTargetPixelsOutsideVisibility": 0
+      },
+      "foreground": {
+        "visibleLayerPixels": 19170,
+        "coveredTargetPixelsOutsideVisibility": 0
+      },
+      "table": {
+        "visibleLayerPixels": 458680,
+        "coveredTargetPixelsOutsideVisibility": 0
+      }
+    },
+    "quality": {
+      "1080": {
+        "actualLayerModes": {
+          "casing": "RGBA",
+          "foreground": "RGBA",
+          "table": "RGBA"
+        },
+        "staticDepth": {
+          "casing": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          },
+          "foreground": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          },
+          "table": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          }
+        },
+        "posterVsActualReconstruction": {
+          "meanAbsRgb": 0.30804810474537037,
+          "maxAbsChannel": 37,
+          "p95": 2,
+          "p99": 4,
+          "p999": 8,
+          "fractionChannelsOver16": 4.0436921296296296e-05,
+          "rgbDifferenceBBox": [
+            0,
+            0,
+            1440,
+            3200
+          ]
+        },
+        "opaqueForegroundWindowIntersections": {
+          "casing": 0,
+          "foreground": 0,
+          "table": 0
+        },
+        "reconstruction": "design/chat-scenes/collection-cool/snow-study/webp-1080-reconstruction.png"
+      },
+      "1440": {
+        "actualLayerModes": {
+          "casing": "RGBA",
+          "foreground": "RGBA",
+          "table": "RGBA"
+        },
+        "staticDepth": {
+          "casing": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          },
+          "foreground": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          },
+          "table": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          }
+        },
+        "posterVsActualReconstruction": {
+          "meanAbsRgb": 0.28654108796296296,
+          "maxAbsChannel": 32,
+          "p95": 2,
+          "p99": 3,
+          "p999": 6,
+          "fractionChannelsOver16": 1.0923032407407407e-05,
+          "rgbDifferenceBBox": [
+            0,
+            0,
+            1440,
+            3200
+          ]
+        },
+        "opaqueForegroundWindowIntersections": {
+          "casing": 0,
+          "foreground": 0,
+          "table": 0
+        },
+        "reconstruction": "design/chat-scenes/collection-cool/snow-study/webp-1440-reconstruction.png"
+      }
+    },
+    "sourceSha256": "da3073a6f518256be83133722ee4446c2f7448944dc766ccbd9d1a304a435422",
+    "posterCompositeSha256": "da2ffc2fb7b4249686e430e9ca3446fbac941479b2774fb3963dfc9626f1be8e",
+    "comparisonPolicy": "No alignment/colour correction. PNG exact; WebP lossy and independently sampled native2160 are metric comparisons, not pixel equality.",
+    "tolerances": {
+      "source": {
+        "meanAbsRgb": 1.5,
+        "p99": 12,
+        "fractionChannelsOver16": 0.005
+      },
+      "webp": {
+        "meanAbsRgb": 1,
+        "p99": 8,
+        "fractionChannelsOver16": 0.001
+      }
+    },
+    "androidGpuValidation": false,
+    "negativeControls": {
+      "oneRgbPixelChangeDetected": true,
+      "missingActualTableRejected": true,
+      "missingTableDifference": {
+        "meanAbsRgb": 5.507320963541666,
+        "maxAbsChannel": 210,
+        "p95": 46,
+        "p99": 122,
+        "p999": 175,
+        "fractionChannelsOver16": 0.08044849537037037,
+        "rgbDifferenceBBox": [
+          0,
+          1741,
+          1440,
+          2754
+        ]
+      }
+    },
+    "manifestAndAllLayerDepthRulesAgree": true
+  },
+  "mist-coast": {
+    "cameraMatchesSourceMetadata": true,
+    "losslessPngReconstruction": {
+      "meanAbsRgb": 0.0,
+      "maxAbsChannel": 0,
+      "p95": 0,
+      "p99": 0,
+      "p999": 0,
+      "fractionChannelsOver16": 0.0,
+      "rgbDifferenceBBox": null
+    },
+    "native2160VsComposite": {
+      "meanAbsRgb": 0.4230862268518519,
+      "maxAbsChannel": 87,
+      "p95": 2,
+      "p99": 4,
+      "p999": 14,
+      "fractionChannelsOver16": 0.0007409577546296296,
+      "rgbDifferenceBBox": [
+        0,
+        0,
+        1440,
+        3200
+      ]
+    },
+    "uncompressedForegroundVisibility": {
+      "casing": {
+        "visibleLayerPixels": 96541,
+        "coveredTargetPixelsOutsideVisibility": 0
+      },
+      "foreground": {
+        "visibleLayerPixels": 143823,
+        "coveredTargetPixelsOutsideVisibility": 0
+      },
+      "table": {
+        "visibleLayerPixels": 246134,
+        "coveredTargetPixelsOutsideVisibility": 0
+      }
+    },
+    "quality": {
+      "1080": {
+        "actualLayerModes": {
+          "casing": "RGBA",
+          "foreground": "RGBA",
+          "table": "RGBA"
+        },
+        "staticDepth": {
+          "casing": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          },
+          "foreground": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          },
+          "table": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          }
+        },
+        "posterVsActualReconstruction": {
+          "meanAbsRgb": 0.3957195457175926,
+          "maxAbsChannel": 40,
+          "p95": 2,
+          "p99": 4,
+          "p999": 10,
+          "fractionChannelsOver16": 0.00024602141203703705,
+          "rgbDifferenceBBox": [
+            0,
+            0,
+            1440,
+            3200
+          ]
+        },
+        "opaqueForegroundWindowIntersections": {
+          "casing": 0,
+          "foreground": 0,
+          "table": 0
+        },
+        "reconstruction": "design/chat-scenes/collection-cool/mist-coast/webp-1080-reconstruction.png"
+      },
+      "1440": {
+        "actualLayerModes": {
+          "casing": "RGBA",
+          "foreground": "RGBA",
+          "table": "RGBA"
+        },
+        "staticDepth": {
+          "casing": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          },
+          "foreground": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          },
+          "table": {
+            "depthFactor": 0,
+            "maxOffsetPx": 0
+          }
+        },
+        "posterVsActualReconstruction": {
+          "meanAbsRgb": 0.3116867042824074,
+          "maxAbsChannel": 15,
+          "p95": 2,
+          "p99": 3,
+          "p999": 5,
+          "fractionChannelsOver16": 0.0,
+          "rgbDifferenceBBox": [
+            0,
+            0,
+            1440,
+            3200
+          ]
+        },
+        "opaqueForegroundWindowIntersections": {
+          "casing": 0,
+          "foreground": 0,
+          "table": 0
+        },
+        "reconstruction": "design/chat-scenes/collection-cool/mist-coast/webp-1440-reconstruction.png"
+      }
+    },
+    "sourceSha256": "fdfaa648386e11ed89dbc967230a2469848974e8ae0f31cb051c6ff82dfc2c02",
+    "posterCompositeSha256": "f0bd8b5a2644daf282a640fbcafc1b11ff8e4076ca65630a4c060c4598f893c9",
+    "comparisonPolicy": "No alignment/colour correction. PNG exact; WebP lossy and independently sampled native2160 are metric comparisons, not pixel equality.",
+    "tolerances": {
+      "source": {
+        "meanAbsRgb": 1.5,
+        "p99": 12,
+        "fractionChannelsOver16": 0.005
+      },
+      "webp": {
+        "meanAbsRgb": 1,
+        "p99": 8,
+        "fractionChannelsOver16": 0.001
+      }
+    },
+    "androidGpuValidation": false,
+    "negativeControls": {
+      "oneRgbPixelChangeDetected": true,
+      "missingActualTableRejected": true,
+      "missingTableDifference": {
+        "meanAbsRgb": 4.3246473524305555,
+        "maxAbsChannel": 216,
+        "p95": 11,
+        "p99": 130,
+        "p999": 192,
+        "fractionChannelsOver16": 0.04842136863425926,
+        "rgbDifferenceBBox": [
+          0,
+          1625,
+          680,
+          2527
+        ]
+      }
+    },
+    "manifestAndAllLayerDepthRulesAgree": true
+  }
+}

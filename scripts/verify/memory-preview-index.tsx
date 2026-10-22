@@ -1,0 +1,72 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {db} from '../../src/db';
+import {memoryRepo} from '../../src/db/memory-repo';
+import {MemoryArchiveModal} from '../../src/components/character/MemoryArchiveModal';
+import {useAuthStore} from '../../src/store/auth-store';
+
+const hash=async(value:unknown)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value))))).map(v=>v.toString(16).padStart(2,'0')).join('');
+const until=async(test:()=>boolean)=>{for(let i=0;i<100;i++){if(test())return;await new Promise(resolve=>setTimeout(resolve,20));}throw Error('UI state timeout');};
+Object.assign(window,{memoryPreviewChecks:async()=>{
+  const checks:string[]=[];const check=(ok:boolean,name:string)=>{if(!ok)throw Error(name);checks.push(name);};
+  await db.open();
+  check(db.verno===45,'production VirtuGeneDB opens at v45');
+  const after=await db.memories.toArray(),before=(window as any).memoryPreviewBefore;
+  check(JSON.stringify(before)===JSON.stringify(after),'v44 to v45 index-only upgrade preserves all memory JSON');
+  const beforeHash=await hash(before),afterHash=await hash(after);
+  check(beforeHash===afterHash,'SHA-256 hashes match before and after upgrade');
+  const core=db.memories.core,query=core.query.bind(core),cursor=core.openCursor.bind(core);
+  let bodies=0,cursorBodies=0;const indexes:string[]=[];
+  core.query=async request=>{const result=await query(request);if(request.values){bodies+=result.result.length;indexes.push(request.query.index.name??'primary');}return result;};
+  core.openCursor=async request=>{const result=await cursor(request);if(result&&request.values){const start=result.start.bind(result);result.start=callback=>start(()=>{cursorBodies++;callback();});}return result;};
+  await db.memories.where('characterId').equals('a').toArray();
+  const legacyCandidateBodies=bodies+cursorBodies;
+  check(legacyCandidateBodies===6010,'old characterId candidate query materializes 6010 bodies including 6000 unrelated account records');
+  bodies=0;cursorBodies=0;indexes.length=0;
+  let ancillaryCalls=0;const restoreAncillary:(()=>void)[]=[];
+  for(const name of ['memoryClaims','memoryKnowledge','memoryJobs','memoryEvidence','sessions','messages','memorySourceTombstones']){
+    const table=db.table(name).core;
+    for(const method of ['query','getMany'] as const){const original=table[method].bind(table);(table as any)[method]=(request:unknown)=>{ancillaryCalls++;return original(request as any);};restoreAncillary.push(()=>{(table as any)[method]=original;});}
+  }
+  const recent=await memoryRepo.getArchivePreviewByCharacter('a','u');
+  const boundedBodies=bodies+cursorBodies;
+  check(boundedBodies===6,'preview materializes exactly six matching memory bodies');
+  check(indexes.every(name=>name==='[userId+characterId+createdAt+id]'),'preview uses compound owner-role-time-id index');
+  check(recent.map(m=>m.id).join(',')==='a-09,a-08,a-07,a-06,a-05,a-04','same timestamp sorts deterministically by descending id');
+  check(recent.every(m=>m.userId==='u'&&m.characterId==='a'),'other accounts and roles excluded');
+  check(recent[0].status==='superseded'&&!recent[0].pinned,'detached pinned aggregate is projected retired in saved preview');
+  check((await db.memories.get('a-09'))?.status==='active','preview retirement projection does not rewrite source/ledger records');
+  check(ancillaryCalls===0,'bounded preview performs zero claim/job/evidence/session/message/tombstone queries');
+  bodies=0;cursorBodies=0;
+  check(!(await memoryRepo.getArchivePreviewByCharacter('missing','u')).length&&bodies+cursorBodies===0,'zero-match preview materializes zero unrelated bodies');
+  restoreAncillary.forEach(restore=>restore());
+  core.query=query;core.openCursor=cursor;
+  await db.memories.update('a-08',{content:'edited-in-current-account'});
+  check((await memoryRepo.getArchivePreviewByCharacter('a','u')).some(m=>m.content==='edited-in-current-account'),'fresh edits visible without cache');
+  await db.memories.update('a-08',{characterId:'b'});
+  check(!(await memoryRepo.getArchivePreviewByCharacter('a','u')).some(m=>m.id==='a-08')&&(await memoryRepo.getArchivePreviewByCharacter('b','u')).some(m=>m.id==='a-08'),'role transfer moves index membership');
+  await db.memories.delete('a-07');
+  check(!(await memoryRepo.getArchivePreviewByCharacter('a','u')).some(m=>m.id==='a-07'),'deletion reflected immediately');
+  try{await db.transaction('rw',db.memories,async()=>{await db.memories.update('a-06',{characterId:'b'});throw Error('rollback');});}catch{}
+  check((await memoryRepo.getArchivePreviewByCharacter('a','u')).some(m=>m.id==='a-06'),'rollback preserves original membership');
+  useAuthStore.setState({userId:'u'});
+  const character=(await db.characters.get('a'))!;
+  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+  root.render(<MemoryArchiveModal open embedded onClose={()=>undefined} onManage={()=>undefined} userId="u" character={character}/>);
+  await until(()=>host.textContent?.includes('saved-content-a-06')===true);
+  check(!host.querySelector('[aria-label="记忆分类"]'),'embedded saved preview has no misleading partial classification');
+  await db.memories.update('a-06',{content:'ui-live-edit'});
+  await until(()=>host.textContent?.includes('ui-live-edit')===true);
+  check(true,'production embedded component refreshes after edits');
+  await db.memories.delete('a-06');
+  await until(()=>host.textContent?.includes('ui-live-edit')===false);
+  check(true,'production embedded component removes deleted records');
+  await db.characters.update('a',{createdBy:'v'});
+  await until(()=>host.textContent?.includes('记忆暂时没有读取到')===true);
+  check(!host.textContent?.includes('saved-content-a-05'),'ownership revocation clears private preview');
+  useAuthStore.setState({userId:'v'});
+  await until(()=>host.textContent==='');
+  check(true,'account change unmounts private preview content');
+  root.unmount();await db.delete();
+  return {complete:true,scope:'Isolated desktop Chrome synthetic IndexedDB; no private database, model, microphone or Android timing',seedRows:before.length,beforeHash,afterHash,legacyCandidateBodies,boundedBodies,ancillaryCalls,checks};
+}});

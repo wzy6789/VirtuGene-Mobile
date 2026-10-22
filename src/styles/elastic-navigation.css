@@ -1,0 +1,27 @@
+/* Position, material, and hit targets are separate layers. Only the middle layer deforms. */
+.vg-elastic-tabs{position:relative;isolation:isolate;display:flex;align-items:stretch;gap:4px;padding:4px;border-radius:20px;border:1px solid var(--vg-glass-edge);background:var(--vg-glass-control-bg);box-shadow:var(--vg-glass-shadow);touch-action:pan-y;min-width:0}
+.vg-elastic-tabs.hidden{display:none}
+.vg-elastic-position{position:absolute;left:0;top:4px;bottom:4px;pointer-events:none;z-index:0;border-radius:16px}
+.vg-elastic-material{position:absolute;inset:0;border-radius:inherit;border:1px solid var(--vg-glass-edge);background:linear-gradient(145deg,var(--vg-glass-selection-light,var(--vg-glass-highlight)),transparent 54%),var(--vg-glass-selection-bg,var(--vg-glass-content-bg));box-shadow:inset 0 1px 0 var(--vg-glass-highlight),0 3px 10px var(--vg-glass-contact);transform-origin:center;pointer-events:none}
+.vg-elastic-tab{position:relative;z-index:1;display:flex;flex:1 1 0;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:44px;padding:7px 10px;border-radius:16px;border:0;background:transparent;color:var(--text-secondary);font-size:13px;line-height:1.4;font-weight:500;touch-action:pan-y;-webkit-tap-highlight-color:transparent}
+.vg-elastic-tab[aria-selected=true],.vg-elastic-tab[aria-current=page]{color:var(--vg-accent)}
+.vg-elastic-tab:disabled{opacity:.45}
+.vg-elastic-tab:focus-visible{outline:2px solid var(--vg-accent);outline-offset:-3px}
+.vg-conversation-channels{margin:0 16px 10px;flex-shrink:0}
+.vg-conversation-channels .vg-elastic-tab{min-height:44px;padding-inline:5px}
+.vg-conversation-channels .vg-elastic-tab::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;opacity:0}
+.vg-conversation-channels .vg-elastic-tab[aria-selected=true]::before{opacity:.8}
+.mobile-layout .vg-navigation.vg-elastic-tabs{gap:4px;padding:4px 8px calc(4px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)));border-radius:24px 24px 0 0;border:1px solid var(--vg-glass-edge);border-bottom:0;background:var(--vg-glass-control-bg);box-shadow:var(--vg-glass-shadow)}
+/* Root destinations float above their real scene; secondary pages retain their dock. */
+.mobile-layout[data-floating-navigation] .vg-navigation.vg-elastic-tabs{position:absolute;z-index:20;inset:auto 12px calc(10px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)));margin:0;padding:4px 6px;border:1px solid var(--vg-glass-edge);border-radius:26px;background:var(--vg-glass-control-sheen),var(--vg-glass-content-bg);box-shadow:inset 0 1px 0 var(--vg-glass-highlight),0 8px 24px var(--vg-glass-contact);backdrop-filter:var(--vg-glass-sample);-webkit-backdrop-filter:var(--vg-glass-sample)}
+.mobile-layout[data-floating-navigation] .vg-navigation .vg-elastic-position{border-radius:21px}
+.mobile-layout[data-floating-navigation] .vg-navigation .vg-nav-tab{border-radius:21px}
+.mobile-layout[data-floating-navigation] :is(.vg-conversation-scroll,.vg-gallery-scroll,.vg-personal-space,.vg-world-page.vg-world-page){padding-bottom:calc(100px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)));scroll-padding-bottom:calc(100px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))}
+.mobile-layout .vg-navigation.vg-elastic-tabs .vg-nav-tab{height:56px;min-height:56px;padding:4px 2px;touch-action:pan-y;overflow:visible}
+.vg-navigation.vg-elastic-tabs .vg-elastic-position{height:56px;bottom:auto;border-radius:18px}
+.mobile-layout .vg-navigation.vg-elastic-tabs .vg-nav-tab:active .vg-nav-icon{transform:translateY(-1px)}
+.mobile-layout .vg-navigation.vg-elastic-tabs .vg-nav-tab[data-touch-pressed]::after{transform:scale(.98);border-radius:18px}
+@supports(backdrop-filter:blur(1px)){
+ .vg-elastic-material{backdrop-filter:none;-webkit-backdrop-filter:none}
+}
+:root[data-vg-transparency=solid] .vg-elastic-material{backdrop-filter:none;-webkit-backdrop-filter:none}

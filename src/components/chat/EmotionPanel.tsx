@@ -1,619 +1,140 @@
-import { useEffect, useState } from 'react';
-import { Icon } from '../ui/Icon';
-import { useEmotionStore } from '../../store/emotion-store';
-import { useChatStore } from '../../store/chat-store';
-import { useCharacterStateStore } from '../../store/character-state-store';
+﻿import { useEffect, useId, useState } from 'react';
+import { liveQuery } from 'dexie';
+import { db, type Character, type EmotionDimensions, type EmotionSnapshot, type Session } from '../../db';
+import { emotionRepo } from '../../db/emotion-repo';
 import { useAuthStore } from '../../store/auth-store';
-import { useRipple } from '../../lib/ripple';
-import { diaryRepo } from '../../db/diary-repo';
-import { moodEmoji as diaryMoodEmoji, moodColor as diaryMoodColor } from '../../lib/diary-utils';
-import { EmotionChart } from './EmotionChart';
-import { GeneGlyph } from '../ui/GeneGlyph';
-import { EmotionCurve } from './EmotionCurve';
-import { getRelationLevel, levelProgress } from '../../lib/affinity';
-import { messageRepo } from '../../db/message-repo';
-import { memoryRepo } from '../../db/memory-repo';
-import { useResizable } from '../../hooks/useResizable';
-import { IS_MOBILE } from '../../lib/platform';
-import type { EmotionDimensions, MemoryItem } from '../../db/index';
+import { useChatStore } from '../../store/chat-store';
+import { useEmotionStore } from '../../store/emotion-store';
+import { Icon } from '../ui/Icon';
+import '../../styles/character-detail.css';
 
-const PANEL_DEFAULT = IS_MOBILE
-  ? Math.min(360, typeof window !== 'undefined' ? window.innerWidth : 360)
-  : 320;
-const PANEL_MIN = 300;
-const PANEL_MAX = 420;
-
-const DIM_LABELS: { key: keyof EmotionDimensions; label: string }[] = [
-  { key: 'valence', label: '愉悦度' },
-  { key: 'arousal', label: '唤醒度' },
-  { key: 'intimacy', label: '亲密度' },
-  { key: 'engagement', label: '投入度' },
-  { key: 'expressiveness', label: '外显度' },
-  { key: 'stability', label: '稳定度' },
+const DIMENSIONS: { key: keyof EmotionDimensions; label: string }[] = [
+  { key: 'valence', label: '愉悦度' }, { key: 'arousal', label: '唤醒度' },
+  { key: 'intimacy', label: '亲密度' }, { key: 'engagement', label: '投入度' },
+  { key: 'expressiveness', label: '外显度' }, { key: 'stability', label: '稳定度' },
 ];
 
-function getValenceBadgeClass(valence: number) {
-  if (valence >= 7.5) return 'bg-life-cyan/15 text-life-cyan border-life-cyan/25';
-  if (valence >= 5) return 'bg-amber-500/15 text-amber-400 border-amber-500/25';
-  if (valence >= 2.5) return 'bg-orange-500/15 text-orange-400 border-orange-500/25';
-  return 'bg-red-500/15 text-red-400 border-red-500/25';
+/** Snapshots have no owner field; their private session and role establish scope. */
+export function isEmotionSessionScope(character: Character | undefined, session: Session | undefined, owner: string, characterId: string): boolean {
+  return !!owner && !!character && character.id === characterId && !character.isPreset && character.createdBy === owner
+    && !!session && session.userId === owner && session.characterId === characterId && session.type !== 'group';
+}
+export function scopeEmotionSnapshots(rows: EmotionSnapshot[], characterId: string, sessionId: string): EmotionSnapshot[] {
+  return rows.filter(row => row.characterId === characterId && row.sessionId === sessionId && Number.isFinite(new Date(row.createdAt).getTime()))
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+function recordedValue(snapshot: EmotionSnapshot, key: keyof EmotionDimensions): number | undefined {
+  const value = snapshot.dimensions?.[key];
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 10 ? value : undefined;
+}
+function recordTime(value: number): string {
+  return new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+interface EmotionPanelProps {
+  embedded?: boolean; section?: 'emotion' | 'relation'; character?: Character; userId?: string; sessionId?: string | null;
 }
 
-function deltaArrow(current: number, previous: number) {
-  const diff = current - previous;
-  if (diff >= 0.5) return { arrow: '↑', color: 'text-life-cyan' };
-  if (diff <= -0.5) return { arrow: '↓', color: 'text-amber-400' };
-  return { arrow: '→', color: 'text-gray-500' };
+/** Opening this reader never initiates analysis, diary reads or memory extraction. */
+export function EmotionPanel({ embedded = false, character: suppliedCharacter, userId: suppliedOwner, sessionId }: EmotionPanelProps = {}) {
+  const owner = useAuthStore(state => state.userId);
+  const panelOpen = useEmotionStore(state => state.isPanelOpen);
+  const characterId = useChatStore(state => state.selectedCharacterId);
+  const currentSessionId = useChatStore(state => state.currentSessionId);
+  const characters = useChatStore(state => state.characters);
+  const character = suppliedCharacter ?? characters.find(row => row.id === characterId);
+  const userId = suppliedOwner ?? owner;
+  const explicitScope = suppliedCharacter !== undefined || suppliedOwner !== undefined;
+  const requestedSession = explicitScope ? sessionId ?? null : currentSessionId;
+  if ((!embedded && !panelOpen) || !character || !userId || owner !== userId) return null;
+  if (character.isPreset || character.createdBy !== userId) return <p className="vg-detail-empty">私人情绪记录仅在你自己的角色详情中显示。</p>;
+  return <ScopedEmotionPanel key={`${userId}:${character.id}:${requestedSession ?? 'choose'}`} character={character} userId={userId} requestedSession={requestedSession} embedded={embedded}/>;
 }
 
-function formatTime(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60000) return '刚刚';
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`;
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
-  const d = new Date(ts);
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
-}
-
-/** 随机抽 3 片记忆碎片（Fisher-Yates 洗牌） */
-function pickShards(list: MemoryItem[]): MemoryItem[] {
-  if (list.length === 0) return [];
-  const arr = [...list];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr.slice(0, 3);
-}
-
-/** 记忆碎片文艺化：以"我"的视角呈现（记忆里存的"用户"即我自己） */
-function poeticize(content: string): string {
-  return content.replace(/用户/g, '我').replace(/\s+/g, ' ').trim();
-}
-
-/** 碎玻璃片：不规则多边形（clip-path），错落旋转 + 裂纹 + 磨砂微光 */
-const SHARD_PATHS = [
-  'polygon(10% 0%, 90% 4%, 100% 38%, 92% 78%, 96% 100%, 30% 96%, 4% 74%, 0% 30%)',
-  'polygon(6% 8%, 88% 0%, 100% 44%, 82% 92%, 40% 100%, 8% 78%, 0% 40%)',
-  'polygon(12% 2%, 94% 10%, 98% 50%, 86% 100%, 20% 96%, 2% 60%)',
-];
-
-function GlassShard({ text, time, variant }: { text: string; time: string; variant: number }) {
-  return (
-    <div
-      className={`relative ${variant % 2 === 0 ? 'rotate-[-1.8deg]' : 'rotate-[1.6deg]'} ${variant === 1 ? 'ml-3' : variant === 2 ? '-ml-1' : ''}`}
-      style={{
-        clipPath: SHARD_PATHS[variant % SHARD_PATHS.length],
-        filter: 'drop-shadow(0 3px 8px rgba(108,92,231,0.30))',
-      }}
-    >
-      <div className="relative px-4 py-3 bg-gradient-to-br from-white/[0.08] via-gene-purple/[0.06] to-life-cyan/[0.09]">
-        {/* 裂纹线（碎片裂开的细缝） */}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-50" viewBox="0 0 100 60" preserveAspectRatio="none">
-          <polyline points="22,0 28,16 18,32 26,60" stroke="#ffffff" strokeOpacity="0.28" strokeWidth="0.7" fill="none" />
-          <polyline points="72,0 66,20 76,38 70,60" stroke="#ffffff" strokeOpacity="0.22" strokeWidth="0.6" fill="none" />
-        </svg>
-        <p className="text-xs text-ink/90 leading-relaxed italic line-clamp-2">「{text}」</p>
-        <p className="text-[12px] text-gray-500 mt-1 tabular-nums">✦ {time}</p>
-      </div>
-    </div>
-  );
-}
-
-function moodColor(mood: number): string {
-  if (mood >= 75) return '#00CEC9';
-  if (mood >= 50) return '#FBBF24';
-  if (mood >= 25) return '#FB923C';
-  return '#F87171';
-}
-
-function valenceDotClass(valence: number) {
-  if (valence >= 7.5) return 'bg-life-cyan shadow-[0_0_6px_rgba(0,206,201,0.6)]';
-  if (valence >= 5) return 'bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.6)]';
-  if (valence >= 2.5) return 'bg-orange-400 shadow-[0_0_6px_rgba(251,146,60,0.6)]';
-  return 'bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.6)]';
-}
-
-/** 分区小标题（统一克制风格） */
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <p className="text-[12px] tracking-[0.2em] text-gray-500 uppercase">{children}</p>;
-}
-
-export function EmotionPanel({ embedded = false, section }: { embedded?: boolean; section?: 'emotion' | 'relation' } = {}) {
-  const panelOpen = useEmotionStore((s) => s.isPanelOpen);
-  const isPanelOpen = embedded || panelOpen;
-  const isAnalyzing = useEmotionStore((s) => s.isAnalyzing);
-  const analysisError = useEmotionStore((s) => s.analysisError);
-  const storedSnapshot = useEmotionStore((s) => s.currentSnapshot);
-  const storedPrevious = useEmotionStore((s) => s.previousSnapshot);
-  const storedSnapshots = useEmotionStore((s) => s.snapshots);
-  const closePanel = useEmotionStore((s) => s.closePanel);
-  const analyzeCurrentSession = useEmotionStore((s) => s.analyzeCurrentSession);
-  const loadSessionSnapshots = useEmotionStore((s) => s.loadSessionSnapshots);
-  const ripple = useRipple();
-
-  const selectedCharacterId = useChatStore((s) => s.selectedCharacterId);
-  const currentSessionId = useChatStore((s) => s.currentSessionId);
-  const currentSnapshot = storedSnapshot?.characterId === selectedCharacterId && storedSnapshot.sessionId === currentSessionId ? storedSnapshot : null;
-  const previousSnapshot = storedPrevious?.characterId === selectedCharacterId && storedPrevious.sessionId === currentSessionId ? storedPrevious : null;
-  const snapshots = storedSnapshots.filter(s => s.characterId === selectedCharacterId && s.sessionId === currentSessionId);
-  const characters = useChatStore((s) => s.characters);
-  const messages = useChatStore((s) => s.messages);
-  const affinity = useCharacterStateStore((s) => s.characterId === selectedCharacterId ? s.affinity : 0);
-  const mood = useCharacterStateStore((s) => s.characterId === selectedCharacterId ? s.mood : 70);
-  const stateCharacterId = useCharacterStateStore((s) => s.characterId);
-  const storedMilestones = useCharacterStateStore((s) => s.milestones);
-  const storedTierNames = useCharacterStateStore((s) => s.tierNames);
-  const milestones = stateCharacterId === selectedCharacterId ? storedMilestones : [];
-  const tierNames = stateCharacterId === selectedCharacterId ? storedTierNames : {};
-  const renameTier = useCharacterStateStore((s) => s.renameTier);
-  const userId = useAuthStore((s) => s.userId) ?? '';
-
-  /** 对话统计（真值来自 DB，避免只统计内存中已加载的分页消息） */
-  const [stats, setStats] = useState<{ count: number; days: number }>({ count: 0, days: 0 });
-  /** 记忆结晶（该角色的回忆录） */
-  const [memories, setMemories] = useState<MemoryItem[]>([]);
-  /** 随机抽出的 3 片记忆碎片（可刷新） */
-  const [shards, setShards] = useState<MemoryItem[]>([]);
-  /** 记忆碎片加载中（避免"过一瞬间才蹦出来"的突兀感） */
-  const [memoriesLoading, setMemoriesLoading] = useState(false);
-  /** 共同时间线（我们的故事） */
-  /** 等阶名编辑 */
-  const [renamingTier, setRenamingTier] = useState(false);
-  const [tierNameInput, setTierNameInput] = useState('');
-
-  /** 我的心情（来自日记，最近 7 天） */
-  const [myMoods, setMyMoods] = useState<{ date: string; mood: number }[]>([]);
+type SnapshotRead = { sessionId: string | null; status: 'loading' | 'ready' | 'unavailable' | 'error'; session?: Session; snapshots: EmotionSnapshot[] };
+function ScopedEmotionPanel({ character, userId, requestedSession, embedded }: { character: Character; userId: string; requestedSession: string | null; embedded: boolean }) {
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionsStatus, setSessionsStatus] = useState<'loading' | 'ready' | 'unavailable' | 'error'>('loading');
+  const [selectedSession, setSelectedSession] = useState<string | null>(requestedSession);
+  const [read, setRead] = useState<SnapshotRead>({ sessionId: requestedSession, status: 'loading', snapshots: [] });
+  const [retry, setRetry] = useState(0);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<string | null>(null);
+  const [dimension, setDimension] = useState<keyof EmotionDimensions>('valence');
+  const selectorId = useId();
 
   useEffect(() => {
-    if (!isPanelOpen || !userId || section) return;
-    let alive = true;
-    diaryRepo
-      .getByUser(userId)
-      .then((diaries) => {
-        if (!alive) return;
-        const sorted = [...diaries].sort((a, b) => a.date.localeCompare(b.date));
-        setMyMoods(sorted.slice(-7).map((d) => ({ date: d.date, mood: d.mood ?? 3 })));
-      })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, [isPanelOpen, userId, section]);
+    let active = true;
+    setSessionsStatus('loading'); setSessions([]);
+    const subscription = liveQuery(() => db.transaction('r', db.characters, db.sessions, async () => {
+      if (useAuthStore.getState().userId !== userId) return undefined;
+      const role = await db.characters.get(character.id);
+      if (!role || role.isPreset || role.createdBy !== userId) return undefined;
+      return (await db.sessions.where('[characterId+userId]').equals([character.id, userId]).toArray())
+        .filter(row => row.userId === userId && row.characterId === character.id && row.type !== 'group').sort((a, b) => b.updatedAt - a.updatedAt);
+    })).subscribe({ next: rows => {
+      if (!active || useAuthStore.getState().userId !== userId) return;
+      setSessions(rows ?? []); setSessionsStatus(rows ? 'ready' : 'unavailable');
+    }, error: () => { if (active && useAuthStore.getState().userId === userId) { setSessions([]); setSessionsStatus('error'); } } });
+    return () => { active = false; subscription.unsubscribe(); };
+  }, [character.id, userId, retry]);
 
-  // 对话统计真值：消息总数 / 相识天数（按第一条消息；不依赖内存分页）
   useEffect(() => {
-    if (!isPanelOpen || !currentSessionId) return;
-    let alive = true;
-    void messageRepo.countBySession(currentSessionId).then((count) => {
-      if (alive) setStats((s) => ({ ...s, count }));
-    });
-    void messageRepo.getFirst(currentSessionId).then((first) => {
-      if (alive) {
-        setStats((s) => ({
-          ...s,
-          days: first ? Math.max(1, Math.floor((Date.now() - first.createdAt) / 86400000) + 1) : 0,
-        }));
-      }
-    });
-    return () => { alive = false; };
-  }, [isPanelOpen, currentSessionId]);
+    let active = true;
+    setSelectedSnapshot(null);
+    setRead({ sessionId: selectedSession, status: 'loading', snapshots: [] });
+    if (!selectedSession) return;
+    const subscription = liveQuery(() => db.transaction('r', db.characters, db.sessions, db.emotionSnapshots, async (): Promise<SnapshotRead> => {
+      const unavailable: SnapshotRead = { sessionId: selectedSession, status: 'unavailable', snapshots: [] };
+      if (useAuthStore.getState().userId !== userId) return unavailable;
+      const [role, session] = await Promise.all([db.characters.get(character.id), db.sessions.get(selectedSession)]);
+      if (!isEmotionSessionScope(role, session, userId, character.id)) return unavailable;
+      const rows = await emotionRepo.getBySession(selectedSession);
+      if (useAuthStore.getState().userId !== userId) return unavailable;
+      return { sessionId: selectedSession, status: 'ready', session, snapshots: scopeEmotionSnapshots(rows, character.id, selectedSession) };
+    })).subscribe({ next: value => { if (active && useAuthStore.getState().userId === userId) setRead(value); }, error: () => {
+      if (active && useAuthStore.getState().userId === userId) setRead({ sessionId: selectedSession, status: 'error', snapshots: [] });
+    } });
+    return () => { active = false; subscription.unsubscribe(); };
+  }, [character.id, userId, selectedSession, retry]);
 
-  // 记忆结晶：该角色的回忆录（新→旧）；每次随机回忆 3 片
-  useEffect(() => {
-    if (!isPanelOpen || !selectedCharacterId || !userId || section) return;
-    let alive = true;
-    setMemoriesLoading(true);
-    void memoryRepo.getByCharacter(selectedCharacterId, userId).then((list) => {
-      if (alive) {
-        const sorted = [...list].reverse();
-        setMemories(sorted);
-        setShards(pickShards(sorted));
-      }
-    }).catch(() => { if (alive) { setMemories([]); setShards([]); } }).finally(() => {
-      if (alive) setMemoriesLoading(false);
-    });
-    return () => { alive = false; };
-  }, [isPanelOpen, selectedCharacterId, userId, section]);
-
-  const { width, startDrag } = useResizable({
-    initial: PANEL_DEFAULT,
-    min: PANEL_MIN,
-    max: PANEL_MAX,
-    reverse: true,
-  });
-
-  const character = characters.find((c) => c.id === selectedCharacterId);
-
-  const relation = getRelationLevel(affinity);
-  const progress = levelProgress(affinity, relation.level, relation.next);
-  // 等阶显示名：用户自定义 > 默认（100+ 等阶可随便改名）
-  const levelName = tierNames[relation.level.name] ?? relation.level.name;
-  const nextName = relation.next ? (tierNames[relation.next.name] ?? relation.next.name) : null;
-
-  // Load snapshots when session changes
-  useEffect(() => {
-    if (currentSessionId && isPanelOpen) {
-      loadSessionSnapshots(currentSessionId);
-    }
-  }, [currentSessionId, isPanelOpen, loadSessionSnapshots]);
-
-  const handleAnalyze = () => {
-    if (!selectedCharacterId || !currentSessionId || !character) return;
-    analyzeCurrentSession(selectedCharacterId, currentSessionId, character.name);
-  };
-
-  // Select a history snapshot for preview
-  const handleSelectSnapshot = (snapshot: typeof currentSnapshot) => {
-    if (!snapshot) return;
-    const idx = snapshots.findIndex((s) => s.id === snapshot.id);
-    const prev = idx >= 0 && idx + 1 < snapshots.length ? snapshots[idx + 1] : null;
-    useEmotionStore.setState({ currentSnapshot: snapshot, previousSnapshot: prev });
-  };
-
-  // A closed panel should not render charts and timelines during chat updates.
-  if (!isPanelOpen) return null;
-
-  return (
-    <div
-      className={`vg-emotion-panel h-full flex flex-col bg-app border-l border-line shrink-0 overflow-hidden ${
-        embedded ? 'relative' : IS_MOBILE ? 'absolute inset-0 z-40' : 'relative'
-      }`}
-      style={{ width: embedded || IS_MOBILE ? '100%' : width }}
-    >
-      {isPanelOpen && !embedded && !IS_MOBILE && (
-        <div
-          onMouseDown={startDrag}
-          className="absolute inset-y-0 left-0 w-1.5 cursor-col-resize hover:bg-gene-purple/30 transition-colors z-10"
-        />
-      )}
-      <div className="flex flex-col h-full min-w-0">
-        {/* Header */}
-        {!embedded && <div className="min-h-20 flex items-center justify-between px-5 border-b border-line shrink-0">
-          <span className="text-sm font-medium text-ink">
-            <span className="vg-eyebrow block mb-2">INNER LANDSCAPE</span>
-            {character ? `${character.name} 的情绪图谱` : '情绪图谱'}
-          </span>
-          <button
-            onClick={closePanel}
-            aria-label="关闭情绪图谱"
-            className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-sub hover:bg-surface transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
+  const validRead = read.sessionId === selectedSession && sessionsStatus === 'ready' && sessions.some(session => session.id === selectedSession);
+  const snapshots = validRead && read.status === 'ready' ? read.snapshots : [];
+  const snapshot = snapshots.find(row => row.id === selectedSnapshot) ?? snapshots[0];
+  const chronological = [...snapshots].reverse();
+  const first = chronological[0], latest = snapshots[0];
+  const trendLabel = DIMENSIONS.find(row => row.key === dimension)!.label;
+  const range = first && latest ? `${recordTime(first.createdAt)} — ${recordTime(latest.createdAt)}` : '';
+  const domain = latest && first ? Math.max(1, latest.createdAt - first.createdAt) : 1;
+  return <section className={`vg-emotion-panel vg-detail-emotion${embedded ? ' is-embedded' : ''}`} data-vg-surface-mode="long-form" aria-label={`${character.name}的情绪详情`}>
+    {!embedded && <header className="vg-detail-emotion-heading"><h3>这段对话的表达</h3><button type="button" aria-label="关闭情绪详情" onClick={() => useEmotionStore.getState().closePanel()}><Icon name="close" size={18}/></button></header>}
+    {!requestedSession && <div className="vg-detail-session"><label htmlFor={selectorId}>选择分析范围</label><select id={selectorId} value={selectedSession ?? ''} disabled={sessionsStatus !== 'ready'} onChange={event => setSelectedSession(event.target.value || null)}><option value="">选择一段已有会话</option>{sessions.map(session => <option value={session.id} key={session.id}>{session.title || '未命名会话'}</option>)}</select></div>}
+    {sessionsStatus === 'loading' ? <p role="status" className="vg-detail-empty">正在读取可访问会话…</p>
+      : sessionsStatus === 'error' ? <div className="vg-detail-empty"><p role="alert">会话目录暂未读到。</p><button type="button" onClick={() => setRetry(value => value + 1)}>重新读取</button></div>
+      : sessionsStatus === 'unavailable' ? <p className="vg-detail-empty">角色资料已不可用，私人记录已收起。</p>
+      : !selectedSession ? <p className="vg-detail-empty">{sessions.length ? '选择一段会话后，查看其中留存的情绪记录。不同会话分别展示。' : '还没有可查看的私聊会话。'}</p>
+      : read.sessionId !== selectedSession || read.status === 'loading' ? <p role="status" className="vg-detail-empty">正在读取这段会话的记录…</p>
+      : read.status === 'error' ? <div className="vg-detail-empty"><p role="alert">情绪记录暂未读到，已有记录没有改动。</p><button type="button" onClick={() => setRetry(value => value + 1)}>重新读取</button></div>
+      : !validRead || read.status === 'unavailable' ? <p className="vg-detail-empty">这段会话已不可用，或不属于当前角色。</p>
+      : <>
+        <p className="vg-detail-scope">分析范围：{read.session?.title || '未命名会话'} · {snapshots.length} 条留存记录</p>
+        {!snapshot ? <p className="vg-detail-empty">还没有足够记录。</p> : <>
+          <article className="vg-detail-emotion-summary"><div className="vg-detail-record-heading"><h4>{snapshot.id === latest?.id ? '这段对话的表达' : '当时的对话表达'}</h4><time dateTime={new Date(snapshot.createdAt).toISOString()}>{recordTime(snapshot.createdAt)}</time></div>
+            <strong>{snapshot.dominantEmotion?.trim() || '未记录情绪短语'}</strong><p>{snapshot.summary?.trim() || '这条记录没有摘要。'}</p>
+            <small>分析对象：{character.name} · {Number.isFinite(snapshot.messageCount) ? `当时 ${snapshot.messageCount} 条消息` : '当时消息数量未记录'} · 由对话推测，并非心理诊断</small>
+            {snapshot.messageCount < 4 && <p className="vg-detail-scope">当时的对话较少，这条理解可能不够准确。</p>}
+            {snapshot.userEmotion?.trim() && <details className="vg-detail-disclosure"><summary>对你情绪的理解 · 推测</summary><p>{snapshot.userEmotion}</p><small>与角色表达及日记自评分别记录。</small></details>}
+            {snapshot.id !== latest?.id && <button type="button" className="vg-detail-text-action" onClick={() => setSelectedSnapshot(null)}>返回最近记录</button>}
+          </article>
+          <details className="vg-detail-disclosure vg-detail-trend"><summary>查看会话趋势<span>{snapshots.length} 个实际样本</span></summary>
+            <p className="vg-detail-scope">留存范围：{range}。仅展示现有快照；稀疏处留空，不代表完整对话历史。</p>
+            <label className="vg-detail-dimension-select">显示维度<select value={dimension} onChange={event => setDimension(event.target.value as keyof EmotionDimensions)}>{DIMENSIONS.map(item => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>
+            <svg className="vg-detail-trend-chart" viewBox="0 0 320 156" role="group" aria-label={`${trendLabel}，一到十分的实际离散记录`}>
+              <path d="M28 18V132H304" fill="none" stroke="var(--border-strong,var(--border))"/><text x="4" y="26">10</text><text x="12" y="134">1</text>
+              {chronological.map(row => { const value = recordedValue(row, dimension); if (value === undefined) return null; const x = chronological.length === 1 ? 166 : 40 + ((row.createdAt - first.createdAt) / domain) * 252; const y = 132 - ((value - 1) / 9) * 108; return <g key={row.id} role="button" tabIndex={0} aria-label={`${recordTime(row.createdAt)}，${trendLabel} ${value} 分，查看摘要`} aria-pressed={row.id === snapshot.id} onClick={() => setSelectedSnapshot(row.id)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedSnapshot(row.id); } }}><circle cx={x} cy={y} r="16" fill="transparent"/><circle cx={x} cy={y} r={row.id === snapshot.id ? 6 : 4} fill={row.id === snapshot.id ? 'var(--vg-accent)' : 'var(--text-secondary)'}/></g>; })}
             </svg>
-          </button>
-        </div>}
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {/* 灵魂状态总览卡 */}
-          {section !== 'emotion' && <div className="relative overflow-hidden rounded-xl border border-gene-purple/25 bg-gradient-to-br from-gene-purple/12 via-transparent to-life-cyan/10 p-4 space-y-3">
-            <div className="absolute -top-8 -right-8 w-24 h-24 rounded-full bg-gene-purple/20 blur-2xl pointer-events-none" />
-            <div className="absolute -bottom-8 -left-8 w-24 h-24 rounded-full bg-life-cyan/15 blur-2xl pointer-events-none" />
-
-            <div className="relative flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <SectionTitle>灵魂状态</SectionTitle>
-                <div className="flex items-baseline gap-2 mt-1">
-                  {renamingTier ? (
-                    <div className="flex items-center gap-1">
-                      <input
-                        autoFocus
-                        value={tierNameInput}
-                        onChange={(e) => setTierNameInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-                        }}
-                        onBlur={() => {
-                          void renameTier(relation.level.name, tierNameInput);
-                          setRenamingTier(false);
-                        }}
-                        placeholder={relation.level.name}
-                        maxLength={8}
-                        className="w-24 bg-surface border border-gene-purple/40 rounded px-1.5 py-0.5 text-sm text-ink outline-none"
-                      />
-                      <button onClick={() => setRenamingTier(false)} className="text-xs text-gray-400 hover:text-ink">
-                        ✕
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-lg font-bold milestone-level">{levelName}</span>
-                      <button
-                        onClick={() => {
-                          setTierNameInput(tierNames[relation.level.name] ?? relation.level.name);
-                          setRenamingTier(true);
-                        }}
-                        title="改等阶名"
-                        className="shrink-0 w-4 h-4 flex items-center justify-center text-gray-400 hover:text-life-cyan"
-                      >
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                        </svg>
-                      </button>
-                    </div>
-                  )}
-                  <span className="text-xs text-gray-500 truncate">{relation.level.desc}</span>
-                </div>
-                {currentSnapshot && (
-                  <span
-                    className={`inline-flex mt-2 text-xs px-2.5 py-0.5 rounded-full border ${getValenceBadgeClass(currentSnapshot.dimensions.valence)}`}
-                  >
-                    {currentSnapshot.dominantEmotion}
-                  </span>
-                )}
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="text-xs text-gray-500">好感度</p>
-                <p className="text-lg font-semibold tabular-nums text-ink">
-                  {Math.round(affinity)}
-                </p>
-                <div className="mt-1 flex items-center justify-end gap-1.5">
-                  <span className="text-sm tabular-nums font-medium" style={{ color: moodColor(mood) }}>
-                    {Math.round(mood)}
-                  </span>
-                  <span className="text-xs text-gray-500">心情</span>
-                </div>
-              </div>
-            </div>
-
-            {/* 到下一级进度 */}
-            {relation.next ? (
-              <div className="relative">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-gray-500">距离「{nextName}」</span>
-                  <span className="text-xs tabular-nums text-gray-400">{Math.round(progress)}%</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-surface overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-gene-purple to-life-cyan transition-all duration-500 shadow-[0_0_8px_rgba(108,92,231,0.40)]"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="relative text-[12px] text-gray-500">
-                已抵达最终等阶，灵魂同频（好感度仍在增长）
-              </div>
-            )}
-
-            {/* 里程碑时间线 */}
-            {milestones.length > 0 && (
-              <div className="relative space-y-1">
-                <SectionTitle>关系里程碑</SectionTitle>
-                <div className="space-y-0.5">
-                  {milestones.map((m) => (
-                    <div key={m.reachedAt} className="flex items-center justify-between text-xs">
-                      <span className="text-gray-500">进阶为「{tierNames[m.level] ?? m.level}」</span>
-                      <span className="text-gray-400 tabular-nums">{formatTime(m.reachedAt)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 对话统计（真值来自 DB，长会话分页不再虚低） */}
-            <div className="relative grid grid-cols-3 gap-1 pt-2 border-t border-line">
-              <div className="text-center">
-                <div className="text-sm font-semibold tabular-nums text-ink">{stats.count}</div>
-                <div className="text-xs text-gray-500">消息</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm font-semibold tabular-nums text-ink">{stats.days}</div>
-                <div className="text-xs text-gray-500">相识天数</div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm font-semibold tabular-nums text-ink">{snapshots.length}</div>
-                <div className="text-xs text-gray-500">情绪图谱</div>
-              </div>
-            </div>
-
-          </div>}
-
-          {/* 我的心情（日记联动） */}
-          {!section && myMoods.length > 0 && (
-            <div className="rounded-xl bg-surface border border-line p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-gray-500">我的心情（日记）</span>
-                <span className="text-sm">{diaryMoodEmoji(myMoods[myMoods.length - 1].mood)}</span>
-              </div>
-              <div className="flex items-end gap-1.5 h-9">
-                {myMoods.map((m) => (
-                  <div
-                    key={m.date}
-                    className="flex-1 rounded-t transition-all hover:opacity-100"
-                    style={{
-                      height: `${(m.mood / 5) * 100}%`,
-                      backgroundColor: diaryMoodColor(m.mood),
-                      opacity: 0.75,
-                      boxShadow: `0 0 6px ${diaryMoodColor(m.mood)}66`,
-                    }}
-                    title={`${m.date} · ${['很差', '低落', '一般', '开心', '很棒'][m.mood - 1] ?? ''}`}
-                  />
-                ))}
-              </div>
-              <div className="flex justify-between mt-1 text-[12px] text-gray-400">
-                <span>较早</span>
-                <span>最近</span>
-              </div>
-            </div>
-          )}
-
-              {/* 记忆碎片 · 回忆（随机 3 片，可刷新） */}
-              {!section && (memoriesLoading || memories.length > 0) && (
-                <div className="rounded-xl bg-surface border border-line p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">记忆碎片 · 回忆</span>
-                    {!memoriesLoading && (
-                      <button
-                        onClick={() => setShards(pickShards(memories))}
-                        className="text-[12px] text-life-cyan hover:underline flex items-center gap-1"
-                      >
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                          <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
-                        </svg>
-                        随机回忆
-                      </button>
-                    )}
-                  </div>
-                  {memoriesLoading ? (
-                    <div className="flex items-center gap-2 text-xs text-gray-500 py-1.5">
-                      <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 16 16" fill="none">
-                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="20" />
-                      </svg>
-                      正在拾起记忆碎片…
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {shards.map((m, i) => (
-                        <GlassShard key={m.id} text={poeticize(m.content)} time={formatTime(m.createdAt)} variant={i} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-          {/* Analyze button */}
-          {section !== 'relation' && <>
-          <button
-            onClick={handleAnalyze}
-            onPointerDown={ripple.onPointerDown}
-            disabled={isAnalyzing || messages.length === 0}
-            className="vg-emotion-analyze ripple-host w-full py-2.5 rounded-xl bg-gene-purple hover:bg-[#5B4BD4] disabled:opacity-30 disabled:cursor-not-allowed disabled:shadow-none text-sm font-medium text-white transition-all flex items-center justify-center gap-2 shadow-[0_2px_14px_rgba(108,92,231,0.35)]"
-          >
-            {isAnalyzing ? (
-              <>
-                <svg className="animate-spin w-4 h-4" viewBox="0 0 16 16" fill="none">
-                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="20" />
-                </svg>
-                正在解析情绪序列...
-              </>
-            ) : (
-              <><Icon name="spark" size={17} />分析情绪基因</>
-            )}
-          </button>
-
-          {/* Error banner */}
-          {analysisError && (
-            <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-400">
-              <span className="min-w-0 flex-1">{analysisError}</span>
-              <button
-                type="button"
-                onClick={handleAnalyze}
-                disabled={isAnalyzing || messages.length === 0}
-                className="shrink-0 rounded-md border border-red-400/30 px-2 py-1 text-[12px] text-red-300 hover:bg-red-400/10 disabled:opacity-40"
-              >
-                重试
-              </button>
-            </div>
-          )}
-
-          {/* Empty state */}
-          {!currentSnapshot && !isAnalyzing && !analysisError && (
-            <div className="flex flex-col items-center justify-center py-8 text-gray-500">
-              <GeneGlyph size={32} className="mb-2 text-sub" />
-              <span className="text-xs">尚未生成情绪图谱</span>
-              <span className="text-xs text-gray-600 mt-1">点击上方按钮开始分析</span>
-            </div>
-          )}
-
-          {/* Chart + badge + summary */}
-          {currentSnapshot && (
-            <>
-              <SectionTitle>情绪图谱</SectionTitle>
-
-              {/* Low message warning */}
-              {currentSnapshot.messageCount < 4 && (
-                <div className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400">
-                  对话数据较少，分析可能不够准确
-                </div>
-              )}
-
-              {/* Radar chart */}
-              <div className="relative overflow-hidden rounded-[24px] border border-gene-purple/20 bg-panel px-2 py-3 shadow-[0_12px_30px_rgba(63,48,128,0.16)]">
-                <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full border border-life-cyan/15" />
-                <div className="absolute -bottom-10 -left-8 h-28 w-28 rounded-full bg-gene-purple/15 blur-2xl" />
-                <div className="relative flex items-center justify-between px-3">
-                  <span className="text-[12px] tracking-[0.22em] text-life-cyan/75">EMOTIONAL CONSTELLATION</span>
-                  <span className="text-[12px] text-sub">六维情绪坐标</span>
-                </div>
-                <div className="relative flex justify-center">
-                  <EmotionChart
-                    dimensions={currentSnapshot.dimensions}
-                    previousDimensions={previousSnapshot?.dimensions}
-                    size={220}
-                  />
-                </div>
-              </div>
-
-              {/* 愉悦度曲线 */}
-              {snapshots.length >= 2 && (
-                <div className="space-y-1 rounded-2xl border border-line bg-panel/55 px-3 py-3">
-                  <SectionTitle>心情曲线</SectionTitle>
-                  <EmotionCurve snapshots={snapshots} />
-                </div>
-              )}
-
-              {/* The role sheet already shows its emotion and expandable interpretation. */}
-              {!(embedded && section === 'emotion') && <><div className="flex justify-center">
-                <span
-                  className={`text-xs px-3 py-1 rounded-full border ${getValenceBadgeClass(currentSnapshot.dimensions.valence)}`}
-                >
-                  {currentSnapshot.dominantEmotion}
-                </span>
-              </div>
-
-              {/* Summary */}
-              <p className="text-xs text-gray-400 leading-relaxed text-center">
-                {currentSnapshot.summary}
-              </p></>}
-
-              {/* Delta indicators */}
-              {previousSnapshot && (
-                <div className="space-y-1.5">
-                  <SectionTitle>情绪波动追踪</SectionTitle>
-                  {DIM_LABELS.map(({ key, label }) => {
-                    const cur = currentSnapshot.dimensions[key];
-                    const prev = previousSnapshot.dimensions[key];
-                    const { arrow, color } = deltaArrow(cur, prev);
-                    return (
-                      <div key={key} className="flex items-center justify-between text-xs">
-                        <span className="text-gray-500">{label}</span>
-                        <div className="flex items-center gap-1.5 tabular-nums">
-                          <span className="text-gray-400">{cur.toFixed(1)}</span>
-                          <span className={color}>{arrow}</span>
-                          <span className={color}>{Math.abs(cur - prev).toFixed(1)}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* History — 快照卡片流（横向滚动，点击预览） */}
-              {snapshots.length > 1 && (
-                <div className="space-y-1.5">
-                  <SectionTitle>历史图谱</SectionTitle>
-                  <div className="flex gap-2 overflow-x-auto pb-1 snap-x">
-                    {snapshots.slice(1).map((snap) => (
-                      <button
-                        key={snap.id}
-                        onClick={() => handleSelectSnapshot(snap)}
-                        className="snap-start shrink-0 flex flex-col items-center gap-1 px-2.5 py-2 rounded-xl bg-surface border border-line hover:border-life-cyan/40 hover:shadow-[0_0_10px_rgba(0,206,201,0.12)] transition-all"
-                      >
-                        <span className={`w-2 h-2 rounded-full ${valenceDotClass(snap.dimensions.valence)}`} />
-                        <span className="text-[12px] text-gray-500 whitespace-nowrap">{snap.dominantEmotion}</span>
-                        <span className="text-[12px] text-gray-400 whitespace-nowrap">{formatTime(snap.createdAt)}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-          </>}
-        </div>
-      </div>
-    </div>
-  );
+            <div className="vg-detail-snapshot-list" aria-label="会话样本列表">{chronological.map(row => <button key={row.id} type="button" aria-pressed={row.id === snapshot.id} onClick={() => setSelectedSnapshot(row.id)}><time>{recordTime(row.createdAt)}</time><span>{row.dominantEmotion?.trim() || '未记录情绪短语'}</span></button>)}</div>
+          </details>
+          <details className="vg-detail-disclosure"><summary>查看六维分析<span>1—10 分</span></summary><div className="vg-detail-dimensions">{DIMENSIONS.map(item => { const value = recordedValue(snapshot, item.key); return <div key={item.key}><span>{item.label}</span>{value === undefined ? <small>未记录</small> : <><meter min={1} max={10} value={value} aria-label={`${item.label} ${value} 分`}/><output>{value.toFixed(1)}</output></>}</div>; })}</div></details>
+        </>}
+      </>}
+  </section>;
 }

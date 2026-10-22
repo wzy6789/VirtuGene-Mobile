@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "sceneId": "polar-refuge",
+  "designWidth": 1440,
+  "designHeight": 3201.9024970273485,
+  "thumbnail": {
+    "file": "thumbnail.webp",
+    "width": 360,
+    "height": 800,
+    "bytes": 80394,
+    "sha256": "7d6dcbeaaf515f1ef3213569f06bd83810cb0105ef5f4a3802ac7aaa1c2cec08",
+    "decodedRgbaBytes": 1152000
+  },
+  "qualities": {
+    "841": {
+      "poster": {
+        "file": "poster-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 500368,
+        "sha256": "00d2d388486545854659358210131750c072774374ef4306c7e69571e4583c0f",
+        "decodedRgbaBytes": 6290680
+      },
+      "cleanPlate": {
+        "file": "poster-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 500368,
+        "sha256": "00d2d388486545854659358210131750c072774374ef4306c7e69571e4583c0f",
+        "decodedRgbaBytes": 6290680
+      },
+      "layers": [],
+      "windowMask": {
+        "rect": [
+          539.3579072532699,
+          292.794292508918,
+          900.6420927467301,
+          1674.577883472057
+        ],
+        "file": "window-mask-841.webp",
+        "width": 526,
+        "height": 978,
+        "bytes": 3382,
+        "sha256": "f62931faad18af6a3664e8be984927c7a40312f89c78e4f7f1617b153f857c66",
+        "decodedRgbaBytes": 2057712
+      },
+      "decodedBytesWithPoster": 8348392
+    }
+  },
+  "windowPolygon": [
+    [
+      540.0,
+      553.9291319857313
+    ],
+    [
+      1526.4,
+      240.14268727705112
+    ],
+    [
+      1526.4,
+      2084.438525564804
+    ],
+    [
+      540.0,
+      1869.9110582639714
+    ]
+  ],
+  "lightRect": [
+    0.0,
+    960.5707491082045,
+    489.6,
+    896.5326991676577
+  ],
+  "glass": {
+    "strength": 0.75,
+    "frost": 0.8
+  },
+  "cupMouth": [
+    371.52,
+    2503.8877526753868
+  ],
+  "provenance": "Built-in image generation; original photographic-style environment artwork, not a Blender render.",
+  "compositeStrategy": "Native photographic-style art on independently authored volumetric depth; same camera and semantic window mask, no duplicated foreground."
+}

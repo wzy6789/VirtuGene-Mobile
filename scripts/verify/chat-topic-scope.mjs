@@ -1,0 +1,34 @@
+import {build} from 'esbuild';
+import {writeFileSync} from 'node:fs';
+const bundle=await build({stdin:{contents:"export * from './src/lib/chat-conversation-state'; export {setsAsideNamedTopic} from './src/lib/chat-turn-cues';",resolveDir:process.cwd(),loader:'ts'},bundle:true,write:false,format:'esm',platform:'node'});
+const api=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'));
+let checks=0;const labels=[];const check=(value,label)=>{if(!value)throw Error(label);labels.push(label);checks++;};
+try{
+ check(!api.isTopicRelated('不聊薄荷了，聊电影吧。','我喜欢薄荷。'),'explicitly declined subject does not keep its old summary relevant');
+ check(api.isTopicRelated('不聊电影了，聊薄荷吧。','我喜欢薄荷。'),'new affirmative subject still contributes relevance');
+ check(api.isTopicRelated('不聊薄荷牌子，可我想知道薄荷是什么味道。','薄荷有清凉味。'),'declining one clause is not a keyword ban on later affirmative clauses');
+ check(!api.isTopicRelated('先别再提面试了，聊首歌。','面试安排周四15点。'),'do-not-mention control scopes the old subject');
+ check(!api.isTopicRelated('不想再聊同事那件事，冰箱有番茄和鸡蛋。','和同事发生过争执。'),'declined conflict does not remain current through lexical overlap');
+ check(api.isTopicRelated('“不聊薄荷了”这句话怎么理解？','薄荷偏好'),'quoted material remains a discussion subject, not a real cancellation');
+ check(!api.setsAsideNamedTopic('朋友说，不聊薄荷了。'),'third-party report cannot suppress the user topic');
+ check(!api.setsAsideNamedTopic('小林说，不聊薄荷了。'),'a named third-party report is not a user focus instruction');
+ check(!api.setsAsideNamedTopic('给我写一句：不聊薄荷了。'),'unquoted writing material does not change the current focus');
+ check(!api.setsAsideNamedTopic('如果我说不聊薄荷了，会怎样？'),'hypothetical control does not close a real subject');
+ check(!api.setsAsideNamedTopic('帮我写一句：不聊薄荷了。'),'writing material cannot issue conversation control');
+ check(api.setsAsideNamedTopic('朋友想聊电影。我先不聊薄荷了。'),'a later independent user-owned sentence can set its own scope');
+ check(!api.isTopicRelated('不聊考试了，今天吃什么？','考试很紧张'),'an actual new question after a decline keeps its own intent');
+ const initial=api.updateChatConversationState(undefined,'想吐槽今天临时改需求。');
+ const listening=api.updateChatConversationState(initial,'先别分析，让我说完。','好，那就结束吧。');
+ check(listening.topicAdvice==='listen'&&listening.topicStatus!=='closed','listen request stays open despite an assistant closure claim');
+ check(listening.preferences.adviceStyle==='mixed','a temporary no-analysis request does not become a permanent preference');
+ const focusedListening=api.updateChatConversationState(initial,'先别分析，让我说完。','好。',undefined,1000,'想吐槽今天临时改需求。');
+ check(focusedListening.currentTopic===initial.currentTopic,'a style-only interjection does not replace the actual subject');
+ const continued=api.updateChatConversationState(focusedListening,'还有，需求晚上才发来。','嗯。',undefined,1001,'先别分析，让我说完。');
+ check(continued.topicAdvice==='listen','a follow-up continues the subject listening scope across the interjection');
+ check(!api.updateChatConversationState(focusedListening,'我刚买了个蓝色杯子。','嗯。',undefined,1002,'先别分析，让我说完。').topicAdvice,'a genuinely different subject releases local scope even after a style-only turn');
+ const advised=api.updateChatConversationState(listening,'现在说完了，告诉我怎么办。');
+ check(advised.topicAdvice===undefined,'later explicit request can resume advice');
+ check(api.updateChatConversationState(listening,'换个话题，聊聊电影吧。').preferences.adviceStyle==='mixed','changing topic does not carry a temporary restriction as permanent no-advice');
+ check(api.updateChatConversationState(undefined,'以后聊天不要分析，先听我说。').preferences.adviceStyle==='listen','an explicit enduring preference remains available');
+ console.log(JSON.stringify({passed:true,checks}));
+}finally{writeFileSync('release/chat-topic-scope-20261018/checks.json',JSON.stringify({checks,labels},null,2));}

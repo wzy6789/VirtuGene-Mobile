@@ -1,0 +1,15 @@
+// Isolated actual ChatWindow. The fixture replaces all AI transport with local
+// responses, owns a separate browser origin/database and blocks microphone use.
+import {build} from 'esbuild';import {createServer} from 'node:http';import {readFileSync,readdirSync} from 'node:fs';import {join,basename} from 'node:path';
+const bundle=await build({entryPoints:['scripts/verify/chat-stream-ui.tsx'],bundle:true,write:false,format:'iife',platform:'browser',jsx:'automatic',loader:{'.css':'empty','.webp':'dataurl','.png':'dataurl'},define:{'import.meta.env':'{"DEV":true}','import.meta.hot':'undefined',__APP_VERSION__:'"preview"'}});
+const assets='dist/renderer/assets',css=readdirSync(assets).filter(f=>f.endsWith('.css'));
+const demo=`
+if(navigator.mediaDevices)navigator.mediaDevices.getUserMedia=async()=>{throw Error('隔离演示不使用麦克风');};
+let seen=0,generation=0;
+window.replyDemo=async(mode='slow')=>{generation++;seen=0;await chatStreamTest.setup();while(!document.querySelector('[aria-label="消息内容"]'))await new Promise(requestAnimationFrame);document.documentElement.classList.add('dark');if(mode==='fast')chatStreamTest.useCompleteResponses(['来了。---你说，我在。']);chatStreamTest.submit('你好');};
+setInterval(()=>{const rows=chatStreamTest.requests();if(rows.length<=seen)return;const index=seen++,token=generation;const alive=()=>token===generation&&!chatStreamTest.requests()[index]?.aborted;setTimeout(()=>{if(!alive())return;chatStreamTest.push(index,'来');setTimeout(()=>{if(!alive())return;chatStreamTest.push(index,'了。');setTimeout(()=>{if(!alive())return;chatStreamTest.push(index,'---你说，我在。');chatStreamTest.finish(index);},160);},160);},1100);},40);
+chatStreamTest.setup().then(()=>{window.demoReady=true;document.documentElement.classList.add('dark');});
+`;
+const server=createServer((req,res)=>{if(req.url==='/fixture.js'){res.setHeader('Content-Type','application/javascript');res.end(bundle.outputFiles[0].text+'\n'+demo);return;}if(req.url.startsWith('/assets/')){try{const file=basename(req.url);res.setHeader('Content-Type',file.endsWith('.css')?'text/css':'font/woff2');res.end(readFileSync(join(assets,file)));}catch{res.writeHead(404).end();}return;}
+res.setHeader('Content-Type','text/html;charset=utf-8');res.end(`<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1">${css.map(f=>`<link rel="stylesheet" href="/assets/${f}">`).join('')}<style>html,body{height:100%;margin:0;background:var(--bg);color:var(--text)}#app{height:calc(100% - 40px)}.demo-bar{height:40px;display:flex;align-items:center;justify-content:center;gap:12px;font:12px system-ui;background:#182039}.demo-bar button{padding:5px 10px;border:1px solid #414e69;border-radius:8px}</style></head><body><header class="demo-bar"><span>隔离演示 · 无模型/麦克风调用</span><button onclick="replyDemo('slow')">慢回复</button><button onclick="replyDemo('fast')">即时回复</button></header><div id="app" class="mobile-layout"></div><script src="/fixture.js"></script></body></html>`);});
+server.listen(5184,'127.0.0.1',()=>console.log('Isolated reply preview: http://127.0.0.1:5184/'));

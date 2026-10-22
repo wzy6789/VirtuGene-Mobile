@@ -1,0 +1,28 @@
+{
+  "source": "image_gen original saved in non-shipping evidence S03-B2/asset-source/chat-mineral-edge.png",
+  "sourceSha256": "0b715184cd07a0c2b7b11a524e6ae269dfc0b2363f64cecb25a8e184a78d5f37",
+  "sha256": "e4d0422814d3ccbdf92cc5ed216247709d35f0a1efdb8544516dd4fc7d89e72a",
+  "bytes": 61628,
+  "sourceSize": [
+    853,
+    1844
+  ],
+  "size": [
+    780,
+    1686
+  ],
+  "mode": "RGBA",
+  "alphaRange": [
+    0,
+    255
+  ],
+  "centerAlphaRange": [
+    0,
+    1
+  ],
+  "export": "Pillow resize and WebP export only, no repaint",
+  "lighting": "upper-left diffuse, empty center",
+  "usage": "optional chat sample, clean background only; opacity .12 light / .4 dark; not baked UI",
+  "actualImageModel": "未确认",
+  "cost": "未确认"
+}

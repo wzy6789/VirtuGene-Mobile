@@ -1,9 +1,11 @@
 import { orbSpringCoefficients, sampleOrbOrbit, type OrbAccent } from './soul-orb-motion';
 import type { OrbChannel } from './orb-motion-profiles';
 import { createOrbLife, sampleOrbLife, type OrbPersonality } from './orb-personality';
+import { normalizeOrbSignal, orbVitalityProfile, sampleOrbCore, type OrbMotionContext, type OrbMotionIntensity, type OrbSignal } from './orb-vitality';
 
 type PaintNode = Readonly<{current:Element|null}>;
-type OrbPaintRefs = Record<'rig'|'face'|'left'|'right'|'mouth'|'blush'|'orbit'|'shadow'|'darkMouth'|'brows'|'orbitDot'|'waves'|'thoughts'|'sleep'|'tear'|'cross'|'sparkles'|'sheen',PaintNode>;
+type OrbPaintRefs = Record<'rig'|'face'|'left'|'right'|'mouth'|'blush'|'orbit'|'shadow'|'darkMouth'|'brows'|'orbitDot'|'waves'|'thoughts'|'sleep'|'tear'|'cross'|'sparkles'|'sheen',PaintNode>
+  & Partial<Record<'coreA'|'coreB'|'coreC'|'focus'|'ripple',PaintNode>>;
 
 /** One renderer owns SVG writes; static geometry is not rewritten on every frame. */
 export function createOrbPainter(refs:OrbPaintRefs,size:number,phase:number) {
@@ -11,6 +13,7 @@ export function createOrbPainter(refs:OrbPaintRefs,size:number,phase:number) {
   const floatAmplitude=Math.min(10,Math.max(4,360/size));
   const life=createOrbLife(),lifeVelocity=createOrbLife(),lifeKeys=Object.keys(life) as (keyof typeof life)[];
   let previousTime=0,moodSince=0,previousMood:OrbPersonality='idle';
+  let corePaintAt=-Infinity, capture=0, playback=0;
   const written=new WeakMap<Element,Map<string,string>>();
   const write=(node:Element|null|undefined,name:string,value:string)=>{
     if(!node)return;
@@ -18,12 +21,18 @@ export function createOrbPainter(refs:OrbPaintRefs,size:number,phase:number) {
     if(attributes.get(name)===value)return;
     attributes.set(name,value);node.setAttribute(name,value);
   };
-  return (p: Record<OrbChannel,number>, time:number, blink:number, move:boolean, motionStrength:number, gaze:number[], bodyGaze:number[], response:OrbAccent, mood:OrbPersonality='idle',pressed=false,attending=false) => {
+  return (p: Record<OrbChannel,number>, time:number, blink:number, move:boolean, motionStrength:number, gaze:number[], bodyGaze:number[], response:OrbAccent, mood:OrbPersonality='idle',pressed=false,attending=false,
+    vitality?: { intensity: OrbMotionIntensity; context: OrbMotionContext; signal?: OrbSignal; focus: number[] }) => {
     const strength = move ? motionStrength : 0;
+    const profile=orbVitalityProfile(vitality?.intensity??'lively',vitality?.context??'interaction');
     if(!move||time<previousTime){for(const key of lifeKeys){life[key]=0;lifeVelocity[key]=0;}moodSince=time;previousMood=mood;}
     if(mood!==previousMood){moodSince=time;previousMood=mood;}
     const dt=Math.max(0,Math.min(.064,(time-previousTime)/1000));previousTime=time;
-    const target=sampleOrbLife(mood,time-moodSince,phase,floatAmplitude),c=orbSpringCoefficients(dt,22);
+    const target=sampleOrbLife(vitality?.context==='reading'?'idle':mood,time,phase,floatAmplitude),c=orbSpringCoefficients(dt,22);
+    const core=sampleOrbCore(time,phase), signal=normalizeOrbSignal(vitality?.signal);
+    // Audio signal loss is immediate; rises are smoothed without React updates.
+    capture=signal.capture ? capture+(signal.capture-capture)*(1-Math.exp(-dt*12)) : 0;
+    playback=signal.playback ? playback+(signal.playback-playback)*(1-Math.exp(-dt*9)) : 0;
     // Touch and discrete responses own the body; ambient gestures yield smoothly.
     const yieldToAction=pressed ? .12 : response.elapsed<240 ? .4 : 1;
     for(const key of lifeKeys){
@@ -31,8 +40,12 @@ export function createOrbPainter(refs:OrbPaintRefs,size:number,phase:number) {
       const aim=move?target[key]*yieldToAction*attentionGain:0,y=life[key]-aim,v=lifeVelocity[key];
       life[key]=aim+c[0]*y+c[1]*v;lifeVelocity[key]=c[2]*y+c[3]*v;
     }
-    const breath=life.stretch*strength,bob=life.lift*strength,sway=life.sway*strength,rock=life.tilt*strength;
-    const touch=move?{lift:response.lift,tilt:response.tilt,squash:-response.scale}:{lift:0,tilt:0,squash:0};
+    // Interaction choreography includes takeoff squash and in-flight stretch.
+    // Reading/voice keep their existing outline; neither invents activity.
+    const shape=vitality?.context==='interaction'?life.stretch*profile.body:0;
+    const breath=(vitality?core.breath*.014*profile.breath+shape:life.stretch)*strength,bob=life.lift*strength*(vitality?profile.body:1),sway=life.sway*strength*(vitality?profile.body:1),rock=life.tilt*strength*(vitality?profile.body:1);
+    const touchGain=vitality?profile.touch:1;
+    const touch=move?{lift:response.lift*touchGain,tilt:response.tilt*touchGain,squash:-response.scale*touchGain}:{lift:0,tilt:0,squash:0};
     // An explicit attention target always takes priority over a thinking glance.
     const glanceWeight=1-Math.min(1,Math.hypot(...gaze)*2);
     const rise=touch.lift+bob;
@@ -40,6 +53,25 @@ export function createOrbPainter(refs:OrbPaintRefs,size:number,phase:number) {
     write(face.current,'transform',`translate(${p.faceX+gaze[0]*7+life.faceX*strength*glanceWeight+(gaze[0]-bodyGaze[0])*.3} ${p.faceY+gaze[1]*5+life.faceY*strength*glanceWeight+(gaze[1]-bodyGaze[1])*.3-touch.squash*12}) translate(128 132) scale(${size<64?1.5:size<80?1.3:1}) translate(-128 -132)`);
     write(sheen.current,'transform',`translate(${bodyGaze[0]*-2-touch.tilt*.12} ${bodyGaze[1]*-1.5-rise*.07})`);
     write(sheen.current,'opacity',`${.85+breath*5}`);
+    if(!move||time-corePaintAt>=32){
+      corePaintAt=time;
+      const light=profile.light*strength, concentrate=p.thought*.13+p.busy*.05;
+      // Glass needs a clear centre: concentrate white light at the rim instead.
+      const whiteGain=vitality?.context==='voice' ? .45 : 1;
+      const expansion=Math.min(.06,Math.abs(response.scale)*.5)*strength;
+      const focus=vitality?.focus??[0,0];
+      const f=(value:number)=>value.toFixed(3);
+      write(refs.coreA?.current,'transform',`translate(${f(core.x*light+focus[0]*10)} ${f(core.y*light+focus[1]*8)}) translate(119 115) scale(${f(1-concentrate+expansion)}) translate(-119 -115)`);
+      write(refs.coreB?.current,'transform',`translate(${f(core.secondX*light-focus[0]*4)} ${f(core.secondY*light-focus[1]*4)})`);
+      write(refs.coreC?.current,'transform',`translate(${f(core.third*9*light)} ${f(-core.third*7*light)})`);
+      write(refs.coreA?.current,'opacity',f((.21+(.06*core.breath+playback*.09*(.6+.4*Math.sin(time/270)))*light)*whiteGain));
+      write(refs.coreB?.current,'opacity',f(.16+core.third*.045*light));
+      write(refs.coreC?.current,'opacity',f((.11-core.third*.035*light)*whiteGain));
+      write(refs.focus?.current,'transform',`translate(${f(focus[0]*28)} ${f(focus[1]*23)})`);
+      write(refs.focus?.current,'opacity',f(pressed && move ? .22 : 0));
+      write(refs.ripple?.current,'opacity',f(capture*strength*.6));
+      write(refs.ripple?.current,'transform',`translate(128 132) scale(${f(1+capture*.1*strength)}) translate(-128 -132)`);
+    }
     const drawEye = (node: Element|null, x: number, asymmetry=1) => {
       if (!node) return;
       const width=p.eyeWidth, h = Math.max(.45,14*p.eyeOpen*(1-blink)*asymmetry), top = -h+p.eyeCurve, bottom=h+p.eyeCurve;
@@ -62,7 +94,7 @@ export function createOrbPainter(refs:OrbPaintRefs,size:number,phase:number) {
     write(orbitDot.current,'cy',`${119+(dot[1]-119)*travel}`);
     write(orbit.current,'transform',`rotate(${-7+Math.sin(time/1400)*(7+p.thought*12+p.cross*2)*strength} 128 132)`);
     write(waves.current,'opacity',`${p.listening}`);write(thoughts.current,'opacity',`${p.thought}`);
-    write(waves.current,'transform',`translate(32 126) scale(${1+Math.sin(time/370)*.08*p.listening*strength}) translate(-32 -126)`);
+    write(waves.current,'transform',`translate(32 126) scale(${1+capture*.12*p.listening*strength}) translate(-32 -126)`);
     write(thoughts.current,'transform',`translate(0 ${Math.sin(time/800)*3*p.thought*strength})`);
     if(thoughts.current)for(let i=0;i<3;i++){
       const wave=Math.sin(time/650-i*.9);

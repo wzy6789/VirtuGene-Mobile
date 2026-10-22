@@ -43,40 +43,33 @@ try {
     const reply='嗯，收到了。---这一条单独说。---还有另一件事。---先聊到这里。';
     if(buffered)await test('useCompleteResponses',[reply]);
     await test('submit','分开说说');
-    if(!buffered){await waitRequests(1);await test('push',0,reply);}
-    await page.locator('[data-streaming-reply]').waitFor();
-    check(await page.locator('.vg-streaming-part').count()===1, `${buffered?'complete':'SSE'} reply first arrival does not reveal the whole batch`);
-    if(!buffered)await test('finish',0);
+    if(buffered)await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length>0);
+    if(!buffered){await waitRequests(1);await test('push',0,reply);await page.locator('[data-streaming-reply]').waitFor();check(await page.locator('.vg-streaming-part').count()===1,'SSE publishes its reviewed durable first sentence before terminal batch settlement');await test('finish',0);}
     await done();
     const times=await page.evaluate(()=>{window.bubbleArrivalObserver.disconnect();return window.bubbleArrivalTimes;});
-    pacingCases.push({transport:buffered?'complete':'SSE',reducedMotion:true,arrivals:times,gapsMs:times.slice(1).map((item,index)=>Math.round(item.time-times[index].time)),totalMs:Math.round(times.at(-1).time-times[0].time)});
-    check(times.length===4&&times.every((item,index)=>item.count===index+1&&(!index||item.time-times[index-1].time>=350)),`${buffered?'complete':'SSE'} actual DOM receives four separate paced arrivals even after the provider finishes`);
+    pacingCases.push({transport:buffered?'complete':'SSE',reducedMotion:true,arrivals:times,policy:'available content is immediate; no artificial inter-bubble delay'});
     const rows=(await test('records')).filter(m=>m.role==='assistant');
-    check(rows.length===4&&rows.map(m=>m.content).join('---')===reply&&rows.every((m,index)=>m.replyBatchSize===4&&m.replyBatchIndex===index),`${buffered?'complete':'SSE'} paced preview hands off to exactly four saved rows in order`);
+    check(rows.length===4&&rows.map(m=>m.content).join('---')===reply&&rows.every((m,index)=>m.replyBatchSize===4&&m.replyBatchIndex===index),`${buffered?'complete':'SSE'} reviewed content persists as four ordered rows without a display queue`);
+    if(!buffered){
+      const timing=await page.evaluate(()=>window.virtugeneChatQuality.report().events.at(-1));
+      check(Number.isFinite(timing.firstAnswerMs)&&Number.isFinite(timing.answerToVisibleMs)&&timing.answerToVisibleMs>=0,'actual SSE path records first answer and publication separately');
+      check(timing.sendToFirstVisibleMs===timing.firstAnswerMs+timing.answerToVisibleMs,'preparation-to-publication timing equals first-answer plus display hold');
+    }
   }
-  for(const buffered of [false,true]) {
-    await ready(0);
-    const reply='第一条已看到。---第二条还没出现。---第三条还没出现。';
-    if(buffered)await test('useCompleteResponses',[reply]);
-    await test('submit','分条回复一下');
-    if(!buffered){await waitRequests(1);await test('push',0,reply);}
-    await page.locator('[data-streaming-reply]').waitFor();
-    if(!buffered)await test('finish',0);
-    await page.getByRole('button',{name:'停止生成',exact:true}).click();await done();
-    await page.waitForTimeout(900);
-    const rows=(await test('records')).filter(m=>m.role==='assistant');
-    check(rows.length===1&&rows[0].content==='第一条已看到。'&&rows[0].stopped&&rows[0].interrupted&&!rows[0].replyBatchId,`${buffered?'complete':'SSE'} stop after provider completion drops hidden bubbles and saves only the visible prefix`);
-    check((await test('records')).every(m=>!m.failed),`${buffered?'complete':'SSE'} delivery cancellation does not create a send failure`);
-  }
+  await ready(0);await test('submit','分条回复一下');await waitRequests(1);await test('push',0,'第一条已看到。');await page.locator('[data-streaming-reply]').waitFor();
+  await page.getByRole('button',{name:'停止生成',exact:true}).click();await done();
+  const stoppedRows=(await test('records')).filter(m=>m.role==='assistant');
+  check(stoppedRows.length===1&&stoppedRows[0].content==='第一条已看到。'&&stoppedRows[0].stopped&&stoppedRows[0].interrupted
+    &&stoppedRows[0].replyDelivery==='settled'&&stoppedRows[0].replyCompletion==='interrupted'&&stoppedRows[0].replyBatchId
+    &&stoppedRows[0].replyBatchIndex===0&&stoppedRows[0].replyBatchSize===1,'stop preserves the durable prefix id and settles its interrupted one-row batch');
+  check((await test('records')).every(m=>!m.failed),'delivery cancellation does not create a send failure');
   for(const cancel of [true,false]) {
-    await ready(0);const memoryId=await test('seedMemory');
-    await test('useCompleteResponses',['嗯，我记得。---你喜欢海边星空。']);await test('submit','你记得我喜欢什么吗');
-    await page.locator('[data-streaming-reply]').waitFor();
-    if(cancel)await page.getByRole('button',{name:'停止生成',exact:true}).click();
+    await ready(0);const memoryId=await test('seedMemory');await test('submit','你记得我喜欢什么吗');await waitRequests(1);await test('push',0,'嗯，我记得。');await page.locator('[data-streaming-reply]').waitFor();
+    if(cancel)await page.getByRole('button',{name:'停止生成',exact:true}).click();else{await test('push',0,'---你喜欢海边星空。');await test('finish',0);}
     await done();await page.waitForTimeout(100);
     const rows=(await test('records')).filter(m=>m.role==='assistant');const memory=await test('deliveryMemory');
-    check(rows[0].contextTrace?.memoryIds?.includes(memoryId),'pacing memory fixture really recalls its independent preference');
-    check(cancel? !memory.lastMentionedAt&&!rows.some(m=>m.contextTrace?.spokenMemoryIds?.includes(memoryId)) : !!memory.lastMentionedAt&&rows[0].contextTrace?.spokenMemoryIds?.includes(memoryId),cancel?'cancelled hidden memory is never marked as spoken':'a memory in a displayed later bubble is marked spoken after delivery');
+    check(rows[0].contextTrace?.memoryIds?.includes(memoryId),'reply fixture really recalls its independent preference');
+    check(cancel? !memory.lastMentionedAt&&!rows.some(m=>m.contextTrace?.spokenMemoryIds?.includes(memoryId)) : !!memory.lastMentionedAt&&rows[0].contextTrace?.spokenMemoryIds?.includes(memoryId),cancel?'unreceived memory is never marked as spoken':'memory in a displayed later bubble is marked spoken');
   }
   await ready(0);
   await test('useCompleteResponses',['过来陪我坐会儿。','想聊就聊，我听着。']);
@@ -188,7 +181,8 @@ try {
   const escapedProse='你那句'+proseSlash+'"不一样也挺好'+proseSlash+'"，我听着了。';
   for(const chunk of ['你那句',proseSlash,'"不一样也挺好',proseSlash,'"，我听着了。']){
     await test('push',0,chunk); await page.waitForTimeout(50);
-    check(!(await page.locator('[data-streaming-reply]').innerText()).includes(proseSlash),'SSE quotation fragments never show an escaping slash');
+    const shown=await page.locator('[data-streaming-reply]').count()?await page.locator('[data-streaming-reply]').innerText():'';
+    check(!shown.includes(proseSlash),'SSE quotation fragments stay buffered or display without an escaping slash');
   }
   await test('finish',0); await done();
   check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='你那句"不一样也挺好"，我听着了。','ordinary escaped quotation saves exactly the visible prose');
@@ -212,24 +206,27 @@ try {
   check(literalStopped.length===1&&literalStopped[0].stopped&&literalStopped[0].content===escapedProse,'stopping a literal-mode stream saves the same text without losing configured policy');
   await ready(0);
   await test('submit', '你好', true); await waitRequests(1);
-  await test('push', 0, '你好'); await page.locator('[data-streaming-reply]').waitFor();
+  await test('push', 0, '你好。'); await page.locator('[data-streaming-reply]').waitFor();
   check((await test('requests'))[0].body.stream === true, 'real chat requests SSE');
   check((await test('records')).filter(m => m.role === 'user').length === 1, 'rapid double send saves one user message');
-  check((await test('records')).filter(m => m.role === 'assistant').length === 0, 'visible draft precedes completion and is not a DB token write');
+  check((await test('records')).filter(m=>m.role==='assistant'&&m.replyDelivery==='in-progress').length===1,
+    'visible first sentence has one durable pending receipt rather than per-token DB writes');
   check(await page.locator('.vg-typing-row').count() === 0, 'typing placeholder disappears on first visible text');
   await test('push', 0, '--'); await page.waitForTimeout(60);
   check(!(await page.locator('[data-streaming-reply]').innerText()).includes('--'), 'partial separator never flashes');
   await test('push', 0, '-我在这里。'); await test('finish', 0); await done();
   const split = (await test('records')).filter(m => m.role === 'assistant');
-  check(split.map(m => m.content).join('|') === '你好|我在这里。' && split[0].replyBatchSize === 2, 'split replies saved once with batch metadata');
+  check(split.map(m => m.content).join('|') === '你好。|我在这里。' && split[0].replyBatchSize === 2, 'split replies saved once with batch metadata');
   check(await page.locator('[data-streaming-reply]').count() === 0, 'final rows replace preview');
   check(split[0].createdAt > (await test('records'))[0].createdAt && split[1].createdAt > split[0].createdAt, 'saved reply ordering survives reopening');
 
   await ready(0); await test('submit', '今天碰到件好笑的事'); await waitRequests(1);
-  await test('push',0,'哈哈哈哈');await page.locator('[data-streaming-reply]').waitFor();
-  await test('push',0,'\n\n');await page.waitForTimeout(70);
+  await test('push',0,'哈哈哈哈');await page.waitForTimeout(40);
+  check(await page.locator('[data-streaming-reply]').count()===0,'unfinished raw reaction waits for an independent boundary');
+  await test('push',0,'\n\n');await page.locator('[data-streaming-reply]').waitFor();
   check(await page.locator('.vg-streaming-part').count()===1,'pending blank paragraph creates no empty bubble');
-  await test('push',0,'这个我真没想到。');await page.waitForFunction(()=>document.querySelectorAll('.vg-streaming-part').length===2);
+  await test('push',0,'这个我真没想到。');await page.waitForTimeout(70);
+  check(await page.locator('.vg-streaming-part').count()===1,'remaining paragraph waits for final whole-draft inspection');
   check((await page.locator('.vg-streaming-part').first().innerText()).includes('哈哈哈哈')&&!(await page.locator('.vg-streaming-part').first().innerText()).includes('这个我真没想到'),'paragraph fallback preserves already-visible first reaction');
   await test('finish',0);await done();
   const paragraphRows=(await test('records')).filter(m=>m.role==='assistant');
@@ -245,11 +242,11 @@ try {
 
   await ready(0); await test('submit', '说说今天'); await waitRequests(1);
   await test('push', 0, '长长的第一条---嗯---啊---长长的第四条');
-  await page.waitForFunction(() => document.querySelectorAll('.vg-streaming-part').length === 4);
-  check((await test('records')).filter(m => m.role === 'assistant').length === 0, 'four visible bubbles remain transient until transport finishes');
+  await page.waitForFunction(() => document.querySelectorAll('.vg-streaming-part').length === 1);
+  check((await test('records')).filter(m => m.role === 'assistant'&&m.replyDelivery==='in-progress').length === 1, 'only the reviewed first bubble is durable while the remaining draft is buffered');
   await test('push', 0, '---最后'); await test('finish', 0); await done();
   const fourRows = (await test('records')).filter(m => m.role === 'assistant');
-  check(fourRows.length === 4 && fourRows.map(m => m.content).join('|') === '长长的第一条|嗯|啊|长长的第四条最后' && fourRows.every(m => m.replyBatchSize === 4), 'four streamed bubbles and overflow commit once with matching batch metadata');
+  check(fourRows.length === 4 && fourRows.map(m => m.content).join('|') === '长长的第一条|嗯啊|长长的第四条|最后' && fourRows.every(m => m.replyBatchSize === 4), 'overflow merges the shortest adjacent buffered pair while preserving the visible prefix');
   check((await page.evaluate(() => window.virtugeneChatQuality.report())).samples.at(-1).differenceRatio === 0, 'stream metrics compare actual raw text with all four persisted rows');
 
   await ready(0); await test('denyNext'); await test('submit', '凭据失败后重发'); await waitRequests(1); await done();
@@ -270,7 +267,7 @@ try {
   await test('push', 0, '今天路过书店。'.repeat(100)); await page.waitForTimeout(200);
   check(await test('storeChanges') === storeBefore, 'stream updates do not invalidate the historical message store');
   const longGeometry = await page.locator('.chat-thread').evaluate(el => ({ height: el.scrollHeight, top: el.scrollTop, viewport: el.clientHeight, gap: el.scrollHeight - el.scrollTop - el.clientHeight }));
-  check(longGeometry.gap < 8, `long reply follows bottom smoothly ${JSON.stringify(longGeometry)}`);
+  check(longGeometry.gap < 8&&await page.locator('.vg-streaming-part').count()===1, `buffered suffix preserves latest-position following ${JSON.stringify(longGeometry)}`);
   await page.locator('.chat-thread').evaluate(el => { el.dispatchEvent(new WheelEvent('wheel', { deltaY: -400 })); el.scrollTop = 0; el.dispatchEvent(new Event('scroll')); });
   const readTop = await page.locator('.chat-thread').evaluate(el => el.scrollTop);
   await test('push', 0, '后来我又去看了展览。'.repeat(60)); await page.waitForTimeout(180);
@@ -283,7 +280,7 @@ try {
   mkdirSync('.tmp-preview', { recursive: true }); await page.screenshot({ path: '.tmp-preview/chat-stream.png' });
   await page.getByRole('button', { name: '停止生成', exact: true }).click(); await done();
   const stopped = (await test('records')).filter(m => m.role === 'assistant' && !m.id.startsWith('history-'));
-  check(stopped.length === 1 && stopped[0].stopped && stopped[0].interrupted && stopped[0].content.includes('展览'), 'stop retains complete received prefix with truthful status');
+  check(stopped.length === 1 && stopped[0].stopped && stopped[0].interrupted && stopped[0].content==='我想和你聊聊今天。', 'stop retains only the reviewed visible prefix with truthful status');
   check((await test('requests')).length === 1 && (await test('requests'))[0].aborted, 'stop aborts transport without retry');
 
   await ready(0); await test('submit', '在吗'); await waitRequests(1);
@@ -302,7 +299,8 @@ try {
   await test('submit', '给林霜的话'); await waitRequests(2); await test('push', 1, '林霜回复。'); await page.locator('[data-streaming-reply]').waitFor();
   await test('finish', 0); await page.waitForTimeout(150);
   check(await page.getByRole('button', { name: '停止生成', exact: true }).count() === 1, 'old request completion does not unlock current request');
-  check((await test('records', 'b')).filter(m => m.role === 'assistant').length === 0, 'old reply is not written to current conversation');
+  const pendingB=(await test('records','b')).filter(m=>m.role==='assistant');
+  check(pendingB.length===1&&pendingB[0].content==='林霜回复。'&&pendingB[0].replyDelivery==='in-progress', 'old completion cannot overwrite the current conversation pending receipt');
   await test('switchTo', 'a'); await page.waitForTimeout(100);
   check((await test('records', 'a')).some(m => m.content === '星遥回复。'), 'background reply persists to its own session');
   await test('switchTo', 'b'); await page.waitForTimeout(100);
@@ -314,8 +312,9 @@ try {
   await test('unmount'); await page.waitForTimeout(250);
   check((await test('records')).some(m => m.role === 'assistant' && m.interrupted && m.content === '这段话已经收到。'), 'leaving page aborts and preserves received response');
   await ready(0); await test('submit', '我要切换账号了'); await waitRequests(1); await test('push', 0, '旧账号正文。'); await page.locator('[data-streaming-reply]').waitFor();
+  const receiptBeforeLogout=(await test('records')).filter(m=>m.role==='assistant');
   await test('logout'); await page.waitForTimeout(200);
-  check(!(await test('records')).some(m => m.role === 'assistant'), 'account switch rejects late reply writes');
+  check(receiptBeforeLogout.length===1&&JSON.stringify((await test('records')).filter(m=>m.role==='assistant'))===JSON.stringify(receiptBeforeLogout), 'account switch rejects late writes and preserves the prior owned pending receipt');
   check(await page.locator('[data-streaming-reply]').count() === 0, 'account switch clears the old live preview');
   for (const sourcePresetId of ['preset-guyuena', 'preset-luxueqi']) {
   const visualDraft='我看看像不像……行吧，算你有想象。';
@@ -419,10 +418,12 @@ try {
     const forestRaw=datedDraft.rows[0].calls[0].raw;
     await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit',datedDraft.rows[0].input);await waitRequests(1);
     await test('push',0,forestRaw);await page.waitForTimeout(100);
-    check(await page.locator('[data-streaming-reply]').count()===0,`${sourcePresetId}: the saved real dated forest episode never flashes before review`);
-    await test('finish',0);await waitRequests(2);await test('push',1,'我也想你。我们随便聊几句吧。');await test('finish',1);await done();
-    check((await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('')==='我也想你。我们随便聊几句吧。',`${sourcePresetId}: actual DB writes the substitute correction instead of the dated forest episode`);
-    check((await test('requests')).length===2,`${sourcePresetId}: dated-location correction retains the existing single retry`);
+    const forestPreview=await page.locator('[data-streaming-reply]').innerText();
+    check(forestPreview.includes('嗯，我也想你了。')&&!forestPreview.includes('星斗大森林'),`${sourcePresetId}: reviewed affection can appear while the unsupported forest episode stays buffered`);
+    await test('finish',0);await done();
+    const forestRows=(await test('records')).filter(m=>m.role==='assistant');
+    check(forestRows[0]?.content==='嗯，我也想你了。'&&forestRows.map(row=>row.content).join('')==='嗯，我也想你了。正好，你来得巧。你说吧，想聊什么。'&&forestRows.every(row=>row.replyCompletion==='complete'),`${sourcePresetId}: actual DB preserves independently safe dialogue while omitting the dated forest episode`);
+    check((await test('requests')).length===1,`${sourcePresetId}: published prefix is not secretly replaced by a whole-reply retry`);
     await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('useCompleteResponses',[forestRaw,forestRaw]);await test('submit',datedDraft.rows[0].input);await page.waitForFunction(()=>window.chatStreamTest.completeRequests().length===2);await done();
     const datedSaved=(await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('');
     check(datedSaved.includes('我也想你')&&!/星斗大森林|前两天|感应到|带你去看/u.test(datedSaved),`${sourcePresetId}: two bad drafts keep present affection but remove the invented episode and dependent trip`);
@@ -431,7 +432,8 @@ try {
     if(!mentalSource.complete||mentalSource.generationMode!=='direct'||mentalSource.rows[0].calls[0].finish!=='stop')throw Error('Complete original direct mental-lead evidence required');
     await ready(0);await test('useReviewedCharacter',sourcePresetId);await test('submit',mentalSource.rows[0].input);await waitRequests(1);
     await test('push',0,mentalSource.rows[0].calls[0].raw);await page.waitForTimeout(100);
-    check(await page.locator('[data-streaming-reply]').count()===0,`${sourcePresetId}: a saved recurring past thought lead does not flash during an unpublished reviewed reply`);
+    const mentalPreview=await page.locator('[data-streaming-reply]').innerText();
+    check(mentalPreview.includes('我也想你。')&&!mentalPreview.includes('最近总在想'),`${sourcePresetId}: independent present affection appears without leaking the unsupported past thought lead`);
     await test('finish',0);await done();
     const mentalSaved=(await test('records')).filter(m=>m.role==='assistant').map(m=>m.content).join('');
     check(mentalSaved==='我也想你。正好，要是把我们俩的名字刻在什么东西上，还是“金龙”和“银龙”好，别的都显得生分。',`${sourcePresetId}: actual DB retains the full original present affection and forward hypothetical while omitting only the unsupported thought history`);
@@ -530,10 +532,10 @@ try {
     check(exhaustedAvailability==='我也想和你多聊一会儿。',`${sourcePresetId}: two ungrounded schedules preserve only the independent desired companionship, without a third generation`);
   }
   check(await test('extraNetwork') === 0 && errors.length === 0, 'no real network or uncaught page errors');
-  mkdirSync('.tmp-preview/chat-delivery-pacing',{recursive:true});
-  writeFileSync('.tmp-preview/chat-delivery-pacing/verification.json',JSON.stringify({date:new Date().toISOString(),status:'PASS',checks,pacingCases,paidModelCalls:0,generatedModelTokens:0,scope:'Mock transports through real ChatWindow, delivery queue and IndexedDB; excludes real-device subjective waiting assessment'},null,2)+'\n');
+  mkdirSync('.tmp-preview/chat-delivery-immediate',{recursive:true});
+  writeFileSync('.tmp-preview/chat-delivery-immediate/verification.json',JSON.stringify({date:new Date().toISOString(),status:'PASS',checks,pacingCases,paidModelCalls:0,generatedModelTokens:0,scope:'Mock transports through real ChatWindow, immediate delivery and IndexedDB; excludes real-device subjective waiting assessment'},null,2)+'\n');
   console.log(`PASS chat-stream: ${checks} checks`);
 } catch(error) {
-  if(debugPage)console.log('stream failure state',await debugPage.evaluate(async()=>({requests:window.chatStreamTest.requests().map(r=>({aborted:r.aborted,lastInput:r.body.messages?.at(-1)?.content,raw:r.raw})),a:(await window.chatStreamTest.records('a')).map(m=>({role:m.role,content:m.content,failed:m.failed})),b:(await window.chatStreamTest.records('b')).map(m=>({role:m.role,content:m.content,failed:m.failed})),input:document.querySelector('[aria-label="消息内容"]')?.value,preview:document.querySelector('[data-streaming-reply]')?.textContent})).catch(()=>null));
+  if(debugPage)console.log('stream failure state',await debugPage.evaluate(async()=>({requests:window.chatStreamTest.requests().map(r=>({aborted:r.aborted,abortReason:r.abortReason,abortStack:r.abortStack,lastInput:r.body.messages?.at(-1)?.content,raw:r.raw})),a:(await window.chatStreamTest.records('a')).map(m=>({role:m.role,content:m.content,failed:m.failed})),b:(await window.chatStreamTest.records('b')).map(m=>({role:m.role,content:m.content,failed:m.failed})),input:document.querySelector('[aria-label="消息内容"]')?.value,preview:document.querySelector('[data-streaming-reply]')?.textContent})).catch(()=>null));
   throw error;
 } finally { await browser.close(); server.close(); }

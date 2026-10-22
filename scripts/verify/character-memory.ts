@@ -7,7 +7,8 @@ import { messageRepo } from '../../src/db/message-repo';
 import { memoryRepo } from '../../src/db/memory-repo';
 import { sessionRepo } from '../../src/db/session-repo';
 import { todoRepo } from '../../src/db/todo-repo';
-import { detectRecallIntent, indexPromptMemoryReferences, recallCharacterMemory, packCharacterMemory, buildCharacterMemoryContext, renderMemoryRetrievalStatus } from '../../src/lib/character-memory';
+import { detectRecallIntent, indexPromptMemoryReferences, recallCharacterMemory, packCharacterMemory, buildCharacterMemoryContext, revalidateCharacterMemoryContext, renderMemoryRetrievalStatus } from '../../src/lib/character-memory';
+import {withMemorySourceSnapshot,memorySourceSnapshotsStillLive} from '../../src/lib/memory-source-snapshot';
 import {coolingWorldMotifs} from '../../src/lib/world/world-attention';
 import { findSpokenMemoryIds, rankConversationMemories } from '../../src/lib/memory-engine';
 import { buildContextTrace } from '../../src/lib/chat-trace';
@@ -17,7 +18,7 @@ import { momentsRepo, planAutonomousMomentInteraction } from '../../src/db/momen
 import { collectSyncData, importSyncData } from '../../src/lib/sync';
 import { diaryRepo } from '../../src/db/diary-repo';
 import { worldEventRepo } from '../../src/db/world-event-repo';
-import { clearDiarySharing, setDiarySharing } from '../../src/lib/world/diary-visibility';
+import { canMentionDiary, clearDiarySharing, setDiarySharing } from '../../src/lib/world/diary-visibility';
 import { useAuthStore } from '../../src/store/auth-store';
 import { undoLastTurn } from '../../src/lib/world/world-undo';
 import { worldSceneRepo } from '../../src/db/world-scene-repo';
@@ -41,29 +42,59 @@ async function run() {
   const raceDiary = await diaryRepo.create({userId:'u',date:'2026-10-12',title:'读取中撤权',content:'RACE_DIARY_PRIVATE',mood:3,tags:[],characterId:'a'});
   await setDiarySharing({userId:'u',diaryId:raceDiary,visibility:'selected',visibleTo:['a']});
   const originalVisible = diaryRepo.listVisibleFor;
-  let diaryReads = 0;
+  await db.characters.put({id:'diary-index-role',createdBy:'u',name:'索引测试',systemPrompt:'test',createdAt:now} as any);
+  const indexDiary = await diaryRepo.create({userId:'u',date:'2026-10-13',title:'独立索引测试',content:'INDEX_DIARY',mood:3,tags:[],characterId:'diary-index-role'});
+  await setDiarySharing({userId:'u',diaryId:indexDiary,visibility:'selected',visibleTo:['diary-index-role']});
+  let candidateScans = 0;
   try {
     diaryRepo.listVisibleFor = async (...args) => {
-      if (++diaryReads === 2) await clearDiarySharing('u',raceDiary);
+      candidateScans++;
       return originalVisible.apply(diaryRepo,args);
     };
+    const request = {userId:'u',characterId:'diary-index-role',topic:'查一下独立索引测试的日记',sources:['diary' as const]};
+    const context = await buildCharacterMemoryContext(request);
+    const outgoing = await revalidateCharacterMemoryContext(request,context);
+    check(candidateScans === 1,'diary candidate listing happens once; final and outbound validation never reread the whole diary collection');
+    check(outgoing.references.some(ref=>ref.id===indexDiary),'exact validation preserves authorized diary through outbound validation');
+  } finally {diaryRepo.listVisibleFor=originalVisible;}
+  await clearDiarySharing('u',indexDiary,{purge:true});
+  await db.characters.delete('diary-index-role');
+  const grant = {userId:'u',worldId:'test',characterId:'a',eventId:'diary:index-grant',knowledgeLevel:'full',canMention:true,learnedAt:now,updatedAt:now};
+  await db.characterKnowledge.put({...grant,id:'legacy-grant-id'} as any);
+  check(await canMentionDiary('u','a','index-grant'),'indexed diary permission accepts legacy noncanonical knowledge IDs');
+  check(!await canMentionDiary('other-user','a','index-grant'),'indexed diary permission cannot use another account grant');
+  check(!await canMentionDiary('u','b','index-grant')&&!await canMentionDiary('u','a','missing-grant'),'indexed diary permission requires the exact character and diary anchor');
+  await db.characterKnowledge.put({...grant,id:'foreign-grant',userId:'other-user'} as any);
+  await db.characterKnowledge.update('legacy-grant-id',{canMention:false});
+  check(!await canMentionDiary('u','a','index-grant'),'foreign duplicate cannot restore withdrawn same-account permission');
+  await db.characterKnowledge.update('legacy-grant-id',{canMention:true,knowledgeLevel:'partial'});
+  check(!await canMentionDiary('u','a','index-grant'),'partial knowledge remains insufficient for diary injection');
+  check((await knowledgeRepo.getForCharacterEvent('a','diary:index-grant'))?.eventId==='diary:index-grant','event lookup still accepts legacy IDs through the existing composite index');
+  await db.characterKnowledge.bulkDelete(['legacy-grant-id','foreign-grant']);
+  const originalDiaryGet = db.diaries.get;
+  let diaryReads = 0;
+  try {
+    db.diaries.get = (async (key:any) => {
+      if (key === raceDiary && ++diaryReads === 1) await clearDiarySharing('u',raceDiary);
+      return originalDiaryGet.call(db.diaries,key);
+    }) as typeof db.diaries.get;
     const recalled = await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'查一下读取中撤权的日记',sources:['diary']});
-    check(diaryReads >= 2,'diary permission changes between candidate selection and final validation');
+    check(diaryReads >= 1,'diary permission changes between candidate selection and exact final validation');
     check(!recalled.references.some(ref=>ref.id===raceDiary),'mid-read revoked diary is removed from references');
     check(!recalled.text.includes('RACE_DIARY_PRIVATE')&&!JSON.stringify(recalled.sections).includes('RACE_DIARY_PRIVATE'),'mid-read revoked diary is removed from all prompt renderings');
     check(!recalled.provenance.some(ref=>ref.id===raceDiary),'mid-read revoked diary is removed from provenance');
-  } finally {diaryRepo.listVisibleFor=originalVisible;}
+  } finally {db.diaries.get=originalDiaryGet;}
   await setDiarySharing({userId:'u',diaryId:raceDiary,visibility:'selected',visibleTo:['a']});
   diaryReads=0;
   try {
-    diaryRepo.listVisibleFor=async (...args)=>{
-      if(++diaryReads===2) throw Error('source validation unavailable');
-      return originalVisible.apply(diaryRepo,args);
-    };
+    db.diaries.get=(async(key:any)=>{
+      if(key===raceDiary) throw Error('source validation unavailable');
+      return originalDiaryGet.call(db.diaries,key);
+    }) as typeof db.diaries.get;
     const recalled=await buildCharacterMemoryContext({userId:'u',characterId:'a',topic:'查一下读取中撤权的日记',sources:['diary']});
     check(recalled.retrieval?.status==='unavailable','failed final source read is reported as unavailable, not a confirmed empty history');
     check(!recalled.text.includes('RACE_DIARY_PRIVATE')&&!recalled.references.some(ref=>ref.id===raceDiary),'read failure cannot fall back to a previously authorized private copy');
-  } finally {diaryRepo.listVisibleFor=originalVisible;}
+  } finally {db.diaries.get=originalDiaryGet;}
   const originalLedgerRecord=memoryLedgerRepo.record;
   try {
     memoryLedgerRepo.record=async()=>{throw Error('optional ledger maintenance failed');};
@@ -75,6 +106,13 @@ async function run() {
   await db.sessions.put({id:'race-private',userId:'u',characterId:'a',type:'single',title:'读取竞态',createdAt:now,updatedAt:now,unreadCount:0} as any);
   await db.messages.put({id:'race-deleted-message',sessionId:'race-private',role:'user',content:'RACE_MESSAGE_PRIVATE',createdAt:now,isProactive:false} as any);
   const originalMemoryGet = db.memories.get;
+  const originalMemoryBulkGet = db.memories.bulkGet;
+  // Source validation now selects these ids in a batch. Keep the mutation
+  // injection at that same read boundary so these races still actually happen.
+  db.memories.bulkGet = (async (keys: any[]) => {
+    if (db.memories.get !== originalMemoryGet) for (const key of keys) await db.memories.get(key);
+    return originalMemoryBulkGet.call(db.memories, keys);
+  }) as typeof db.memories.bulkGet;
   try {
     db.memories.get = (async (key:any) => {
       if(key==='race-deleted-message') await db.messages.delete(key);
@@ -112,15 +150,35 @@ async function run() {
   } finally {db.memories.get=originalMemoryGet;}
   await db.messages.update('race-old-history',{content:'旧约定是星期五到黑沙码头',revision:1});
   const originalHistoryPage=messageRepo.getPage;
+  const originalHistoryWhere=db.messages.where;
   try {
     messageRepo.getPage=async(...args)=>{
       const page=await originalHistoryPage.apply(messageRepo,args);
       if(args[0]==='race-private') await db.messages.update('race-old-history',{content:'旧约定是星期三到白沙码头',revision:2});
       return page;
     };
+    // Indexed selection no longer calls getPage. Edit after its read-only
+    // candidate transaction, before the adjoining-correction read starts.
+    db.messages.where=((index:any)=>{
+      const clause=originalHistoryWhere.call(db.messages,index);
+      if(index==='[sessionId+createdAt+id]') {
+        const between=clause.between.bind(clause);
+        clause.between=((...range:any[])=>{
+          const collection=(between as any)(...range),toArray=collection.toArray.bind(collection);
+          collection.toArray=async()=>{
+            await db.messages.update('race-old-history',{content:'旧约定是星期三到白沙码头',revision:2});
+            return toArray();
+          };
+          return collection;
+        }) as typeof clause.between;
+      }
+      return clause;
+    }) as typeof db.messages.where;
     const hits=await recallHistoricalPrivateChat({userId:'u',characterId:'a',query:'还记得黑沙码头的旧约定吗'});
+    check((await db.messages.get('race-old-history'))?.revision===2,'standalone source really changes after indexed or paged selection');
     check(!hits.some(hit=>hit.messageId==='race-old-history'||hit.messageId==='race-old-correction'),'standalone historical recall used by world turns also revalidates the selected originals and linked corrections');
-  } finally {messageRepo.getPage=originalHistoryPage;}
+  } finally {messageRepo.getPage=originalHistoryPage;db.messages.where=originalHistoryWhere;}
+  db.memories.bulkGet = originalMemoryBulkGet;
   await db.messages.where('sessionId').equals('race-private').delete();
   await db.todos.put({id:'race-todo',userId:'u',title:'EDIT_TODO_OLD',status:'todo',recurrence:{kind:'none'},visibility:'selected',visibleTo:['a'],createdAt:now,updatedAt:now} as any);
   const originalPending=todoRepo.visibleOccurrencesForCharacter;
@@ -858,7 +916,7 @@ async function run() {
       await db.worldSceneEntries.put({id:worldId+'-entry',sceneId:worldId+'-scene',index:0,kind:'narration',content:'世界边界记号现场 '+worldId,createdAt:now,witnessedBy:[roleId]} as any);
     }
     const request={userId:'u',characterId:roleId,sources:['world' as const],query:'世界边界记号',budget:6000,withCatalog:true};
-    const scoped=await buildCharacterMemoryContext({...request,mode:'world-scene',scene:{worldId:left,sceneId:left+'-scene',liveSegments:true}});
+    const scoped=await buildCharacterMemoryContext({...request,worldId:left,mode:'world-scene',scene:{worldId:left,sceneId:left+'-scene',liveSegments:true}});
     check(scoped.references.some(r=>r.id===left+'-event'),persona+' scoped world retains known current-world event');
     check(!scoped.references.some(r=>r.id===right+'-event'||r.id===right+'-entry'),persona+' scoped world excludes parallel-world event and live entry');
     check(scoped.catalog?.events.every(e=>e.worldId===left),persona+' structured catalog obeys the same world boundary');
@@ -866,7 +924,7 @@ async function run() {
     const actorContext=await buildWorldContext({userId:'u',worldId:left,scene:activeScene,characters:await db.characters.toArray(),userText:'世界边界记号'});
     const rendered=renderCharacterContext(actorContext,roleId);
     check(rendered.includes(left+'-event')||rendered.includes('世界边界记号 '+left),persona+' actual world actor prompt retains scoped known event');
-    check(!rendered.includes(right+'-event')&&!rendered.includes('世界边界记号 '+right),persona+' actual world actor prompt never contains parallel-world secret');
+    check(rendered.includes('世界边界记号 '+right)&&rendered.includes('不是本场现场'),persona+' actual actor carries its authorized prior-world knowledge with a historical label');
     const foreignStage='world-scope-injection-'+index;
     await indexPromptMemoryReferences({userId:'u',characterId:roleId,worldId:left},[{source:'world',id:right+'-event',text:'世界边界记号 '+right,at:now}],foreignStage);
     check(!(await db.memoryUsage.toArray()).some(row=>row.messageId===foreignStage),persona+' manual source indexing cannot register foreign-world injection');
@@ -955,9 +1013,49 @@ async function run() {
       if(dependency==='post')check(!recalled.text.includes('CROSS_POST_OLD'),'post edit also removes an earlier retained post in the final batch');
     }finally{db.momentReactions.get=originalReactionGet;}
   }
+  const latencyRows=Array.from({length:12},(_,index)=>({id:`latency-memory-${index}`,userId:'u',characterId:crossRole,content:`独立偏好${index}`,type:'manual',status:'active',createdAt:now}));
+  await db.memories.bulkPut(latencyRows as any);
+  const snapshotRef={};
+  for(const row of latencyRows)withMemorySourceSnapshot(snapshotRef,'memories',row);
+  const snapshotTable=db.table('memories');
+  const originalTable=db.table;
+  const originalBulk=snapshotTable.bulkGet;
+  let snapshotBatches=0;
+  try{
+    snapshotTable.bulkGet=(async(...args:any[])=>{snapshotBatches++;return (originalBulk as any).apply(snapshotTable,args);}) as typeof snapshotTable.bulkGet;
+    db.table=((name:string)=>name==='memories'?snapshotTable:originalTable.call(db,name)) as typeof db.table;
+    check(await memorySourceSnapshotsStillLive(snapshotRef),'batched snapshot validation retains all unchanged source rows');
+    check(snapshotBatches===1,'twelve same-table snapshot dependencies use one bulk read');
+    await db.memories.update(latencyRows[5].id,{content:'已编辑'});
+    check(!await memorySourceSnapshotsStillLive(snapshotRef),'batched snapshot validation still detects an edited dependency');
+    await db.memories.put(latencyRows[5] as any);
+  }finally{snapshotTable.bulkGet=originalBulk;db.table=originalTable;}
+  const latencyContext={text:'',references:latencyRows.map(row=>({source:'chat' as const,id:row.id,text:row.content,at:now})),sections:{profile:'',episodes:'',promises:'',crossChannel:'',recent:'',historical:''},provenance:[]};
+  const originalLatencyBulk=db.memories.bulkGet;
+  let activeReads=0,peakReads=0,maxBatchSize=0;
+  const sequentialMs:number[]=[],parallelMs:number[]=[];
+  try{
+    db.memories.bulkGet=(async(keys:any[])=>{
+      if(!keys.some(key=>String(key).startsWith('latency-memory-')))return originalLatencyBulk.call(db.memories,keys);
+      maxBatchSize=Math.max(maxBatchSize,keys.length);
+      activeReads++;peakReads=Math.max(peakReads,activeReads);
+      try{await new Promise(resolve=>setTimeout(resolve,15));return await originalLatencyBulk.call(db.memories,keys);}
+      finally{activeReads--;}
+    }) as typeof db.memories.bulkGet;
+    for(let iteration=0;iteration<3;iteration++){
+      let started=performance.now();
+      for(const reference of latencyContext.references)await revalidateCharacterMemoryContext({userId:'u',characterId:crossRole},{...latencyContext,references:[reference]});
+      sequentialMs.push(performance.now()-started);
+      started=performance.now();
+      const result=await revalidateCharacterMemoryContext({userId:'u',characterId:crossRole},latencyContext);
+      parallelMs.push(performance.now()-started);
+      check(result.references.map(ref=>ref.id).join(',')===latencyContext.references.map(ref=>ref.id).join(','),'parallel read-only checks retain exact source count and relevance order, run '+iteration);
+    }
+    check(maxBatchSize===12&&activeReads===0,'selected sources are read in one complete batch and finish before return');
+  }finally{db.memories.bulkGet=originalLatencyBulk;}
   check(scopedExport.memories.every((item) => item.userId === 'u') && scopedExport.sessions.every((item) => item.userId === 'u'), 'backup export contains only the requested account');
   check(scopedExport.groups?.some((group) => group.id === 'g') && scopedExport.sourceTombstones?.every((row) => row.userId === 'u'), 'backup preserves group continuity and only same-account tombstones');
-  document.body.textContent = `ok   ${count} assertions (real IndexedDB, zero network)\n\nALL PASS`;
+  document.body.textContent = `ok   ${count} assertions (real IndexedDB, zero network)\nLATENCY_MECHANISM ${JSON.stringify({dependencies:12,injectedReadDelayMs:15,sequentialMs,batchedMs:parallelMs,peakReads,maxBatchSize,scope:'isolated IndexedDB plus controlled read delay; not real model or Android latency',modelCalls:0})}\n\nALL PASS`;
   await report('/result', { method:'POST', body:document.body.textContent });
 }
 run().catch(async e => {

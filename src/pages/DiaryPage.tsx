@@ -27,6 +27,8 @@ import { moodColor, moodEmoji, formatDateFull } from '../lib/diary-utils';
 import { diaryRepo, todayStr } from '../db/diary-repo';
 import { IS_MOBILE } from '../lib/platform';
 import type { Diary } from '../db/index';
+import { Icon } from '../components/ui/Icon';
+import '../styles/diary-ui.css';
 
 const VIEWS: { key: 'calendar' | 'timeline' | 'tags'; label: string }[] = [
   { key: 'calendar', label: '日历' },
@@ -38,7 +40,13 @@ const VIEWS: { key: 'calendar' | 'timeline' | 'tags'; label: string }[] = [
 import { isDiaryUnlocked, setDiaryUnlocked as setDiaryUnlockState } from '../lib/diary-unlock';
 
 export function DiaryPage() {
-  const { diaries, loaded, load, view, setView, search, setSearch, moodFilter, setMoodFilter, yearFilter, setYearFilter, tagFilter, setTagFilter, clearFilters } = useDiaryStore();
+  const owner = useAuthStore(s => s.userId);
+  return <DiaryPageContent key={owner ?? 'signed-out'} owner={owner} />;
+}
+
+function DiaryPageContent({ owner }: { owner: string | null }) {
+  const { diaries: storedDiaries, loaded, load, view, setView, search, setSearch, moodFilter, setMoodFilter, yearFilter, setYearFilter, tagFilter, setTagFilter, clearFilters } = useDiaryStore();
+  const diaries = useMemo(() => storedDiaries.filter(d => d.userId === owner), [storedDiaries, owner]);
   const setActiveView = useUIStore((s) => s.setActiveView);
   const diaryAiEnabled = useSettingsStore((s) => s.diaryAiEnabled);
   const setDiaryAiEnabled = useSettingsStore((s) => s.setDiaryAiEnabled);
@@ -47,7 +55,8 @@ export function DiaryPage() {
   const diaryReminderEnabled = useSettingsStore((s) => s.diaryReminderEnabled);
   const diaryReminderTime = useSettingsStore((s) => s.diaryReminderTime);
   const apiKey = useAuthStore((s) => s.apiKey);
-  const trash = useDiaryStore((s) => s.trash);
+  const storedTrash = useDiaryStore((s) => s.trash);
+  const trash = useMemo(() => storedTrash.filter(d => d.userId === owner), [storedTrash, owner]);
   const restoreDiary = useDiaryStore((s) => s.restoreDiary);
   const purgeDiary = useDiaryStore((s) => s.purgeDiary);
   const feedback = useFeedback();
@@ -279,21 +288,8 @@ export function DiaryPage() {
       <>
       {/* 头部（仅管理器视图显示；写日记/看某一天时由 DiaryChatPage 自己的头部接管） */}
       {!writingDate && (
-      <div className="h-14 flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 border-b border-line shrink-0">
-        <span className="text-base font-bold bg-gradient-to-r from-gene-purple to-life-cyan bg-clip-text text-transparent mr-1 min-w-0 truncate">我的手账</span>
-
-        {/* 回收站徽标（有内容时显示） */}
-        {trash.length > 0 && (
-          <button
-            onClick={() => setShowTrash(!showTrash)}
-            title="回收站"
-            className={`flex items-center gap-1 px-2 py-1 rounded-full text-[12px] transition-all shrink-0 ${
-              showTrash ? 'bg-red-500/15 text-red-400' : 'bg-surface text-gray-400 hover:text-red-400'
-            }`}
-          >
-            🗑 {trash.length}
-          </button>
-        )}
+      <div className="vg-diary-header vg-diary-index-header flex items-center gap-1 px-3 sm:px-4 border-b border-line shrink-0">
+        <h1 className="text-xl font-bold text-ink shrink-0">日记</h1>
 
         <div className="flex-1 min-w-0" />
 
@@ -303,7 +299,9 @@ export function DiaryPage() {
             onClick={() => setShowExportMenu(!showExportMenu)}
             disabled={exporting}
             title="导出日记"
-            className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs bg-surface border border-line text-sub hover:border-life-cyan/40 hover:text-ink transition-colors disabled:opacity-40 flex items-center gap-1"
+            aria-label={exporting ? '正在导出日记' : '导出日记'}
+            aria-expanded={showExportMenu}
+            className="vg-diary-icon flex items-center justify-center rounded-lg text-sub hover:text-ink disabled:opacity-40"
           >
             {exporting ? (
               <>
@@ -312,23 +310,22 @@ export function DiaryPage() {
               </>
             ) : (
               <>
-                <span>📤</span>
+                <Icon name="download" size={18} />
                 <span className="hidden sm:inline">导出</span>
               </>
             )}
           </button>
           {showExportMenu && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowExportMenu(false)} />
-              <div className="absolute right-0 top-full mt-1 z-50 min-w-[200px] py-1.5 glass-card rounded-xl shadow-xl">
-                <div className="px-4 pt-1.5 pb-1 text-[12px] uppercase tracking-wider text-gray-400">当前筛选（{filtered.length} 篇）</div>
+            <Modal open presentation="dialog" title="导出与备份" width="max-w-sm" onClose={()=>setShowExportMenu(false)} canSnapshotOnExit={()=>false} panelClassName="vg-diary">
+              <div className="max-h-[70vh] overflow-y-auto py-2">
+                <div className="px-4 pt-1.5 pb-1 text-[12px] uppercase tracking-wider text-sub">当前筛选（{filtered.length} 篇）</div>
                 {([['pdf', 'PDF'], ['docx', 'Word (DOCX)'], ['txt', '纯文本 (TXT)']] as const).map(([k, label]) => (
                   <button key={k} onClick={() => doExport(k, 'all')} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors">
                     {label}
                   </button>
                 ))}
                 <div className="my-1 mx-3 h-px bg-line" />
-                <div className="px-4 pb-1 text-[12px] uppercase tracking-wider text-gray-400">仅本月（{stats.thisMonth} 篇）</div>
+                <div className="px-4 pb-1 text-[12px] uppercase tracking-wider text-sub">仅本月（{stats.thisMonth} 篇）</div>
                 {([['pdf', 'PDF'], ['docx', 'Word (DOCX)'], ['txt', '纯文本 (TXT)']] as const).map(([k, label]) => (
                   <button key={`m-${k}`} onClick={() => doExport(k, 'month')} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors">
                     {label}
@@ -336,60 +333,62 @@ export function DiaryPage() {
                 ))}
                 <div className="my-1 mx-3 h-px bg-line" />
                 <button onClick={() => void doBackup()} disabled={exporting} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors disabled:opacity-40">
-                  🗃️ 完整备份 (JSON)
+                  <Icon name="database" size={16} /> 完整备份 (JSON)
                 </button>
                 <button onClick={() => void doExportMarkdown()} disabled={exporting} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors disabled:opacity-40">
-                  📄 全量导出 (Markdown)
+                  <Icon name="diary" size={16} /> 全量导出 (Markdown)
                 </button>
                 <button onClick={() => void doImport()} disabled={exporting} className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors disabled:opacity-40">
-                  📥 导入恢复
+                  <Icon name="upload" size={16} /> 导入恢复
                 </button>
               </div>
-            </>
+            </Modal>
           )}
         </div>
         {exportMsg && <span className="text-xs text-life-cyan shrink-0 hidden sm:inline">{exportMsg}</span>}
 
         <button
           onClick={() => setShowAutoGen(true)}
-          className="px-2.5 sm:px-3 py-2 rounded-lg text-sm text-gene-purple hover:bg-gene-purple/10 transition-colors shrink-0 flex items-center gap-1"
+          className="vg-diary-icon flex items-center justify-center rounded-lg text-sub hover:text-ink shrink-0"
+          aria-label="自动生成日记"
           title="AI 根据今天和各角色的聊天，自动写一篇日记"
         >
-          🧠 <span className="hidden sm:inline">自动生成</span>
+          <Icon name="spark" size={20} />
         </button>
 
         {/* 更多：低频操作收纳 */}
         <div className="relative shrink-0">
           <button
             onClick={() => setMoreOpen((v) => !v)}
-            className={`w-9 h-9 flex items-center justify-center rounded-lg text-lg transition-all ${
-              moreOpen ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-400 hover:bg-surface hover:text-ink'
+            className={`vg-diary-icon w-9 h-9 flex items-center justify-center rounded-lg text-lg transition-all ${
+              moreOpen ? 'bg-gene-purple/15 text-gene-purple' : 'text-sub hover:bg-surface hover:text-ink'
             }`}
             title="更多"
+            aria-label="手账更多选项"
+            aria-expanded={moreOpen}
           >
-            ⋯
+            <Icon name="more" size={20} />
           </button>
           {moreOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 z-50 min-w-[190px] py-1.5 glass-card rounded-xl shadow-xl animate-fade-in">
+            <Modal open presentation="dialog" width="max-w-sm" title="手账工具" onClose={()=>setMoreOpen(false)} canSnapshotOnExit={()=>false} panelClassName="vg-diary">
+              <div className="max-h-[70vh] overflow-y-auto py-2">
                 <button
                   onClick={() => { setShowReview(true); setMoreOpen(false); }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  ✨ 本周回顾
+                  <Icon name="calendar" size={16} /> 本周回顾
                 </button>
                 <button
                   onClick={() => { setShowYearReview(true); setMoreOpen(false); }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  🎇 年度回顾
+                  <Icon name="spark" size={16} /> 年度回顾
                 </button>
                 <button
                   onClick={() => { setShowRecall(true); setMoreOpen(false); }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  🧠 补记助手
+                  <Icon name="diary" size={16} /> 补记助手
                 </button>
                 <button
                   onClick={() => { setShowPersona(true); setMoreOpen(false); }}
@@ -401,60 +400,60 @@ export function DiaryPage() {
                   onClick={() => { setShowYearTable(true); setMoreOpen(false); }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  📜 人生年表
+                  <Icon name="clock" size={16} /> 人生年表
                 </button>
                 <button
                   onClick={() => { setShowInsight(true); setMoreOpen(false); }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  📊 情绪周期洞察
+                  <Icon name="heart" size={16} /> 情绪周期洞察
                 </button>
                 <div className="my-1 mx-3 h-px bg-line" />
                 <button
                   onClick={() => { setDiaryAiEnabled(!diaryAiEnabled); }}
                   className="w-full flex items-center justify-between gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  <span>✨ AI 辅助</span>
-                  <span className={`text-[12px] ${diaryAiEnabled ? 'text-gene-purple' : 'text-gray-400'}`}>{diaryAiEnabled ? '开' : '关'}</span>
+                  <span className="inline-flex items-center gap-2"><Icon name="spark" size={16} /> AI 辅助</span>
+                  <span className={`text-[12px] ${diaryAiEnabled ? 'text-gene-purple' : 'text-sub'}`}>{diaryAiEnabled ? '开' : '关'}</span>
                 </button>
                 <button
                   onClick={() => { setSharingOpen(true); setMoreOpen(false); }}
                   className="w-full flex items-center justify-between gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  <span>🔐 谁能看到我的日记</span>
-                  <span className="text-[12px] text-gray-400">逐条授权</span>
+                  <span className="inline-flex items-center gap-2"><Icon name="shield" size={16} /> 谁能看到我的日记</span>
+                  <span className="text-[12px] text-sub">逐条授权</span>
                 </button>
                 <button
                   onClick={() => { setReminderModal(true); setMoreOpen(false); }}
                   className="w-full flex items-center justify-between gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
                   <span>日记设置</span>
-                  <span className={`text-[12px] ${diaryReminderEnabled ? 'text-gene-purple' : 'text-gray-400'}`}>{diaryReminderEnabled ? diaryReminderTime : '关'}</span>
+                  <span className={`text-[12px] ${diaryReminderEnabled ? 'text-gene-purple' : 'text-sub'}`}>{diaryReminderEnabled ? diaryReminderTime : '关'}</span>
                 </button>
                 <div className="my-1 mx-3 h-px bg-line" />
                 <button
                   onClick={() => { setPinModal(true); setMoreOpen(false); }}
                   className="w-full flex items-center justify-between gap-2 px-4 py-2 text-sm text-sub hover:bg-surface transition-colors"
                 >
-                  <span>{diaryPin ? '🔒 手账锁' : '🔓 设置手账锁'}</span>
-                  <span className={`text-[12px] ${diaryPin ? 'text-life-cyan' : 'text-gray-400'}`}>{diaryPin ? '已上锁' : '未设置'}</span>
+                  <span className="inline-flex items-center gap-2"><Icon name="lock" size={16} />{diaryPin ? '手账锁' : '设置手账锁'}</span>
+                  <span className={`text-[12px] ${diaryPin ? 'text-life-cyan' : 'text-sub'}`}>{diaryPin ? '已上锁' : '未设置'}</span>
                 </button>
                 <button
                   onClick={() => { setShowTrash(true); setMoreOpen(false); }}
                   className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-400/80 hover:bg-red-500/10 transition-colors"
                 >
-                  🗑 回收站{trash.length > 0 ? ` (${trash.length})` : ''}
+                  <Icon name="trash" size={16} /> 回收站{trash.length > 0 ? ` (${trash.length})` : ''}
                 </button>
               </div>
-            </>
+            </Modal>
           )}
         </div>
 
         <button
           onClick={openNew}
-          className="px-3.5 sm:px-4 py-2 rounded-lg text-sm font-medium text-white bg-gene-purple hover:bg-[#5B4BD4] shadow-[0_2px_12px_rgba(108,92,231,0.35)] transition-all shrink-0"
+          className="vg-button vg-button-primary px-3 text-sm shrink-0"
         >
-          ＋ 写日记
+          <span className="inline-flex items-center gap-1"><Icon name="edit" size={18} /> 写日记</span>
         </button>
       </div>
       )}
@@ -468,47 +467,34 @@ export function DiaryPage() {
         <button
           onClick={() => setActiveView('chat')}
           title="返回聊天"
-          className="absolute left-4 bottom-4 z-10 flex items-center gap-1.5 text-sm text-gray-400 hover:text-ink transition-colors"
+          className="absolute left-4 bottom-4 z-10 flex items-center gap-1.5 text-sm text-sub hover:text-ink transition-colors"
         >
-          ← 聊天
+          <Icon name="back" size={16} /> 聊天
         </button>
         )}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 pb-20">        <div className="max-w-4xl mx-auto space-y-4">
-          <section className="vg-archive-hero relative overflow-hidden rounded-[28px] border border-gene-purple/25 bg-panel px-5 py-5">
-            <div className="absolute -right-12 -top-10 h-44 w-44 rounded-full border border-life-cyan/20" />
-            <div className="absolute right-5 top-4 h-24 w-24 rounded-full bg-life-cyan/10 blur-2xl" />
-            <div className="absolute -bottom-10 left-16 h-28 w-28 rounded-full bg-gene-purple/35 blur-2xl" />
-            <div className="relative flex items-end justify-between gap-4">
-              <div>
-                <p className="text-[12px] tracking-[0.26em] text-life-cyan/80">PERSONAL ARCHIVE</p>
-                <h2 className="mt-2 text-[27px] font-medium leading-[1.5] tracking-[0.04em] text-ink">把今天，<br />留给未来的你。</h2>
-                <p className="mt-2 max-w-md text-xs leading-relaxed text-sub">这里记录你的感受、片段与变化；它们会慢慢长成只属于你的生命轨迹。</p>
-              </div>
-              <div className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2 text-right backdrop-blur-sm">
-                <div className="text-lg font-bold tabular-nums text-ink">{stats.streak}</div>
-                <div className="text-[12px] text-sub">连续记录</div>
-              </div>
-            </div>
-          </section>
-          {/* 统计条（窄屏 2×2，宽屏 4 列） */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="vg-diary-index-scroll flex-1 overflow-y-auto px-5 py-4 pb-20"><div className="max-w-4xl mx-auto space-y-3">
+          <section className="vg-diary-stats grid grid-cols-3 py-4" aria-label="日记统计">
             {[
               { label: '总篇数', value: stats.total },
               { label: '连续记录', value: `${stats.streak} 天` },
               { label: '本月', value: stats.thisMonth },
-            ].map((s) => (
-              <div key={s.label} className="rounded-xl border border-line bg-panel/60 px-4 py-3 text-center">
-                <div className="text-xl font-bold tabular-nums text-ink">{s.value}</div>
-                <div className="text-[12px] text-gray-500 mt-0.5">{s.label}</div>
+            ].map((s, index) => (
+              <div key={s.label} className={`grid gap-1 min-w-0 text-center ${index ? 'border-l border-line' : ''}`}>
+                <strong className="text-2xl font-semibold tabular-nums leading-snug">{loaded ? s.value : '—'}</strong>
+                <span className="text-[13px] text-sub">{s.label}</span>
               </div>
             ))}
+          </section>
+          <details className="vg-diary-mood">
+            <summary><Icon name="smile" size={20}/><span>心情回顾</span><small className="text-[13px] text-sub">分布与趋势</small><Icon name="chevron" size={18}/></summary>
+            <div className="space-y-3 px-4 pb-4">
           {/* 心情分布 */}
-            <div className="rounded-xl border border-line bg-panel/60 px-4 py-3">
-              <div className="text-[12px] text-gray-500 mb-1.5">心情分布</div>
+            <div>
+              <div className="text-[12px] text-sub mb-1.5">全部日记心情分布</div>
               <div className="flex items-end justify-between h-6 gap-1">
                 {stats.moodDist.map((n, i) => (
                   <div key={i} className="flex flex-col items-center gap-0.5 flex-1">
-                    <span className="text-[12px] text-gray-400 leading-none">{n || ''}</span>
+                    <span className="text-[12px] text-sub leading-none">{n || ''}</span>
                     <div
                       className="w-full rounded-t"
                       style={{ height: `${Math.max(4, (n / Math.max(1, Math.max(...stats.moodDist))) * 16)}px`, backgroundColor: moodColor(i + 1), opacity: n > 0 ? 0.85 : 0.15 }}
@@ -517,16 +503,15 @@ export function DiaryPage() {
                 ))}
               </div>
             </div>
-          </div>
-
           {/* 近 30 天心情曲线 */}
-          <div className="rounded-xl border border-line bg-panel/60 px-4 py-3">
+          <div>
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[12px] text-gray-500">近 30 天心情</span>
-              <span className="text-[12px] text-gray-400">近 30 天心情曲线，点数据看日期</span>
+              <span className="text-[12px] text-sub">近 30 天心情</span>
+              <span className="text-[12px] text-sub">近 30 天心情曲线，点数据看日期</span>
             </div>
             <MoodTrendLine data={moodTrend.data} dates={moodTrend.dates} />
           </div>
+          </div></details>
 
           {/* 每日一忆：过去的今天 */}
           {memoryOfToday && (
@@ -535,9 +520,9 @@ export function DiaryPage() {
               className="w-full text-left rounded-xl border border-dashed border-life-cyan/40 bg-life-cyan/5 px-4 py-3 hover:bg-life-cyan/10 hover:border-life-cyan/60 transition-all group"
             >
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-sm">🕰️</span>
+                <Icon name="clock" size={16} className="text-life-cyan" />
                 <span className="text-xs font-medium text-life-cyan">每日一忆 · 过去的今天</span>
-                <span className="text-[12px] text-gray-400 ml-auto group-hover:text-life-cyan transition-colors">重温 →</span>
+                <span className="text-[12px] text-sub ml-auto group-hover:text-life-cyan transition-colors">重温</span>
               </div>
               <p className="text-sm text-sub line-clamp-2 whitespace-pre-wrap">
                 {memoryOfToday.title ? `《${memoryOfToday.title}》` : ''} {memoryOfToday.date.slice(0, 4)} 年的今天你写道：{memoryOfToday.content.slice(0, 80)}
@@ -546,25 +531,27 @@ export function DiaryPage() {
           )}
 
           {/* 工具栏 */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="vg-search-field flex items-center gap-2 flex-1 min-w-[140px] sm:min-w-[200px] px-3 py-1.5">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-gray-400 shrink-0">
+          <div className="vg-diary-index-tools flex items-center gap-2 flex-wrap">
+            <div className="vg-search-field flex items-center gap-2 w-full px-3 py-1.5">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-sub shrink-0">
                 <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
               </svg>
               <input
+                type="search" aria-label="搜索日记"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="搜索日记…"
-                className="flex-1 bg-transparent text-sm text-ink placeholder:text-gray-500 outline-none min-w-0"
+                className="flex-1 bg-transparent text-sm text-ink placeholder:text-sub outline-none min-w-0"
               />
             </div>
 
-            <div className="flex rounded-lg border border-line overflow-hidden">
+            <div className="vg-diary-index-views flex w-full rounded-lg border border-line overflow-hidden" role="group" aria-label="日记视图">
               {VIEWS.map((v) => (
                 <button
                   key={v.key}
                   onClick={() => setView(v.key)}
-                  className={`px-3 py-1.5 text-xs transition-colors ${view === v.key ? 'bg-gene-purple/15 text-gene-purple' : 'text-gray-500 hover:text-ink'}`}
+                  aria-pressed={view === v.key}
+                  className={`flex-1 px-3 py-1.5 text-sm transition-colors ${view === v.key ? 'bg-gene-purple/15 text-gene-purple' : 'text-sub hover:text-ink'}`}
                 >
                   {v.label}
                 </button>
@@ -603,18 +590,18 @@ export function DiaryPage() {
 
           {/* 主体 */}
           {!loaded ? (
-            <div className="py-16 text-center text-gray-500">正在唤醒日记…</div>
+            <div className="vg-loading-skeleton" role="status" aria-label="正在唤醒日记">{[0, 1, 2].map(i => <div className="vg-skeleton-card" key={i} aria-hidden="true"><i /><span><i /><i /><i /></span></div>)}</div>
           ) : search.trim() ? (
             /* 搜索模式：直接显示结果时间线，让搜索可见生效 */
             <div className="space-y-3">
-              <p className="text-[12px] tracking-[0.2em] text-gray-500 uppercase">
+              <p className="text-[12px] tracking-[0.2em] text-sub uppercase">
                 搜索「{search.trim()}」· 找到 {filtered.length} 篇
               </p>
               {filtered.length === 0 ? (
-                <div className="py-16 text-center text-gray-500">
-                  <p className="text-3xl mb-2">🔍</p>
+                <div className="py-16 text-center text-sub">
+                  <Icon name="search" size={32} className="mx-auto mb-2" />
                   <p className="text-sm">没有找到匹配的日记</p>
-                  <p className="text-xs text-gray-600 mt-1">换个关键词试试（可多词）</p>
+                  <p className="text-xs text-sub mt-1">换个关键词试试（可多词）</p>
                 </div>
               ) : (
                 <DiaryTimeline entries={filtered} onEdit={openEdit} highlight={search} />
@@ -626,28 +613,28 @@ export function DiaryPage() {
                 <DiaryCalendar diaries={filtered} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
               </div>
               <div className="lg:col-span-2 space-y-2">
-                <p className="text-[12px] tracking-[0.2em] text-gray-500 uppercase">
+                <p className="text-[12px] tracking-[0.2em] text-sub uppercase">
                   {selectedDate ? formatDateFull(selectedDate) : '选中日期查看日记'}
                 </p>
                 {selectedDate && dayEntries.length === 0 && (
                   <div className="rounded-xl border border-dashed border-line py-8 text-center">
-                    <p className="text-xs text-gray-500 mb-2">这一天还没有日记</p>
+                    <p className="text-xs text-sub mb-2">这一天还没有日记</p>
                     {selectedDate === todayStr() ? (
                       <button
                         onClick={() => setWritingDate(selectedDate)}
                         className="text-xs text-life-cyan hover:underline"
                       >
-                        写一篇 →
+                        写一篇
                       </button>
                     ) : selectedDate < todayStr() ? (
                       <button
                         onClick={() => setWritingDate(selectedDate)}
                         className="text-xs text-life-cyan hover:underline"
                       >
-                        补写一篇 →
+                        补写一篇
                       </button>
                     ) : (
-                      <p className="text-xs text-gray-600">还没到这一天</p>
+                      <p className="text-xs text-sub">还没到这一天</p>
                     )}
                   </div>
                 )}
@@ -685,28 +672,28 @@ export function DiaryPage() {
                   <button
                     onClick={() => setShowTrash(false)}
                     title="返回手账"
-                    className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-ink transition-colors"
+                    className="flex items-center gap-1.5 text-sm text-sub hover:text-ink transition-colors"
                   >
                     ‹ 返回手账
                   </button>
                   <span className="w-px h-4 bg-line" />
-                  <p className="text-sm font-semibold text-ink">🗑 回收站</p>
+                  <p className="flex items-center gap-2 text-sm font-semibold text-ink"><Icon name="trash" size={18} />回收站</p>
                 </div>
-                <p className="text-xs text-gray-500">删除的日记在这里保留 7 天，可恢复或彻底删除</p>
+                <p className="text-xs text-sub">删除的日记在这里保留 7 天，可恢复或彻底删除</p>
               </div>
               {trash.length === 0 ? (
-                <div className="py-16 text-center text-gray-500">
-                  <p className="text-3xl mb-2">🗑️</p>
+                <div className="py-16 text-center text-sub">
+                  <Icon name="trash" size={30} className="mx-auto mb-2" />
                   <p className="text-sm">回收站是空的</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {trash.map((d) => (
-                    <div key={d.id} className="rounded-xl border border-line bg-panel/60 p-4 flex items-center gap-3">
+                    <div key={d.id} className="vg-diary-card rounded-xl border border-line bg-panel/60 p-4 flex items-center gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-sm font-semibold text-ink truncate">{d.title || '无标题'}</span>
-                          <span className="text-xs text-gray-400 shrink-0">{d.date}</span>
+                          <span className="text-xs text-sub shrink-0">{d.date}</span>
                         </div>
                         <p className="text-sm text-sub line-clamp-2 whitespace-pre-wrap">{d.content || '（空）'}</p>
                       </div>
@@ -715,14 +702,14 @@ export function DiaryPage() {
                           onClick={() => void restoreDiary(d.id).then(() => feedback('日记已恢复', { tone: 'success' })).catch(() => feedback('日记未能恢复，请重试', { tone: 'error' }))}
                           className="px-3 py-1.5 rounded-lg text-xs bg-life-cyan/10 text-life-cyan hover:bg-life-cyan/20 transition-colors"
                         >
-                          ♻️ 恢复
+                            <Icon name="refresh" size={16} className="inline" /> 恢复
                         </button>
                         <button
                           onClick={() => void purgeDiary(d.id).then(() => feedback('日记已彻底删除', { tone: 'success' })).catch(() => feedback('日记未能删除，请重试', { tone: 'error' }))}
                           title="彻底删除（不可恢复）"
                           className="px-3 py-1.5 rounded-lg text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
                         >
-                          🗑 删除
+                            <Icon name="trash" size={16} className="inline" /> 删除
                         </button>
                       </div>
                     </div>
@@ -844,7 +831,7 @@ function MoodTrendLine({ data, dates }: { data: (number | null)[]; dates: string
             <span
               key={`l-${i}`}
               className={`absolute -translate-x-1/2 text-[12px] leading-none whitespace-nowrap ${
-                isToday ? 'text-gene-purple font-semibold' : 'text-gray-400'
+                isToday ? 'text-gene-purple font-semibold' : 'text-sub'
               }`}
               style={{ left: `${leftPct}%` }}
             >

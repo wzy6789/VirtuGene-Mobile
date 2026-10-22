@@ -7,7 +7,8 @@ const { chromium } = createRequire(join(dirname(process.execPath), 'package.json
 const contextTest = process.argv.includes('--context');
 const recordTest = process.argv.includes('--record');
 const hostTest = process.argv.includes('--host');
-const suite = hostTest ? 'host' : recordTest ? 'record' : contextTest ? 'context' : 'profile';
+const rhythmTest = process.argv.includes('--rhythm-sources');
+const suite = rhythmTest ? 'rhythm-sources' : hostTest ? 'host' : recordTest ? 'record' : contextTest ? 'context' : 'profile';
 const bundle = await build({ entryPoints: [`scripts/verify/voice-call-${suite}.ts`], bundle: true, write: false, platform: 'browser', format: 'iife', loader: { '.webp': 'dataurl', '.png': 'dataurl' }, define: { 'import.meta.env': '{}', __APP_VERSION__: '"test"' } });
 const server = createServer((req, res) => {
   res.setHeader('Content-Type', req.url === '/test.js' ? 'application/javascript' : 'text/html; charset=utf-8');
@@ -24,5 +25,5 @@ try {
   mkdirSync('.tmp-preview/voice-call', { recursive: true });
   writeFileSync(`.tmp-preview/voice-call/${suite}-result.json`, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
-  if (result.error || result.checks !== (hostTest ? 41 : recordTest ? 45 : contextTest ? 53 : 16)) process.exitCode = 1;
+  if (result.error || result.checks !== (rhythmTest ? 21 : hostTest ? 129 : recordTest ? 68 : contextTest ? 56 : 16)) process.exitCode = 1;
 } finally { await browser?.close(); server.close(); }

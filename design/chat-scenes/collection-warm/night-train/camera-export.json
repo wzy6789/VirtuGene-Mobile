@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "sceneId": "night-train",
+  "designWidth": 1440,
+  "designHeight": 3200,
+  "camera": {
+    "location": [
+      0.07999999821186066,
+      -5.199999809265137,
+      2.049999952316284
+    ],
+    "rotation": [
+      1.4864898920059204,
+      1.4997922348491954e-10,
+      -0.0028168940916657448
+    ],
+    "lens": 32,
+    "sensorFit": "VERTICAL",
+    "sensorHeight": 36
+  },
+  "cupMouth": [
+    954.444,
+    2079.024
+  ],
+  "windowPolygon": [
+    [
+      267.876,
+      1673.293
+    ],
+    [
+      1375.897,
+      1672.95
+    ],
+    [
+      1387.853,
+      1060.739
+    ],
+    [
+      259.626,
+      1060.406
+    ]
+  ],
+  "effectArea": "window",
+  "lightCenter": [
+    1264.218,
+    1270.804
+  ],
+  "layers": [
+    "base",
+    "casing",
+    "foreground",
+    "table"
+  ],
+  "provenance": "Original procedural Blender geometry and shaders, offline Cycles render, no imported stock or generated imagery.",
+  "lightRect": [
+    914,
+    821,
+    700,
+    900
+  ]
+}

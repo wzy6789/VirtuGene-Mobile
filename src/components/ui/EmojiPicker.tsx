@@ -75,17 +75,18 @@ interface EmojiPickerProps {
 
 export function EmojiPicker({ onSelect }: EmojiPickerProps) {
   return (
-    <div className="w-72 max-h-72 overflow-y-auto rounded-xl border border-line-strong bg-surface shadow-xl p-2">
+    <div className="w-full max-w-sm max-h-[60vh] overflow-y-auto rounded-xl border border-line-strong bg-surface p-2">
       {EMOJI_GROUPS.map((group) => (
         <div key={group.label} className="mb-2">
-          <p className="px-1 py-0.5 text-[10px] text-gray-500">{group.label}</p>
-          <div className="grid grid-cols-8 gap-0.5">
+          <p className="px-1 py-2 text-xs font-medium text-sub">{group.label}</p>
+          <div className="grid gap-1" style={{gridTemplateColumns:'repeat(auto-fit,minmax(44px,1fr))'}}>
             {group.emojis.map((e) => (
               <button
                 key={e}
                 type="button"
+                aria-label={`使用 ${e} 作为头像`}
                 onClick={() => onSelect(e)}
-                className="w-8 h-8 flex items-center justify-center text-xl rounded hover:bg-gene-purple/15 transition-colors"
+                className="w-full min-h-11 flex items-center justify-center text-xl rounded-lg hover:bg-surface-strong transition-colors"
               >
                 {e}
               </button>

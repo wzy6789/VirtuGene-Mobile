@@ -1,0 +1,228 @@
+{
+  "status": "pass",
+  "checkCount": 43,
+  "checks": [
+    {
+      "name": "variants/exact-same-camera",
+      "pass": true
+    },
+    {
+      "name": "variants/same-designWidth",
+      "pass": true
+    },
+    {
+      "name": "variants/same-designHeight",
+      "pass": true
+    },
+    {
+      "name": "variants/same-cupMouth",
+      "pass": true
+    },
+    {
+      "name": "variants/same-windowPolygon",
+      "pass": true
+    },
+    {
+      "name": "original/blend-file-present",
+      "pass": true
+    },
+    {
+      "name": "original/actual-blend-camera",
+      "pass": true
+    },
+    {
+      "name": "original/no-external-libraries-or-images",
+      "pass": true
+    },
+    {
+      "name": "window/nonempty-local-bounds",
+      "pass": true,
+      "bounds": [
+        765,
+        985,
+        1440,
+        1769
+      ]
+    },
+    {
+      "name": "cafe-afternoon/real-source-dimensions",
+      "pass": true,
+      "dimensions": [
+        2160,
+        4800
+      ]
+    },
+    {
+      "name": "cafe-afternoon/source-file-not-placeholder",
+      "pass": true,
+      "bytes": 11623131,
+      "sha256": "06f572ef97c30b9dae1bf11cf5126676fc094bb8fdf294cec617062134f64761"
+    },
+    {
+      "name": "cafe-afternoon/source-provenance-matches",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/clean-plate-full-opacity",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/plant/no-rain-overlap-at-max-parallax",
+      "pass": true,
+      "maxDesignPixels": 5,
+      "maxOverlapAlpha": 0
+    },
+    {
+      "name": "cafe-afternoon/table/no-rain-overlap-at-max-parallax",
+      "pass": true,
+      "maxDesignPixels": 6,
+      "maxOverlapAlpha": 0
+    },
+    {
+      "name": "cafe-afternoon/neutral-png-composite-pixel-identical",
+      "pass": true,
+      "maxChannelDifference": 0
+    },
+    {
+      "name": "cafe-afternoon/1080/decode-budget",
+      "pass": true,
+      "decodedBytesWithPoster": 28264580,
+      "decodedBytesAfterPosterRelease": 17896580
+    },
+    {
+      "name": "cafe-afternoon/1080/window-mask-1080.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/foreground-casing-1080.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/foreground-plant-1080.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1080/foreground-table-1080.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/decode-budget",
+      "pass": true,
+      "decodedBytesWithPoster": 50251132,
+      "decodedBytesAfterPosterRelease": 31819132
+    },
+    {
+      "name": "cafe-afternoon/1440/window-mask-1440.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/foreground-casing-1440.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/foreground-plant-1440.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-afternoon/1440/foreground-table-1440.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/real-source-dimensions",
+      "pass": true,
+      "dimensions": [
+        2160,
+        4800
+      ]
+    },
+    {
+      "name": "cafe-rain-night/source-file-not-placeholder",
+      "pass": true,
+      "bytes": 11684599,
+      "sha256": "d8ab3a3c7d81c76e394d14340e65a435f75302379beaac35940e05b28bbe47ad"
+    },
+    {
+      "name": "cafe-rain-night/source-provenance-matches",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/clean-plate-full-opacity",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/plant/no-rain-overlap-at-max-parallax",
+      "pass": true,
+      "maxDesignPixels": 5,
+      "maxOverlapAlpha": 0
+    },
+    {
+      "name": "cafe-rain-night/table/no-rain-overlap-at-max-parallax",
+      "pass": true,
+      "maxDesignPixels": 6,
+      "maxOverlapAlpha": 0
+    },
+    {
+      "name": "cafe-rain-night/neutral-png-composite-pixel-identical",
+      "pass": true,
+      "maxChannelDifference": 0
+    },
+    {
+      "name": "cafe-rain-night/1080/decode-budget",
+      "pass": true,
+      "decodedBytesWithPoster": 28264580,
+      "decodedBytesAfterPosterRelease": 17896580
+    },
+    {
+      "name": "cafe-rain-night/1080/window-mask-1080.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/foreground-casing-1080.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/foreground-plant-1080.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1080/foreground-table-1080.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/decode-budget",
+      "pass": true,
+      "decodedBytesWithPoster": 50251132,
+      "decodedBytesAfterPosterRelease": 31819132
+    },
+    {
+      "name": "cafe-rain-night/1440/window-mask-1440.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/foreground-casing-1440.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/foreground-plant-1440.webp/cropped",
+      "pass": true
+    },
+    {
+      "name": "cafe-rain-night/1440/foreground-table-1440.webp/cropped",
+      "pass": true
+    }
+  ],
+  "workingDirectory": "F:\\VirtuGene-Mobile",
+  "model": "未确认",
+  "reasoning": "未确认",
+  "scope": "Offline assets only, no Android GPU or application interaction",
+  "visualReview": {
+    "inspected": [
+      "composite-afternoon-preview.png",
+      "composite-rain-night-preview.png",
+      "alpha-edges-light-dark.png",
+      "source-cafe-rain-night-2160.png"
+    ],
+    "observed": "Recognizable seat, cup, table, plant and window depth. No obvious white/black fringe in the exported edge sheet.",
+    "limitations": "No quantitative moire guarantee or native GPU evidence; verify actual app at target sizes separately."
+  }
+}

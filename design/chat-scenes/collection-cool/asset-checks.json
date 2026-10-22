@@ -1,0 +1,520 @@
+{
+  "checks": [
+    {
+      "name": "snow-study native art source",
+      "pass": true,
+      "details": [
+        2160,
+        4800
+      ]
+    },
+    {
+      "name": "snow-study retained blend",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study opaque clean plate",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study casing alpha bounded by original coverage",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study casing no opaque target behind occluder",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground alpha bounded by original coverage",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground no opaque target behind occluder",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study table alpha bounded by original coverage",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study table no opaque target behind occluder",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study complete neutral PNG composite is exact",
+      "pass": true,
+      "details": {
+        "maxAbsChannel": 0
+      }
+    },
+    {
+      "name": "snow-study poster-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study poster-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study clean-plate-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study clean-plate-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study window-mask-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study window-mask-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-casing-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-casing-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-foreground-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-foreground-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-table-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-table-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study 1080 decoded bytes accurate",
+      "pass": true,
+      "details": 27320052
+    },
+    {
+      "name": "snow-study 1080 decoded memory budget",
+      "pass": true,
+      "details": 27320052
+    },
+    {
+      "name": "snow-study 1080 window is cropped",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study 1080 foreground crops bounded",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study 1080 casing window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "snow-study 1080 foreground window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "snow-study 1080 table window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "snow-study poster-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study poster-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study clean-plate-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study clean-plate-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study window-mask-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study window-mask-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-casing-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-casing-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-foreground-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-foreground-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-table-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study foreground-table-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study 1440 decoded bytes accurate",
+      "pass": true,
+      "details": 48564516
+    },
+    {
+      "name": "snow-study 1440 decoded memory budget",
+      "pass": true,
+      "details": 48564516
+    },
+    {
+      "name": "snow-study 1440 window is cropped",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study 1440 foreground crops bounded",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "snow-study 1440 casing window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "snow-study 1440 foreground window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "snow-study 1440 table window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "snow-study gallery thumbnail",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "study actual tea anchor on canvas",
+      "pass": true,
+      "details": [
+        313.306,
+        2103.556
+      ]
+    },
+    {
+      "name": "mist-coast native art source",
+      "pass": true,
+      "details": [
+        2160,
+        4800
+      ]
+    },
+    {
+      "name": "mist-coast retained blend",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast opaque clean plate",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast casing alpha bounded by original coverage",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast casing no opaque target behind occluder",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground alpha bounded by original coverage",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground no opaque target behind occluder",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast table alpha bounded by original coverage",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast table no opaque target behind occluder",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast complete neutral PNG composite is exact",
+      "pass": true,
+      "details": {
+        "maxAbsChannel": 0
+      }
+    },
+    {
+      "name": "mist-coast poster-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast poster-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast clean-plate-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast clean-plate-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast window-mask-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast window-mask-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-casing-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-casing-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-foreground-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-foreground-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-table-1080.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-table-1080.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast 1080 decoded bytes accurate",
+      "pass": true,
+      "details": 26515864
+    },
+    {
+      "name": "mist-coast 1080 decoded memory budget",
+      "pass": true,
+      "details": 26515864
+    },
+    {
+      "name": "mist-coast 1080 window is cropped",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast 1080 foreground crops bounded",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast 1080 casing window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "mist-coast 1080 foreground window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "mist-coast 1080 table window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "mist-coast poster-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast poster-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast clean-plate-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast clean-plate-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast window-mask-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast window-mask-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-casing-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-casing-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-foreground-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-foreground-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-table-1440.webp dimensions",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast foreground-table-1440.webp SHA256",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast 1440 decoded bytes accurate",
+      "pass": true,
+      "details": 47142220
+    },
+    {
+      "name": "mist-coast 1440 decoded memory budget",
+      "pass": true,
+      "details": 47142220
+    },
+    {
+      "name": "mist-coast 1440 window is cropped",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast 1440 foreground crops bounded",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "mist-coast 1440 casing window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "mist-coast 1440 foreground window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "mist-coast 1440 table window interior occlusion",
+      "pass": true,
+      "details": 0
+    },
+    {
+      "name": "mist-coast gallery thumbnail",
+      "pass": true,
+      "details": null
+    },
+    {
+      "name": "coast has no fake steam anchor",
+      "pass": true,
+      "details": null
+    }
+  ],
+  "passed": 100,
+  "failed": 0,
+  "androidMemoryMeasurement": false
+}

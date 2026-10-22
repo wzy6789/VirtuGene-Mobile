@@ -15,7 +15,9 @@
  * 必须带原因、场外的人丢弃、**不接受模型指定认知归属**这些规则一条都不重写。
  * 本模块只新增 §29 要求的另外几类：worldEvents / worldFactChanges / characterStateChanges。
  */
-import { db, type WorldEventType, type WorldFactCategory } from '../../db/index';
+import { db, type WorldEventType, type WorldFactCategory,type WorldSceneEntry } from '../../db/index';
+import {worldSceneRepo} from '../../db/world-scene-repo';
+import {worldTurnRepo} from '../../db/world-turn-repo';
 import { worldEventRepo } from '../../db/world-event-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { knowledgeRepo } from '../../db/knowledge-repo';
@@ -28,6 +30,7 @@ import { worldChat, type WorldLlmCaller } from './world-ai-client';
 import { renderWorldBrief, type WorldContext } from './world-context';
 import { validateSettlement, type SettlementRelationshipChange, type SettlementUnresolved } from './scene-consequences';
 import { characterRef, stableId, userRef } from './subjects';
+import {commitWorldSourceWrite} from './world-source-guard';
 
 /** 结算可以写的事件类型白名单（`life_trace` / `knowledge` 由程序派生，不接受模型指定） */
 const SETTLEMENT_EVENT_TYPES: WorldEventType[] = ['interaction', 'shared_memory', 'stage', 'relationship', 'continuity', 'reality'];
@@ -277,7 +280,7 @@ export async function applyWorldSettlement(params: {
 
   await db.transaction(
     'rw',
-    [db.worldEvents, db.sharedMemories, db.characterKnowledge, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.continuityThreads, db.memorySourceTombstones],
+    [db.worldEvents, db.sharedMemories, db.characterKnowledge, db.relationshipStates, db.relationshipEvents, db.worldFacts, db.continuityThreads, db.memorySourceTombstones,db.characters,db.characterStates],
     async () => {
       // 1) 世界事件（每个事件一条，id 由 userId+worldId+sourceType+sourceId 确定性生成 ⇒ 幂等）
       for (let i = 0; i < proposal.worldEvents.length; i += 1) {
@@ -443,6 +446,7 @@ export interface SettleTurnResult {
   applied: SettlementApplyResult;
   llmCalls: number;
   error?: string;
+  traceEntry?:WorldSceneEntry;
 }
 
 /**
@@ -455,6 +459,8 @@ export async function settleWorldTurn(params: {
   /** 这一拍实际呈现给用户的内容（结算的唯一依据） */
   transcript: string;
   turnId: string;
+  /** Main-turn trace joins the same source-authorized local commit. */
+  recordTrace?:string|true;
   call?: WorldLlmCaller;
 }): Promise<SettleTurnResult> {
   const { ctx } = params;
@@ -467,6 +473,7 @@ export async function settleWorldTurn(params: {
 
   try {
     const res = await worldChat({
+      sourceContext:ctx,
       messages: [
         { role: 'system', content: `${SETTLEMENT_INSTRUCTION}\n\n${renderWorldBrief(ctx, 12)}\n\n在场角色：${ctx.presence.map((id) => nameOf(id)).join('、') || '（无）'}（用户也在场）` },
         { role: 'user', content: `用户说的是：${params.actionText}\n\n这一拍实际发生的内容：\n${params.transcript.slice(-6000)}` },
@@ -479,15 +486,21 @@ export async function settleWorldTurn(params: {
     }, params.call);
 
     const proposal = validateWorldSettlement(res.content ?? '', ctxForValidation);
-    const applied = await applyWorldSettlement({
+    const committed = await commitWorldSourceWrite(ctx,async()=>{
+      const applied=await applyWorldSettlement({
       userId: ctx.userId,
       worldId: ctx.worldId,
       sceneId: ctx.sceneId,
       turnId: params.turnId,
       proposal,
       characterIds: ctx.presence,
+      });
+      const trace=typeof params.recordTrace==='string'?params.recordTrace:applied.worldEventIds.length?'这一刻被世界记住了。':undefined;
+      const traceEntry=params.recordTrace&&trace?await worldSceneRepo.appendEntry(ctx.sceneId,{kind:'system',content:trace,meta:{trace:true,turnId:params.turnId}}):undefined;
+      if(traceEntry)await worldTurnRepo.addEntryIds(params.turnId,[traceEntry.id]);
+      return{applied,...(traceEntry?{traceEntry}:{})};
     });
-    return { proposal, applied, llmCalls: 1 };
+    return { proposal, ...committed, llmCalls: 1 };
   } catch (err) {
     // 结算失败**不影响**用户已经看到的内容（§58）；世界保持原状态
     const empty: WorldSettlementProposal = {

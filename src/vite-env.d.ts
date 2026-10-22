@@ -34,12 +34,15 @@ interface VirtuGeneAPI {
       history: { role: 'user' | 'assistant'; content: string; image?: string }[];
       retryHint?: string;
       temperature?: number;
+      disableThinking?: boolean;
       character?: { model?: { provider: string; model: string } } | null;
       sessionModel?: { provider: string; model: string } | null;
       forceVision?: boolean;
       onDelta?: (accumulated: string, delta: string) => void;
       /** In-memory diagnostics only; never persisted as a second chat transcript. */
       onRawResponse?: (raw: string) => void;
+      /** Local callback; never serialized to a provider or persisted. */
+      beforeRequest?: (attempt:{recovery:boolean})=>Promise<void>;
       onUsage?: (event:import('./lib/chat/usage').ChatUsageEvent)=>void;
       signal?: AbortSignal;
     }) => Promise<{
@@ -57,6 +60,8 @@ interface VirtuGeneAPI {
     open: (url: string) => Promise<boolean>;
   };
   character: {
+    /** Browser/mobile generation forwards AbortSignal; legacy IPC may omit it. */
+    supportsCancellation?: boolean;
     generate: (
       params: {
         apiKey: string;
@@ -74,6 +79,7 @@ interface VirtuGeneAPI {
         count?: number;
       },
       onProgress?: (step: string, message: string, progress: number) => void,
+      options?: { signal?: AbortSignal },
     ) => Promise<{
       candidates?: {
         tags: string[];
@@ -82,6 +88,7 @@ interface VirtuGeneAPI {
         systemPrompt: string;
       }[];
       error?: string;
+      cancelled?: boolean;
     }>;
   };
   file: {
@@ -129,12 +136,14 @@ interface VirtuGeneAPI {
       apiKey: string;
       history: { role: string; content: string }[];
       characterName: string;
+      continuity?: {id:string;title:string;kind:'promise'|'plan'|'topic'|'conflict'|'reminder';dueAt?:number;status:string}[];
     }) => Promise<{
       /** 记忆条目：content + 依据的消息编号（对应传入 history 的下标，未知时为空数组） */
       memories?: { content: string; evidence: number[] }[];
       /** 未完成事件：新建或完成（由同一次结算调用顺带产出） */
       threads?: {
         action: 'create' | 'complete';
+        targetId?:string;
         kind: 'promise' | 'plan' | 'topic' | 'conflict' | 'reminder';
         title: string;
         detail?: string;
@@ -192,3 +201,5 @@ interface VirtuGeneAPI {
 interface Window {
   virtugene: VirtuGeneAPI;
 }
+
+declare module '*.glb' { const src:string; export default src; }

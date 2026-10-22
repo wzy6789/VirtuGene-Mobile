@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/auth-store';
 import { getAvailableModels, getProviderKey, LLM_PROVIDERS, type ProviderId } from '../../lib/ai/llm';
 import { getProviderConfig, providerRequiresKey, subscribeProviderConfig } from '../../lib/ai/provider-config';
-import { hasAiGatewayAccess } from '../../lib/ai/gateway';
+import { hasAiGatewayAccess } from '../../lib/ai/gateway-session';
 
 const KEY_CHANGE_EVENT = 'vg:provider-credentials-changed';
 

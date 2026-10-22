@@ -1,4 +1,5 @@
 import { Modal } from '../ui/Modal';
+import { GeneGlyph } from '../ui/GeneGlyph';
 
 interface Props {
   open: boolean;
@@ -9,48 +10,38 @@ interface Props {
 
 export function UpdateNotesModal({ open, onClose, version, notes }: Props) {
   return (
-    <Modal open={open} onClose={onClose} title="更新说明" width="max-w-md">
+    <Modal open={open} onClose={onClose} title="更新说明" width="max-w-md" presentation="dialog" footer={<button type="button" onClick={onClose} className="vg-button vg-button-primary w-full">知道了</button>}>
       <div className="relative overflow-hidden">
         {/* Brand header with DNA accent */}
-        <div className="px-6 pt-6 pb-5 bg-gradient-to-br from-gene-purple/15 via-transparent to-life-cyan/10 border-b border-line">
+        <div className="px-5 pt-5 pb-5 bg-surface border-b border-line">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gene-purple/20 flex items-center justify-center text-2xl shrink-0">
-              🧬
+            <div aria-hidden="true" className="w-12 h-12 rounded-xl border border-line bg-panel flex items-center justify-center text-[color:var(--vg-accent)] shrink-0">
+              <GeneGlyph size={28} />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] tracking-[0.2em] text-life-cyan font-medium uppercase">
-                Unlock Your Digital Soul
+              <p className="text-xs tracking-[0.12em] text-sub font-medium uppercase">
+                VirtuGene
               </p>
-              <h2 className="text-lg font-bold text-ink leading-tight">基因序列已更新</h2>
+              <h2 className="text-lg font-semibold text-ink leading-tight">这次带来了什么</h2>
             </div>
           </div>
           <div className="mt-4 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gene-purple/20 text-gene-purple text-xs font-mono">
-              <span className="w-1 h-1 rounded-full bg-gene-purple animate-pulse" />
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-line bg-panel text-ink text-xs tabular-nums">
               v{version}
             </span>
-            <span className="text-xs text-gray-500">本次更新内容</span>
+            <span className="text-xs text-sub">本次更新内容</span>
           </div>
         </div>
 
         {/* Notes list */}
-        <div className="px-6 py-5 space-y-3">
+        <ul className="px-5 py-5 space-y-4" aria-label="更新内容">
           {notes.map((note, i) => (
-            <div key={i} className="flex items-start gap-2.5">
-              <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-life-cyan shrink-0" />
-              <span className="text-sm text-sub leading-relaxed">{note}</span>
-            </div>
+            <li key={i} className="flex items-start gap-3">
+              <span aria-hidden="true" className="mt-2 w-1.5 h-1.5 rounded-full bg-[var(--vg-accent)] shrink-0" />
+              <span className="text-sm text-ink leading-7">{note}</span>
+            </li>
           ))}
-        </div>
-
-        <div className="px-6 pb-6">
-          <button
-            onClick={onClose}
-            className="w-full py-2.5 rounded-xl bg-gene-purple hover:bg-[#5B4BD4] text-sm font-medium text-white transition-colors"
-          >
-            知道了
-          </button>
-        </div>
+        </ul>
       </div>
     </Modal>
   );

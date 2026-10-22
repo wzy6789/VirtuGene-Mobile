@@ -1,0 +1,15 @@
+{
+  "tool": "built-in image_gen",
+  "intent": "new original equirectangular mineral albedo for actual starfield sphere shader",
+  "source": "C:\\Users\\34568\\.codex\\generated_images\\01a0f1b6-b0b9-7ce1-9739-e7b46a08504d\\exec-4d0db51b-205b-4936-8293-8b8aef1ec92b.png",
+  "sourceSha256": "f3fed71b58339945e49d7d1f7ebcd77cd41c61698663aa54c7566284ef9396de",
+  "output": "src\\assets\\starfield\\mineral-albedo-v1.webp",
+  "dimensions": [
+    1024,
+    512
+  ],
+  "bytes": 295030,
+  "conversion": "Lanczos downsample only, WebP94, power-of-two WebGL1 mipmaps",
+  "generationCalls": 1,
+  "promptEvidence": ".tmp-preview/stage2-ui-20261019/starfield-depth/texture-prompt.txt"
+}

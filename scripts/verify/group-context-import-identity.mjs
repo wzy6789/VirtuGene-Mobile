@@ -1,0 +1,5 @@
+import fs from 'node:fs';import assert from 'node:assert/strict';import crypto from 'node:crypto';import ts from 'typescript';
+const previous=fs.readFileSync('.tmp-preview/ui-overhaul-20261016/startup-chunks/before/source/group-store.ts','utf8'),current=fs.readFileSync('src/store/group-store.ts','utf8');
+function body(source){const file=ts.createSourceFile('group-store.ts',source,ts.ScriptTarget.Latest,true),fn=file.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='buildBriefs');assert.ok(fn?.body);return fn.body.statements.slice(1).map(n=>n.getText(file)).join('\n');}
+const before=body(previous),after=body(current);assert.equal(after,before,'All group brief construction after dependency loading must remain byte-identical');
+const result={status:'pass',scope:'AST-selected buildBriefs statements after dependency loading are identical; this does not substitute for a real model input trace or group audio test.',hash:crypto.createHash('sha256').update(after).digest('hex')};fs.writeFileSync('.tmp-preview/ui-overhaul-20261016/startup-chunks/group-context-identity.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));

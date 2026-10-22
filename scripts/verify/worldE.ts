@@ -109,8 +109,8 @@ async function run() {
     for (const table of Object.keys(v17Schema())) countsBefore[table] = await legacy.table(table).count();
     legacy.close();
 
-    // 用**真实的** VirtuGeneDB 打开同一份数据 ⇒ 触发 v18 至当前 v25 升级
-    check('① 当前数据库版本是 25（旧数据升级后保留）', db.verno === 25, db.verno);
+    // 用真实 VirtuGeneDB 升级；44只为持久事项增加原生名称/日期索引。
+    check('① 当前数据库版本是 44（旧数据升级后保留）', db.verno === 44, db.verno);
     const user = await db.users.get(U);
     check('② 用户与角色都在', !!user && (await db.characters.count()) === 2);
     check('③ 会话与消息都在', (await db.sessions.count()) === 1 && (await db.messages.count()) === 2);

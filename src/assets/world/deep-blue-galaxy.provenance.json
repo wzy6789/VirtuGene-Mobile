@@ -1,0 +1,15 @@
+{
+  "title": "深蓝银河",
+  "selection": "用户附件确认第1张，解码RGB与生成原图完全一致",
+  "dimensions": [
+    853,
+    1844
+  ],
+  "original": "design/world-galaxy-options-20261021/01-deep-blue-milky-way.png",
+  "promptSet": "design/world-galaxy-options-20261021/prompts.json",
+  "asset": "src/assets/world/deep-blue-galaxy.png",
+  "sha256": "a9062ef153c8698d60cd648404b740c9a79505fc0ff1c4a294a534e828c0b8ee",
+  "pipeline": "Original PNG, exact copy; no recompression, resizing, sharpening or regeneration",
+  "generationTool": "built-in imagegen",
+  "generationModel": "未确认"
+}

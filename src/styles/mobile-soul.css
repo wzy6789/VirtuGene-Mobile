@@ -1,6 +1,6 @@
 /* Mobile design system: distinct surface levels, purposeful accents, quiet reading.
    Adapted from Linear / Stripe / Apple references, keeping VirtuGene's identity. */
-:is(.mobile-layout,.vg-mobile-sheet) { background:var(--bg); color:var(--text); isolation:isolate; }
+:is(.mobile-layout) { background:var(--bg); color:var(--text); isolation:isolate; }
 .mobile-layout .mobile-statusbar,.vg-auth-statusbar { background:var(--vg-statusbar); }
 .mobile-layout :is(button,input,textarea,a):focus-visible {
   outline:2px solid var(--vg-accent); outline-offset:3px;
@@ -32,7 +32,6 @@
 .vg-soul-dust i:nth-child(5) { left:7%; top:83%; animation-delay:-3s; }
 .vg-soul-dust i:nth-child(6) { left:62%; top:11%; animation-delay:-5s; }
 .mobile-layout :is(.vg-conversations,.vg-characters,.vg-personal,.vg-world-page) { background:transparent; }
-.mobile-layout .vg-world-page::before { opacity:.25; }
 .mobile-layout .vg-space-heading { position:relative; padding-top:26px; padding-bottom:20px; }
 .mobile-layout .vg-space-heading h1 { font-weight:600; letter-spacing:.02em; }
 .mobile-layout .vg-eyebrow { color:var(--vg-accent); font-size:10px; font-weight:600; letter-spacing:.2em; }
@@ -47,7 +46,7 @@
 .mobile-layout .vg-wordmark.is-signature { font-size:22px; letter-spacing:.12em; }
 
 /* Content surfaces are neutral; raised controls and selected states get the next level. */
-.mobile-layout :is(.vg-conversation-shell,.vg-character-row,.vg-character-shortcuts > button,.vg-personal-profile) {
+.mobile-layout :is(.vg-conversation-shell,.vg-character-row,.vg-character-shortcuts > button) {
   border:1px solid var(--vg-edge);
   background:var(--bg-panel);
   box-shadow:inset 0 1px 0 var(--vg-panel-shine),0 2px 6px var(--vg-shadow);
@@ -97,46 +96,12 @@
 @media (prefers-reduced-motion:reduce) {
   .vg-secretary-workspace,.vg-secretary-workspace * { transition:none !important; }
 }
-.mobile-layout .vg-characters .vg-character-heading .vg-primary-action {
-  min-height:44px; border:1px solid rgba(255,255,255,.16); border-radius:14px;
-  background:var(--vg-action); color:#fff; font-size:13px; font-weight:500;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
-  transition:transform 160ms var(--vg-ease),background-color 160ms ease;
-}
-.mobile-layout .vg-characters .vg-character-heading .vg-primary-action:active { transform:scale(.97); background:#5e4fd0; }
-.mobile-layout .vg-character-heading { padding:24px 20px 16px; }
-.mobile-layout .vg-character-heading h1 { margin-top:8px; font-size:26px; line-height:1.3; font-weight:600; }
-.mobile-layout .vg-character-heading .vg-wordmark { font-size:11px; letter-spacing:.2em; }
-.mobile-layout .vg-character-shortcuts > button { min-height:84px; padding:16px; border-radius:18px; }
-.mobile-layout .vg-character-shortcuts > button::before { opacity:.2; animation:none; }
-.mobile-layout .vg-shortcut-title { display:flex; align-items:center; gap:8px; }
-.mobile-layout .vg-shortcut-title svg { flex-shrink:0; color:var(--vg-accent); }
-.mobile-layout .is-relations .vg-shortcut-title svg { color:var(--vg-cyan); }
-.mobile-layout .vg-character-shortcuts > button > span:last-child { margin-top:8px; font-size:12px; line-height:1.6; }
-.mobile-layout .vg-character-row:focus-within { border-color:var(--vg-accent); }
-.mobile-layout .vg-character-tabs { margin-bottom:12px; }
-.mobile-layout .vg-character-tabs [aria-selected="true"] { color:var(--vg-accent); background:var(--bg-surface); }
-.mobile-layout .vg-personal .vg-personal-profile { min-height:116px; padding:20px; border-radius:22px; }
-.mobile-layout .vg-personal-stats { background:var(--bg-panel); border-color:var(--vg-edge); }
-.mobile-layout .vg-personal-stats > div > span:first-child { color:var(--text); font-variant-numeric:tabular-nums; }
-.mobile-layout .vg-personal-stats > div > span:last-child { color:var(--text-secondary); }
-.mobile-layout .vg-personal-review {
-  border-color:var(--vg-edge); box-shadow:none;
-  background:radial-gradient(ellipse 120px 90px at 100% 0%,var(--vg-panel-light),transparent),var(--bg-panel);
-}
-.mobile-layout .vg-personal-review > .absolute { opacity:.45; }
-.mobile-layout .vg-personal-review > .relative > span:last-child { color:var(--text-secondary); }
 .mobile-layout .vg-personal :is(.text-life-cyan,.text-life-cyan\/80) { color:var(--vg-cyan); }
-.mobile-layout .vg-personal-settings { border-color:var(--vg-edge); background:var(--bg-panel); }
 .mobile-layout .vg-settings-row { min-height:56px; }
 .mobile-layout .vg-settings-row > svg { color:var(--text-secondary); }
 
-/* Chat uses its own quiet micro-grid, independent of message scrolling. */
-.mobile-layout .chat-room { --vg-scene-light:var(--vg-panel-light); position:relative; isolation:isolate; min-height:0; background:var(--bg); }
-.mobile-layout .chat-room:has(.scene-morning) { --vg-scene-light:rgba(118,191,189,.1); }
-.mobile-layout .chat-room:has(.scene-day) { --vg-scene-light:rgba(123,169,221,.1); }
-.mobile-layout .chat-room:has(.scene-dusk) { --vg-scene-light:rgba(175,120,177,.12); }
-.mobile-layout .chat-room:has(.scene-night) { --vg-scene-light:rgba(110,113,204,.12); }
+/* Scrolling surfaces stay simple; role atmosphere lives outside the thread. */
+.mobile-layout .chat-room { position:relative; isolation:isolate; min-height:0; background:var(--bg); }
 .mobile-layout .chat-header {
   min-height:64px; background:var(--vg-raised);
   border-color:var(--vg-edge); box-shadow:0 1px 5px var(--vg-shadow);
@@ -149,15 +114,11 @@
 .vg-presence-signal { display:flex; align-items:center; gap:2px; height:10px; }
 .vg-presence-signal i { width:2px; height:4px; border-radius:2px; background:var(--vg-cyan); }
 .vg-presence-signal i:nth-child(2) { height:7px; }
-.is-responding .vg-presence-signal i { animation:vg-soul-signal 900ms ease-in-out infinite alternate; }
-.is-responding .vg-presence-signal i:nth-child(2) { animation-delay:150ms; }
-.is-responding .vg-presence-signal i:nth-child(3) { animation-delay:300ms; }
+.is-responding .vg-presence-signal { opacity:.55; }
+.is-streaming .vg-presence-signal { opacity:.3; }
 .mobile-layout .vg-chat-presence.is-responding { color:var(--vg-cyan); }
-.mobile-layout .chat-thread,.mobile-layout .chat-room:has(.scene-card) .chat-thread {
+.mobile-layout .chat-thread {
   position:relative; min-height:0; padding:20px 14px;
-  background-image:radial-gradient(ellipse at 100% 0%,var(--vg-scene-light,var(--vg-panel-light)),transparent 70%),radial-gradient(circle, color-mix(in srgb,var(--vg-accent) 7%,transparent) .65px,transparent .9px);
-  background-size:100% 340px,24px 24px;
-  background-repeat:no-repeat,repeat;
   background-color:var(--bg);
   animation:none;
 }
@@ -166,85 +127,36 @@
 .mobile-layout .vg-chat-message-row.animate-message-in { animation:vg-message-arrive 220ms var(--vg-ease) both; }
 .mobile-layout .vg-chat-message-row .vg-chat-message-content,.mobile-layout .vg-message-bubble.animate-message-sweep { animation:none; }
 .mobile-layout .vg-chat-identity > * { border:1px solid var(--vg-edge); box-shadow:0 3px 10px var(--vg-shadow); }
-.mobile-layout .vg-typing-bubble { background:var(--bg-panel); border-color:var(--vg-edge); box-shadow:inset 0 1px 0 var(--vg-panel-shine); }
-.mobile-layout .typing-glow > span { background:var(--vg-cyan); animation:vg-soul-typing 1.2s ease-in-out infinite; }
-.mobile-layout .chat-thread .flex.justify-center > .rounded-full { font-size:11px; background:var(--bg-panel); border:1px solid var(--vg-edge); color:var(--text-secondary); padding:3px 12px; }
+.mobile-layout .chat-thread .flex.justify-center > .rounded-full { font-size:12px; line-height:1.6; background:transparent; border:0; color:var(--text-secondary); padding:4px 12px; font-variant-numeric:tabular-nums; }
 .mobile-layout .scene-card { border-color:var(--vg-edge); background:linear-gradient(115deg,var(--vg-panel-light),transparent),var(--bg-panel); box-shadow:inset 0 1px 0 var(--vg-panel-shine); }
 .mobile-layout .scene-card:not(.scene-card-expanded) .scene-presence-mark + div p:first-child { color:var(--text); }
 .mobile-layout .scene-card > button > span:last-child,.mobile-layout .scene-card .scene-setting-summary { color:var(--text-secondary); }
 .mobile-layout .scene-card .scene-presence-mark i { background:var(--vg-cyan); }
-.mobile-layout .chat-composer {
-  flex-shrink:0; padding:12px 12px calc(12px + env(safe-area-inset-bottom));
-  border-color:var(--vg-edge); background:var(--vg-raised);
-  box-shadow:0 -2px 10px var(--vg-shadow);
-}
-.mobile-layout .chat-composer::before {
-  content:''; position:absolute; top:-1px; left:15%; right:15%; height:1px; pointer-events:none;
-  background:linear-gradient(90deg,transparent,var(--vg-accent),var(--vg-cyan),transparent); opacity:.55;
-}
-.mobile-layout .chat-composer::after {
-  content:''; position:absolute; top:-1px; left:12%; width:56px; height:2px; border-radius:2px;
-  pointer-events:none; opacity:0; background:linear-gradient(90deg,transparent,var(--vg-cyan),transparent);
-}
-.mobile-layout .chat-composer:focus-within::after { animation:vg-soul-compose 1100ms var(--vg-ease) both; }
-.mobile-layout .chat-composer-inner { align-items:flex-end; gap:8px; padding:0; border:0; border-radius:0; background:transparent; box-shadow:none; }
-.mobile-layout .chat-composer-inner.is-voice-active { gap:0; }
-.mobile-layout .chat-composer-inner.is-voice-active .chat-composer-input { border-width:0 !important; }
-.mobile-layout .chat-composer-send {
-  width:48px; height:48px; margin-left:0; border-radius:16px;
-  background:var(--vg-action); border:1px solid rgba(216,208,255,.2);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.15);
-  transition:transform 160ms var(--vg-ease),background-color 160ms ease,color 160ms ease;
-}
-.mobile-layout .chat-composer-send:active:not(:disabled) { transform:scale(.92); }
-.mobile-layout .chat-composer-send:disabled { opacity:1; background:var(--bg-surface); color:var(--text-secondary); border-color:var(--vg-edge); box-shadow:none; }
-.mobile-layout .vg-voice-tools { background:var(--bg-surface); border-color:var(--vg-edge); }
-.mobile-layout .vg-voice-tools.is-recording { background:color-mix(in srgb,var(--vg-accent) 14%,var(--bg-panel)); border-color:var(--vg-accent); }
-.mobile-layout .vg-voice-tools.is-cancelling { background:rgba(239,82,105,.1); border-color:#ef5269; }
-.mobile-layout .vg-voice-tools.is-recording .vg-voice-plus { color:var(--vg-accent); }
-.mobile-layout .vg-voice-tools button { color:var(--text-secondary); }
 .mobile-layout .vg-font-ruler { color:var(--text-secondary); }
 
 /* World entrances share a material, with a distinct spectral light for each place. */
-.mobile-layout .vg-world-life-entry {
-  --vg-entry-ink:#7560bd;
-  min-height:164px; padding:var(--vg-space-6) var(--vg-space-4); border-radius:var(--vg-radius-4);
-  border-color:var(--vg-elev-edge);
-  background:radial-gradient(ellipse 135px 105px at 100% 0%,color-mix(in srgb,var(--vg-entry-ink) 8%,transparent),transparent 85%),var(--bg-panel);
-  box-shadow:inset 0 1px 0 var(--vg-elev-highlight),var(--vg-elev-shadow-1);
-  transition:transform var(--vg-motion-fast) var(--vg-motion-standard);
-  animation:none;
-}
-.mobile-layout .vg-world-life-entry.is-moments { --vg-entry-ink:#967139; }
-.mobile-layout .vg-world-life-entry.is-todo { --vg-entry-ink:#257e88; }
-.mobile-layout .vg-world-life-entry.is-stage { --vg-entry-ink:#6e62c7; }
-.dark .mobile-layout .vg-world-life-entry { --vg-entry-ink:rgb(var(--entry-light)); }
-.mobile-layout .vg-world-life-entry::before { opacity:.45; }
-.mobile-layout .vg-world-life-entry > svg { width:36px; height:36px; padding:6px; color:var(--vg-entry-ink); background:color-mix(in srgb,var(--vg-entry-ink) 9%,transparent); border:1px solid color-mix(in srgb,var(--vg-entry-ink) 22%,transparent); border-radius:11px; filter:none; }
-.mobile-layout .vg-world-life-entry:is(.is-moments,.is-todo) > svg { color:var(--vg-entry-ink); }
-.mobile-layout .vg-world-life-entry strong { margin-top:var(--vg-space-4); font-size:20px; font-weight:var(--vg-weight-heading,700); letter-spacing:normal; }
-.mobile-layout .vg-world-life-entry > span { font-size:13px; line-height:1.65; }
-.mobile-layout .vg-world-life-entry > i { color:var(--text-secondary); opacity:.75; }
-.mobile-layout .vg-world-now-card { border-color:var(--vg-edge); background:linear-gradient(115deg,var(--vg-panel-light),transparent),var(--bg-panel); box-shadow:inset 0 1px 0 var(--vg-panel-shine); }
 
-/* One moving light capsule makes navigation continuous instead of blinking. */
+/* One matte selection moves between the same four destinations. */
 .mobile-layout .vg-navigation {
-  position:relative; isolation:isolate; padding-left:8px; padding-right:8px;
-  margin:8px 12px 10px; border-radius:24px; border:1px solid var(--vg-edge);
-  background:var(--vg-raised);
-  box-shadow:inset 0 1px 0 var(--vg-panel-shine),0 5px 16px var(--vg-shadow);
+  position:relative; isolation:isolate; padding:0 0 var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px));
+  margin:0; border-radius:0; border:0; border-top:1px solid var(--vg-elev-edge);
+  background:var(--vg-elev-1); box-shadow:inset 0 1px 0 var(--vg-elev-highlight);
 }
 .vg-nav-indicator {
-  position:absolute; z-index:-1; top:7px; left:8px; height:46px; width:calc((100% - 16px)/4);
-  border-radius:17px; background:linear-gradient(145deg,color-mix(in srgb,var(--vg-accent) 17%,transparent),color-mix(in srgb,var(--vg-cyan) 7%,transparent));
-  transition:transform 360ms cubic-bezier(.18,.9,.24,1); pointer-events:none;
+  position:absolute; z-index:-1; top:4px; left:0; height:56px; width:25%;
+  transition:transform var(--vg-motion-medium) var(--vg-motion-standard); pointer-events:none;
 }
-.mobile-layout .vg-navigation .vg-nav-tab { height:60px; gap:3px; color:var(--text-secondary); background:transparent; }
+.vg-nav-indicator::before { content:''; position:absolute; inset:0 12px; border:1px solid var(--vg-elev-edge); border-radius:var(--vg-radius-2); background:var(--bg-surface); }
+.mobile-layout .vg-navigation .vg-nav-tab { position:relative; display:flex; flex:1; min-width:0; flex-direction:column; align-items:center; justify-content:center; height:64px; gap:4px; color:var(--text-secondary); background:transparent; }
 .mobile-layout .vg-navigation .vg-nav-tab[aria-current="page"] { color:var(--vg-accent); }
-.vg-nav-icon { transition:transform 320ms cubic-bezier(.18,1.15,.3,1); }
-.vg-nav-tab[aria-current="page"] .vg-nav-icon { transform:translateY(-2px) scale(1.04); }
-.mobile-layout .vg-navigation .vg-nav-tab .vg-nav-icon { background:transparent; box-shadow:none; }
-.mobile-layout .vg-navigation .vg-nav-tab > span:last-child { font-size:11px; letter-spacing:.04em; }
+.vg-nav-icon { display:grid; place-items:center; flex:none; width:40px; height:28px; transition:transform var(--vg-motion-fast) var(--vg-motion-standard); }
+.vg-nav-tab[aria-current="page"] .vg-nav-icon { transform:translateY(-1px); }
+.vg-nav-tab:active .vg-nav-icon { transform:translateY(-1px) scale(.94); }
+.mobile-layout .vg-navigation .vg-nav-tab > span:last-child { font-size:max(12px,.8125rem); line-height:1.4; letter-spacing:normal; font-weight:400; }
+.mobile-layout .vg-navigation .vg-nav-tab[aria-current="page"] > span:last-child { font-weight:var(--vg-weight-label); }
+.vg-navigation .vg-nav-tab:focus-visible { outline-offset:-4px; border-radius:var(--vg-radius-2); }
+html[data-vg-reduced-motion='true'] .vg-nav-tab .vg-nav-icon { transform:none; transition:none; }
+@media(prefers-reduced-motion:reduce){.mobile-layout .vg-nav-tab .vg-nav-icon{transform:none;transition:none}}
 .vg-page-transition { position:relative; z-index:2; min-width:0; }
 .vg-page-exit { position:absolute !important; inset:0; z-index:1; pointer-events:none !important; }
 .vg-page-exit,.vg-page-exit *,.vg-modal-exit,.vg-modal-exit * { animation:none !important; transition:none !important; }
@@ -254,32 +166,9 @@
 .mobile-layout .vg-loading::before { content:''; width:26px; height:26px; border:2px solid var(--vg-edge); border-top-color:var(--vg-accent); border-right-color:var(--vg-cyan); border-radius:50%; animation:spin 900ms linear infinite; }
 
 /* Sheets share the same edge light; all scrollable contents remain opaque. */
-.vg-modal-overlay:has(.vg-mobile-sheet) { background:var(--vg-scrim); }
-.vg-mobile-sheet { border:1px solid var(--vg-edge); border-top-color:color-mix(in srgb,var(--vg-accent) 30%,var(--vg-edge)); box-shadow:inset 0 1px 0 var(--vg-panel-shine),0 -12px 48px rgba(4,7,24,.22); }
-.vg-mobile-sheet:focus { outline:none; }
-.vg-mobile-sheet :is(button,input,textarea,select):focus-visible { outline:2px solid var(--vg-accent); outline-offset:2px; }
-.vg-mobile-sheet :is(input,textarea,select) { accent-color:var(--vg-action); }
-.vg-mobile-sheet .text-gray-500 { color:var(--text-secondary); }
-.vg-mobile-sheet > .border-b { background:linear-gradient(110deg,var(--vg-panel-light),transparent 70%),var(--bg-panel); border-color:var(--vg-edge); }
-.vg-mobile-sheet,.vg-mobile-sheet.vg-mobile-sheet-full { animation:none !important; }
-.vg-mobile-sheet > .border-b { position:relative; min-height:68px; padding-top:22px; }
-.vg-mobile-sheet > .border-b::before { content:''; position:absolute; top:8px; left:calc(50% - 18px); width:36px; height:3px; border-radius:4px; background:var(--text-secondary); opacity:.3; }
-.vg-mobile-sheet > .border-b button { width:48px; height:48px; border:1px solid var(--vg-edge); border-radius:16px; background:var(--bg-surface); color:var(--text-secondary); }
-.vg-mobile-sheet > .border-b h2 { letter-spacing:.025em; }
-.vg-mobile-sheet .vg-conversation-actions { padding:12px 16px 20px; }
-.vg-conversation-actions > button { min-height:52px; border-radius:14px; font-size:14px; background:var(--bg-surface); margin-bottom:8px; }
-.vg-conversation-actions > button:active { background:var(--bg-surface-strong); }
-.vg-conversation-actions > button:last-of-type { color:#cf405b; background:rgba(207,64,91,.08); }
-.dark .vg-conversation-actions > button:last-of-type { color:#ff93a7; }
-.vg-conversation-actions > p { color:var(--text-secondary); font-size:12px; line-height:1.7; }
-.vg-chat-more-actions > button { min-height:52px; border-radius:14px; background:var(--bg-surface); color:var(--text); }
-.vg-chat-more-actions > button:active { background:var(--bg-surface-strong); }
-.vg-chat-more-actions > button > svg { color:var(--vg-accent); }
 .vg-chat-more-content :is(.text-\[10px\],.text-\[11px\]) { font-size:12px; line-height:1.7; }
 .vg-chat-more-content .text-gene-purple { color:var(--vg-accent); }
 .vg-chat-more-content button:not(.vg-mood-choice):not(.vg-preference-toggle) { min-height:48px; }
-.vg-chat-more-content .vg-menu-back { min-width:64px; border-radius:12px; background:var(--bg-surface); }
-.vg-chat-mood-picker .vg-mood-choice { flex:1; min-width:48px; min-height:68px; }
 
 /* Deliberate empty and loading states, with the same orbit language as the app. */
 .mobile-layout .vg-search-clear { flex:none; width:48px; height:48px; display:grid; place-items:center; border-radius:14px; }
@@ -296,12 +185,8 @@
 .mobile-layout .vg-connection-empty h2 { color:var(--text); font-size:18px; line-height:1.5; font-weight:600; }
 .mobile-layout .vg-connection-empty > p { margin-top:10px; max-width:270px; color:var(--text-secondary); font-size:13px; line-height:1.8; }
 .mobile-layout .vg-empty-action { margin-top:22px; }
-.mobile-layout .vg-empty-action > button { min-height:48px; min-width:128px; padding:12px 20px; border-radius:15px; background:var(--vg-action); color:white; font-size:14px; transition:transform 150ms var(--vg-ease),background-color 150ms ease; }
-.mobile-layout .vg-empty-action > button:active { transform:scale(.97); background:#5e4fd0; }
-.mobile-layout .vg-assistant-entry { background:linear-gradient(110deg,var(--vg-panel-light),transparent 80%),var(--bg-panel); border-color:var(--vg-edge); box-shadow:inset 0 1px 0 var(--vg-panel-shine); }
-.mobile-layout .vg-assistant-entry:active { border-color:var(--vg-accent); }
-.mobile-layout .vg-assistant-entry .vg-shortcut-title svg { color:var(--vg-accent); }
-.vg-character-loading { display:grid; gap:8px; padding-top:4px; }
+.mobile-layout .vg-empty-action > button { min-height:48px; min-width:128px; padding:12px 20px; border-radius:15px; background:var(--vg-action); color:var(--vg-on-action); font-size:14px; transition:transform 150ms var(--vg-ease); }
+.mobile-layout .vg-empty-action > button:active { transform:scale(.97); }
 .vg-skeleton-row { display:flex; align-items:center; gap:12px; min-height:84px; padding:16px; border:1px solid var(--vg-edge); border-radius:18px; background:var(--bg-panel); }
 .vg-skeleton-row > i { flex:none; width:48px; height:48px; border-radius:16px; background:var(--bg-surface); }
 .vg-skeleton-row > span { display:grid; gap:10px; flex:1; }
@@ -311,16 +196,11 @@
 @keyframes vg-skeleton-pulse { from { opacity:.5; } to { opacity:1; } }
 @keyframes vg-soul-drift { from { transform:translate3d(0,0,0); opacity:.6; } to { transform:translate3d(-22px,26px,0); opacity:1; } }
 @keyframes vg-soul-star { 0%,100% { opacity:.12; } 50% { opacity:.55; } }
-@keyframes vg-soul-signal { from { transform:scaleY(.55); opacity:.5; } to { transform:scaleY(1.2); opacity:1; } }
-@keyframes vg-soul-typing { 0%,60%,100% { transform:translateY(0); opacity:.4; } 30% { transform:translateY(-3px); opacity:1; } }
-@keyframes vg-soul-sheet { from { opacity:.5; transform:translate3d(0,24px,0); } to { opacity:1; transform:translate3d(0,0,0); } }
 @keyframes vg-soul-compose { 0% { transform:translateX(0); opacity:0; } 20% { opacity:1; } 100% { transform:translateX(min(65vw,280px)); opacity:0; } }
 html[data-vg-background] .vg-soul-field *,html[data-vg-background] .vg-soul-field *::after { animation-play-state:paused !important; }
 @media (max-width:360px) {
-  .mobile-layout .vg-world-life-entry { padding:20px 16px; }
   .mobile-layout .chat-composer { padding-left:10px; padding-right:10px; }
 }
 @media (prefers-reduced-motion:reduce) {
-  .mobile-layout *, .mobile-layout *::before, .mobile-layout *::after,
-  .vg-mobile-sheet, .vg-mobile-sheet * { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+  .mobile-layout *, .mobile-layout *::before, .mobile-layout *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
 }

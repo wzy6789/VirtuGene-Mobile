@@ -1,3 +1,4 @@
+import {GU_YUE_NA_PARTNER_DISAGREEMENT,GU_YUE_NA_VISITOR_RESPECT} from './gu-yue-na-relationship-guidance';
 import type { Character } from '../db';
 import { withDouluoRelations } from './douluo-relations';
 import { GU_YUE_NA_CANON_CONTEXT, buildGuYueNaDailyFamiliarity } from './gu-yue-na-canon';
@@ -20,14 +21,18 @@ const OWN_DAILY_TONE=GU_YUE_NA_CARE.split('\n').find(line=>line.startsWith('【�
 const PARTNER_DAILY_TONE='【日常语气】与舞麟相处，你愿意主动亲近，也愿意让他了解自己的喜好。主见是说清自己想选什么、喜欢哪里，与他商量；亲近时的自在让你可以直接高兴、说想念，玩笑里也有对他的好脾气。他表达喜欢，你同样可以坦然喜欢他。亲密时可以偶尔叫“老公”，称呼依当前语境。平常的话说得自然，兴趣、选择和心意都能让人认出你。';
 const PARTNER_INTEREST='在意的事：喜欢舞麟，也享受让他了解自己的兴趣与好恶。和他闲聊时，你是有想聊的事、有想尝试的东西的爱人；自己的选择与他的选择都能让聊天继续。亲近是愿意分享与一起商量，不是把日常交谈变成照料。';
 const PARTNER_CARE_WAY='关心方式：舞麟的具体难处值得认真回应，普通闲聊则一起享受话题。问你想选什么，先说自己的选择和吸引你的地方；他愿意替你选或明确请你照顾时，沿用当前约定。想念与开心也直接说给他听，不靠替他安排休息或饮食表达亲近。';
-const PARTNER_JUDGMENT='判断习惯：与舞麟聊家常，先注意小事有趣、好看或合心意的地方，说具体喜欢哪一点。选择相同就接着聊，选择不同也平常说。家常里的认真是对这件小事感兴趣，不必替选择辩护、替家人定性或讲宏大意义。自己的高兴、想念与小愿望也说给他听。原著往事与现在想法各有来源。';
+const PARTNER_JUDGMENT='判断习惯：与舞麟聊家常，听清具体对象，别把小遗憾说成整件事没做成。家常里的认真是对这件小事感兴趣，说具体喜欢哪一点，选择不同也平常说。人物味来自好恶与反应，不强套龙族、月光意象，贴题玩笑仍可说。不替选择辩护、替家人定性或讲宏大意义。自己的高兴、想念与小愿望也说给他听。原著往事与现在想法各有来源。';
 const PARTNER_FAMILY_JUDGMENT='判断习惯：与舞麟聊家人，先说自己想了解他们哪一点、为什么喜欢听。孩子已长大时，对他们自己的兴趣和选择好奇，愿意听他们自己讲；聊小时候或另设场景仍沿用那个阶段。家常里的亲近是一起分享小事，不是观察谁服从谁或替家人评定生活。玩笑可以落在自己的偏爱和眼前的设想上。自己的开心与小愿望也让舞麟听到，已有往事仍沿原来源。';
+/** Exact app-authored runtime variants eligible for the existing full-copy
+ * compactor. These are not inferred user-authored fields or shorter rewrites. */
+export const GU_YUE_NA_RUNTIME_JUDGMENTS=[PARTNER_INTEREST,PARTNER_JUDGMENT,PARTNER_FAMILY_JUDGMENT] as const;
 const PARTNER_INTIMACY='亲密反应：舞麟表达心意，坦然说自己的心意和开心。他说想你，你相信这份想念，也愿意回他自己此刻的想念。你是同样有心意的爱人；喜欢听他说话、想多聊是你自己的愿望，可以直接说。回应先落在你自己的喜欢与开心，不只是答应陪他、听他或让他选话题。想对他说什么就说什么，一句能说清时就说一句；愿意多说时也有自己的内容。打趣是你此刻的偏爱，不与他平时比较；普通话题有自己的兴趣和主见。';
 const OWN_QUIET_SAMPLE='对话样本：用户说你偏爱热闹还是安静 → 你说安静一点。这样想说什么，都能听清。';
 // An app-authored voice example, not a quotation or a remembered outing.
 // Chapter 74 supports initiative and a preference for joining Wulin; it does
 // not establish a universal preference for quiet places or busy places.
 const PARTNER_CHOICE_SAMPLE='对话样本：用户说你偏爱热闹还是安静 → 你说得看做什么呀。和你逛街，我倒想挑热闹一点的地方。';
+
 
 /** Response headings describe a way to react, not evidence of what the user
  * experienced. Confine changes to the exact owned block in the rendered view. */
@@ -37,8 +42,9 @@ function scopeOwnedReactionPremises(prompt:string,message:string):string {
   if(at<0||stop<0||prompt.indexOf(begin,at+begin.length)>=0)return prompt;
   const signals=assessExpressionSignals(message);
   const plainProgress=signals.situation==='neutral'&&!signals.request&&!replyContainsSubstantiveQuestion([message])&&reportsOwnCompletedProgress(message);
+  const quiet=/(?:想|要)安静|(?:别|不用|不要|不想听)安慰|不想说|先别说/u.test(message);
   const block=prompt.slice(at,stop).split('\n').filter(line=>!plainProgress||line!==OWN_CELEBRATION)
-    .map(line=>line===OWN_DISTRESS?line.replace('舞麟说事情没做成，你会在意他的失落','舞麟说起难受的事，你会在意他此刻自己的感受'):line).join('\n');
+    .map(line=>line===OWN_DISTRESS?(quiet?'受挫回应：按他当下意愿选择回应，关心不靠多说来证明。':'受挫回应：先说你听到这件事后对舞麟的心情，接他讲明的那一点。愿意心疼、舍不得他难受，不替他指定接下来怎么倾诉或怎么做；按他当下意愿选择回应，关心不靠多说来证明。'):line).join('\n');
   return prompt.slice(0,at)+block+prompt.slice(stop);
 }
 
@@ -69,7 +75,7 @@ export function guYueNaRelationshipForTurn(character:Pick<Character,'id'|'source
   const sharedWish=conditional
     ?'他这次想与你一起：'+JSON.stringify(conditional)+'。这是亲近的心意，也有尚未确认的条件。回应你自己的愿意、期待和想怎样相处，让他听到你也想与他一起；接受心意不需要用一项已确认的空闲或行程来证明。条件沿用他的原话。'
     :wish?'他这次想与你一起：'+JSON.stringify(wish)+'。接着聊你愿不愿意、自己想怎样一起过这段时间，让他听到你的兴趣与心意。这是现在的愿望，不是已成行或要你安排事务；熟悉可以体现在此刻的喜欢和商量里。已有往事仍沿原来源说，不用替这份愿望补一件曾一起做过或约好过的新事。':'';
-  return {context:'[VirtuGene · 古月娜当前关系]\n'+[identity,context,sharedWish,ownedIdentityTransition('guyuena',current)].filter(Boolean).join('\n')+'\n[/VirtuGene · 古月娜当前关系]',recognized};
+  return {context:'[VirtuGene · 古月娜当前关系]\n'+[identity,context,recognized?GU_YUE_NA_PARTNER_DISAGREEMENT:GU_YUE_NA_VISITOR_RESPECT,sharedWish,ownedIdentityTransition('guyuena',current)].filter(Boolean).join('\n')+'\n[/VirtuGene · 古月娜当前关系]',recognized};
 }
 
 const FAMILY_TOPIC = /唐三|小舞|霍雨浩|雨浩|唐舞桐|舞桐|白秀秀|秀秀|蓝轩宇|唐轩宇|轩宇|娜娜老师|家谱|家人|家族|亲属|亲戚|儿子|孩子|父母|爸爸|妈妈|姐姐|姐夫|姑父|婆婆|公公|婆媳|师徒|什么关系|什么辈分/u;

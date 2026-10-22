@@ -19,6 +19,8 @@ import com.getcapacitor.BridgeWebChromeClient;
 import com.virtugene.app.plugins.NativeAudioRecorderPlugin;
 import com.virtugene.app.plugins.ChatTextRecognitionPlugin;
 import com.virtugene.app.plugins.VoiceCallAudioPlugin;
+import com.virtugene.app.plugins.MimoStreamPlugin;
+import com.virtugene.app.plugins.ResourceCachePlugin;
 
 public class MainActivity extends BridgeActivity {
 
@@ -30,6 +32,8 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativeAudioRecorderPlugin.class);
         registerPlugin(ChatTextRecognitionPlugin.class);
         registerPlugin(VoiceCallAudioPlugin.class);
+        registerPlugin(MimoStreamPlugin.class);
+        registerPlugin(ResourceCachePlugin.class);
 
         super.onCreate(savedInstanceState);
 

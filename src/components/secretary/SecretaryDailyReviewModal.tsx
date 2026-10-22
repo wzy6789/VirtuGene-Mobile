@@ -15,6 +15,7 @@ import { SecretaryIcon } from './SecretaryIcon';
 import { SecretaryReviewProgress } from './SecretaryReviewProgress';
 import { isDiaryUnlocked, subscribeDiaryUnlock } from '../../lib/diary-unlock';
 import { useUIStore } from '../../store/ui-store';
+import '../../styles/assistant-preferences.css';
 
 export function SecretaryDailyReviewModal({ character, open, onClose }: { character: Character; open: boolean; onClose: () => void }) {
   const userId = useAuthStore(s => s.userId);
@@ -90,10 +91,10 @@ export function SecretaryDailyReviewModal({ character, open, onClose }: { charac
   return <Modal open={open} onClose={close} title="每日整理" width="max-w-lg" closeOnBackdrop={false} mobileFullHeight panelClassName="vg-settings-panel" canSnapshotOnExit={() => useAuthStore.getState().userId === character.createdBy && (!includeDiary || diaryAccessAllowed())} footer={<div className="vg-secretary-ui vg-secretary-form-footer">
     {notice && <p role="status" className="mb-3 text-sm text-sub">{notice}</p>}
     {error && <p role="alert" className="mb-3 text-sm">{error}</p>}
-    {taskId ? <button type="button" disabled={busy} onClick={close} className="vg-secretary-footer-secondary w-full">稍后处理，保留建议</button> : <div className="flex gap-3"><button type="button" disabled={busy} onClick={close} className="vg-secretary-footer-secondary">关闭每日整理</button><button type="button" disabled={busy || !safePreview || !outputs.length || current.secretaryStatus === 'dismissed'} onClick={() => void generate()} className="min-h-12 min-w-0 flex-1 rounded-xl bg-gene-purple px-3 text-sm font-medium text-white disabled:opacity-40">{busy ? '正在整理真实资料…' : '生成整理建议'}</button></div>}
+    {taskId ? <button type="button" disabled={busy} onClick={close} className="vg-button vg-button-secondary w-full">稍后处理，保留建议</button> : <div className="flex gap-3"><button type="button" disabled={busy} onClick={close} className="vg-button vg-button-secondary">关闭每日整理</button><button type="button" disabled={busy || !safePreview || !outputs.length || current.secretaryStatus === 'dismissed'} onClick={() => void generate()} className="vg-button vg-button-primary min-w-0 flex-1 disabled:opacity-40">{busy ? '正在整理真实资料…' : '生成整理建议'}</button></div>}
   </div>}>
-    <div className="vg-settings-design vg-secretary-ui vg-secretary-review space-y-4 p-5">
-      <div className="vg-secretary-review-intro rounded-2xl border border-line p-4"><span className="vg-secretary-icon-tile mb-3"><SecretaryIcon name="spark" size={22} /></span><p className="text-base font-medium text-ink">理一理今天，轻一点过明天。</p><p className="mt-2 text-xs leading-relaxed text-sub">选择需要的建议，先看看真实进展，再决定采用哪些内容。已有待办不会自动改期，也不会自动划掉。</p></div>
+    <div className="vg-settings-design vg-secretary-ui vg-secretary-review vg-assistant-preferences space-y-4 p-5">
+      <div className="vg-secretary-review-intro rounded-2xl border border-line p-4"><span className="vg-secretary-icon-tile mb-3"><SecretaryIcon name="spark" size={22} /></span><p className="text-base font-medium text-ink">理一理今天，轻一点过明天。</p><p className="mt-2 text-sm leading-relaxed text-sub">选择需要的建议，先看看真实进展，再决定采用哪些内容。已有待办不会自动改期，也不会自动划掉。</p></div>
       {!taskId && <fieldset disabled={busy} className="min-w-0 space-y-4">
         <fieldset className="vg-secretary-output-choices space-y-2"><legend className="mb-2 text-sm font-medium text-ink">这次想整理什么</legend>{DAILY_REVIEW_OUTPUTS.map(output => <label key={output.id} className="flex min-h-11 items-center gap-3 text-sm text-ink"><input type="checkbox" checked={outputs.includes(output.id)} onChange={e => { editedChoices.current = true; setOutputs(value => e.target.checked ? [...value, output.id] : value.filter(id => id !== output.id)); }} className="accent-gene-purple" />{output.label}</label>)}<p className="text-xs leading-relaxed text-sub">只生成你勾选的类型，日记和待办逐项采用才保存，朋友圈始终先留草稿。</p></fieldset>
         <div className="vg-secretary-sources space-y-2"><label className="vg-secretary-source flex min-h-12 items-center gap-3 text-sm text-ink"><input type="checkbox" checked={includeDiary} disabled={locked || busy} onChange={e => setIncludeDiary(e.target.checked)} className="accent-gene-purple" /><SecretaryIcon name="diary" size={17} />使用所选日期的日记</label><p className="text-xs leading-relaxed text-sub">{locked ? '日记已锁定，先到日记页解锁后才能使用。' : '由你选择是否使用私密日记；角色关联日记和世界记录不参与整理。'}</p><label className="vg-secretary-source flex min-h-12 items-center gap-3 text-sm text-ink"><input type="checkbox" checked={includeTodos} onChange={e => { editedChoices.current = true; setIncludeTodos(e.target.checked); }} className="accent-gene-purple" /><SecretaryIcon name="todo" size={17} />使用真实待办</label></div>
@@ -106,7 +107,7 @@ export function SecretaryDailyReviewModal({ character, open, onClose }: { charac
           useUIStore.setState({ activeView: 'todo', lifeRecordFocus: { userId, kind: 'todo', id: row.id, date: row.date } }); onClose();
         }} />}</>}
       </fieldset>}
-      {taskId && <><p className="text-xs text-life-cyan">建议已保留到办事收件箱，可以稍后继续。日记默认私密，朋友圈选择发布才发出。</p><SecretaryTaskCards taskId={taskId} context="inbox" /><button type="button" onClick={() => { setTaskId(''); setError(''); }} className="min-h-11 w-full rounded-xl border border-line text-sm text-ink">调整资料，重新整理</button></>}
+        {taskId && <><p className="text-sm text-[color:var(--vg-cyan)]">建议已保留到办事收件箱，可以稍后继续。日记默认私密，朋友圈选择发布才发出。</p><SecretaryTaskCards taskId={taskId} context="inbox" /><button type="button" onClick={() => { setTaskId(''); setError(''); }} className="vg-button vg-button-secondary w-full">调整资料，重新整理</button></>}
     </div>
   </Modal>;
 }

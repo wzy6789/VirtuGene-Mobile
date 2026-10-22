@@ -1,0 +1,8 @@
+/* The parent owns the reading mask; the spatial renderer never blurs its RGB image. */
+.vg-chat-scene-depth{position:absolute;top:0;left:0;width:var(--chat-image-width,100%);height:var(--chat-image-height,100%);overflow:hidden;pointer-events:none;contain:layout paint;isolation:isolate}
+.vg-chat-scene-depth>img,.vg-chat-scene-depth>canvas{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none}
+.vg-chat-scene-depth>img{object-fit:cover;object-position:50% 50%;transform:scale(1.065);user-select:none}
+.vg-chat-scene-depth>canvas{opacity:0}
+.vg-chat-scene-depth[data-scene-ready='true']>canvas{opacity:1}
+.vg-chat-scene-depth[data-scene-depth-state='fallback']>canvas{opacity:0}
+@media(prefers-reduced-motion:reduce){.vg-chat-scene-depth{animation:none!important;transition:none!important}}

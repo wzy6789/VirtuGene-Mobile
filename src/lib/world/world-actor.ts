@@ -18,6 +18,7 @@ import type { TurnSpeaker } from './world-director';
 import { buildConversationFocus } from './user-profile';
 import { directorConversationHints } from './world-immersion';
 import { WORLD_OBJECT_TOPIC_RULE } from './world-attention';
+import {WorldSourceChangedError} from './world-source-guard';
 
 export interface ActorParams {
   ctx: WorldContext;
@@ -181,6 +182,7 @@ export async function actAsCharacter(params: ActorParams): Promise<ActorBeat> {
 
   try {
     const request = {
+      sourceContext:params.ctx,
       messages: [
         { role: 'system', content: buildActorSystem(params) },
         { role: 'user', content: userLine },
@@ -216,7 +218,7 @@ export async function actAsCharacter(params: ActorParams): Promise<ActorBeat> {
       }, params.call)).content ?? '', params.speaker.characterId);
     } catch (error) {
       const reason = (error as Error).message;
-      if (/auth:|billing:|rate:/.test(reason)) throw error;
+      if (error instanceof WorldSourceChangedError||/auth:|billing:|rate:/.test(reason)) throw error;
       first = { characterId: params.speaker.characterId, via: 'none', error: reason };
     }
     if (first.via !== 'none') return { ...first, llmCalls: 1 };

@@ -3,6 +3,8 @@ import { useAuthStore } from '../../store/auth-store';
 import { IS_MOBILE } from '../../lib/platform';
 import { lazyFeature } from '../ui/lazyFeature';
 import { findSecretary, SECRETARY_INTRO_PREFIX } from '../../lib/secretary/character';
+import { Icon, type IconName } from '../ui/Icon';
+import '../../styles/auth-ui.css';
 
 const OnboardingModal = lazyFeature(() => import('./OnboardingModal').then(m => ({default: m.OnboardingModal})));
 const SecretarySetupModal = lazyFeature(() => import('./SecretarySetupModal').then(m => ({default: m.SecretarySetupModal})));
@@ -14,7 +16,7 @@ interface GuideTipProps {
   targetId: string;
   /** right = 气泡在目标右侧，箭头朝左；below = 气泡在目标下方，箭头朝上 */
   placement: 'right' | 'below';
-  icon: string;
+  icon: IconName;
   step: string;
   title: string;
   desc: string;
@@ -60,44 +62,33 @@ function GuideTip({ targetId, placement, icon, step, title, desc, onClose }: Gui
       style={{ left: rect.left, top: rect.top, transform: arrowLeft ? 'translateY(-50%)' : 'translateX(-50%)' }}
     >
       <div className="animate-fade-in">
-      {/* 渐变光边 + 光晕 */}
-      <div className="relative w-80 rounded-2xl bg-gradient-to-br from-gene-purple/70 via-gene-purple/25 to-life-cyan/60 p-[1.5px] shadow-[0_12px_40px_rgba(108,92,231,0.28)]">
+      <div className="vg-onboarding-tip">
         {/* 箭头（外层，不被裁剪；尖角指向目标中心） */}
         {arrowLeft ? (
-          <span className="absolute top-1/2 -left-[10px] -translate-y-1/2 w-4 h-4 rotate-45 bg-gradient-to-br from-gene-purple to-life-cyan" />
+          <span className="vg-onboarding-pointer top-1/2 -left-[9px] -translate-y-1/2 rotate-45" />
         ) : (
           <span
-            className="absolute -top-[10px] w-4 h-4 bg-gradient-to-br from-gene-purple to-life-cyan"
+            className="vg-onboarding-pointer -top-[9px]"
             style={{ left: rect.arrowX ?? 160, transform: 'translateX(-50%) rotate(45deg)' }}
           />
         )}
 
-        <div className="relative overflow-hidden rounded-[14px] bg-panel/95 backdrop-blur-xl p-4">
-          {/* 内部辉光 */}
-          <div className="absolute -top-10 -right-10 w-28 h-28 rounded-full bg-gene-purple/15 blur-2xl pointer-events-none" />
-          <div className="absolute -bottom-10 -left-10 w-28 h-28 rounded-full bg-life-cyan/10 blur-2xl pointer-events-none" />
-
-          <div className="relative flex items-start gap-3">
-            {/* 图标光晕 */}
-            <div className="relative shrink-0">
-              <div className="absolute inset-0 rounded-xl bg-gene-purple/30 blur-[4px]" />
-              <div className="relative w-10 h-10 rounded-xl bg-gradient-to-br from-[#2A2A48] to-[#0A0A14] flex items-center justify-center text-xl ring-1 ring-gene-purple/30">
-                {icon}
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-ink">{title}</p>
-              <p className="text-xs text-gray-500 leading-relaxed mt-1.5">{desc}</p>
+        <div className="vg-onboarding-tip-body">
+          <div className="vg-onboarding-tip-heading">
+            <div className="vg-onboarding-tip-icon"><Icon name={icon} size={22} /></div>
+            <div className="vg-onboarding-tip-copy">
+              <h3>{title}</h3>
+              <p>{desc}</p>
             </div>
           </div>
 
-          <div className="relative flex items-center justify-between mt-3 pt-2.5 border-t border-line/60">
-            <span className="text-[11px] text-gray-500">第 {step} 步</span>
+          <div className="vg-onboarding-tip-footer">
+            <span>第 {step} 步</span>
             <button
               onClick={onClose}
-              className="px-4 py-1.5 rounded-full text-xs font-medium text-white bg-gradient-to-r from-gene-purple to-life-cyan hover:opacity-90 transition-opacity"
+              className="vg-button vg-button-primary"
             >
-              知道了 →
+              知道了
             </button>
           </div>
         </div>
@@ -162,7 +153,7 @@ export function OnboardingGuide({ blocked = false }: { blocked?: boolean }) {
         <GuideTip
           targetId="guide-genelab"
           placement="right"
-          icon="🧬"
+          icon="profile"
           step="1 / 3"
           title="基因实验室"
           desc="点「基因实验室」，从「基因库」挑选现成角色，或「创造基因」培育属于你的独特灵魂。"
@@ -175,7 +166,7 @@ export function OnboardingGuide({ blocked = false }: { blocked?: boolean }) {
         <GuideTip
           targetId="guide-emotion"
           placement="below"
-          icon="💞"
+          icon="heart"
           step="2 / 3"
           title="查看 Ta 的情绪与关系"
           desc="点聊天窗口右上角的这颗心，看 Ta 的情绪图谱、心情曲线，以及你们的好感度关系进展。"
@@ -188,10 +179,10 @@ export function OnboardingGuide({ blocked = false }: { blocked?: boolean }) {
         <GuideTip
           targetId="guide-diary"
           placement="right"
-          icon="📓"
+          icon="diary"
           step="3 / 3"
           title="我的手账"
-          desc="点左栏的「📓」，用聊天的方式写日记——AI 帮你整理成正式日记，还有日历、标签、导出。"
+          desc="点左栏的日记入口，用聊天的方式写日记，AI 帮你整理成正式日记，也可以按日历和标签查找、导出。"
           onClose={() => setTipStep(0)}
         />
       )}

@@ -2,7 +2,7 @@ import Dexie from 'dexie';
 import { db, type SceneParticipantState, type WorldScene, type WorldSceneEntry, type WorldSceneState } from './index';
 import { worldObjectRepo } from './world-object-repo';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
-import { deriveWorldVisualState, emptyConversationState } from '../lib/world/world-immersion';
+import { deriveWorldVisualState, emptyConversationState } from '../lib/world/world-visual-state';
 import { worldTimeOffset } from '../lib/world/world-time';
 
 /**

@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync,writeFileSync} from 'node:fs';
+const plugin=readFileSync('android/app/src/main/java/com/virtugene/app/plugins/VoiceCallAudioPlugin.java','utf8');
+const checks=[];const check=(ok,label)=>{assert.ok(ok,label);checks.push(label);};
+const route=plugin.slice(plugin.indexOf('@PluginMethod public void setRoute'),plugin.indexOf('private void startLegacySco'));
+check(route.indexOf('current.getId() == id')<route.indexOf('stopOutput()'),'active modern route selection before output teardown');
+check(route.includes('id == -3 && legacyScoRequested'),'legacy repeated selection is idempotent');
+const sco=plugin.slice(plugin.indexOf('private void startLegacySco'),plugin.indexOf('private void stopLegacySco'));
+check(sco.indexOf('if (legacyScoRequested) return')<sco.indexOf('stopLegacySco()'),'pending SCO request never reconnects itself');
+check(sco.indexOf('if (legacyScoConnected) return')<sco.indexOf('replaceCapture(8000)'),'duplicate CONNECTED cannot restart capture');
+check(route.includes('selected.getId() == id')&&route.includes('30000')&&route.includes('main.postDelayed(this, 100)'),'modern success waits for effective route with deadline');
+check(plugin.includes('addOnCommunicationDeviceChangedListener')&&plugin.includes('removeOnCommunicationDeviceChangedListener'),'effective-route observer released at end');
+check(plugin.includes('cancelRoute("voice:route_failed")')&&plugin.includes('cancelRoute("voice:cancelled")'),'pause and hangup reject stale route confirmation');
+check(route.includes('try { manager.clearCommunicationDevice(); }') && route.includes('catch (Exception ignored)'), 'route timeout cleanup cannot throw uncaught permission errors on the main thread');
+writeFileSync('.tmp-preview/voice-call-rhythm-20261013/native-route-contract.json',JSON.stringify({checks,deviceTested:false,scope:'source contracts only, not Android Bluetooth execution'},null,2));console.log(JSON.stringify({checks:checks.length,deviceTested:false}));

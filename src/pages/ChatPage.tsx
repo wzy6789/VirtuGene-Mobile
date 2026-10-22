@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { ChatWindow } from '../components/chat/ChatWindow';
 import { RelationMilestoneToast } from '../components/chat/RelationMilestoneToast';
 import { useChatStore } from '../store/chat-store';
@@ -7,42 +7,19 @@ import { useEmotionStore } from '../store/emotion-store';
 import { useCharacterStateStore } from '../store/character-state-store';
 import { useUIStore } from '../store/ui-store';
 
-function useProactiveTimer() {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
-  const triggerProactive = useChatStore((s) => s.triggerProactive);
-  const dailyGreeting = useChatStore((s) => s.dailyGreeting);
-  const fetchUnreadCounts = useChatStore((s) => s.fetchUnreadCounts);
-
+/** A return opening belongs to the selected visit, never a repeating timer. */
+function useReturnOpening() {
+  const isLoggedIn = useAuthStore(s => s.isLoggedIn);
+  const userId = useAuthStore(s => s.userId);
+  const sessionId = useChatStore(s => s.currentSessionId);
+  const characterId = useChatStore(s => s.selectedCharacterId);
   useEffect(() => {
-    if (!isLoggedIn) return;
-
-    // Fetch unread counts on mount
-    fetchUnreadCounts();
-
-    const schedule = () => {
-      // Random interval: 2-5 minutes for subsequent messages
-      const delay = 120000 + Math.random() * 180000;
-      timerRef.current = setTimeout(async () => {
-        await triggerProactive();
-        // 每日灵魂互动：顺带检查是否到早安/晚安时刻（内部有当天一次的保护，多数时候是空转）
-        await dailyGreeting();
-        schedule();
-      }, delay);
-    };
-
-    // First trigger after 15-45 seconds
-    const firstDelay = 15000 + Math.random() * 30000;
-    timerRef.current = setTimeout(async () => {
-      await triggerProactive();
-      await dailyGreeting();
-      schedule();
-    }, firstDelay);
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [isLoggedIn]);
+    if (!isLoggedIn || !userId || !sessionId || !characterId) return;
+    const visit = new AbortController();
+    void useChatStore.getState().fetchUnreadCounts();
+    void useChatStore.getState().triggerProactive(visit.signal);
+    return () => visit.abort();
+  }, [isLoggedIn, userId, sessionId, characterId]);
 }
 
 /** 自动情绪结算完成后的轻提示（短暂展示，不打扰） */
@@ -66,7 +43,7 @@ function SettleToast() {
 }
 
 export function ChatPage() {
-  useProactiveTimer();
+  useReturnOpening();
 
   const currentSessionId = useChatStore((s) => s.currentSessionId);
   const loadSessionSnapshots = useEmotionStore((s) => s.loadSessionSnapshots);

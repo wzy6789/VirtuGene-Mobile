@@ -10,7 +10,7 @@
   --notification-surface:#1b2438; --notification-ink:#f0f2ff; --notification-sub:#b1bad0;
   --notification-edge:#35415a; --notification-accent:#ad9bff; --notification-cyan:#7fe0db;
 }
-.mobile-layout .vg-notification-viewport { top:calc(env(safe-area-inset-top,0px) + 84px); }
+.mobile-layout .vg-notification-viewport { top:calc(var(--vg-safe-top) + 84px); }
 .vg-message-notification {
   position:relative; display:flex; align-items:flex-start; width:100%; overflow:hidden;
   border:1px solid var(--notification-edge); border-radius:20px;

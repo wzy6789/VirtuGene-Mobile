@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "sceneId": "hearth-cabin",
+  "designWidth": 1440,
+  "designHeight": 3200,
+  "camera": {
+    "location": [
+      -0.10000000149011612,
+      -5.400000095367432,
+      2.1500000953674316
+    ],
+    "rotation": [
+      1.4601497650146484,
+      -1.6313596029604582e-09,
+      -0.013887995854020119
+    ],
+    "lens": 31,
+    "sensorFit": "VERTICAL",
+    "sensorHeight": 36
+  },
+  "cupMouth": [
+    718.047,
+    2202.939
+  ],
+  "windowPolygon": [
+    [
+      246.751,
+      1913.782
+    ],
+    [
+      654.49,
+      1912.519
+    ],
+    [
+      653.581,
+      1572.634
+    ],
+    [
+      240.17,
+      1573.211
+    ]
+  ],
+  "effectArea": "hearth",
+  "lightCenter": [
+    440.218,
+    1748.273
+  ],
+  "layers": [
+    "base",
+    "casing",
+    "foreground",
+    "table"
+  ],
+  "provenance": "Original procedural Blender geometry and shaders, offline Cycles render, no imported stock or generated imagery.",
+  "lightRect": [
+    90,
+    1298,
+    700,
+    900
+  ]
+}

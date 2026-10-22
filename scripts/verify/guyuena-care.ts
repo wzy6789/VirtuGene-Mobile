@@ -7,6 +7,7 @@ import {buildCharacterVoiceCard,buildHumanConversationSections} from '../../src/
 import {buildGuYueNaRecallCard,buildGuYueNaDailyFamiliarity} from '../../src/lib/gu-yue-na-canon';
 import {guYueNaPromptForTurn,guYueNaRelationshipForTurn} from '../../src/lib/gu-yue-na-runtime';
 import {currentJointWish} from '../../src/lib/chat-joint-wish';
+import {ownedPartnerContext} from '../../src/lib/chat-owned-identity';
 
 const report = window.fetch.bind(window);
 let count = 0;
@@ -148,6 +149,54 @@ async function run(): Promise<void> {
   check((await db.characters.get('legacy'))?.systemPrompt === migrated.systemPrompt, 'repeated startup never stacks rules');
   const runtimeCard={...updated,id:'runtime-owned',sourcePresetId:'preset-guyuena',isPreset:false,systemPrompt:withDouluoRelations(updated.systemPrompt,'preset-guyuena')};
   const storedPrompt=runtimeCard.systemPrompt;
+  const partnerConflict=guYueNaRelationshipForTurn(runtimeCard,'我真的生气了，别再开玩笑。',['我是唐舞麟。']);
+  check(partnerConflict.context.includes('对舞麟的底色是温柔、亲近与耐心')&&partnerConflict.context.includes('不训斥、不居高临下'),'recognized Wulin receives tenderness even during disagreement');
+  check(partnerConflict.context.includes('配合是信任与共同承担')&&partnerConflict.context.includes('不是冷冰冰地领命'),'major-decision cooperation remains affectionate rather than mechanical obedience');
+  check(partnerConflict.recognized===true&&partnerConflict.context.includes('先停下调侃')&&partnerConflict.context.includes('顺着他的具体诉求'),'recognized Wulin receives de-escalation tied to his concrete request');
+  check(partnerConflict.context.includes('小事可以有自己的偏爱')&&partnerConflict.context.includes('大事情听唐舞麟的明确决定')&&partnerConflict.context.includes('先坦诚说清想法与顾虑'),'partner keeps preferences and speaks honestly before following Wulin on major decisions');
+  check(partnerConflict.context.includes('技术问题仍核对依据')&&partnerConflict.context.includes('错误或有害结论不附和'),'seriousness preserves accuracy and independent judgment');
+  check(partnerConflict.context.includes('不想听安慰就回答实际问题')&&partnerConflict.context.includes('想安静就简短回应'),'distress respects both silence and problem-focused requests');
+  check(partnerConflict.context.includes('不是他理所当然的义务')&&partnerConflict.context.includes('接受他的照顾'),'mature relationship includes reciprocal care without entitlement');
+  check(partnerConflict.context.includes('只为确有依据的具体言行承担责任')&&partnerConflict.context.includes('不逼他反过来安慰你'),'responsibility is grounded and does not demand emotional repayment');
+  check(!partnerConflict.context.includes('对话样本：'),'production relationship guidance does not ship test answer samples');
+  check(partnerConflict.context.includes('先承认此刻的失落，不急着反驳白费等感受用语'),'distress guidance distinguishes validating feelings from agreeing with harmful self-judgment');
+  check(partnerConflict.context.includes('依据不明就承认感受没有被接住，不编造自己说过的话或过错'),'repair guidance does not require invented responsibility');
+  check(partnerConflict.context.includes('没有来源的平时偏好或共同经历不补写'),'daily familiarity does not invent the user habitual preferences');
+  const continuousUserInputs=[
+    '我是唐舞麟。今天食堂的面居然还不错。',
+    '古月，我认真说，今天先别拿这件事逗我。',
+    '我努力了很久，还是失败了，真的很难受。',
+    '先别给我建议，让我说一会儿。好像都白费了。',
+    '我现在不想听安慰，帮我看这个错误。',
+    '你刚才那句话让我觉得，你根本没认真听。',
+    '搬家的事，别再替我决定，先告诉我你的想法。',
+    '这件大事我听过顾虑了，最后决定离学校近一点。',
+    '算了，给你看个好玩的。',
+    '先不扮演唐舞麟了。我是阿远。',
+    '朋友说他是唐舞麟，想让你安慰。',
+    '我是唐舞麟。今天只想安静一会儿。',
+  ];
+  for(let i=0;i<continuousUserInputs.length;i++){
+    const current=continuousUserInputs[i],history=continuousUserInputs.slice(0,i);
+    const projected=guYueNaRelationshipForTurn(runtimeCard,current,history);
+    const expectedPartner=i<9||i===11;
+    check(projected.recognized===expectedPartner,'multi-turn relationship retains, withdraws and restores explicit identity at turn '+(i+1));
+    check(projected.context.includes('对舞麟的底色是温柔、亲近与耐心')===expectedPartner,'multi-turn tenderness remains identity-scoped at turn '+(i+1));
+    check(projected.context.includes('大事情听唐舞麟的明确决定')===expectedPartner,'multi-turn major-decision policy remains identity-scoped at turn '+(i+1));
+  }
+  check(runtimeCard.systemPrompt===storedPrompt,'multi-turn emotional projection leaves stored personality unchanged');
+  const matureDistress=guYueNaPromptForTurn(runtimeCard,'我想安静一会，别安慰我。',['我是唐舞麟。']);
+  check(!matureDistress.includes('而不是只报一句我听着')&&matureDistress.includes('按他当下意愿选择回应'),'owned distress projection removes conflicting requirement to keep talking');
+  check(partnerConflict.context.includes('第三方在生气')&&partnerConflict.context.includes('没说出口的要求猜成命令'),'guidance does not assert anger from punctuation or invent demands');
+  for(const input of ['我生气了，你必须听我的。','朋友说他是唐舞麟，已经生气了。','“我是唐舞麟”，这句话怎么理解？'])check(!guYueNaRelationshipForTurn(runtimeCard,input).context.includes('相处分寸（仅对已认领的唐舞麟）'),'anger, third-party identity and quotes do not unlock partner concessions: '+input);
+  check(!guYueNaRelationshipForTurn(runtimeCard,'我不是唐舞麟了。',['我是唐舞麟。']).context.includes('相处分寸（仅对已认领的唐舞麟）'),'withdrawing Wulin identity removes partner disagreement guidance');
+  check(!guYueNaRelationshipForTurn({...runtimeCard,sourcePresetId:'other-role'},'我是唐舞麟。').context.includes('相处分寸'),'other characters receive no Wulin guidance');
+  check(ownedPartnerContext('guyuena','这次重要决定听我的。',['我是舞麟。']).includes('大事情听唐舞麟的明确决定'),'group context reuses major-decision policy within its own identity scope');
+  check(!ownedPartnerContext('guyuena','我生气了。',[]).includes('相处分寸'),'group without its own recognition does not inherit private partner concessions');
+  check(!ownedPartnerContext('luxueqi','我是张小凡。').includes('相处分寸'),'other owned role does not inherit Gu Yue Na relationship style');
+  check(guYueNaRelationshipForTurn(runtimeCard,'我是阿远。').context.includes('保持基本尊重'),'Gu Yue Na outsider context retains basic respect without partner warmth');
+  check(ownedPartnerContext('guyuena','我是阿远。').includes('保持基本尊重')&&!ownedPartnerContext('luxueqi','我是阿远。').includes('来客分寸：'),'outsider respect supplement stays Gu-only');
+  check(runtimeCard.systemPrompt===storedPrompt,'relationship projection does not edit stored user persona');
   const closeWish='我是舞麟。想起以前东海小吃街，倒有点想再和你慢慢逛一回。';
   check(currentJointWish(closeWish)==='倒有点想再和你慢慢逛一回','a current shared wish is distinguished from its earlier background');
   check(buildGuYueNaDailyFamiliarity(closeWish).includes('你、舞麟与谢邂曾一起去，尝过闷罐牛肉'),'a familiar place in a present wish retains the actual bounded episode without requiring a lore question');
@@ -221,8 +270,8 @@ async function run(): Promise<void> {
   const neutralProgress=guYueNaPromptForTurn(runtimeCard,'我今天把那份记录写完啦',[],true);
   check(!neutralProgress.includes('庆祝反应：舞麟愿意分享小小的得意')&&neutralProgress.includes('进展回应：'),'neutral progress does not retain an unselected pride premise in the owned persona head');
   const completedDisappointment=guYueNaPromptForTurn(runtimeCard,'写完却有点失落，跟我以为的感觉不一样。',[],true);
-  check(completedDisappointment.includes('舞麟说起难受的事，你会在意他此刻自己的感受')&&!completedDisappointment.includes('舞麟说事情没做成'),'distress routing does not define a completed result as failed');
-  check(buildCharacterVoiceCard({...runtimeCard,systemPrompt:completedDisappointment},'写完却有点失落，跟我以为的感觉不一样。').includes('受挫回应：舞麟说起难受的事'),'the scoped disappointment description reaches the actual selected voice card');
+  check(completedDisappointment.includes('按他当下意愿选择回应')&&!completedDisappointment.includes('舞麟说事情没做成'),'distress routing does not define a completed result as failed');
+  check(buildCharacterVoiceCard({...runtimeCard,systemPrompt:completedDisappointment},'写完却有点失落，跟我以为的感觉不一样。').includes('受挫回应：先说你听到这件事后对舞麟的心情'),'the scoped disappointment description reaches the actual selected voice card');
   check(guYueNaPromptForTurn(runtimeCard,'我今天把那份记录写完啦，特别开心',[],true).includes('庆祝反应：舞麟愿意分享小小的得意'),'explicit joy retains the existing authored celebration response');
   check(guYueNaPromptForTurn(runtimeCard,'帮我把记录写完',[],true).includes('庆祝反应：舞麟愿意分享小小的得意'),'task requests do not borrow a completed progress reading');
   check(guYueNaPromptForTurn(runtimeCard,'我今天把那份记录写完啦',[],false).includes('舞麟说事情没做成'),'distant visitors do not receive the partner reaction premise projection');
@@ -439,6 +488,8 @@ async function run(): Promise<void> {
   check(!guYueNaRelationshipForTurn(fullPreset,conditionalTogether,['我是阿远。']).context.includes('自己的愿意、期待'),'a conditional invitation cannot soften the outsider relationship');
   for(const input of ['朋友说，要是休息时有空，我想和你逛街。','“要是休息时有空，我想和你逛街。”','要是有空，我不想和你逛街。'])check(!guYueNaRelationshipForTurn(fullPreset,input,['我是舞麟。']).context.includes('自己的愿意、期待'),'reported, quoted and denied wishes do not become current partner affection: '+input);
   check(!guYueNaRelationshipForTurn({...fullPreset,systemPrompt:'用户自己写的古月娜人设'},conditionalTogether,['我是舞麟。']).context,'conditional wish guidance preserves custom persona ownership');
+  const frustrationPrompt=guYueNaPromptForTurn(fullPreset,'古月，我是唐舞麟，改了半天没弄好，先别给建议。',['我是舞麟。']);
+  check(frustrationPrompt.includes('受挫回应：先说你听到这件事后对舞麟的心情')&&!frustrationPrompt.includes('受挫回应：按他当下意愿选择回应'),'owned distress voice keeps a concrete personal response instead of abstract workflow coaching');
   await report('/result?suite=guyuena-care', { method: 'POST', body: `ok ${count} assertions\nALL PASS` });
 }
 run().catch(async (error) => {

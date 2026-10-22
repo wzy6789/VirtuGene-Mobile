@@ -1,0 +1,10 @@
+import fs from 'node:fs';import assert from 'node:assert/strict';import {build} from 'esbuild';
+const root='.tmp-preview/ui-overhaul-20261016/world-visual-boundary';fs.mkdirSync(root,{recursive:true});
+const output=await build({stdin:{contents:"export * from './src/lib/gu-yue-na-canon';",resolveDir:process.cwd()},bundle:true,write:false,platform:'node',format:'esm'});
+const api=await import('data:text/javascript;base64,'+Buffer.from(output.outputFiles[0].text).toString('base64'));
+const questions=['你好','我饿了','你知道我喜欢什么吗','我想和你去东海小吃街','我喜欢锻造','还记得闷罐牛肉吗','六字斗铠怎么取名','银龙舞轩秀麟是什么意思','不聊吃饭了，说说锻造','朋友想问你的喜好','解释“我饿了”','你当时为什么拒绝蔡老','海神缘你怎么想的','还有呢','不用回忆这个了'];
+const persona='[VirtuGene · 古月娜的关心]\n'+api.GU_YUE_NA_CANON_CONTEXT;
+const snapshot={canon:api.GU_YUE_NA_CANON,context:api.GU_YUE_NA_CANON_CONTEXT,daily:api.GU_YUE_NA_DAILY_FAMILIARITY,correction:api.GU_YUE_NA_WHITE_CORRECTION,results:[]};
+for(const question of questions)for(const recent of [[],['我想问闷罐牛肉','还有锻造']])for(const owned of [false,true])snapshot.results.push({question,recent,owned,daily:api.buildGuYueNaDailyFamiliarity(question,recent),recall:api.buildGuYueNaRecallCard(owned?persona:'古月娜',question,recent)??null});
+if(process.argv.includes('--record-before'))fs.writeFileSync(root+'/canon-before.json',JSON.stringify(snapshot,null,2));
+else{assert.deepEqual(snapshot,JSON.parse(fs.readFileSync(root+'/canon-before.json','utf8')));const graph=await build({stdin:{contents:"export {GU_YUE_NA_CANON_CONTEXT} from './src/lib/gu-yue-na-canon-data';",resolveDir:process.cwd()},bundle:true,write:false,platform:'node',format:'esm',metafile:true});assert.ok(Object.keys(graph.metafile.inputs).every(file=>!file.includes('chat-')));fs.writeFileSync(root+'/canon-parity.json',JSON.stringify({pass:true,cases:snapshot.results.length,scope:'Canonical data, prompt context and 60 current retrieval/familiarity outputs unchanged; not real-model conversation quality.'},null,2));console.log('PASS canon data and 60 runtime outputs unchanged');}

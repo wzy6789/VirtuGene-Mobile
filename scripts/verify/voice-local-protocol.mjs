@@ -1,0 +1,11 @@
+import { build } from 'esbuild';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const dir = '.tmp-preview/voice-local-protocol-20261015';
+mkdirSync(dir, { recursive: true });
+await build({ entryPoints: ['scripts/verify/voice-local-protocol.ts'], outfile: `${dir}/protocol.cjs`, bundle: true, platform: 'node', format: 'cjs', logLevel: 'warning' });
+const result = spawnSync(process.execPath, [`${dir}/protocol.cjs`], { encoding: 'utf8', timeout: 180000 });
+writeFileSync(`${dir}/run.txt`, `${result.stdout ?? ''}${result.stderr ?? ''}${result.error ? String(result.error) : ''}`, 'utf8');
+process.stdout.write(result.stdout ?? ''); process.stderr.write(result.stderr ?? '');
+if (result.error) console.error(result.error);
+process.exitCode = result.status ?? 1;

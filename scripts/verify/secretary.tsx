@@ -145,6 +145,45 @@ let checks = 0;
 function ok(value: unknown, label: string) { if (!value) throw new Error(label); checks++; console.log(`PASS ${label}`); }
 async function rejects(work: () => Promise<unknown>, label: string) { let rejected = false; try { await work(); } catch { rejected = true; } ok(rejected, label); }
 
+async function conversationLoadRaceChecks() {
+  uid = 'assistant-memory-load-race'; await setup();
+  const originalGetAll = characterRepo.getAll;
+  const originalPage = messageRepo.getPage;
+  const hold = () => {
+    let release!: () => void; let reached!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const started = new Promise<void>(resolve => { reached = resolve; });
+    return { release, reached, waiting, started };
+  };
+  try {
+    let gate = hold();
+    characterRepo.getAll = async (...args) => { const rows = await originalGetAll(...args); gate.reached(); await gate.waiting; return rows; };
+    const foreign = useChatStore.getState().loadCharacters(); await gate.started;
+    auth('assistant-memory-other-owner'); useChatStore.getState().reset();
+    gate.release(); await foreign;
+    ok(useChatStore.getState().characters.length === 0 && useChatStore.getState().currentSessionId === null, 'late account list cannot restore the former assistant or its conversation');
+
+    auth(); useChatStore.setState({ selectedCharacterId: null, currentSessionId: null });
+    gate = hold();
+    const refresh = useChatStore.getState().loadCharacters(); await gate.started;
+    useChatStore.setState({ selectedCharacterId: character.id, currentSessionId: sid });
+    gate.release(); await refresh;
+    ok(useChatStore.getState().currentSessionId === sid && useChatStore.getState().selectedCharacterId === character.id, 'list refresh preserves an assistant conversation opened during its read');
+
+    characterRepo.getAll = originalGetAll;
+    useChatStore.setState({ selectedCharacterId: null, currentSessionId: null });
+    gate = hold();
+    messageRepo.getPage = async (...args) => { const rows = await originalPage(...args); gate.reached(); await gate.waiting; return rows; };
+    const fallback = useChatStore.getState().loadCharacters(); await gate.started;
+    const newer = `${sid}-newer`;
+    await db.sessions.add({ id: newer, userId: uid, characterId: character.id, title: '新会话', createdAt: Date.now(), updatedAt: Date.now(), unreadCount: 0, type: 'single', modelAsked: true });
+    useChatStore.setState({ selectedCharacterId: character.id, currentSessionId: newer });
+    gate.release(); await fallback;
+    ok(useChatStore.getState().currentSessionId === newer, 'late automatic selection cannot replace a newer assistant session');
+  } finally { characterRepo.getAll = originalGetAll; messageRepo.getPage = originalPage; }
+  uid = baseUid; await setup();
+}
+
 async function preferenceAndEditingChecks() {
   uid = 'work-habits-owner'; await setup();
   const expected = (b: any) => ({ characterId: b.characterId, employmentId: b.employmentId, version: b.workPreferencesUpdatedAt ?? 0 });
@@ -1492,7 +1531,7 @@ async function runChecks() {
   await previous.table('characters').bulkAdd([oldAssistant, { ...oldAssistant, id: 'old-assistant-extra', createdAt: 2 }]);
   previous.close();
   await setup();
-  ok(db.verno === 32 && (await db.diaries.get('pre-upgrade-diary'))?.content === '旧版本原文' && db.messages.schema.indexes.some(index => index.name === 'replyToUserMessageId') && db.todoEvents.schema.indexes.some(index => index.name === '[userId+occurrenceId]'), 'v25 to v32 upgrade preserves established diary data and adds retrieval, reply-turn and action-event indexes');
+  ok(db.verno === 41 && (await db.diaries.get('pre-upgrade-diary'))?.content === '旧版本原文' && db.messages.schema.indexes.some(index => index.name === 'replyToUserMessageId') && db.todoEvents.schema.indexes.some(index => index.name === '[userId+occurrenceId]') && db.sessions.schema.indexes.some(index => index.name === '[characterId+userId+createdAt+id]') && db.sessions.schema.indexes.some(index => index.name === '[characterId+userId+type]') && db.memorySourceTombstones.schema.indexes.some(index => index.name === 'suppressedMessageIds'), 'v25 to v41 upgrade preserves established diary data, retrieval ordering, ownership and suppression indexes');
   ok((await db.secretaryBindings.get('old-owner'))?.personality === 'professional' && (await db.characters.get('old-assistant-first'))?.greeting === '手写开场', 'upgrade locks the existing first assistant without replacing custom setup');
   ok((await db.characters.get('old-assistant-extra'))?.agentProfile === undefined && await db.characters.where('createdBy').equals('old-owner').count() === 2, 'upgrade retains extra character records while keeping one assistant capability');
   ok((await db.characters.get('old-assistant-first'))?.avatar === secretaryAvatar('professional', 'female') && (await db.secretaryBindings.get('old-owner'))?.appearance === 'female', 'upgrade replaces the old default icon with the matching anime portrait');
@@ -2177,6 +2216,7 @@ async function runChecks() {
   await reportedChainBugChecks();
   await residualFailureChecks();
   await indexedHistoryAndListChecks();
+  await conversationLoadRaceChecks();
   const finalDraft = await request('写条朋友圈：今天去散步', [{ kind: 'moment.draft', content: '走出去，看看今天的风。' }]);
   await saveSecretaryDraft(uid, finalDraft.task.id, 0, '散步回来，心情轻了些。');
   (window as any).secretaryTest.lastTask = finalDraft.task.id;

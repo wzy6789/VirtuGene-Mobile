@@ -1,0 +1,138 @@
+/* All aliases stay inside the current room. Dialog portals and the application
+   shell keep their own theme; palette values come from chat-atmosphere.ts. */
+.vg-chat-atmosphere {
+  --chat-bg:var(--chat-light-bg); --chat-panel:var(--chat-light-panel);
+  --chat-surface:var(--chat-light-surface); --chat-surface-strong:var(--chat-light-surface-strong);
+  --chat-ai:var(--chat-light-ai); --chat-user:var(--chat-light-user); --chat-action:var(--chat-light-action);
+  --chat-text:var(--chat-light-text); --chat-sub:var(--chat-light-sub);
+  --chat-accent:var(--chat-light-accent); --chat-cyan:var(--chat-light-cyan);
+  --chat-border:var(--chat-light-border); --chat-border-strong:var(--chat-light-border-strong);
+  --chat-edge:var(--chat-light-edge); --chat-glow:var(--chat-light-glow); --chat-glow-secondary:var(--chat-light-glow-secondary);
+  --chat-highlight:var(--chat-light-highlight); --chat-shadow:var(--chat-light-shadow);
+  --bg:var(--chat-bg); --bg-panel:var(--chat-panel); --bg-surface:var(--chat-surface); --bg-surface-strong:var(--chat-surface-strong);
+  --bg-glass:color-mix(in srgb,var(--chat-panel) 96%,transparent);
+  --text:var(--chat-text); --text-secondary:var(--chat-sub); --text-ink:var(--chat-text); --text-sub:var(--chat-sub);
+  --border:var(--chat-border); --border-strong:var(--chat-border-strong);
+  --vg-accent:var(--chat-accent); --vg-action:var(--chat-action); --vg-on-action:#fff;
+  --vg-cyan:var(--chat-cyan); --vg-on-cyan:var(--chat-bg);
+  --vg-edge:var(--chat-edge); --vg-panel-light:color-mix(in srgb,var(--chat-glow) 8%,transparent);
+  --vg-panel-shine:var(--chat-highlight); --vg-shadow:var(--chat-shadow);
+  --msg-ai:var(--chat-ai); --msg-ai-text:var(--chat-text); --msg-user:var(--chat-user); --msg-user-text:var(--vg-on-action);
+  --vg-raised:var(--chat-panel); --vg-inset:var(--chat-surface); --vg-soft:var(--chat-surface);
+  --vg-elev-0:var(--chat-bg);
+  --vg-elev-1:linear-gradient(145deg,var(--chat-highlight),transparent 72%),var(--chat-ai);
+  --vg-elev-2:linear-gradient(145deg,var(--chat-highlight),transparent 72%),var(--chat-surface);
+  --vg-elev-3:var(--chat-surface-strong);
+  --vg-elev-edge:var(--chat-edge); --vg-elev-highlight:var(--chat-highlight);
+  --vg-elev-shadow-1:0 4px 16px var(--chat-shadow);
+  --vg-elev-shadow-2:0 10px 28px var(--chat-shadow);
+  --vg-elev-shadow-3:0 18px 48px var(--chat-shadow);
+  background-color:var(--chat-bg); color:var(--chat-text);
+}
+.chat-room.vg-chat-atmosphere { position:relative; isolation:isolate; }
+.chat-room.vg-chat-paper{--vg-chat-input-scale:1rem;background:var(--bg);color:var(--text)}
+.chat-room.vg-chat-paper[data-paper-material]::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;background:url('../assets/starfield/chat-mineral-edge.webp') center/cover no-repeat;opacity:.12}
+:root.dark .chat-room.vg-chat-paper[data-paper-material]::before{opacity:.4}
+.vg-chat-paper .vg-message-bubble{font-size:max(var(--vg-chat-font-size,16px),1rem);font-weight:400;line-height:1.625;box-shadow:none;text-shadow:none}
+.vg-chat-paper .vg-message-bubble.is-user-bubble{border-color:transparent}
+.vg-chat-paper .vg-message-bubble.is-character-bubble{border-color:var(--border)}
+.chat-room.vg-chat-paper .chat-header{min-height:56px;padding:8px 12px;gap:4px;background:var(--bg);border-color:var(--border);box-shadow:none}
+.chat-room.vg-chat-paper .chat-header button{width:44px;height:44px;min-width:44px;min-height:44px;flex-shrink:0}
+.chat-room.vg-chat-paper .chat-header>.h-px{display:none}
+.chat-room.vg-chat-paper .vg-chat-identity-copy [role='heading']{font-size:max(16px,1rem);line-height:1.4;letter-spacing:normal}
+.chat-room.vg-chat-paper .vg-chat-presence{font-size:max(12px,.75rem);line-height:1.5;letter-spacing:normal}
+.chat-room.vg-chat-paper .chat-composer{background:var(--bg);border-color:var(--border);box-shadow:none}
+.chat-room.vg-chat-paper .chat-composer-input{background:var(--bg-panel);border-color:var(--border);border-radius:12px;box-shadow:none}
+.chat-room.vg-chat-paper .chat-composer-send{background:var(--vg-action);color:var(--vg-on-action);box-shadow:none;border-color:transparent}
+.chat-room.vg-chat-paper .chat-thread{background:transparent}
+.chat-room.vg-chat-atmosphere > :not(.vg-chat-atmosphere-edge,.vg-latest-message-anchor) { position:relative; z-index:1; }
+.mobile-layout .chat-room.vg-chat-atmosphere .chat-thread,.vg-chat-atmosphere .chat-thread { background:transparent; }
+.vg-chat-atmosphere .chat-header > .h-px { background-image:linear-gradient(90deg,transparent,var(--chat-accent),var(--chat-cyan),transparent); }
+/* Wide prepainted light and a local particle canvas fill the room, beneath the
+   opaque reading surfaces. Gradients move as layers; text never moves with them. */
+.vg-chat-atmosphere > .vg-chat-atmosphere-edge { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; transition:opacity 200ms ease; }
+.vg-chat-background-halo::before,.vg-chat-background-halo::after {
+  content:''; position:absolute; inset:0;
+  background:radial-gradient(ellipse at var(--chat-light-origin,28% 22%),var(--chat-glow),transparent 64%);
+  opacity:var(--chat-light-low,.42); animation:vg-chat-edge var(--chat-field-period,24s) ease-in-out infinite;
+}
+.vg-chat-background-halo::after { background:radial-gradient(ellipse at 78% 76%,var(--chat-glow-secondary),transparent 62%); animation-delay:-11s; }
+@keyframes vg-chat-edge { 0%,100% { opacity:var(--chat-light-low,.42);transform:translate(0,0); } 50% { opacity:var(--chat-light-high,.82);transform:translate(var(--chat-field-sway,22px),-12px); } }
+:root.dark .vg-chat-atmosphere {
+  --chat-bg:var(--chat-dark-bg); --chat-panel:var(--chat-dark-panel);
+  --chat-surface:var(--chat-dark-surface); --chat-surface-strong:var(--chat-dark-surface-strong);
+  --chat-ai:var(--chat-dark-ai); --chat-user:var(--chat-dark-user); --chat-action:var(--chat-dark-action);
+  --chat-text:var(--chat-dark-text); --chat-sub:var(--chat-dark-sub);
+  --chat-accent:var(--chat-dark-accent); --chat-cyan:var(--chat-dark-cyan);
+  --chat-border:var(--chat-dark-border); --chat-border-strong:var(--chat-dark-border-strong);
+  --chat-edge:var(--chat-dark-edge); --chat-glow:var(--chat-dark-glow); --chat-glow-secondary:var(--chat-dark-glow-secondary);
+  --chat-highlight:var(--chat-dark-highlight); --chat-shadow:var(--chat-dark-shadow);
+}
+.vg-chat-background-image{position:absolute;top:0;left:0;width:var(--chat-image-width,100%);height:var(--chat-image-height,100%);animation:vg-background-arrive 200ms ease-out}
+.vg-chat-background-image img{width:100%;height:100%;object-fit:cover;object-position:var(--chat-image-x,50%) var(--chat-image-y,50%);transform:scale(var(--chat-image-zoom,1))}
+.vg-chat-background-image>div{position:absolute;inset:0;background:var(--chat-bg);opacity:var(--chat-image-mask,.6)}
+.vg-chat-background-halo{position:absolute;inset:-12%;isolation:isolate;background:linear-gradient(var(--chat-light-angle,-24deg),transparent 28%,color-mix(in srgb,var(--chat-glow) 15%,transparent) 40%,transparent 52%,color-mix(in srgb,var(--chat-glow-secondary) 12%,transparent) 67%,transparent 80%);animation:vg-chat-canopy var(--chat-field-period,24s) ease-in-out infinite;opacity:var(--chat-light-cap,.20)}
+.vg-chat-particles{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:1;contain:layout paint}
+.chat-room[data-chat-ambient=low] .vg-chat-background-halo{opacity:calc(var(--chat-light-cap,.20)*.45)}
+.vg-chat-background-halo{transition:opacity 200ms ease}
+.vg-chat-particles>div,.vg-chat-particles canvas{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;pointer-events:none!important}
+.vg-chat-particles-fallback{position:absolute;inset:0;overflow:hidden}.vg-chat-particles-fallback>i{position:absolute;color:var(--chat-accent);opacity:.6}.vg-chat-particles-fallback svg{width:100%;height:100%;fill:currentColor}
+@keyframes vg-background-arrive{from{opacity:0}to{opacity:1}}
+@keyframes vg-chat-canopy{50%{transform:translate(-18px,var(--chat-field-sway,22px)) rotate(3deg)}}
+/* The editor is visible inside a modal; only the covered room pauses. */
+:is([data-chat-resting],[data-chat-ambient='off'],[hidden],[inert],html[data-vg-background]) .vg-chat-atmosphere-edge,
+body:has(>.vg-modal-overlay,>.vg-modal-exit) .chat-room .vg-chat-atmosphere-edge{--chat-field-play:paused}
+.vg-chat-atmosphere-edge *,.vg-chat-background-halo::before,.vg-chat-background-halo::after{animation-play-state:var(--chat-field-play,running)}
+:is([data-chat-motion='off'],html[data-vg-reduced-motion='true']) .vg-chat-atmosphere-edge{--chat-field-play:paused;transition:none}
+:is([data-chat-motion='off'],html[data-vg-reduced-motion='true']) .vg-chat-background-halo::before,
+:is([data-chat-motion='off'],html[data-vg-reduced-motion='true']) .vg-chat-background-halo::after,
+:is([data-chat-motion='off'],html[data-vg-reduced-motion='true']) .vg-chat-atmosphere-edge *{animation:none}
+@media(prefers-reduced-motion:reduce){.vg-chat-atmosphere-edge{transition:none}.vg-chat-background-halo::before,.vg-chat-background-halo::after,.vg-chat-atmosphere-edge *{animation:none}}
+.vg-chat-atmosphere .chat-thread .flex.justify-center>.rounded-full{background:var(--bg-panel);padding:4px 10px}
+.vg-chat-atmosphere .opening-scene{background:var(--bg-panel)}
+.vg-chat-atmosphere .vg-message-generation-status{background:var(--chat-panel);width:fit-content;padding:0 6px;border-radius:8px}
+.vg-background-editor .vg-modal-header{gap:8px}.vg-background-editor .vg-modal-header h2{flex:1;justify-content:center}.vg-background-editor .vg-page-back{width:auto;min-width:48px;font-size:14px}
+.vg-background-save{min-width:48px;min-height:44px;border-radius:12px;background:var(--vg-action);font-size:14px;padding:0;white-space:nowrap}.vg-background-editor .vg-modal-header>.vg-background-save{color:var(--vg-on-action)}.vg-background-save:disabled{opacity:.55}
+.vg-background-editor-body{padding:12px 16px 24px}.vg-background-preview-controls{display:flex;gap:4px;margin-bottom:10px}
+.vg-background-preview-controls button{flex:1;min-height:44px;border-radius:12px;color:var(--text-secondary);font-size:13px}.vg-background-preview-controls [aria-pressed='true']{background:var(--vg-inset);color:var(--text)}
+.vg-background-editor .vg-settings-design{--pref-sub:var(--text-secondary)}
+.vg-background-preview{position:relative;isolation:isolate;overflow:hidden;border:1px solid var(--vg-edge);border-radius:20px;margin-bottom:20px}
+.vg-background-preview>.vg-chat-atmosphere-edge{position:absolute;inset:0}.vg-background-preview-content{position:relative;z-index:1;display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:14px}
+.vg-background-preview-content header{display:flex;align-items:center;justify-content:space-between;align-self:stretch;color:var(--text);font-size:15px;min-height:36px}
+.vg-background-preview small{font-size:12px;color:var(--chat-sub);background:var(--chat-panel);border-radius:8px;padding:3px 6px}.vg-background-preview-input{align-self:stretch;display:flex;justify-content:space-between;align-items:center;background:var(--bg-panel);border:1px solid var(--border);border-radius:14px;min-height:44px;padding:0 12px;color:var(--text-secondary);font-size:13px}
+.vg-background-preview-keyboard{align-self:stretch;min-height:90px;display:grid;place-items:center;color:var(--text-secondary);background:var(--bg-surface);border-radius:10px;font-size:12px}
+.vg-style-stage{position:sticky;top:0;z-index:2;max-height:44dvh;overflow:auto;background:var(--bg)}
+.vg-style-stage .vg-background-preview{margin-bottom:8px}
+.vg-style-workspace .vg-background-save{padding:0 16px;color:var(--vg-on-action)}
+.vg-style-workspace .vg-modal-footer .vg-background-save{background:var(--vg-action);padding:0}
+.dark .vg-style-workspace{--vg-action:var(--vg-accent);--vg-on-action:var(--bg)}
+.vg-style-workspace .vg-background-slider{display:grid;grid-template-columns:48px 1fr;align-items:center;padding:0}
+.vg-style-workspace [aria-label='造型分区'] [aria-pressed=true]{background:none;border-bottom:2px solid var(--vg-accent);border-radius:0}
+.vg-background-mode{display:flex;margin:12px;gap:4px;border-radius:14px;background:var(--vg-inset);padding:4px}.vg-background-mode button{flex:1;min-height:44px;border-radius:11px;color:var(--text-secondary);font-size:14px}.vg-background-mode [aria-pressed='true']{background:var(--vg-action);color:var(--vg-on-action)}
+.vg-background-swatches{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;padding:12px 8px}.vg-background-swatches button{display:flex;flex-direction:column;align-items:center;gap:8px;min-height:68px;font-size:12px;color:var(--text-secondary)}.vg-background-swatches i{display:block;width:30px;height:30px;border-radius:50%;border:2px solid transparent}.vg-background-swatches [aria-pressed='true']{color:var(--vg-accent)}.vg-background-swatches [aria-pressed='true'] i{outline:2px solid var(--vg-accent);outline-offset:3px}
+.vg-background-slider{display:block;padding:12px 16px;color:var(--text);font-size:14px}.vg-background-slider>span{display:flex;justify-content:space-between}.vg-background-slider small{color:var(--text-secondary);font-size:12px}.vg-background-slider input{width:100%;min-height:44px;accent-color:var(--vg-action)}
+.vg-background-discard{display:flex;gap:12px;padding:0 20px 20px}.vg-background-discard button{flex:1;min-height:44px;border-radius:12px;background:var(--bg-surface);color:var(--text)}
+/* S07-B: quiet editor chrome; the actual character preview keeps its own palette. */
+.vg-background-paper .vg-modal-header{min-height:56px;padding:6px 16px}
+.vg-background-paper .vg-modal-header h2{font-size:max(18px,1.125rem);line-height:1.5;font-weight:500}
+.vg-background-paper .vg-page-back,.vg-background-paper .vg-modal-header>.vg-background-save{font-size:max(14px,.875rem);min-width:48px;min-height:44px}
+.vg-background-paper .vg-modal-header>.vg-background-save{padding:0 12px}
+.vg-modal-panel.vg-mobile-page.vg-background-paper>.vg-page-header{grid-template-columns:minmax(48px,max-content) minmax(0,1fr) minmax(48px,max-content);gap:8px;padding:6px 12px}
+.vg-modal-panel.vg-mobile-page.vg-background-paper>.vg-page-header>.vg-page-back{width:auto;height:auto;min-width:48px;min-height:44px;padding:8px 4px}
+.vg-modal-panel.vg-mobile-page.vg-background-paper>.vg-page-header h2{text-wrap:balance}
+.vg-background-paper .vg-background-editor-body{padding:16px 16px 24px}
+.vg-background-scope-note{display:grid;gap:4px;margin:0 0 16px;padding:0 0 16px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+.vg-background-scope-note strong{font-size:max(16px,1rem);font-weight:500;line-height:1.5;color:var(--text)}
+.vg-background-scope-note span,.vg-background-scope-note small{font-size:max(13px,.8125rem);line-height:1.55;color:var(--text-secondary)}
+.vg-background-paper .vg-background-preview-controls{display:flex;flex-wrap:wrap;gap:8px}
+.vg-background-paper .vg-background-preview-controls button{min-width:4em;min-height:44px;font-size:max(13px,.8125rem);line-height:1.5;padding:8px}
+.vg-background-paper .vg-background-swatches{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:12px}
+.vg-background-paper .vg-background-swatches button{min-height:80px;padding:12px 8px;font-size:max(13px,.8125rem);line-height:1.55;border:1px solid var(--border);border-radius:12px;overflow-wrap:anywhere}
+.vg-background-paper .vg-background-swatches [aria-pressed='true']{background:var(--bg-surface);border-color:var(--vg-accent)}
+.vg-background-paper .vg-background-mode{flex-wrap:wrap;gap:8px}
+.vg-background-paper .vg-background-mode button{min-width:4em;min-height:48px;padding:8px;font-size:max(14px,.875rem);line-height:1.5}
+.vg-background-paper .vg-background-slider{font-size:max(14px,.875rem);line-height:1.55}
+.vg-background-paper .vg-background-slider small{font-size:max(13px,.8125rem);line-height:1.55}
+.vg-background-paper .vg-settings-intro{font-size:max(13px,.8125rem);line-height:1.55;overflow-wrap:anywhere}
+.vg-background-paper .vg-preference-copy strong{font-size:max(16px,1rem);line-height:1.5;font-weight:500}
+.vg-background-paper .vg-preference-copy small{font-size:max(13px,.8125rem);line-height:1.55}

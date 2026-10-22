@@ -1,0 +1,40 @@
+{
+  "status": "pass",
+  "blenderVersion": "4.5.3 LTS",
+  "renderEngine": "CYCLES",
+  "sourceDimensions": [
+    1440,
+    3200
+  ],
+  "camera": {
+    "location": [
+      -0.47999998927116394,
+      -5.099999904632568,
+      1.850000023841858
+    ],
+    "rotation": [
+      1.5136637687683105,
+      3.1276004008873315e-09,
+      -0.11176253855228424
+    ],
+    "lens": 33.0,
+    "sensorFit": "VERTICAL",
+    "sensorHeight": 36.0
+  },
+  "cameraMatchesBothRuntimeVariants": true,
+  "requiredAuthoredObjectsPresent": [
+    "Single coffee cup open vessel",
+    "Foreground round oak tabletop",
+    "Banquette upholstered back",
+    "Window center mullion",
+    "Espresso machine body",
+    "Plant handmade clay pot"
+  ],
+  "meshCount": 237,
+  "curveCount": 28,
+  "externalImages": [],
+  "externalLibraries": [],
+  "model": "未确认",
+  "reasoning": "未确认",
+  "savedBlendModified": false
+}

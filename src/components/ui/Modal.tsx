@@ -18,14 +18,19 @@ interface ModalProps {
   /** An optional action area outside the scrolling form. */
   footer?: React.ReactNode;
   panelClassName?: string;
+  /** Scoped visual tokens, also inherited by the fixed footer in a body portal. */
+  panelStyle?: React.CSSProperties;
+  headerActions?: React.ReactNode;
+  backLabel?: string;
   /** Mobile details use pages; short action menus, choices and confirmations stay centered. */
   presentation?: 'page' | 'dialog';
+  surfaceMode?:'chat'|'long-form'|'call';
   onBack?: () => void;
   /** Recheck access at unmount before retaining any visual copy for the exit animation. */
   canSnapshotOnExit?: () => boolean;
 }
 
-export function Modal({ open, onClose, title, children, width = 'max-w-lg', closeOnBackdrop = true, mobileFullHeight = false, footer, canSnapshotOnExit, panelClassName = '', onBack, presentation = 'page' }: ModalProps) {
+export function Modal({ open, onClose, title, children, width = 'max-w-lg', closeOnBackdrop = true, mobileFullHeight = false, footer, canSnapshotOnExit, panelClassName = '', panelStyle, headerActions, backLabel, onBack, presentation = 'page',surfaceMode }: ModalProps) {
   const mobilePage = IS_MOBILE && presentation === 'page';
   const overlayRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -44,8 +49,17 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', clos
     if (modalStack.length === 0) previousOverflow = document.body.style.overflow;
     modalStack.push(token);
     const panel = panelRef.current;
-    const focusable = () => [...(panel?.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input:not(:disabled),textarea:not(:disabled),select:not(:disabled),[tabindex]:not([tabindex="-1"])') ?? [])]
-      .filter(el => el.tabIndex >= 0 && !el.closest('[inert]') && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden');
+    const focusable = () => [...(panel?.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input:not(:disabled),textarea:not(:disabled),select:not(:disabled),summary,[tabindex]:not([tabindex="-1"])') ?? [])]
+      .filter(el => {
+        if (el.tabIndex < 0 || el.closest('[inert],[hidden]') || !el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return false;
+        // Closed details can still report boxes for descendants in Chromium.
+        // Only the first direct summary remains part of the keyboard order.
+        for (let details = el.closest('details:not([open])'); details; details = details.parentElement?.closest('details:not([open])') ?? null) {
+          const summary = [...details.children].find(child => child.tagName === 'SUMMARY');
+          if (!summary?.contains(el)) return false;
+        }
+        return true;
+      });
     const handleKey = (e: KeyboardEvent) => {
       if (modalStack[modalStack.length - 1] !== token) return;
       if (e.key === 'Escape') { e.preventDefault(); (backRef.current ?? closeRef.current)(); }
@@ -106,13 +120,16 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', clos
         aria-modal="true"
         aria-label={title ? undefined : '弹窗'}
         aria-labelledby={title ? titleId : undefined}
+        data-vg-surface-mode={surfaceMode??(mobileFullHeight?'long-form':undefined)}
+        style={panelStyle}
         className={`vg-modal-panel ${panelClassName} relative z-10 rounded-2xl w-[calc(100%-2rem)] ${width} p-0 overflow-hidden ${footer ? 'vg-modal-with-footer' : ''} ${mobilePage ? 'vg-mobile-page' : IS_MOBILE ? 'vg-mobile-dialog' : 'animate-fade-in'} ${mobileFullHeight ? 'vg-modal-long-form' : ''}`}
       >
         {(title || mobilePage) && (
           <div className={`vg-modal-header shrink-0 flex items-center justify-between px-6 py-4 border-b border-line ${mobilePage ? 'vg-page-header' : ''}`}>
-            {(onBack || mobilePage) && <button type="button" aria-label={onBack ? '返回设置' : '返回'} onClick={onBack ?? onClose} className="vg-settings-back vg-page-back"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m15 5-7 7 7 7" /></svg></button>}
+            {(onBack || mobilePage) && <button type="button" aria-label={backLabel ?? (onBack ? '返回设置' : '返回')} onClick={onBack ?? onClose} className="vg-settings-back vg-page-back">{backLabel==='取消'? '取消':<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m15 5-7 7 7 7" /></svg>}</button>}
             <h2 id={titleId} className="text-base font-semibold text-ink">{title}</h2>
-            {!mobilePage && <button
+            {headerActions}
+            {!mobilePage && !headerActions && <button
               type="button"
               onClick={onClose}
               aria-label="关闭"

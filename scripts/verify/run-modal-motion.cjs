@@ -32,10 +32,12 @@ const fixture = `
 `;
 
 (async () => {
-  const output = path.resolve('.tmp-preview/modal-motion-20261002');
+  const output = path.resolve(process.env.VG_MOTION_EVIDENCE || '.tmp-preview/modal-motion-20261002');
   fs.mkdirSync(output, { recursive: true });
   const result = await build({ stdin: { contents: fixture, resolveDir: process.cwd(), sourcefile: 'modal-motion.tsx', loader: 'tsx' }, bundle: true, write: false, format: 'iife', platform: 'browser', jsx: 'automatic', define: { 'import.meta.env': JSON.stringify({ DEV: true }) } });
-  const cssFile = process.env.VG_MOTION_CSS || path.join('dist/renderer/assets', fs.readdirSync('dist/renderer/assets').find(file => /^index-.*\.css$/.test(file)));
+  const cssHref = fs.readFileSync('dist/renderer/index.html', 'utf8').match(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/)?.[1];
+  assert.ok(cssHref, 'production HTML links its stylesheet');
+  const cssFile = process.env.VG_MOTION_CSS || path.join('dist/renderer', cssHref);
   const css = fs.readFileSync(cssFile);
   const html = '<!doctype html><html class="dark"><head><link rel="stylesheet" href="/styles.css"><style>.vg-motion-snapshot,.vg-motion-snapshot *,.vg-motion-snapshot *::before,.vg-motion-snapshot *::after{animation:none!important;transition:none!important}</style></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>';
   const server = http.createServer((req, res) => {
@@ -120,20 +122,20 @@ const fixture = `
     const dialogMotion = await page.getByRole('dialog',{name:'confirm',exact:true}).evaluate(el => el.getAnimations().flatMap(a => a.effect.getKeyframes()).filter(f => f.transform).map(f => {
       const m = new DOMMatrixReadOnly(f.transform); return { scale:m.m11, x:m.m41, y:m.m42 };
     }));
-    check(dialogMotion.length > 1 && dialogMotion[0].scale < 1 && dialogMotion.at(-1).scale === 1
-      && dialogMotion.every(f => f.x === 0 && f.y === 0), 'centered dialogs settle in scale without any edge travel');
+    check(dialogMotion.length > 1 && dialogMotion.at(-1).y === 0
+      && dialogMotion.every(f => f.scale === 1 && f.x === 0 && Math.abs(f.y) <= 4), 'centered dialogs translate locally while text remains unscaled');
     const interruptedDialog = await page.evaluate(() => {
       const panel = document.querySelector('.vg-mobile-dialog');
       const animation = panel.getAnimations()[0]; animation.pause(); animation.currentTime = 65;
-      const before = new DOMMatrixReadOnly(getComputedStyle(panel).transform).m11;
+      const before = new DOMMatrixReadOnly(getComputedStyle(panel).transform).m42;
       const opacity = +getComputedStyle(panel).opacity;
       window.motionTest.show(['scroll']);
       const frozen = document.querySelector('.vg-modal-exit .vg-mobile-dialog');
-      return { before, after:new DOMMatrixReadOnly(getComputedStyle(frozen).transform).m11,
+      return { before, after:new DOMMatrixReadOnly(getComputedStyle(frozen).transform).m42,
         opacity, afterOpacity:+getComputedStyle(frozen).opacity };
     });
     check(Math.abs(interruptedDialog.before - interruptedDialog.after) < .00001
-      && Math.abs(interruptedDialog.opacity - interruptedDialog.afterOpacity) < .00001, 'closing mid-entry preserves dialog scale and opacity continuously');
+      && Math.abs(interruptedDialog.opacity - interruptedDialog.afterOpacity) < .00001, 'closing mid-entry preserves dialog translation and opacity continuously');
     await page.waitForTimeout(260); await show(['scroll','confirm']); await page.waitForTimeout(300);
     const confirmation = page.getByRole('dialog',{name:'confirm',exact:true});
     const confirmBox = await confirmation.boundingBox();
@@ -166,8 +168,10 @@ const fixture = `
     check(await page.locator('.vg-modal-exit').count() === 0, 'denied access never creates an exit snapshot');
     await page.evaluate(() => window.motionTest.allow(true));
     await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.waitForFunction(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
     await show(['reduced']);
-    check(await page.locator('[role="dialog"]').evaluate(el => el.getAnimations().length) === 0, 'reduced motion opens without animation');
+    const reducedAnimations = await page.locator('[role="dialog"]').evaluate(el => el.getAnimations().map(a => ({type:a.constructor.name,property:a.transitionProperty,name:a.animationName,frames:a.effect.getKeyframes()})));
+    check(reducedAnimations.length === 0, 'reduced motion opens without animation: ' + JSON.stringify(reducedAnimations));
     await show([]);
     check(await page.locator('.vg-modal-exit').count() === 0, 'reduced motion closes without retained visuals');
     await page.emulateMedia({ reducedMotion: 'no-preference' });
@@ -192,6 +196,16 @@ const fixture = `
     });
     check(await page.locator('.vg-modal-exit').count() === 0, 'app preference immediately drops a retained closing sheet');
     await page.evaluate(() => document.documentElement.removeAttribute('data-vg-reduced-motion'));
+    const sensitiveSnapshots = await page.evaluate(() => {
+      return ['<span data-sensitive>revealed-test-key</span>', '<input data-sensitive type="text" value="revealed-test-password">', '<section data-sensitive><p>private account information</p></section>'].map(markup => {
+        const node = document.createElement('div'); node.innerHTML = markup;
+        let cloned = false; node.cloneNode = () => { cloned = true; throw new Error('Sensitive content must never be cloned'); };
+        return window.motionTest.snapshot(node) === null && !cloned;
+      });
+    });
+    check(sensitiveSnapshots[0], 'revealed credential text is rejected before allocating an exit copy');
+    check(sensitiveSnapshots[1], 'revealed password inputs remain protected when their type is text');
+    check(sensitiveSnapshots[2], 'a sensitive container prevents descendants from entering visual snapshots');
     const snapshots = await page.evaluate(() => {
       const large = document.createElement('div'); large.innerHTML = '<span></span>'.repeat(12000);
       let cloned = false; const native = large.cloneNode.bind(large); large.cloneNode = (...args) => { cloned = true; return native(...args); };

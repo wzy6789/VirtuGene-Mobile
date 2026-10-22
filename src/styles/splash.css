@@ -14,13 +14,13 @@
   mask-image:radial-gradient(ellipse 65% 48% at 50% 42%,#000,transparent 85%); }
 .vg-boot-stars { position:absolute; left:17%; top:19%; width:2px; height:2px; border-radius:50%; background:#9899c3;
   box-shadow:54vw 7vh 0 #7e97a5,8vw 47vh 0 #616a82,61vw 51vh 0 #797496,32vw -8vh 0 #656788,5vw 14vh 0 #556c7e,48vw 37vh 0 #5e7486; opacity:.6; }
-.vg-boot-frame { position:absolute; pointer-events:none; inset:calc(22px + env(safe-area-inset-top)) 22px calc(22px + env(safe-area-inset-bottom)); }
+.vg-boot-frame { position:absolute; pointer-events:none; inset:calc(22px + var(--vg-safe-top)) 22px calc(22px + env(safe-area-inset-bottom)); }
 .vg-boot-frame i { position:absolute; width:12px; height:12px; border-style:solid; border-color:rgba(154,160,205,.2); }
 .vg-boot-frame i:nth-child(1) { top:0; left:0; border-width:1px 0 0 1px; }
 .vg-boot-frame i:nth-child(2) { top:0; right:0; border-width:1px 1px 0 0; }
 .vg-boot-frame i:nth-child(3) { bottom:0; left:0; border-width:0 0 1px 1px; }
 .vg-boot-frame i:nth-child(4) { bottom:0; right:0; border-width:0 1px 1px 0; }
-.vg-boot-eyebrow { position:absolute; top:calc(38px + env(safe-area-inset-top)); left:0; right:0;
+.vg-boot-eyebrow { position:absolute; top:calc(38px + var(--vg-safe-top)); left:0; right:0;
   display:flex; align-items:center; justify-content:center; gap:12px; margin:0;
   font-family:"Segoe UI",sans-serif; font-size:10px; font-weight:var(--vg-weight-label,500); letter-spacing:.23em; color:#8588a6;
   animation:vg-boot-label-in 480ms ease-out both; }
@@ -70,8 +70,8 @@
   .vg-boot-core { width:min(210px,42svh); }
   .vg-boot-brand h1 { font-size:20px; }
   .vg-boot-brand p { margin-top:5px; font-size:12px; }
-  .vg-boot-eyebrow { top:calc(25px + env(safe-area-inset-top)); font-size:9px; }
-  .vg-boot-frame { inset:calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom)); }
+  .vg-boot-eyebrow { top:calc(25px + var(--vg-safe-top)); font-size:9px; }
+  .vg-boot-frame { inset:calc(14px + var(--vg-safe-top)) 14px calc(14px + env(safe-area-inset-bottom)); }
   .vg-boot-status { bottom:calc(24px + env(safe-area-inset-bottom)); gap:8px; }
 }
 html[data-vg-background] .vg-splash,

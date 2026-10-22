@@ -1,10 +1,11 @@
 import Dexie from 'dexie';
 import { db, type Message } from './index';
-import { invalidateUnpinnedMemoriesForMessages } from './memory-repo';
+import { invalidateUnpinnedMemoriesForMessages } from './memory-invalidation';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 import { protectDeletedSessionMessages } from './message-deletion';
 import { memoryLedgerRepo } from './memory-ledger-repo';
 import { invalidateSessionSummarySources } from './session-summary-repo';
+import {hasSettledReplyDelivery,normalizeImportedReplyDelivery} from '../lib/chat/reply-delivery';
 
 /** 会话消息分页大小：进入会话时只加载最近 200 条，更早的消息按需加载 */
 export const MESSAGE_PAGE_SIZE = 200;
@@ -12,7 +13,38 @@ export const MESSAGE_PAGE_SIZE = 200;
 /** Stable index position; a timestamp alone cannot identify a tied row. */
 export type MessagePageCursor = Pick<Message, 'createdAt' | 'id'>;
 
+/** Failure belongs to the exact user input, never a later edit or reused id. */
+export function sameMessageFailureSource(current:Message|undefined,original:Message):boolean{
+  const left=current?.secretaryDispatch,right=original.secretaryDispatch;
+  const dispatchMatches=left===undefined&&right===undefined||!!left&&!!right
+    &&left.taskId===right.taskId&&left.assistantName===right.assistantName&&left.bodyOrigin===right.bodyOrigin;
+  return !!current&&original.role==='user'&&current.role===original.role&&current.id===original.id
+    &&current.sessionId===original.sessionId&&current.content===original.content&&current.image===original.image
+    &&(current.revision??1)===(original.revision??1)&&current.createdAt===original.createdAt&&dispatchMatches;
+}
+class MessageFailureContextChanged extends Error {}
+
 export const messageRepo = {
+  /** Close only loaded, owned stranded prefixes. No archive scan or generation.
+   * Callers exclude a live session queue; native guards are repeated after I/O. */
+  async settleInterruptedPrefixes(principal:{userId:string;characterId:string;sessionId:string;isCurrent:()=>boolean},loaded:Message[]):Promise<Message[]|undefined>{
+    if(!principal.isCurrent()||loaded.length>MESSAGE_PAGE_SIZE)return;
+    const ids=loaded.filter(row=>row.role==='assistant'&&!hasSettledReplyDelivery(row)).map(row=>row.id);
+    if(!ids.length)return loaded;
+    class DeliveryChanged extends Error {}
+    try{return await db.transaction('rw',db.sessions,db.characters,db.messages,async()=>{
+      const [session,actor]=await Promise.all([db.sessions.get(principal.sessionId),db.characters.get(principal.characterId)]);
+      if(!principal.isCurrent()||session?.userId!==principal.userId||session.characterId!==principal.characterId||session.type==='group'
+        ||actor?.createdBy!==principal.userId)return;
+      const rows=await db.messages.bulkGet(ids),changed=new Map<string,Message>();
+      for(const row of rows){
+        if(!row||row.sessionId!==principal.sessionId||row.role!=='assistant'||hasSettledReplyDelivery(row))continue;
+        const settled=normalizeImportedReplyDelivery(row);await db.messages.put(settled);changed.set(row.id,settled);
+      }
+      if(!principal.isCurrent())throw new DeliveryChanged();
+      return loaded.map(row=>changed.get(row.id)??row);
+    });}catch(error){if(error instanceof DeliveryChanged)return;throw error;}
+  },
   /** 全量读取（后台分析用，如记忆/情绪结算，调用方自行 slice） */
   async getBySession(sessionId: string): Promise<Message[]> {
     return db.messages
@@ -41,12 +73,34 @@ export const messageRepo = {
     return rows.reverse();
   },
 
+  /** Read a bounded archive interval using its stable chronological index.
+   * Both explicit cursors are exclusive. Results are always ascending, including
+   * backward pages, so callers share the same tuple ordering at tied timestamps. */
+  async getRangePage(sessionId: string, opts: {
+    afterMessage?: MessagePageCursor;
+    beforeMessage?: MessagePageCursor;
+    direction: 'forward' | 'backward';
+    limit: number;
+  }): Promise<Message[]> {
+    const after = opts.afterMessage, before = opts.beforeMessage;
+    if (after && before && (after.createdAt > before.createdAt
+      || after.createdAt === before.createdAt && after.id >= before.id)) return [];
+    const limit = Math.max(1, Math.floor(Number.isFinite(opts.limit) ? opts.limit : MESSAGE_PAGE_SIZE));
+    const lower = after ? [sessionId, after.createdAt, after.id] : [sessionId, Dexie.minKey, Dexie.minKey];
+    const upper = before ? [sessionId, before.createdAt, before.id] : [sessionId, Dexie.maxKey, Dexie.maxKey];
+    const interval = db.messages.where('[sessionId+createdAt+id]').between(lower, upper, !after, !before);
+    if (opts.direction === 'backward') return (await interval.reverse().limit(limit).toArray()).reverse();
+    return interval.limit(limit).toArray();
+  },
+
   async countBySession(sessionId: string): Promise<number> {
     return db.messages.where('sessionId').equals(sessionId).count();
   },
 
   async countUserBySession(sessionId: string): Promise<number> {
-    return db.messages.where('sessionId').equals(sessionId).filter((message) => message.role === 'user').count();
+    // Settlement scheduling must not deserialize every historical body after
+    // each reply, holding the foreground session queue on a long archive.
+    return db.messages.where('[sessionId+role]').equals([sessionId, 'user']).count();
   },
 
   /** 按 id 取消息（记忆溯源"看当时说的话"用） */
@@ -140,6 +194,24 @@ export const messageRepo = {
     return count;
   },
 
+  /** A late transport/local failure can only mark its unchanged owned input.
+   * The caller supplies fresh account identity; secretaries use private sessions
+   * too, so this guard does not exclude their character profile. */
+  async markFailedIfUnchanged(original:Message,userId:string,characterId:string,isCurrent:()=>boolean):Promise<boolean>{
+    if(!userId||!characterId||!isCurrent())return false;
+    try{
+      return await db.transaction('rw',db.messages,db.sessions,async()=>{
+        if(!isCurrent())return false;
+        const [current,session]=await Promise.all([db.messages.get(original.id),db.sessions.get(original.sessionId)]);
+        if(!session||session.userId!==userId||session.characterId!==characterId||session.type==='group'
+          ||!sameMessageFailureSource(current,original)||!isCurrent())return false;
+        const marked=await db.messages.update(original.id,{failed:true});
+        if(!isCurrent())throw new MessageFailureContextChanged();
+        return marked>0;
+      });
+    }catch(error){if(error instanceof MessageFailureContextChanged)return false;throw error;}
+  },
+
   async update(id: string, patch: Partial<Message>): Promise<number> {
     if (patch.content === undefined) return db.messages.update(id, patch);
     return db.transaction('rw', [db.messages, db.sessions, db.memories, db.memorySourceTombstones, db.memoryJobs, db.groups, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.characters, db.voiceCalls], async () => {
@@ -194,14 +266,16 @@ async function queueMemoryExtraction(
   sourceType: 'chat' | 'group',
 ): Promise<void> {
   if (message.secretaryDispatch?.bodyOrigin === 'composed') return;
-  const content = message.content.trim();
+  // Evidence offsets always address the stored original, including whitespace.
+  const content = message.content;
   const audience = [...new Set(characterIds.filter(Boolean))];
-  if (!content || !audience.length) return;
+  if (!content.trim() || !audience.length) return;
   const members = await db.characters.bulkGet(audience);
   // Even imported mixed groups must not turn assistant instructions into shared role memory.
   if (members.some(c => c?.agentProfile === 'secretary')) return;
   const ranges = splitRanges(content);
   for (const [start, end] of ranges) {
+    if (!content.slice(start, end).trim()) continue;
     await memoryLedgerRepo.enqueue({
       userId,
       sessionId: message.sessionId,
@@ -211,6 +285,7 @@ async function queueMemoryExtraction(
       sourceRevisions: { [message.id]: message.revision ?? 1 },
       sourceOffsets: { [message.id]: start },
       sourceEndOffsets: { [message.id]: end },
+      sourceCoordinateSystem: 'original',
       task: 'extract',
     });
   }

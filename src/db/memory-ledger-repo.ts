@@ -1,4 +1,11 @@
 import { db, type MemoryClaim, type MemoryEvidence, type MemoryEvidenceSource, type MemoryItem, type MemoryJob, type MemoryKnowledge, type MemoryUsage } from './index';
+import Dexie from 'dexie';
+import {ownsMemoryJobLease} from './memory-job-lease';
+
+async function dueJobs(userId:string,now:number){
+  const groups=await Promise.all(['queued','retry','running'].map(status=>db.memoryJobs.where('[userId+status+availableAt]').between([userId,status,Dexie.minKey],[userId,status,now],true,true).toArray()));
+  return groups.flat().filter(job=>job.status!=='running'||(job.leaseUntil??0)<=now);
+}
 
 function normalize(value: string): string {
   return value.normalize('NFKC').toLocaleLowerCase().replace(/[\s\u3000，。！？、,.!?;；:："“”‘’（）()【】[\]{}]/g, '').slice(0, 240);
@@ -30,6 +37,72 @@ export interface RecordClaimInput {
   source?: { type: MemoryEvidenceSource; id: string; revision?: number; observedAt?: number; confidence?: number; sourceOffset?: number; sourceEndOffset?: number };
   characterIds?: string[];
   canMention?: boolean;
+}
+
+/** Aggregate summaries share one claim and one character edge. Replaying every
+ * source through record re-reads/rewrites those same rows N times. Keep record's
+ * first-source creation/conflict semantics, then fold the remaining ordered
+ * evidence in the same fresh native transaction. This is job-local data, never
+ * a cross-transaction permission cache. */
+async function syncAggregateSummary(memory:MemoryItem):Promise<string>{
+  // Preserve the existing session-type read; a standalone ledger bridge must
+  // not hold a session write lock and delay foreground source validation.
+  // A caller's enclosing transaction, if any, still supplies its own locks.
+  const session=await db.sessions.get(memory.sourceSessionId!);
+  const sourceType:MemoryEvidenceSource=session?.type==='group'?'group':memory.sourceMessageIds?.length?'chat':'legacy';
+  return db.transaction('rw',db.memoryClaims,db.memoryEvidence,db.memoryKnowledge,async()=>{
+    const sourceIds=memory.sourceMessageIds?.length?memory.sourceMessageIds:[memory.id];
+    const sourceInput=(sourceId:string):RecordClaimInput=>({
+      userId:memory.userId,subjectType:'user',subjectId:memory.userId,predicate:memory.memoryKind??'fact',value:memory.content,
+      canonicalKey:exactKey(memory.memoryKind??'fact',memory.content),memoryKind:memory.memoryKind??'fact',
+      stability:memory.stability,status:memory.status==='withdrawn'?'withdrawn':memory.status==='superseded'?'superseded':'active',
+      confidence:memory.confidence,importance:memory.pinned?1:.5,pinned:memory.pinned,
+      source:{type:sourceType,id:sourceId,revision:memory.sourceMessageRevisions?.[sourceId]??1,observedAt:memory.createdAt,confidence:memory.confidence,
+        ...(memory.sourceMessageOffsets?.[sourceId]!==undefined?{sourceOffset:memory.sourceMessageOffsets[sourceId]}:{}),
+        ...(memory.sourceMessageEndOffsets?.[sourceId]!==undefined?{sourceEndOffset:memory.sourceMessageEndOffsets[sourceId]}:{})},
+      characterIds:[memory.characterId],canMention:memory.status!=='withdrawn'&&memory.status!=='superseded',
+    });
+    const claimId=await memoryLedgerRepo.record(sourceInput(sourceIds[0]));
+    if(!claimId||sourceIds.length===1)return claimId;
+    const edgeId=`${claimId}:${memory.characterId}`;
+    const [firstClaim,firstEdge]=await Promise.all([
+      db.memoryClaims.get(claimId),db.memoryKnowledge.get(edgeId),
+    ]);
+    if(!firstClaim||!firstEdge)throw Error('memory:ledger_not_saved');
+    let claim=firstClaim,edge=firstEdge;
+    // Preserve source order, including duplicates. A revoked edge is restored
+    // only by the same newer-revision or independent-source rules as record.
+    // Limit additional cloned evidence rows on long archives. Later batches see
+    // this transaction's earlier writes, including duplicate source ids.
+    for(let start=1;start<sourceIds.length;start+=256){
+      const batch=sourceIds.slice(start,start+256);
+      const oldEvidence=await db.memoryEvidence.bulkGet(batch.map(id=>evidenceId(memory.userId,sourceType,id,claimId)));
+      const previous=new Map(oldEvidence.filter((row):row is MemoryEvidence=>!!row).map(row=>[row.id,row]));
+      const evidence=new Map<string,MemoryEvidence>();
+      for(const sourceId of batch){
+        const input=sourceInput(sourceId),source=input.source!,id=evidenceId(memory.userId,sourceType,sourceId,claimId);
+        const old=previous.get(id),newer=!!old&&(source.revision??1)>old.sourceRevision;
+        const reauthorized=newer||!!edge.revokedAt&&edge.sourceId!==sourceId,now=Date.now();
+        claim={...claim,confidence:Math.max(claim.confidence,input.confidence??.6),importance:Math.max(claim.importance,input.importance??.5),
+          pinned:claim.pinned===true||input.pinned===true?true:undefined,
+          status:claim.status==='withdrawn'?(reauthorized?input.status??'active':'withdrawn'):input.status??claim.status,
+          stability:input.stability??claim.stability,updatedAt:now};
+        const next:MemoryEvidence={id,userId:memory.userId,claimId,sourceType,sourceId,sourceRevision:source.revision??1,
+          observedAt:source.observedAt??now,confidence:source.confidence??input.confidence??.6,
+          ...(old?.withdrawnAt&&!newer?{withdrawnAt:old.withdrawnAt}:{}),
+          ...(source.sourceOffset!==undefined?{sourceOffset:source.sourceOffset}:{}),
+          ...(source.sourceEndOffset!==undefined?{sourceEndOffset:source.sourceEndOffset}:{})};
+        previous.set(id,next);evidence.set(id,next);
+        edge={id:edgeId,userId:memory.userId,claimId,characterId:memory.characterId,knowledgeLevel:'full',
+          canMention:edge.revokedAt&&!reauthorized?false:input.canMention??edge.canMention??true,
+          learnedAt:edge.learnedAt??source.observedAt??now,sourceType,sourceId,
+          ...(!reauthorized&&edge.revokedAt?{revokedAt:edge.revokedAt}:{})};
+      }
+      await db.memoryEvidence.bulkPut([...evidence.values()]);
+    }
+    await Promise.all([db.memoryClaims.put(claim),db.memoryKnowledge.put(edge)]);
+    return claimId;
+  });
 }
 
 /**
@@ -143,6 +216,7 @@ export const memoryLedgerRepo = {
 
   /** Bridge for the existing MemoryItem API during the staged migration. */
   async syncMemoryItem(memory: MemoryItem): Promise<string> {
+    if(memory.type==='summary'&&memory.sourceSessionId&&!memory.importedFromMemoryId)return syncAggregateSummary(memory);
     const sourceSession = memory.sourceSessionId ? await db.sessions.get(memory.sourceSessionId) : undefined;
     const sourceType: MemoryEvidenceSource = memory.importedFromMemoryId
       ? 'legacy'
@@ -219,11 +293,10 @@ export const memoryLedgerRepo = {
 
   async leaseNext(userId: string, now = Date.now(), leaseMs = 60_000): Promise<MemoryJob | undefined> {
     return db.transaction('rw', db.memoryJobs, async () => {
-      const rows = await db.memoryJobs.where('userId').equals(userId).toArray();
-      const candidates = rows.filter((job) => job.status === 'queued' || job.status === 'retry' || (job.status === 'running' && (job.leaseUntil ?? 0) <= now));
+      const candidates = await dueJobs(userId,now);
       const job = candidates.sort((a, b) => a.availableAt - b.availableAt || a.createdAt - b.createdAt)[0];
       if (!job) return undefined;
-      const leased = { ...job, status: 'running' as const, leaseUntil: now + leaseMs, attempts: job.attempts + 1, updatedAt: now };
+      const leased = { ...job, status: 'running' as const, leaseUntil: now + leaseMs, leaseToken:crypto.randomUUID(), attempts: job.attempts + 1, updatedAt: now };
       await db.memoryJobs.put(leased);
       return leased;
     });
@@ -232,7 +305,7 @@ export const memoryLedgerRepo = {
   /** Lease a small same-session batch so extraction keeps conversational context without racing another tab. */
   async leaseNextBatch(userId: string, limit = 8, now = Date.now(), leaseMs = 90_000, scope?: { sessionId: string; sourcePrefix: string; characterId?: string }): Promise<MemoryJob[]> {
     return db.transaction('rw', db.memoryJobs, async () => {
-      const rows = await db.memoryJobs.where('userId').equals(userId).toArray();
+      const rows = await dueJobs(userId,now);
       const eligible = rows
         .filter(job => !scope || (job.sessionId === scope.sessionId && job.sourceType === 'chat' && job.sourceIds.length > 0 && job.sourceIds.every(id => id.startsWith(scope.sourcePrefix))
           && (!scope.characterId || (job.characterIds.length === 1 && job.characterIds[0] === scope.characterId))))
@@ -244,7 +317,7 @@ export const memoryLedgerRepo = {
       const batch = eligible.filter((job) => job.sessionId === first.sessionId && job.sourceType === first.sourceType && [...job.characterIds].sort().join('\u0000') === audienceKey).slice(0, Math.max(1, limit));
       const leased: MemoryJob[] = [];
       for (const job of batch) {
-        const row = { ...job, status: 'running' as const, leaseUntil: now + leaseMs, attempts: job.attempts + 1, updatedAt: now };
+        const row = { ...job, status: 'running' as const, leaseUntil: now + leaseMs, leaseToken:crypto.randomUUID(), attempts: job.attempts + 1, updatedAt: now };
         await db.memoryJobs.put(row);
         leased.push(row);
       }
@@ -252,23 +325,29 @@ export const memoryLedgerRepo = {
     });
   },
 
-  async finishJob(id: string, payload?: unknown): Promise<void> {
-    const now = Date.now();
-    await db.memoryJobs.update(id, { status: 'done', payload, leaseUntil: undefined, lastError: undefined, updatedAt: now });
+  async finishJob(id: string, payload?: unknown,lease?:MemoryJob): Promise<boolean> {
+    return db.transaction('rw',db.memoryJobs,async()=>{
+      if(lease&&!ownsMemoryJobLease(await db.memoryJobs.get(id),lease))return false;
+      return !!await db.memoryJobs.update(id, { status: 'done', payload, leaseUntil: undefined,leaseToken:undefined, lastError: undefined, updatedAt: Date.now() });
+    });
   },
 
-  async cancelJob(id: string, payload?: unknown): Promise<void> {
-    const now = Date.now();
-    await db.memoryJobs.update(id, { status: 'cancelled', payload, leaseUntil: undefined, updatedAt: now });
+  async cancelJob(id: string, payload?: unknown,lease?:MemoryJob): Promise<boolean> {
+    return db.transaction('rw',db.memoryJobs,async()=>{
+      if(lease&&!ownsMemoryJobLease(await db.memoryJobs.get(id),lease))return false;
+      return !!await db.memoryJobs.update(id, { status: 'cancelled', payload, leaseUntil: undefined,leaseToken:undefined, updatedAt: Date.now() });
+    });
   },
 
-  async retryJob(id: string, error: string): Promise<void> {
+  async retryJob(id: string, error: string,lease?:MemoryJob): Promise<boolean> {
+    return db.transaction('rw',db.memoryJobs,async()=>{
     const job = await db.memoryJobs.get(id);
-    if (!job) return;
+    if (!job||lease&&!ownsMemoryJobLease(job,lease)) return false;
     const now = Date.now();
     const terminal = job.attempts >= 8;
     const delay = Math.min(6 * 60 * 60_000, 15_000 * 2 ** Math.min(10, job.attempts));
-    await db.memoryJobs.update(id, { status: terminal ? 'failed' : 'retry', availableAt: terminal ? Number.MAX_SAFE_INTEGER : now + delay, leaseUntil: undefined, lastError: error.slice(0, 240), updatedAt: now });
+    return !!await db.memoryJobs.update(id, { status: terminal ? 'failed' : 'retry', availableAt: terminal ? Number.MAX_SAFE_INTEGER : now + delay, leaseUntil: undefined,leaseToken:undefined, lastError: error.slice(0, 240), updatedAt: now });
+    });
   },
 
   async recordUsage(input: Omit<MemoryUsage, 'id' | 'at'> & { at?: number }): Promise<void> {
@@ -326,7 +405,7 @@ export const memoryLedgerRepo = {
     const rows = await db.memoryJobs.where('userId').equals(userId).toArray();
     const retry = rows.filter((job) => job.characterIds.includes(characterId) && job.status === 'failed');
     const now = Date.now();
-    for (const job of retry) await db.memoryJobs.update(job.id, { status: 'queued', attempts: 0, availableAt: now, leaseUntil: undefined, lastError: undefined, updatedAt: now });
+    for (const job of retry) await db.memoryJobs.update(job.id, { status: 'queued', attempts: 0, availableAt: now, leaseUntil: undefined, leaseToken:undefined, lastError: undefined, updatedAt: now });
     return retry.length;
   },
 

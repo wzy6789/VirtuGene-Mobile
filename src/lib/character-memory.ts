@@ -1,5 +1,6 @@
-import { db } from '../db/index';
-import { withMemorySourceSnapshot, inheritMemorySourceSnapshots, memorySourceSnapshotsStillLive } from './memory-source-snapshot';
+import { db, type MemoryItem, type Message, type Session } from '../db/index';
+import { ownedSelectedPrivateSessionIds } from '../db/selected-private-session';
+import { withMemorySourceSnapshot, inheritMemorySourceSnapshots, memorySourceSnapshotsStillLive, memorySourceSnapshotsBatchStillLive, memorySourceSnapshotIds, memorySourceSnapshotTables } from './memory-source-snapshot';
 import { memorySpeaker } from '../../server/memory-source-policy.mjs';
 import { messageRepo } from '../db/message-repo';
 import { hasLivePrivateSummarySources } from './chat-summary-evidence';
@@ -20,10 +21,12 @@ import { worldEventRepo } from '../db/world-event-repo';
 import { coolingWorldMotifs } from './world/world-attention';
 import { sharedEventRepo } from '../db/shared-event-repo';
 import { continuityRepo } from '../db/continuity-repo';
+import {readContinuitySourceBatch,readContinuityEventSources,withContinuitySourceSnapshots,continuityReferenceText,type VerifiedContinuitySource} from './continuity-sources';
 import { recallHistoricalPrivateChat } from './character-history-recall';
 import { isVisibleToCharacter } from './world/visibility';
-import { listMentionableDiaryIds } from './world/diary-visibility';
+import { listMentionableDiaryIds, canMentionDiary } from './world/diary-visibility';
 import { visibleToCharacter } from '../db/moments-repo';
+import { memoryExcerpt } from './memory-excerpt';
 
 export type MemorySource = 'chat' | 'group' | 'world' | 'moment' | 'todo' | 'diary';
 
@@ -81,6 +84,8 @@ const MEMORY_SOURCES: MemorySource[] = ['chat', 'group', 'world', 'moment', 'tod
 export interface MemoryReference { source: MemorySource; id: string; text: string; at: number; pinned?: boolean; ledgerClaimId?: string; memoryKind?: import('./memory-engine').ConversationMemory['memoryKind'] }
 
 export interface CharacterMemoryRequest {
+  /** Optional local call preparation gate; final visibility checks still run afterwards. */
+  beforeLedgerWrite?: () => Promise<void>;
   userId: string;
   characterId: string;
   /** 当前话题（用户这轮说的话、星域里的动作、朋友圈动态文本）。 */
@@ -104,8 +109,8 @@ export interface CharacterMemoryRequest {
   excludeSessionId?: string;
   /** Current raw history is already supplied; never retrieve the pending query as an answer. */
   excludeMessageIds?:string[];
-  /** Explicit world ownership boundary; absent means authorized cross-world
-   * recall. A scene supplies its world, and conflicting scopes are rejected. */
+  /** Explicit recall scope; absent means authorized cross-world recall.
+   * scene describes the present location, not a loss of earlier experiences. */
   worldId?: string;
   excludeSceneId?: string;
   budget?: number;
@@ -197,6 +202,16 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
     const world = await db.worlds.get(p.worldId);
     if (!world || world.userId !== p.userId || (p.scene && p.scene.worldId !== p.worldId)) return empty;
   }
+  if (p.scene) {
+    const world = await db.worlds.get(p.scene.worldId);
+    if (!world || world.userId !== p.userId) return empty;
+    if (p.scene.sceneId) {
+      const scene = await db.worldScenes.get(p.scene.sceneId);
+      // A draft/current scene may not yet be persisted. It supplies context,
+      // never permission; existing scene records must still match their owner.
+      if (scene && (scene.userId !== p.userId || scene.worldId !== p.scene.worldId)) return empty;
+    }
+  }
   const audience = [...new Set([p.characterId, ...(p.audience ?? [])])];
   const audienceRows = await db.characters.bulkGet(audience);
   if (audienceRows.some(c => !c || c.createdBy !== p.userId || c.agentProfile === 'secretary')) return empty;
@@ -238,7 +253,8 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
       }, 'memories', m));
     }
     const sessions = await db.sessions.where('[characterId+userId]').equals([p.characterId, p.userId]).filter(s => s.type !== 'group' && s.id !== p.excludeSessionId).toArray();
-    const summarySuppressions = await memorySourceTombstoneRepo.suppressedMessages(p.userId, p.characterId);
+    const summarySuppressions = await memorySourceTombstoneRepo.selectedSuppressedMessages(p.userId, p.characterId,
+      sessions.filter(session => session.summary?.trim()).flatMap(session => session.summarySourceMessageIds ?? []));
     let summaryCount = 0;
     for (const session of [...sessions].sort((a, b) => b.updatedAt - a.updatedAt).filter(row => row.summary?.trim())) {
       if (!await hasLivePrivateSummarySources(session, p.userId, p.characterId, summarySuppressions)) continue;
@@ -283,14 +299,15 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
         if (m.failed || m.role === 'system' || !m.content.trim() || !audience.every(id => m.witnessedBy?.includes(id))) continue;
         const speaker = m.role === 'user' ? '用户' : (await db.characters.get(m.senderId ?? ''))?.name ?? '群成员';
         const group = groups.find(g => g.id === session.groupId)!;
-        items.push(withMemorySourceSnapshot({ source: 'group', id: m.id, at: m.createdAt, text: `群「${group.name}」中，${speaker}说：${m.content}` }, 'messages', m));
+        items.push(withMemorySourceSnapshot({ source: 'group', id: m.id, at: m.createdAt, text: `群「${group.name}」中，${speaker}说：${memoryExcerpt(m.content, queryTerms(topic), 400)}` }, 'messages', m));
       }
     }
   }
   if (sources.has('chat') && audience.length === 1) {
     const threads = await continuityRepo.getOpenByCharacter(p.characterId, p.userId);
-    for (const thread of threads) items.push(withMemorySourceSnapshot({ source: 'chat', id: thread.id, at: thread.updatedAt,
-      memoryKind: 'promise', text: `你与用户尚未完成的约定「${thread.title}」${thread.detail ? `：${thread.detail}` : ''}；只在相关时承接，不反复追问。` }, 'continuityThreads', thread));
+    const live=await readContinuitySourceBatch(p,threads);
+    for (const source of live.values()) items.push(withContinuitySourceSnapshots({ source: 'chat', id: source.thread.id, at: source.thread.updatedAt,
+      memoryKind: 'promise', text:continuityReferenceText(source) },source));
   }
   if (sources.has('world')) {
     const sharedStories = p.worldId === undefined ? await sharedEventRepo.getByCharacter(p.characterId, p.userId) : [];
@@ -302,6 +319,8 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
     const liveEntryIds = new Set<string>();
     const worlds = await db.worlds.where('userId').equals(p.userId).filter(world => p.worldId === undefined || world.id === p.worldId).toArray();
     for (const world of worlds.sort((a, b) => b.updatedAt - a.updatedAt)) {
+      if (p.scene && world.id !== p.scene.worldId && !lookupHistory) continue;
+      const firstWorldItem = items.length;
       if (explicitWorldHistory) {
         const hits = await findRelevantHistory({
           userId: p.userId, worldId: world.id, characterId: p.characterId,
@@ -310,11 +329,15 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
         for (const hit of hits) items.push(inheritMemorySourceSnapshots({ source: 'world', id: hit.id, at: hit.timestamp, text: `星域旧事：${hit.date} ${hit.text}` }, hit));
       }
       const knownByAudience = await Promise.all(audience.map(id => knowledgeRepo.listKnownBy(id, world.id, { minLevel: 'full', limit: 500, userId: p.userId })));
-      const knownEvents = await worldEventRepo.getByIds(knownByAudience[0].filter(row => row.canMention).map(row => row.eventId));
+      const knownEvents = (await worldEventRepo.getByIds(knownByAudience[0].filter(row => row.canMention).map(row => row.eventId)))
+        .filter(event=>event.userId===p.userId&&event.worldId===world.id&&event.sourceType!=='diary'
+          &&audience.every((id,index)=>isVisibleToCharacter(event,id)&&knowledgeRowAllows(knownByAudience[index],id,event.id)));
+      const continuitySources=await readContinuityEventSources(knownEvents);
       for (const event of knownEvents) {
-        if (event.userId !== p.userId || event.worldId !== world.id || event.sourceType === 'diary') continue;
-        if (!audience.every((id, index) => isVisibleToCharacter(event, id) && knowledgeRowAllows(knownByAudience[index], id, event.id))) continue;
-        items.push(withMemorySourceSnapshot({ source: 'world', id: event.id, at: event.timestamp, text: `你知道的星域事件「${event.title}」${event.summary ? `：${event.summary}` : ''}` }, 'worldEvents', event));
+        const continuity=continuitySources.get(event.id);
+        if(event.sourceType==='continuity'&&!continuity)continue;
+        const reference:MemoryReference=withMemorySourceSnapshot({ source: 'world', id: event.id, at: event.timestamp, text:continuity?continuityReferenceText(continuity):`你知道的星域事件「${event.title}」${event.summary ? `：${event.summary}` : ''}` }, 'worldEvents', event);
+        items.push(continuity?withContinuitySourceSnapshots(reference,continuity):reference);
       }
       const perActor = await Promise.all(audience.map(async characterId => ({
         shared: await selectRecallableSharedMemories({ userId: p.userId, worldId: world.id, characterId, limit: 8 }),
@@ -322,8 +345,13 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
         finished: await selectRecentFinishedSceneMoments({ userId: p.userId, worldId: world.id, characterId, limit: 1 }),
         live: await selectLiveSceneMoments({ userId: p.userId, worldId: world.id, characterId, limit: 3 }),
       })));
-      for (const { memory: m } of perActor[0].shared) {
-        if (perActor.every(a => a.shared.some(x => x.memory.id === m.id))) items.push(withMemorySourceSnapshot({ source: 'world', id: m.id, at: m.createdAt, text: `${m.title}：${m.summary}` }, 'sharedMemories', m));
+      const supportingIds = [...new Set(perActor[0].shared.flatMap(row => row.eventIds))];
+      const supportingEvents = new Map((await db.worldEvents.bulkGet(supportingIds)).filter((event): event is NonNullable<typeof event> => !!event).map(event => [event.id, event]));
+      for (const { memory: m, eventIds } of perActor[0].shared) {
+        if (!perActor.every(a => a.shared.some(x => x.memory.id === m.id))) continue;
+        const reference = withMemorySourceSnapshot({ source: 'world' as const, id: m.id, at: m.createdAt, text: `${m.title}：${m.summary}` }, 'sharedMemories', m);
+        for (const id of eventIds) { const event = supportingEvents.get(id); if (event) withMemorySourceSnapshot(reference, 'worldEvents', event); }
+        items.push(reference);
       }
       for (const { scene, event } of perActor[0].scenes) {
         if (perActor.every(a => a.scenes.some(x => x.scene.id === scene.id))) items.push(withMemorySourceSnapshot(withMemorySourceSnapshot({ source: 'world', id: scene.id, at: event.createdAt, text: `世界「${scene.title}」的共同经历：${event.summary || event.title}` }, 'worldScenes', scene), 'worldEvents', event));
@@ -386,6 +414,15 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
           }, hit));
         }
       }
+      // A character can remember another world without mistaking it for the
+      // present scene. Only that actor's/audience's checked evidence is here.
+      if (p.scene && world.id !== p.scene.worldId) {
+        const terms = queryTerms(topic);
+        for (let index = items.length - 1; index >= firstWorldItem; index--) {
+          if (!hitCount(items[index].text, terms)) items.splice(index, 1);
+          else items[index] = inheritMemorySourceSnapshots({ ...items[index], text: `另一星域「${world.name}」的已知经历（不是本场现场）：${items[index].text}` }, items[index]);
+        }
+      }
     }
   }
   if (sources.has('moment')) {
@@ -402,11 +439,6 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
       }
     }
     if (!contacts.some(c => audience.includes(c.characterId) && c.blocked)) {
-      const viewRows = await Promise.all(audience.map(async (id) => ({
-        characterId: id,
-        momentIds: new Set((await db.momentViews.where('[userId+characterId]').equals([p.userId, id]).toArray()).map((view) => view.momentId)),
-      })));
-      const viewedBy = new Map(viewRows.map((row) => [row.characterId, row.momentIds]));
       // Searching old knowledge is not permission to inspect unseen posts.
       const explicit = intent.moment || intent.explicit;
       const cutoff = historyWindowCutoff(p.userId);
@@ -414,7 +446,15 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
         !m.deleted && m.visibility !== 'private' && (cutoff <= 0 || m.createdAt >= cutoff)
         && audience.every(id => m.audienceCharacterIds.includes(id)),
       ).toArray();
-      for (const m of moments.sort((a,b) => b.createdAt-a.createdAt).slice(0, explicitMomentHistory ? moments.length : 30)) {
+      const candidates = moments.sort((a,b) => b.createdAt-a.createdAt).slice(0, explicitMomentHistory ? moments.length : 30);
+      // Only candidate posts can contribute a reference. Re-read their exact
+      // view dependencies, rather than every post ever viewed by each actor.
+      const views = candidates.length ? await db.momentViews.where('[momentId+characterId]')
+        .anyOf(candidates.flatMap(moment => audience.map(id => [moment.id, id])))
+        .toArray() : [];
+      const viewedBy = new Map(audience.map(id => [id, new Set(views
+        .filter(view => view.userId === p.userId && view.characterId === id).map(view => view.momentId))]));
+      for (const m of candidates) {
         const wasViewed = viewedBy.get(p.characterId)?.has(m.id) ?? false;
         const audienceAllViewed = audience.every((id) => viewedBy.get(id)?.has(m.id));
         if (audience.length > 1 && !audienceAllViewed && !(explicit && m.audienceCharacterIds && audience.every(id => m.audienceCharacterIds.includes(id)))) continue;
@@ -486,18 +526,24 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
     }
   }
   const excluded = new Set((p.excludeReferences ?? []).map(r => `${r.source}:${r.id}`));
-  const suppressions = await Promise.all(audience.map(id => memorySourceTombstoneRepo.suppressedMessages(p.userId, id)));
+  const suppressions = await Promise.all(audience.map(id => memorySourceTombstoneRepo.selectedSuppressedMessages(p.userId, id, items.map(item => item.id))));
   const cooling = coolingWorldMotifs(topic, p.recentConversation ?? [], [character.name]);
+  const answeringHistory = intent.explicit || /[？?]|哪里|哪儿|什么时候|几点|给谁|哪天/u.test(topic);
+  const topicTerms = queryTerms(topic);
   const packed = packCharacterMemory(items.filter(r => !excluded.has(`${r.source}:${r.id}`)
     && !suppressions.some(ids => ids.has(r.id))
-    && (r.source==='chat'&&retrievedOriginalIds.has(r.id)||!cooling.some(motif => r.text.includes(motif)))), topic, p.budget ?? 2600);
+    && (r.source==='chat'&&retrievedOriginalIds.has(r.id)
+      || answeringHistory && hitCount(r.text, topicTerms) >= 2
+      || !cooling.some(motif => r.text.includes(motif)))), topic, p.budget ?? 2600);
   // The ledger only learns from references that passed the same source-level
   // visibility checks and survived prompt packing. It never widens visibility.
   const references: MemoryReference[] = [];
   let validationUnavailable = false;
+  await p.beforeLedgerWrite?.();
+  const initialValidationReads=await selectedPrivateChatValidationReads(p,packed.references);
   for (const reference of packed.references) {
     try {
-      const indexed = await indexVisibleReference(p, reference);
+      const indexed = await indexVisibleReference(p, reference,true,initialValidationReads);
       if (indexed) {
         await Promise.all(audience.map((characterId) => memoryLedgerRepo.recordUsage({
           userId: p.userId,
@@ -515,11 +561,14 @@ async function readCharacterMemory(p: CharacterMemoryRequest): Promise<Character
   }
   // A later candidate can await another source read while an earlier source
   // changes. Recheck the retained batch before rendering its shared prompt.
-  for (let index = references.length - 1; index >= 0; index -= 1) {
-    try {
-      await indexVisibleReference(p, references[index], false);
-    } catch (error) {
-      if (!(error instanceof ReferenceVisibilityError)) validationUnavailable = true;
+  const validationReads = await selectedPrivateChatValidationReads(p, references,true);
+  const validation = await Promise.allSettled(references.map(reference => indexVisibleReference(p, reference, false, validationReads)));
+  await refreshPrivateChatBatchOwnership(p, references, validation, validationReads);
+  const snapshotsLive=await finalSelectedSourceCheck(p,references,validationReads);
+  for (let index = validation.length - 1; index >= 0; index -= 1) {
+    const result = validation[index];
+    if (result.status === 'rejected'||!snapshotsLive.get(references[index])) {
+      if (result.status==='rejected'&&!(result.reason instanceof ReferenceVisibilityError)) validationUnavailable = true;
       references.splice(index, 1);
     }
   }
@@ -548,7 +597,7 @@ async function buildCatalog(p: CharacterMemoryRequest, audience: string[]): Prom
   ]);
   const catalog: CharacterMemoryCatalog = {
     memories: audience.length === 1 ? memories : [],
-    threads: audience.length === 1 ? threads : [],
+    threads: audience.length === 1 ? [...(await readContinuitySourceBatch(p,threads)).values()].map(source=>source.thread) : [],
     diaries: [],
     sharedMemories: [],
     scenes: [],
@@ -594,10 +643,11 @@ async function buildCatalog(p: CharacterMemoryRequest, audience: string[]): Prom
   // 他知道且可提起、且不是"世界公开"的事件（世界公开的部分由共享层渲染）
   const eventRows = await Promise.all(worlds.map(async world => {
     const known = await Promise.all(audience.map(id => knowledgeRepo.listKnownBy(id, world.id, { minLevel: 'full', limit: 500, userId: p.userId })));
-    const events = await worldEventRepo.getByIds(known[0].filter(row => row.canMention).map(row => row.eventId));
-    return events.filter(event => event.userId === p.userId && event.worldId === world.id
-      && event.visibility !== 'world' && event.sourceType !== 'diary'
-      && audience.every((id, index) => isVisibleToCharacter(event, id) && knowledgeRowAllows(known[index], id, event.id)));
+    const events = (await worldEventRepo.getByIds(known[0].filter(row => row.canMention).map(row => row.eventId)))
+      .filter(event=>event.userId===p.userId&&event.worldId===world.id&&event.visibility!=='world'&&event.sourceType!=='diary'
+        &&audience.every((id,index)=>isVisibleToCharacter(event,id)&&knowledgeRowAllows(known[index],id,event.id)));
+    const continuity=await readContinuityEventSources(events);
+    return events.filter(event=>event.sourceType!=='continuity'||continuity.has(event.id));
   }));
   catalog.events = eventRows.flat().sort((a, b) => b.timestamp - a.timestamp).slice(0, 6);
   return catalog;
@@ -629,6 +679,7 @@ function sectionOf(reference: MemoryReference): keyof CharacterMemorySections {
     case 'moment':
       return 'crossChannel';
     case 'world':
+      if (reference.text.startsWith('另一星域「')) return 'historical';
       if (reference.text.startsWith('星域旧事') || reference.text.includes('里较早的片段')) return 'historical';
       if (reference.text.includes('仍在发生的片段')) return 'recent';
       return 'episodes';
@@ -682,7 +733,7 @@ function describeProvenance(reference: MemoryReference): MemoryProvenance {
  * 全程本地读取，零联网；任何失败都退化成"没有记忆"而不是抛错。
  */
 export async function buildCharacterMemoryContext(p: CharacterMemoryRequest): Promise<CharacterMemoryContext> {
-  try { return await readCharacterMemory({ ...p, worldId: p.worldId ?? p.scene?.worldId }); }
+  try { return await readCharacterMemory(p); }
   catch {
     console.warn('[character-memory] local recall unavailable; skipped optional context');
     return { text: '', references: [], sections: { profile: '', episodes: '', promises: '', crossChannel: '', recent: '', historical: '' }, provenance: [], retrieval:{status:'unavailable',explicitRequest:detectRecallIntent(p.topic??p.query).explicit,selectedCount:0} };
@@ -694,9 +745,9 @@ export function renderMemoryRetrievalStatus(context: Pick<CharacterMemoryContext
   const state=context.retrieval;
   if(!state?.explicitRequest||state.status==='denied'||state.status==='not-requested')return '';
   const outcome=state.status==='unavailable'?'本轮本地记忆读取未完成，不能把读取失败当成没有历史。'
-    :state.status==='no-match'?'本轮在当前许可范围没有选出可引用的相关记忆。'
-      :'本轮检索选出了候选资料；具体支持什么，以实际提供的原文及其来源为准，不把候选本身当作事件核实。';
-  return '[本轮记忆检索状态]\n'+outcome+'未找到资料不等于事情没发生或没约定。可以坦白还没想起并问一个具体线索，不编一段旧话或把未知说成否定的回忆。';
+    :state.status==='no-match'?'本轮额外记忆检索没有选出可引用的相关记忆；这不包含已随本次请求提供的近期对话原文。'
+      :'本轮额外记忆检索选出了候选资料；具体支持什么，以实际提供的原文及其来源为准，不把候选本身当作事件核实。';
+  return '[本轮记忆检索状态]\n'+outcome+'先结合本次请求已有的对话原文和有效摘要回答；仍缺依据才坦白还没想起并问一个具体线索。未找到资料不等于事情没发生或没约定，不编旧话或把未知说成否定的回忆。';
 }
 
 /** @deprecated 用 `buildCharacterMemoryContext`：同一个服务，这里只是旧签名。 */
@@ -707,12 +758,119 @@ export async function recallCharacterMemory(p: CharacterMemoryRequest): Promise<
 
 class ReferenceVisibilityError extends Error {}
 function denyReference(): never { throw new ReferenceVisibilityError('Memory source is no longer visible'); }
-async function checkedUnindexedReference(reference: MemoryReference): Promise<undefined> {
-  if (!await memorySourceSnapshotsStillLive(reference)) denyReference();
+async function checkedUnindexedReference(reference: MemoryReference,reads?:PrivateChatValidationReads): Promise<undefined> {
+  if(!reads?.deferSnapshots&&!await memorySourceSnapshotsStillLive(reference))denyReference();
   return undefined;
 }
 
-async function indexVisibleReference(p: CharacterMemoryRequest, reference: MemoryReference, writeLedger = true): Promise<string | undefined> {
+interface PrivateChatValidationReads {
+  sessions: Map<string, Promise<Session | undefined>>;
+  sessionByReference: Map<string, string>;
+  messageSessionIds: string[];
+  ownedSessionIds?: Promise<Set<string>>;
+  suppressed?: Promise<Set<string>>;
+  memories?: Map<string, MemoryItem | undefined>;
+  messages?: Map<string, Message | undefined>;
+  threads?: Map<string, import('../db').ContinuityThread | undefined>;
+  threadSources?:Map<string,VerifiedContinuitySource>;
+  worldThreadSources?:Map<string,VerifiedContinuitySource>;
+  /** Selected checks perform one final fresh batch after all ACL awaits. */
+  deferSnapshots?:boolean;
+  selectedThreads:Set<MemoryReference>;
+  selectedContinuityEvents:Set<MemoryReference>;
+}
+function newPrivateChatValidationReads(): PrivateChatValidationReads { return {sessions: new Map(), sessionByReference: new Map(), messageSessionIds: [],selectedThreads:new Set(),selectedContinuityEvents:new Set()}; }
+/** Only the selected chat sources and their exact dependencies. Candidate
+ * retrieval still uses the account/role index; this object lasts one check. */
+async function selectedPrivateChatValidationReads(p: CharacterMemoryRequest, references: MemoryReference[],deferSnapshots=false): Promise<PrivateChatValidationReads> {
+  const reads = newPrivateChatValidationReads();
+  reads.deferSnapshots=deferSnapshots;
+  const ids = [...new Set(references.filter(reference => reference.source === 'chat').map(reference => reference.id))];
+  const worldIds=[...new Set(references.filter(reference=>reference.source==='world').map(reference=>reference.id))];
+  if (!ids.length&&!worldIds.length) return reads;
+  const [memories, messages, sessions,threads,events] = await Promise.all([
+    db.memories.bulkGet(ids), db.messages.bulkGet(ids), db.sessions.bulkGet(ids),db.continuityThreads.bulkGet(ids),db.worldEvents.bulkGet(worldIds),
+  ]);
+  reads.threads=new Map(ids.map((id,index)=>[id,threads[index]]));
+  if(!deferSnapshots)[reads.threadSources,reads.worldThreadSources]=await Promise.all([
+    readContinuitySourceBatch(p,threads.filter((thread):thread is NonNullable<typeof thread>=>!!thread)),
+    readContinuityEventSources(events.filter((event):event is NonNullable<typeof event>=>!!event&&event.userId===p.userId)),
+  ]);
+  reads.memories = new Map(ids.map((id, index) => [id, memories[index]]));
+  reads.messages = new Map(ids.map((id, index) => [id, messages[index]]));
+  reads.messageSessionIds = [...new Set(messages.flatMap(message => message ? [message.sessionId] : []))];
+  ids.forEach((id, index) => reads.sessions.set(id, Promise.resolve(sessions[index])));
+  const dependencies = [...new Set([...ids,
+    ...memories.flatMap(memory => memory?.sourceMessageIds ?? []),
+    ...sessions.flatMap(session => session?.summarySourceMessageIds ?? []),
+  ])];
+  reads.suppressed = memorySourceTombstoneRepo.selectedSuppressedMessages(p.userId, p.characterId, dependencies);
+  // The shared check is awaited by every eligible reference. Observe rejection
+  // even if all supplied references are rejected earlier by an audience gate.
+  void reads.suppressed.catch(() => {});
+  return reads;
+}
+
+/** ACL checks can await other repositories. Only then take one native read
+ * transaction containing the selected continuity sources, permissions and
+ * existing snapshots, so a concurrent withdrawal cannot fall between them. */
+async function finalSelectedSourceCheck(p:CharacterMemoryRequest,references:MemoryReference[],reads:PrivateChatValidationReads){
+  if(!reads.selectedThreads.size&&!reads.selectedContinuityEvents.size)return memorySourceSnapshotsBatchStillLive(references);
+  const tables=[...new Set([...memorySourceSnapshotTables(references),'continuityThreads','messages','sessions','memorySourceTombstones','worldEvents','worldScenes','worlds','characterKnowledge'])].map(name=>db.table(name));
+  return db.transaction('r',tables,async()=>{
+    const [threads,events]=await Promise.all([
+      db.continuityThreads.bulkGet([...reads.selectedThreads].map(reference=>reference.id)),
+      db.worldEvents.bulkGet([...reads.selectedContinuityEvents].map(reference=>reference.id)),
+    ]);
+    const ownedEvents=events.filter((event):event is NonNullable<typeof event>=>!!event&&event.userId===p.userId);
+    const audience=[...new Set([p.characterId,...(p.audience??[])])],eventIds=ownedEvents.map(event=>event.id);
+    const [threadSources,eventSources,knowledge,suppressions]=await Promise.all([
+      readContinuitySourceBatch(p,threads.filter((thread):thread is NonNullable<typeof thread>=>!!thread)),
+      readContinuityEventSources(ownedEvents),
+      db.characterKnowledge.where('[characterId+eventId]').anyOf(audience.flatMap(characterId=>eventIds.map(id=>[characterId,id]))).toArray(),
+      Promise.all(audience.map(characterId=>memorySourceTombstoneRepo.selectedSuppressedMessages(p.userId,characterId,[...reads.selectedThreads,...reads.selectedContinuityEvents].map(reference=>reference.id)))),
+    ]);
+    const byEvent=new Map(ownedEvents.map(event=>[event.id,event])),denied=new Set<MemoryReference>();
+    for(const reference of reads.selectedThreads){
+      const source=threadSources.get(reference.id);
+      if(!source||source.thread.status!=='open'||suppressions.some(ids=>ids.has(reference.id)))denied.add(reference);
+      else withContinuitySourceSnapshots(reference,source);
+    }
+    for(const reference of reads.selectedContinuityEvents){
+      const event=byEvent.get(reference.id),source=eventSources.get(reference.id);
+      if(!event||!source||suppressions.some(ids=>ids.has(reference.id))||!audience.every(characterId=>isVisibleToCharacter(event,characterId)
+        &&knowledge.some(row=>row.userId===p.userId&&row.worldId===event.worldId&&row.characterId===characterId&&row.eventId===event.id&&row.canMention&&row.knowledgeLevel==='full')))denied.add(reference);
+      else withContinuitySourceSnapshots(reference,source);
+    }
+    const live=await memorySourceSnapshotsBatchStillLive(references);
+    for(const reference of denied)live.set(reference,false);
+    return live;
+  });
+}
+function validationSession(id: string, reads?: PrivateChatValidationReads): Promise<Session | undefined> {
+  if (!reads) return db.sessions.get(id);
+  let pending = reads.sessions.get(id);
+  if (!pending) { pending = db.sessions.get(id); reads.sessions.set(id, pending); }
+  return pending;
+}
+async function ownedPrivateSessionIds(p: CharacterMemoryRequest, ids: Iterable<string>): Promise<Set<string>> {
+  return ownedSelectedPrivateSessionIds(p.userId, p.characterId, ids);
+}
+async function refreshPrivateChatBatchOwnership(p: CharacterMemoryRequest, references: MemoryReference[],
+  results: PromiseSettledResult<string | undefined>[], reads: PrivateChatValidationReads): Promise<void> {
+  if (!reads.sessionByReference.size) return;
+  // A shared read is not an authorization cache: re-read the batch after all
+  // asynchronous checks so transfer/deletion cannot use an earlier owner.
+  const owned = await ownedPrivateSessionIds(p, reads.sessionByReference.values());
+  references.forEach((reference, i) => {
+    const id = reads.sessionByReference.get(reference.id);
+    if (!id) return;
+    if (!owned.has(id)) {
+      results[i] = {status: 'rejected', reason: new ReferenceVisibilityError('Private chat ownership changed')};
+    }
+  });
+}
+async function indexVisibleReference(p: CharacterMemoryRequest, reference: MemoryReference, writeLedger = true, reads?: PrivateChatValidationReads): Promise<string | undefined> {
   const scope = p.worldId ?? p.scene?.worldId;
   if (reference.source === 'world' && scope !== undefined) {
     const world = await db.worlds.get(scope);
@@ -727,34 +885,46 @@ async function indexVisibleReference(p: CharacterMemoryRequest, reference: Memor
 
   if (reference.source === 'chat') {
     if (audience.length !== 1) denyReference();
-    const suppressed = await memorySourceTombstoneRepo.suppressedMessages(p.userId, p.characterId);
+    // Ledger candidates are already selected too: inspect their exact sources
+    // instead of rereading every role tombstone for each retained reference.
+    reads ??= await selectedPrivateChatValidationReads(p, [reference]);
+    const suppressed = await reads.suppressed!;
     if (suppressed.has(reference.id)) denyReference();
-    const memory = await db.memories.get(reference.id);
+    const memory = reads?.memories ? reads.memories.get(reference.id) : await db.memories.get(reference.id);
     if (memory) {
       if (memory.userId !== p.userId || memory.characterId !== p.characterId
         || !rankConversationMemories([memory], '', new Set(), 1).length
         || memory.sourceMessageIds?.some(id => suppressed.has(id))) denyReference();
       const kind = memory.memoryKind ?? 'fact';
-      await checkedUnindexedReference(reference);
+      await checkedUnindexedReference(reference,reads);
       if (!writeLedger) return undefined;
       return memoryLedgerRepo.findClaim(p.userId, kind, memory.content).then(claim => claim?.id).catch(() => undefined);
     }
-    const message = await db.messages.get(reference.id);
+    const message = reads?.messages ? reads.messages.get(reference.id) : await db.messages.get(reference.id);
     if (message) {
-      const session = await db.sessions.get(message.sessionId);
-      if (!session || session.userId !== p.userId || session.characterId !== p.characterId
-        || session.type === 'group' || message.failed) denyReference();
-      return checkedUnindexedReference(reference);
+      reads?.sessionByReference.set(reference.id, message.sessionId);
+      const owned = await (reads ? reads.ownedSessionIds ??= ownedPrivateSessionIds(p, reads.messageSessionIds)
+        : ownedPrivateSessionIds(p, [message.sessionId]));
+      if (!owned.has(message.sessionId) || message.failed) denyReference();
+      return checkedUnindexedReference(reference,reads);
     }
-    const session = await db.sessions.get(reference.id);
+    const session = await validationSession(reference.id, reads);
     if (session) {
+      reads?.sessionByReference.set(reference.id, session.id);
       if (!await hasLivePrivateSummarySources(session, p.userId, p.characterId, suppressed)) denyReference();
-      return checkedUnindexedReference(reference);
+      return checkedUnindexedReference(reference,reads);
     }
-    if (!(await continuityRepo.getOpenByCharacter(p.characterId, p.userId)).some(thread => thread.id === reference.id)) denyReference();
+    const thread = reads.threads?reads.threads.get(reference.id):await db.continuityThreads.get(reference.id);
+    if (!thread || thread.userId !== p.userId || thread.characterId !== p.characterId || thread.status !== 'open') denyReference();
+    reads.selectedThreads.add(reference);
+    if(!reads.deferSnapshots){
+      const source=reads.threadSources?.get(thread.id);
+      if(!source)denyReference();
+      withContinuitySourceSnapshots(reference,source);
+    }
     // Raw chat turns remain in their session and are not promoted to durable
     // claims here. They enter durable memory through the evidence-backed queue.
-    return checkedUnindexedReference(reference);
+    return checkedUnindexedReference(reference,reads);
   }
   if (reference.source === 'group') {
     sourceType = 'group';
@@ -766,13 +936,11 @@ async function indexVisibleReference(p: CharacterMemoryRequest, reference: Memor
     sourceType = 'diary';
     const row = await db.diaries.get(reference.id);
     if (!row || row.userId !== p.userId || row.deletedAt) denyReference();
-    const allowed = await Promise.all(audience.map(async (characterId) => {
-      const [visible, mentionable] = await Promise.all([
-        diaryRepo.listVisibleFor(characterId, p.userId, Number.MAX_SAFE_INTEGER),
-        listMentionableDiaryIds(p.userId, undefined, characterId),
-      ]);
-      return visible.some((diary) => diary.id === row.id) && mentionable.has(row.id);
-    }));
+    const allowed = await Promise.all(audience.map(async characterId =>
+      isVisibleToCharacter(row, characterId)
+      && (row.visibility !== 'world' || row.characterId === characterId)
+      && await canMentionDiary(p.userId, characterId, row.id),
+    ));
     if (allowed.some((value) => !value)) denyReference();
     revision = row.revision ?? row.updatedAt;
   } else if (reference.source === 'todo') {
@@ -798,12 +966,12 @@ async function indexVisibleReference(p: CharacterMemoryRequest, reference: Memor
       if (!moment || moment.userId !== p.userId || reaction.status !== 'active' || moment.deleted) denyReference();
       if (!(await Promise.all(audience.map((id) => visibleToCharacter(moment, id)))).every(Boolean)) denyReference();
       const views = await Promise.all(audience.map(async (id) =>
-        (await db.momentViews.where('[userId+characterId]').equals([p.userId, id]).toArray()).some((view) => view.momentId === moment.id),
+        (await db.momentViews.where('[momentId+characterId]').equals([moment.id, id]).toArray()).some((view) => view.userId === p.userId),
       ));
       if (views.some((view, index) => !view && reaction.characterId !== audience[index])) {
         // Explicit current lookup is authorized by visibility, but does not
         // establish that this character witnessed the reaction beforehand.
-        if (detectRecallIntent(p.topic ?? p.query).explicit) return checkedUnindexedReference(reference);
+        if (detectRecallIntent(p.topic ?? p.query).explicit) return checkedUnindexedReference(reference,reads);
         denyReference();
       }
       sourceType = 'momentReaction';
@@ -820,11 +988,11 @@ async function indexVisibleReference(p: CharacterMemoryRequest, reference: Memor
         if (!moment || moment.userId !== p.userId || moment.deleted) denyReference();
         if (!(await Promise.all(audience.map((id) => visibleToCharacter(moment, id)))).every(Boolean)) denyReference();
         const views = await Promise.all(audience.map(async (id) =>
-          (await db.momentViews.where('[userId+characterId]').equals([p.userId, id]).toArray()).some((view) => view.momentId === moment.id),
+          (await db.momentViews.where('[momentId+characterId]').equals([moment.id, id]).toArray()).some((view) => view.userId === p.userId),
         ));
         // A post which is visible but has not been opened is available for an
         // explicit lookup, but must not become durable prior knowledge.
-        if (views.some((view) => !view)) return checkedUnindexedReference(reference);
+        if (views.some((view) => !view)) return checkedUnindexedReference(reference,reads);
         sourceType = 'moment';
         revision = moment.visibilityRevision ?? moment.updatedAt;
       }
@@ -833,14 +1001,17 @@ async function indexVisibleReference(p: CharacterMemoryRequest, reference: Memor
     const legacy = await db.sharedStoryEvents.get(reference.id);
     if (legacy) {
       if (p.worldId !== undefined || legacy.userId !== p.userId || !audience.every(id => legacy.characterIds.includes(id))) denyReference();
-      return checkedUnindexedReference(reference);
+      return checkedUnindexedReference(reference,reads);
     }
     const shared = await db.sharedMemories.get(reference.id);
     if (shared?.userId === p.userId) {
       if (p.worldId !== undefined && shared.worldId !== p.worldId) denyReference();
       if (!audience.every((id) => isVisibleToCharacter(shared, id))) denyReference();
-      const events = (await db.worldEvents.where('worldId').equals(shared.worldId).toArray())
-        .filter((event) => event.type === 'shared_memory' && event.memoryIds.includes(shared.id) && event.userId === p.userId);
+      const eventIds = memorySourceSnapshotIds(reference, 'worldEvents');
+      const candidates = eventIds.length ? (await db.worldEvents.bulkGet(eventIds)).filter((event): event is NonNullable<typeof event> => !!event)
+        : await db.worldEvents.where('[worldId+sourceType+sourceId]').equals([shared.worldId, 'shared_memory', shared.id]).toArray();
+      const events = candidates
+        .filter((event) => event.type === 'shared_memory' && event.worldId === shared.worldId && event.memoryIds.includes(shared.id) && event.userId === p.userId);
       for (const characterId of audience) {
         const known = await knowledgeRepo.getScopedForEvents(p.userId, shared.worldId, characterId, events.map(event => event.id));
         if (!events.some((event) => isVisibleToCharacter(event, characterId) && known.some((row) => row.eventId === event.id && row.canMention && row.knowledgeLevel === 'full'))) denyReference();
@@ -871,6 +1042,14 @@ async function indexVisibleReference(p: CharacterMemoryRequest, reference: Memor
       } else {
         const event = await db.worldEvents.get(reference.id);
         if (!event || event.userId !== p.userId || (p.worldId !== undefined && event.worldId !== p.worldId) || !audience.every((id) => isVisibleToCharacter(event, id))) denyReference();
+        if(event.sourceType==='continuity'){
+          reads?.selectedContinuityEvents.add(reference);
+          if(!reads?.deferSnapshots){
+            const source=reads?.worldThreadSources?reads.worldThreadSources.get(event.id):(await readContinuityEventSources([event])).get(event.id);
+            if(!source)denyReference();
+            withContinuitySourceSnapshots(reference,source);
+          }
+        }
         if (event.sourceType === 'diary') {
           if (!(await Promise.all(audience.map((id) => isMentionableDiaryEvent(event, id, p.userId)))).every(Boolean)) denyReference();
         } else {
@@ -886,9 +1065,9 @@ async function indexVisibleReference(p: CharacterMemoryRequest, reference: Memor
     }
   }
 
-  if (!sourceType) return checkedUnindexedReference(reference);
+  if (!sourceType) return checkedUnindexedReference(reference,reads);
   const kind = classifyMemoryKind(value, reference.source === 'world' ? 'episode' : 'fact');
-  await checkedUnindexedReference(reference);
+  await checkedUnindexedReference(reference,reads);
   if (!writeLedger) return undefined;
   return memoryLedgerRepo.record({
     userId: p.userId,
@@ -910,10 +1089,14 @@ async function indexVisibleReference(p: CharacterMemoryRequest, reference: Memor
 export async function revalidateCharacterMemoryContext(p: CharacterMemoryRequest, context: CharacterMemoryContext): Promise<CharacterMemoryContext> {
   const references: MemoryReference[] = [];
   let unavailable = false;
-  for (const reference of context.references) {
-    try { await indexVisibleReference(p, reference, false); references.push(reference); }
-    catch (error) { if (!(error instanceof ReferenceVisibilityError)) unavailable = true; }
-  }
+  const validationReads = await selectedPrivateChatValidationReads(p, context.references,true);
+  const validation = await Promise.allSettled(context.references.map(reference => indexVisibleReference(p, reference, false, validationReads)));
+  await refreshPrivateChatBatchOwnership(p, context.references, validation, validationReads);
+  const snapshotsLive=await finalSelectedSourceCheck(p,context.references,validationReads);
+  validation.forEach((result, index) => {
+    if (result.status === 'fulfilled'&&snapshotsLive.get(context.references[index])) references.push(context.references[index]);
+    else if (result.status==='rejected'&&!(result.reason instanceof ReferenceVisibilityError)) unavailable = true;
+  });
   return {
     ...context,
     references,
@@ -939,7 +1122,7 @@ export async function indexPromptMemoryReferences(
   }
   for (const reference of references) {
     try {
-      const claimId = await indexVisibleReference({ ...p, worldId: p.worldId ?? p.scene?.worldId }, reference);
+      const claimId = await indexVisibleReference(p, reference);
       if (!claimId) continue;
       await Promise.all(audience.map((characterId) => memoryLedgerRepo.recordUsage({
         userId: p.userId,

@@ -1,0 +1,37 @@
+import {readFileSync,writeFileSync,copyFileSync,existsSync,readdirSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import assert from 'node:assert/strict';
+const root='release/chat-open-words-20261019',file='src/lib/chat-expression-boundary.ts';
+const read=path=>JSON.parse(readFileSync(path,'utf8')),hash=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
+const acceptedPath=root+'/checks-1792405514739.json',beforePath=root+'/before-1792405550695.json',after=read(acceptedPath),before=read(beforePath);
+assert.ok(after.complete&&after.checks.length===33&&after.stableSources);assert.equal(before.checks.length,33);assert.equal(before.failures.length,12);assert.equal(hash(file),after.sourceHashesAfter[file]);
+const snapshot=root+'/accepted-chat-expression-boundary.ts';if(existsSync(snapshot))assert.equal(hash(snapshot),hash(file));else copyFileSync(file,snapshot);
+const diff=spawnSync('git',['-c','core.autocrlf=false','diff','--no-index','--ignore-cr-at-eol','--',root+'/before/'+file,file],{encoding:'utf8'});assert.equal(diff.status,1);writeFileSync(root+'/production.patch',diff.stdout);
+const realPath='release/chat-gu-thinking-20261019/live-run-1792403157549.json',real=read(realPath),realFirst=real.attempts[0].requestBody.messages;
+const withoutClock=system=>system.replace(/^现在是\d+月\d+日[^\n]*$/mu,'[runtime clock]');
+const parity=after.native.map((row,i)=>{
+ const a=before.native[i].mainRequests[0],b=row.mainRequests[0],params=body=>Object.fromEntries(Object.entries(body).filter(([k])=>k!=='messages'));
+ assert.deepEqual(params(a),params(b));assert.deepEqual(a.messages.filter(m=>m.role!=='system'),b.messages.filter(m=>m.role!=='system'));
+ const system=body=>body.messages.find(m=>m.role==='system').content;
+ return {name:row.name,generation:params(b),nonSystemMessagesUnchanged:true,beforeSystemChars:system(a).length,currentSystemChars:system(b).length,deltaChars:system(b).length-system(a).length,exactCapturedGenuineFirstSystem:row.name==='古月娜'?system(a)===realFirst.find(m=>m.role==='system').content:null,capturedGenuineFirstSystemDiffersOnlyByRuntimeClock:row.name==='古月娜'?withoutClock(system(a))===withoutClock(realFirst.find(m=>m.role==='system').content):null};
+});
+assert.ok(parity[0].capturedGenuineFirstSystemDiffersOnlyByRuntimeClock);
+assert.equal(after.native[0].input,realFirst.at(-1).content);
+const expressionLog=root+'/logs/expression.log';assert.ok(readFileSync(expressionLog,'utf16le').includes('PASS chat-expression: 3854 checks'));
+const dailyPath='release/chat-daily-style-20261019/checks-1792405552473.json',sourcePath='release/chat-reply-source-question-20261019/checks-1792405550802.json';assert.ok(read(dailyPath).complete&&read(sourcePath).complete);
+const report={date:'2026-10-19',workspace:'F:/VirtuGene-Mobile',codingModel:'未确认',codingReasoning:'未确认',fullPlanComplete:false,
+ scope:'Original T7: exact genuine first-turn conversational invitation and affection. Reuse existing combined delivery guidance, no added model judge, new personality or prospective fact engine.',
+ observed:{raw:realPath,model:'deepseek-flash',thinking:'enabled',reasoningEffort:'low',initialReplyUnsupported:true,originalUserInput:after.native[0].input,clockBoundary:'The offline Gu frozen request and saved genuine first request differ at runtime clock17:47 versus18:25; the rest of their full system strings are byte-identical after replacing that one clock line.',rootCause:'The open words question was routed as a generic factual question, and the temporal clause 刚闲下来就想你了 was not recognized as addressed affection. This is a demonstrated routing gap, not proof that it caused the provider hallucination.'},
+ changes:['Recognize directly addressed open invitations to speak; preserve source, scoped topic, other factual questions, actual tasks and current distress/fatigue.','Recognize a bounded temporal adjunct followed by the existing addressed feeling, and use one shared original-source extractor for recognition and source quotations. Preserve reported/conditional scope across commas and exclude quoted words.','The actual sender now selects the already-existing combined feeling-and-conversation direction. Authored persona, source contract and generation parameters remain. No new system instruction block was appended.'],
+ production:{path:file,sha256:hash(file),before:root+'/before/'+file,beforeSha256:hash(root+'/before/'+file),accepted:snapshot,patch:root+'/production.patch'},
+ verificationFiles:['scripts/verify/chat-open-words.ts','scripts/verify/chat-open-words.mjs','scripts/verify/chat-open-words-report.mjs'].map(path=>({path,sha256:hash(path)})),
+ tests:{accepted:{path:acceptedPath,checks:33},before:{path:beforePath,checks:33,failures:12},expression:{checks:3854,log:expressionLog},daily:{path:dailyPath,checks:262},sourceQuestion:{path:sourcePath,checks:53},typecheck:{exitCode:0,log:root+'/logs/types.log'},parity,attempts:readdirSync(root).filter(n=>/^(checks|before)-\d+\.json$/.test(n)).map(n=>{const path=root+'/'+n,r=read(path);return {path,sha256:hash(path),complete:r.complete,checks:r.checks?.length,failures:r.failures?.length??null,error:r.error??null};})},
+ usage:{newPaidRequests:0,newPromptTokens:0,newCompletionTokens:0,newCostUSD:0},
+ limitations:['No new genuine model generation. First-reply source grounding and post-fix whole-dialogue naturalness are still unverified; the original failed four-turn conversation remains untouched.','Recognizing the situation now activates existing character-specific intimacy reactions/examples. The Gu system grows5674→6139 characters, Lu5355→5618, rather than shrinking. No token/latency or quality benefit is claimed.','This is finite conservative local delivery recognition, not a guarantee of semantic intent understanding. It never authorizes an app operation or independently proves an event.','No added database access in this pure delivery helper; no new complete stock/Android/TTFT/presented-frame timing claim.','No new same-condition before/after UI recording, app version/build/APK/install/release, audio or microphone. Coding model/effort and current sidebar project identity remain unconfirmed.']};
+writeFileSync('docs/CHAT-OPEN-WORDS-2026-10-19.json',JSON.stringify(report,null,2)+'\n');
+const progressPath='docs/CHAT-CONTINUITY-PLAN-PROGRESS-2026-10-18.json',progress=read(progressPath),t7=progress.tasks.find(t=>t.id==='T7');assert.ok(t7);
+if(!t7.evidence.includes('docs/CHAT-OPEN-WORDS-2026-10-19.json'))t7.evidence.push('docs/CHAT-OPEN-WORDS-2026-10-19.json');
+t7.remaining='Exact genuine first-turn invitation/feeling routing, provenance-question handling and settlement source eligibility locally repaired. Initial unsupported self-disclosure and post-fix genuine whole-dialogue naturalness remain unverified; do not equate prompt checks with human acceptance.';
+progress.openWords={path:'docs/CHAT-OPEN-WORDS-2026-10-19.json',localChecks:33,newPaidCalls:0,realModelEffectVerified:false};progress.fullPlanComplete=false;writeFileSync(progressPath,JSON.stringify(progress,null,2)+'\n');
+console.log(JSON.stringify({path:'docs/CHAT-OPEN-WORDS-2026-10-19.json',focused:33,frozenFailures:12,realModelEffectVerified:false,newPaidCalls:0,parity:parity.map(({name,beforeSystemChars,currentSystemChars,exactCapturedGenuineFirstSystem})=>({name,beforeSystemChars,currentSystemChars,exactCapturedGenuineFirstSystem}))}));

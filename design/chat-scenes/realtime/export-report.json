@@ -1,0 +1,678 @@
+[
+  {
+    "schema": 1,
+    "sceneId": "cafe-afternoon",
+    "file": "scene.glb",
+    "bytes": 812368,
+    "sha256": "e1ab067d344b77fd9d9c724b36c6d1aa530f17efffd1030eb17e56d9a7660f55",
+    "triangles": 43999,
+    "vertices": 22797,
+    "drawCalls": 1,
+    "geometryBoundsBlender": {
+      "min": [
+        -3.503000020980835,
+        -5.5,
+        -0.12462910264730453
+      ],
+      "max": [
+        6.300000190734863,
+        9.649999618530273,
+        6.0
+      ]
+    },
+    "camera": {
+      "position": [
+        -0.48,
+        1.85,
+        5.1
+      ],
+      "rotationQuaternion": [
+        0.7258801460266113,
+        0.685549795627594,
+        -0.038349319249391556,
+        -0.04060537368059158
+      ],
+      "verticalFovDegrees": 57.22091933193043
+    },
+    "effectQuad": [
+      [
+        0.52,
+        0.94,
+        -2.7
+      ],
+      [
+        2.9,
+        0.94,
+        -2.7
+      ],
+      [
+        2.9,
+        3.03,
+        -2.7
+      ],
+      [
+        0.52,
+        3.03,
+        -2.7
+      ]
+    ],
+    "lightPoint": [
+      1.72,
+      2.0,
+      -2.7
+    ],
+    "cup": [
+      -0.67,
+      1.007,
+      2.04
+    ],
+    "source": {
+      "file": "design/chat-scenes/cafe/VirtuGene-Cafe-Original.blend",
+      "sha256": "432ec4c896135217b641a52eb509c348c1b5439c854cbd376bd6374217ab19df",
+      "originalObjects": 265,
+      "originalTriangles": 89556
+    },
+    "apertureCutForRealtime": false,
+    "distantBackgroundDepthWrite": false,
+    "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+    "externalResources": [],
+    "model": "未确认",
+    "reasoning": "未确认",
+    "seconds": 1.28,
+    "cupCandidates": [
+      "Single coffee cup open vessel",
+      "Actual coffee surface",
+      "Delicate coffee crema",
+      "Brass teaspoon"
+    ]
+  },
+  {
+    "schema": 1,
+    "sceneId": "cafe-rain-night",
+    "file": "scene.glb",
+    "bytes": 812368,
+    "sha256": "e1ab067d344b77fd9d9c724b36c6d1aa530f17efffd1030eb17e56d9a7660f55",
+    "triangles": 43999,
+    "vertices": 22797,
+    "drawCalls": 1,
+    "geometryBoundsBlender": {
+      "min": [
+        -3.503000020980835,
+        -5.5,
+        -0.12462910264730453
+      ],
+      "max": [
+        6.300000190734863,
+        9.649999618530273,
+        6.0
+      ]
+    },
+    "camera": {
+      "position": [
+        -0.48,
+        1.85,
+        5.1
+      ],
+      "rotationQuaternion": [
+        0.7258801460266113,
+        0.685549795627594,
+        -0.038349319249391556,
+        -0.04060537368059158
+      ],
+      "verticalFovDegrees": 57.22091933193043
+    },
+    "effectQuad": [
+      [
+        0.52,
+        0.94,
+        -2.7
+      ],
+      [
+        2.9,
+        0.94,
+        -2.7
+      ],
+      [
+        2.9,
+        3.03,
+        -2.7
+      ],
+      [
+        0.52,
+        3.03,
+        -2.7
+      ]
+    ],
+    "lightPoint": [
+      -1.2,
+      2.59,
+      -1.35
+    ],
+    "cup": [
+      -0.67,
+      1.007,
+      2.04
+    ],
+    "source": {
+      "file": "design/chat-scenes/cafe/VirtuGene-Cafe-Original.blend",
+      "sha256": "432ec4c896135217b641a52eb509c348c1b5439c854cbd376bd6374217ab19df",
+      "originalObjects": 265,
+      "originalTriangles": 89556
+    },
+    "apertureCutForRealtime": false,
+    "distantBackgroundDepthWrite": false,
+    "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+    "externalResources": [],
+    "model": "未确认",
+    "reasoning": "未确认",
+    "seconds": 0.89,
+    "cupCandidates": [
+      "Single coffee cup open vessel",
+      "Actual coffee surface",
+      "Delicate coffee crema",
+      "Brass teaspoon"
+    ]
+  },
+  {
+    "schema": 1,
+    "sceneId": "snow-study",
+    "file": "scene.glb",
+    "bytes": 917928,
+    "sha256": "f9f98c3ec09380baf46f4a399973471b3e1393a514272bc8b6190972340bc764",
+    "triangles": 44009,
+    "vertices": 27150,
+    "drawCalls": 2,
+    "geometryBoundsBlender": {
+      "min": [
+        -35.0,
+        -6.5,
+        -0.13938549160957336
+      ],
+      "max": [
+        35.0,
+        41.0,
+        6.291123390197754
+      ]
+    },
+    "camera": {
+      "position": [
+        0.12,
+        2.55,
+        7.7
+      ],
+      "rotationQuaternion": [
+        0.7471115589141846,
+        0.6646048426628113,
+        0.00742482440546155,
+        0.008346574380993843
+      ],
+      "verticalFovDegrees": 60.28277110415069
+    },
+    "effectQuad": [
+      [
+        -1.52,
+        0.9,
+        -3.57
+      ],
+      [
+        2.62,
+        0.9,
+        -3.57
+      ],
+      [
+        2.62,
+        3.3,
+        -3.57
+      ],
+      [
+        -1.52,
+        3.3,
+        -3.57
+      ]
+    ],
+    "lightPoint": [
+      -1.2,
+      1.49,
+      2.4
+    ],
+    "cup": [
+      -0.74,
+      1.036,
+      2.78
+    ],
+    "source": {
+      "file": "design/chat-scenes/collection-cool/snow-study/VirtuGene-snow-study-Original.blend",
+      "sha256": "b1d30d70a6460ca6d58b18db949f1eb2c4cc59d456259b5da4d721a665ee8610",
+      "originalObjects": 833,
+      "originalTriangles": 306520
+    },
+    "apertureCutForRealtime": false,
+    "distantBackgroundDepthWrite": false,
+    "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+    "externalResources": [],
+    "model": "未确认",
+    "reasoning": "未确认",
+    "seconds": 4.37,
+    "cupCandidates": [
+      "Quiet tea saucer",
+      "Single open steaming tea cup",
+      "Tea liquid visible inside cup"
+    ]
+  },
+  {
+    "schema": 1,
+    "sceneId": "mist-coast",
+    "file": "scene.glb",
+    "bytes": 460632,
+    "sha256": "248bbc11759cea93f7e6242104f0b89e07c7aad36c52e2e4c65af3305b21cb4f",
+    "triangles": 24860,
+    "vertices": 12926,
+    "drawCalls": 1,
+    "geometryBoundsBlender": {
+      "min": [
+        -110.0,
+        -8.0,
+        -19.0
+      ],
+      "max": [
+        110.0,
+        105.19999694824219,
+        61.0
+      ]
+    },
+    "camera": {
+      "position": [
+        -0.25,
+        2.5,
+        7.8
+      ],
+      "rotationQuaternion": [
+        0.7426978349685669,
+        0.6692664623260498,
+        -0.014702056534588337,
+        -0.016315151005983353
+      ],
+      "verticalFovDegrees": 61.92751306414704
+    },
+    "effectQuad": [
+      [
+        -3.04,
+        1.04,
+        -3.98
+      ],
+      [
+        3.04,
+        1.04,
+        -3.98
+      ],
+      [
+        3.04,
+        3.56,
+        -3.98
+      ],
+      [
+        -3.04,
+        3.56,
+        -3.98
+      ]
+    ],
+    "lightPoint": [
+      1.2,
+      2.7,
+      -3.85
+    ],
+    "cup": null,
+    "source": {
+      "file": "design/chat-scenes/collection-cool/mist-coast/VirtuGene-mist-coast-Original.blend",
+      "sha256": "2a3e94109bd10b3a23fd73dcba6d3c2c074517c0842c62706417cc07f773729c",
+      "originalObjects": 69,
+      "originalTriangles": 24860
+    },
+    "apertureCutForRealtime": false,
+    "distantBackgroundDepthWrite": false,
+    "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+    "externalResources": [],
+    "model": "未确认",
+    "reasoning": "未确认",
+    "seconds": 0.22,
+    "cupCandidates": []
+  },
+  {
+    "schema": 1,
+    "sceneId": "hearth-cabin",
+    "file": "scene.glb",
+    "bytes": 822188,
+    "sha256": "5ca5d7f4c96cd3a980aa1c9111163caa5512ee4f37db092c083a4b26ab0aef16",
+    "triangles": 44238,
+    "vertices": 22804,
+    "drawCalls": 2,
+    "geometryBoundsBlender": {
+      "min": [
+        -4.002999782562256,
+        -7.0,
+        -0.13969296216964722
+      ],
+      "max": [
+        4.102999687194824,
+        9.0,
+        3.93999981880188
+      ]
+    },
+    "camera": {
+      "position": [
+        -0.1,
+        2.15,
+        5.4
+      ],
+      "rotationQuaternion": [
+        0.7451065182685852,
+        0.6669093370437622,
+        -0.004631092306226492,
+        -0.005174100864678621
+      ],
+      "verticalFovDegrees": 60.28277110415069
+    },
+    "effectQuad": [
+      [
+        -1.5,
+        0.17,
+        -3.12
+      ],
+      [
+        -0.19,
+        0.17,
+        -3.12
+      ],
+      [
+        -0.19,
+        1.27,
+        -3.12
+      ],
+      [
+        -1.5,
+        1.27,
+        -3.12
+      ]
+    ],
+    "lightPoint": [
+      -0.85,
+      0.75,
+      -3.05
+    ],
+    "cup": [
+      -0.05,
+      0.864,
+      1.6
+    ],
+    "source": {
+      "file": "design/chat-scenes/collection-warm/hearth-cabin/VirtuGene-hearth-cabin-Original.blend",
+      "sha256": "98984dee7f65cd9fb0c7fc82a61b1ebc796172e9a0e32f7b7dcb493cfe04fb31",
+      "originalObjects": 145,
+      "originalTriangles": 212976
+    },
+    "apertureCutForRealtime": false,
+    "distantBackgroundDepthWrite": false,
+    "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+    "externalResources": [],
+    "model": "未确认",
+    "reasoning": "未确认",
+    "seconds": 2.18,
+    "cupCandidates": [
+      "Single open tea cup",
+      "Drink surface inside cup",
+      "Linen notebook on coffee table"
+    ]
+  },
+  {
+    "schema": 1,
+    "sceneId": "night-train",
+    "file": "scene.glb",
+    "bytes": 814336,
+    "sha256": "224c02fd2933626ba02ad7d00c90fb5c92499376f2881aa1323daeaa31225c7d",
+    "triangles": 44169,
+    "vertices": 22541,
+    "drawCalls": 2,
+    "geometryBoundsBlender": {
+      "min": [
+        -2.8499999046325684,
+        -6.0,
+        -0.11999999731779099
+      ],
+      "max": [
+        2.8499999046325684,
+        8.0,
+        3.799999952316284
+      ]
+    },
+    "camera": {
+      "position": [
+        0.08,
+        2.05,
+        5.2
+      ],
+      "rotationQuaternion": [
+        0.7362759709358215,
+        0.6766799092292786,
+        -0.0009530684328638017,
+        -0.001037006382830441
+      ],
+      "verticalFovDegrees": 58.71550708558255
+    },
+    "effectQuad": [
+      [
+        -1.27,
+        1.1,
+        -3.4
+      ],
+      [
+        2.1,
+        1.1,
+        -3.4
+      ],
+      [
+        2.1,
+        2.94,
+        -3.4
+      ],
+      [
+        -1.27,
+        2.94,
+        -3.4
+      ]
+    ],
+    "lightPoint": [
+      1.64,
+      2.3,
+      -2.88
+    ],
+    "cup": [
+      0.44,
+      0.984,
+      1.05
+    ],
+    "source": {
+      "file": "design/chat-scenes/collection-warm/night-train/VirtuGene-night-train-Original.blend",
+      "sha256": "ed6a32a4d690607e3eee898352475713146c2221fe933216bb2ee3ef0fdf39bf",
+      "originalObjects": 93,
+      "originalTriangles": 93729
+    },
+    "apertureCutForRealtime": true,
+    "distantBackgroundDepthWrite": false,
+    "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+    "externalResources": [],
+    "model": "未确认",
+    "reasoning": "未确认",
+    "seconds": 0.81,
+    "cupCandidates": [
+      "Single open tea cup",
+      "Drink surface inside cup"
+    ]
+  },
+  {
+    "schema": 1,
+    "sceneId": "home-bedroom",
+    "file": "scene.glb",
+    "bytes": 805176,
+    "sha256": "e4d93250e20a8360589dc7e19cb75531d60b3733e310b6eb4f542ba7d8ae52de",
+    "triangles": 44026,
+    "vertices": 22153,
+    "drawCalls": 2,
+    "geometryBoundsBlender": {
+      "min": [
+        -4.001999855041504,
+        -7.0,
+        -0.15000000596046448
+      ],
+      "max": [
+        4.101999759674072,
+        9.0,
+        4.079999923706055
+      ]
+    },
+    "camera": {
+      "position": [
+        0.08,
+        2.5,
+        6.1
+      ],
+      "rotationQuaternion": [
+        0.7576175928115845,
+        0.6526760458946228,
+        0.003551873378455639,
+        0.004122966900467873
+      ],
+      "verticalFovDegrees": 60.28277110415069
+    },
+    "effectQuad": [
+      [
+        0.89,
+        1.13,
+        -3.49
+      ],
+      [
+        2.53,
+        1.13,
+        -3.49
+      ],
+      [
+        2.53,
+        3.07,
+        -3.49
+      ],
+      [
+        0.89,
+        3.07,
+        -3.49
+      ]
+    ],
+    "lightPoint": [
+      1.14,
+      1.34,
+      -1.69
+    ],
+    "cup": null,
+    "source": {
+      "file": "design/chat-scenes/collection-home/home-bedroom/VirtuGene-home-bedroom-Original.blend",
+      "sha256": "27ef124a3abb523d6e74db233385ffa93d619a3fcb52a2c6fff0730599d1ce80",
+      "originalObjects": 67,
+      "originalTriangles": 48412
+    },
+    "apertureCutForRealtime": true,
+    "distantBackgroundDepthWrite": false,
+    "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+    "externalResources": [],
+    "model": "未确认",
+    "reasoning": "未确认",
+    "seconds": 0.32,
+    "cupCandidates": []
+  },
+  {
+    "schema": 1,
+    "sceneId": "home-living",
+    "file": "scene.glb",
+    "bytes": 814888,
+    "sha256": "ea11d12fc79f43a36e8ef847d89d21507e6fb06ea169cea4661a5e4c91c1371d",
+    "triangles": 44218,
+    "vertices": 22497,
+    "drawCalls": 2,
+    "geometryBoundsBlender": {
+      "min": [
+        -4.001999855041504,
+        -7.0,
+        -0.14981584250926971
+      ],
+      "max": [
+        4.101999759674072,
+        9.0,
+        4.079999923706055
+      ]
+    },
+    "camera": {
+      "position": [
+        0.12,
+        2.48,
+        6.7
+      ],
+      "rotationQuaternion": [
+        0.7508723139762878,
+        0.6604048609733582,
+        0.004952757619321346,
+        0.005631226114928722
+      ],
+      "verticalFovDegrees": 61.92751306414704
+    },
+    "effectQuad": [
+      [
+        -1.13,
+        1.15,
+        -3.49
+      ],
+      [
+        2.4,
+        1.15,
+        -3.49
+      ],
+      [
+        2.4,
+        3.18,
+        -3.49
+      ],
+      [
+        -1.13,
+        3.18,
+        -3.49
+      ]
+    ],
+    "lightPoint": [
+      0.6,
+      2.6,
+      -3.1
+    ],
+    "cup": [
+      -0.2,
+      0.834,
+      1.29
+    ],
+    "source": {
+      "file": "design/chat-scenes/collection-home/home-living/VirtuGene-home-living-Original.blend",
+      "sha256": "6f440347e548096cd76c9b2b61fc79b408ef9e0e95be742f45619ffa97fb6ffc",
+      "originalObjects": 101,
+      "originalTriangles": 162744
+    },
+    "apertureCutForRealtime": true,
+    "distantBackgroundDepthWrite": false,
+    "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+    "externalResources": [],
+    "model": "未确认",
+    "reasoning": "未确认",
+    "seconds": 1.42,
+    "cupCandidates": [
+      "Near low round oak coffee table",
+      "Coffee table splayed leg",
+      "Coffee table splayed leg.001",
+      "Coffee table splayed leg.002",
+      "Single open tea cup",
+      "Drink surface inside cup"
+    ]
+  }
+]

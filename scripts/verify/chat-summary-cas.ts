@@ -1,0 +1,91 @@
+import {db,type Session} from '../../src/db';
+import {sessionRepo} from '../../src/db/session-repo';
+import {messageRepo} from '../../src/db/message-repo';
+import {memoryRepo} from '../../src/db/memory-repo';
+import {collectSyncData,importSyncData} from '../../src/lib/sync';
+const api=window as any;
+api.runSummaryCas=async()=>{
+ const checks:string[]=[];const check=(ok:unknown,label:string)=>{if(!ok)throw Error(label);checks.push(label);};
+ const source={id:'u1',sessionId:'s',role:'user' as const,content:'原定周五15点面试。',revision:1,createdAt:1,isProactive:false};
+ let current=true;
+ const setup=async()=>{await db.delete();await db.open();current=true;await db.messages.add(source);await db.sessions.add({id:'s',userId:'owner',characterId:'actor',type:'private',createdAt:1,updatedAt:1,summary:'基础摘要',summaryRevision:1,summarySourceMessageIds:['u1'],summarySourceMessageRevisions:{u1:1},summarySourceMessageOffsets:{u1:source.content.length},conversation:{version:1}} as Session);};
+ const snapshot=()=>db.sessions.get('s');
+ const apply=(base:any,summary='基础摘要',extra:any={})=>(sessionRepo.updateSummary as any)('s',summary,undefined,['u1'],{u1:1},{u1:source.content.length},{previousSummary:base.summary,expectedSummaryRevision:base.summaryRevision??0,expectedConversationVersion:base.conversation?.version??0,principal:{userId:'owner',characterId:'actor',privateOnly:true,isCurrent:()=>current},...extra});
+ await setup();const base=await snapshot();
+ let release!:(value:string)=>void;
+ const gate=new Promise<string>(resolve=>{release=resolve;});
+ const delayed=gate.then(summary=>apply(base,summary));
+ check(await apply(base)===1,'newer writer may keep the same text while advancing source coverage');
+ release('迟到的旧周五安排');
+ check(await delayed===0,'same-text summary ABA rejects a delayed older result');
+ check((await snapshot())?.summary==='基础摘要','rejected older summary does not overwrite the newer record');
+ check((await snapshot() as any).summaryRevision===2,'accepted summary increments its independent monotonic revision');
+ await setup();const beforeCorrection=await snapshot();
+ await db.sessions.update('s',{conversation:{version:2}} as any);
+ check(await apply(beforeCorrection,'旧安排仍待处理')===0,'user correction/version change rejects a summary based on the old conversation');
+ await setup();const ownerSnapshot=await snapshot();await db.sessions.update('s',{userId:'other'});
+ check(await apply(ownerSnapshot)===0,'session transfer rejects old owner background summary');
+ await setup();const characterSnapshot=await snapshot();await db.sessions.update('s',{characterId:'other'});
+ check(await apply(characterSnapshot)===0,'character transfer rejects old actor background summary');
+ await setup();const privateSnapshot=await snapshot();await db.sessions.update('s',{type:'group',groupId:'g'});
+ check(await apply(privateSnapshot)===0,'private summary does not cross a restored group-session boundary');
+ await setup();const accountSnapshot=await snapshot();current=false;
+ check(await apply(accountSnapshot)===0,'account switch rejects background completion');
+ await setup();const editSnapshot=await snapshot();await messageRepo.update('u1',{content:'更正周四15点。'});
+ check(await apply(editSnapshot)===0,'source edit rejects delayed summary');
+ check(!(await snapshot())?.summary&&(await snapshot() as any).summaryRevision===2,'source edit invalidation clears content and advances revision');
+ await setup();const deleteSnapshot=await snapshot();await messageRepo.deleteById('u1');
+ check(await apply(deleteSnapshot)===0,'source deletion rejects delayed summary even without a newer generation');
+ const revived=await memoryRepo.upsertSessionSummary({userId:'owner',characterId:'actor',sessionId:'s',content:'基础摘要',sourceMessageIds:['u1']});
+ check(revived===''&&!(await snapshot())?.summary&&(await db.memories.toArray()).every(m=>(m.status??'active')!=='active'),'deleted source cannot return through summary memory upsert');
+ await setup();const same=await snapshot();const simultaneous=await Promise.all([apply(same),apply(same)]);
+ check(simultaneous.filter(value=>value===1).length===1,'two native transactions with the same summary revision have one winner');
+ await setup();const rollback=await snapshot();
+ const hook=(changes:any)=>{if(changes.summary!==undefined)current=false;};db.sessions.hook('updating',hook);
+ let rolledBack;
+ try{rolledBack=await apply(rollback,'不得提交');}finally{db.sessions.hook('updating').unsubscribe(hook);}
+ check(rolledBack===0&&(await snapshot())?.summary==='基础摘要'&&(await snapshot() as any).summaryRevision===1,'account change during write aborts the native transaction');
+ await setup();const invalidOffset=await snapshot();
+ const offsetResult=await sessionRepo.updateSummary('s','不可标覆盖',undefined,['u1'],{u1:1},{u1:9999},{previousSummary:invalidOffset?.summary});
+ check(offsetResult===0,'summary cannot claim an offset beyond its actual source');
+ for(const nativeMutation of ['failed','shortened'] as const){
+  await setup();const captured=await snapshot(),original=await db.messages.get('u1');
+  const native=db.backendDB().transaction('messages','readwrite');
+  const completed=new Promise<void>((resolve,reject)=>{native.oncomplete=()=>resolve();native.onabort=()=>reject(native.error);});
+  // Deliberately retain stale derived evidence keys: final commit must read
+  // actual failed/length fields instead of accepting those keys as proof.
+  native.objectStore('messages').put({...original,...(nativeMutation==='failed'?{failed:true}:{content:'短'})});
+  await completed;
+  check(await apply(captured)===0,'fresh summary body guard still rejects raw native '+nativeMutation+' source with stale derived indexes');
+ }
+ await setup();await db.memorySourceTombstones.bulkPut(Array.from({length:8105},(_,i)=>({id:'unused-'+i,userId:'owner',characterId:'actor',sourceType:'message',sourceId:'other-'+i,status:'deleted',sourceRevision:1,updatedAt:1,suppressedMessageIds:['other-'+i]})) as any);
+ let suppressionBodies=0,sourceBodies=0;const tc=db.memorySourceTombstones.core as any,mc=db.messages.core as any;
+ const tq=tc.query,mg=mc.get,mb=mc.getMany;
+ try{
+  tc.query=async function(...args:any[]){const result=await tq.apply(this,args);suppressionBodies+=result.result.length;return result;};
+  mc.get=async function(...args:any[]){const result=await mg.apply(this,args);sourceBodies+=Number(!!result);return result;};
+  mc.getMany=async function(...args:any[]){const result=await mb.apply(this,args);sourceBodies+=result.filter(Boolean).length;return result;};
+  check(await apply(await snapshot())===1,'summary with many unrelated suppressions still commits');
+ }finally{tc.query=tq;mc.get=mg;mc.getMany=mb;}
+ check(suppressionBodies===0&&sourceBodies===1,'summary checks one selected body and no unrelated suppression bodies');
+ await setup();await apply(await snapshot(),'基础摘要',{coveragePolicy:'lossless-segments-v1'});
+ const payload=JSON.parse(JSON.stringify(await collectSyncData('owner','隔离夹具')));
+ await db.delete();await db.open();const imported=await importSyncData(payload);
+ check(imported.ok&&(await snapshot() as any).summaryRevision===2,'summary revision survives actual sync serialization and import');
+ check((await snapshot())?.summarySourceMessageRevisions?.u1===1&&(await db.messages.get('u1'))?.content===source.content,'optional revision field preserves source maps and original messages through import');
+ check((await snapshot())?.summaryCoveragePolicy==='lossless-segments-v1','lossless segment coverage policy survives actual sync serialization and import');
+ await messageRepo.update('u1',{content:'同步恢复后更正周四。'});
+ check(!(await snapshot())?.summaryCoveragePolicy&&!(await snapshot())?.summary,'source invalidation removes the coverage policy together with its summary');
+ await setup();await db.sessions.update('s',{summaryRevision:undefined} as any);
+ check(await apply(await snapshot())===1&&(await snapshot() as any).summaryRevision===1,'legacy session without summaryRevision writes from revision zero');
+ await setup();const oldMemorySnapshot=await snapshot();await apply(oldMemorySnapshot);
+ const oldMemoryRevision=(await snapshot() as any).summaryRevision;
+ await apply(await snapshot());
+ const oldMemory=await memoryRepo.upsertSessionSummary({userId:'owner',characterId:'actor',sessionId:'s',content:'基础摘要',sourceMessageIds:['u1'],expectedSummaryRevision:oldMemoryRevision});
+ check(oldMemory===''&&(await db.memories.count())===0,'same-text newer summary also rejects a delayed older memory projection');
+ await setup();const beforeRestore=await snapshot();
+ const restorePayload=JSON.parse(JSON.stringify(await collectSyncData('owner','隔离夹具')));
+ check((await importSyncData(restorePayload)).ok,'same-record backup restore is accepted');
+ check(await apply(beforeRestore,'恢复前启动的过时摘要')===0,'restoring the same summary text invalidates an already running background snapshot');
+ return {complete:true,checks,reads:{suppressionBodies,sourceBodies},paidCalls:0,scope:'Isolated native IndexedDB transaction and manually released promise; no model or UI latency claim'};
+};

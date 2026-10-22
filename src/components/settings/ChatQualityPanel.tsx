@@ -5,7 +5,8 @@ import { Modal } from '../ui/Modal';
 import { chatQualityReport, clearChatQuality } from '../../lib/chat-quality-metrics';
 import { voiceCacheStatus, refreshVoiceSamples } from '../../lib/chat/voice-sample-cache';
 import { EVALUATION_PERSONAS, evaluationSummary, runExpressionEvaluation, type EvaluationReport } from '../../lib/chat-expression-evaluation';
-import { SettingsGroup } from './SettingsUI';
+import { SettingsGroup, SettingsSwitch } from './SettingsUI';
+import { useSettingsStore } from '../../store/settings-store';
 import { DIALOGUE_TRAJECTORIES } from '../../lib/chat-evaluation-trajectories';
 
 function download(value:unknown,name:string) {
@@ -13,6 +14,8 @@ function download(value:unknown,name:string) {
   const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 export function ChatQualityPanel({open,onClose}:{open:boolean;onClose:()=>void}) {
+  const thinkingEnabled = useSettingsStore(state => state.chatThinkingEnabled);
+  const setThinkingEnabled = useSettingsStore(state => state.setChatThinkingEnabled);
   const owner=useAuthStore(s=>s.userId),apiKey=useAuthStore(s=>s.apiKey) ?? '';
   const [version,update]=useState(0),[characters,setCharacters]=useState<Character[]>([]),[selected,setSelected]=useState('');
   const [evaluation,setEvaluation]=useState<{owner:string;report:EvaluationReport}|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
@@ -36,8 +39,12 @@ export function ChatQualityPanel({open,onClose}:{open:boolean;onClose:()=>void})
   };
   return <Modal open={open} onClose={()=>{controller.current?.abort();onClose();}} title="聊天质量" panelClassName="vg-settings-panel" canSnapshotOnExit={()=>false}><div className="vg-settings-design space-y-5">
     <p className="vg-settings-intro">统计只保存在本机，不包含聊天原文。最近最多保留 200 条检查记录；重试率低不等于更像真人。</p>
-    <SettingsGroup title="按聊天入口查看">{(['private','proactive','group'] as const).map((mode,i)=>{const m=report.byMode[mode];return <div key={mode} className="p-4 border-b border-line"><strong>{['私聊','主动消息','群聊'][i]}</strong><p className="text-sm text-sub mt-2">检查 {m.checked} · 重试 {m.retried} · 仍有问题 {m.unresolved} · 拦截 {m.blocked}</p><p className="text-sm text-sub">重试后通过 {m.improvedAfterRetry} · 已上屏问题 {m.streamedUnresolved}{m.averageDurationMs!==null?` · 平均处理 ${Math.round(m.averageDurationMs)}ms`:''}</p>{m.averageFirstVisibleMs!==null&&<p className="text-sm text-sub">平均首次显示 {Math.round(m.averageFirstVisibleMs)}ms</p>}</div>;})}</SettingsGroup>
+    <SettingsGroup title="回复方式"><SettingsSwitch title="DeepSeek 私聊思考模式" detail="关闭后直接生成回复，保留人物上下文、记忆和质检。复杂问题可重新开启；助理办事和其他模型沿用各自设置。" checked={thinkingEnabled} onChange={setThinkingEnabled} /></SettingsGroup>
+    <SettingsGroup title="按聊天入口查看">{(['private','proactive','group'] as const).map((mode,i)=>{const m=report.byMode[mode];return <div key={mode} className="p-4 border-b border-line"><strong>{['私聊','主动消息','群聊'][i]}</strong><p className="text-sm text-sub mt-2">检查 {m.checked} · 重试 {m.retried} · 仍有问题 {m.unresolved} · 拦截 {m.blocked}</p><p className="text-sm text-sub">重试后通过 {m.improvedAfterRetry} · 已上屏问题 {m.streamedUnresolved}{m.averageDurationMs!==null?` · 平均处理 ${Math.round(m.averageDurationMs)}ms`:''}</p>{m.averageFirstVisibleMs!==null&&<p className="text-sm text-sub">模型请求后首次显示 {Math.round(m.averageFirstVisibleMs)}ms</p>}{m.averagePreparationMs!==null&&<p className="text-sm text-sub">发送准备 {Math.round(m.averagePreparationMs)}ms · 模型请求 {Math.round(m.averageProviderMs??0)}ms · 整轮 {Math.round(m.averageTotalDurationMs??0)}ms</p>}</div>;})}</SettingsGroup>
+    {report.byMode.private.averageSendToFirstVisibleMs!==null&&<p className="text-sm text-sub">私聊从回复准备到首次显示 {Math.round(report.byMode.private.averageSendToFirstVisibleMs)}ms</p>}
+    {report.byMode.private.averageFirstAnswerMs!==null&&<p className="text-sm text-sub">准备开始到收到首段正文 {Math.round(report.byMode.private.averageFirstAnswerMs)}ms；首段正文到显示 {Math.round(report.byMode.private.averageAnswerToVisibleMs??0)}ms。后者包含完整回复审查、必要重试与上屏等待；未收到正文增量的旧记录不计入。</p>}
     <SettingsGroup title="私聊呈现处理"><p className="p-4 text-sm text-sub">已测量 {report.measuredTurns} 轮 · 平均文字差异 {report.averageDifference===null?'暂无数据':`${(report.averageDifference*100).toFixed(1)}%`} · 差异超过 15% 的记录 {report.alerts} 条。空白与分条标记不计入文字差异；原文不保存。</p></SettingsGroup>
+    <details><summary className="min-h-12 cursor-pointer">最近 5 次私聊耗时</summary>{report.events.filter(event=>event.mode==='private').slice(-5).reverse().map((event,index)=><div key={`${event.at}-${index}`} className="p-4 border-b border-line text-sm text-sub"><p>{new Date(event.at).toLocaleTimeString()} · 重试 {event.retries} 次</p><p>准备 {event.preparationMs===undefined?'未记录':`${Math.round(event.preparationMs)}ms`} · 模型请求 {event.providerMs===undefined?'未记录':`${Math.round(event.providerMs)}ms`}</p><p>首段正文 {event.firstAnswerMs===undefined?'未记录':`${Math.round(event.firstAnswerMs)}ms`} · 首次显示 {event.sendToFirstVisibleMs===undefined?'未记录':`${Math.round(event.sendToFirstVisibleMs)}ms`} · 整轮 {event.totalDurationMs===undefined?'未记录':`${Math.round(event.totalDurationMs)}ms`}</p></div>)}</details>
     <div className="flex gap-3"><button type="button" className="min-h-12 flex-1 rounded-xl border border-line" onClick={()=>download(report,'chat-quality-statistics.json')}>导出统计</button><button type="button" className="min-h-12 flex-1 rounded-xl border border-line" onClick={clearChatQuality}>清空统计</button></div>
     <SettingsGroup title="角色声音样本"><p className="p-4 text-sm text-sub">有有效样本 {rows.filter(c=>['authored','cached'].includes(voiceCacheStatus(c))).length} / {rows.length}。补全会调用当前任务模型，不改写人设。</p>{rows.map(c=><div key={c.id} className="p-4 flex items-center justify-between gap-3"><span>{c.name}<small className="block text-sub">{{authored:'已有手写样本',cached:'缓存有效',pending:'正在补全',failed:'上次补全失败',missing:'尚未补全'}[voiceCacheStatus(c)]}</small></span>{!['authored','cached'].includes(voiceCacheStatus(c))&&<button type="button" className="min-h-12 px-3 rounded-xl border border-line" disabled={voiceCacheStatus(c)==='pending'} onClick={()=>{void refreshVoiceSamples(owner!,c.id,apiKey,{manual:true}).then(()=>update(v=>v+1));update(v=>v+1);}}>补全样本</button>}</div>)}</SettingsGroup>
     <details><summary className="min-h-12 cursor-pointer">真实模型对照验收</summary><div className="space-y-3 pt-3">

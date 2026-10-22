@@ -1,8 +1,11 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
+// Keep the stage's existing cascade order while its JavaScript loads on demand.
+import './styles/today-character-stage.css';
 import './styles/globals.css';
 import './styles/theme-tokens.css';
+import './styles/glass-surfaces.css';
 import './styles/todo-ui.css';
 import './styles/chat-bubbles.css';
 import './styles/soul-handoff.css';
@@ -23,6 +26,8 @@ import './styles/input-surfaces.css';
 import './styles/feedback.css';
 import './styles/ui-v2.css';
 import './styles/mobile-pages.css';
+import './styles/chat-atmosphere.css';
+import './styles/cinematic-ui.css';
 import { installUiPreferences } from './lib/ui-preferences';
 import { installThemePreferences } from './lib/theme';
 import { installUiFont } from './lib/ui-font';

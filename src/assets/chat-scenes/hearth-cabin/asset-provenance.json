@@ -1,0 +1,140 @@
+{
+  "author": "VirtuGene original procedural scene",
+  "tool": "Blender 4.5.3 / Cycles OptiX; offline Pillow export",
+  "license": "Project-owned original geometry and materials; no stock imports",
+  "externalAssetImports": [],
+  "remoteGenerationCalls": 0,
+  "modelAndReasoning": "未确认",
+  "sourceCamera": "design/chat-scenes/collection-warm/hearth-cabin/camera-export.json",
+  "authoredSource": {
+    "file": "source-hearth-cabin-2160.png",
+    "width": 2160,
+    "height": 4800,
+    "decodedRgbaBytes": 41472000,
+    "bytes": 12939274,
+    "sha256": "2bdc8ea4980ee5976f84cbf1a195fe58138ad2c2c7f41132cd4aa6ef4a994173",
+    "path": "design/chat-scenes/collection-warm/hearth-cabin/source-hearth-cabin-2160.png",
+    "method": "Native original Cycles 2160x4800 render, not enlarged"
+  },
+  "blendSource": {
+    "path": "design/chat-scenes/collection-warm/hearth-cabin/VirtuGene-hearth-cabin-Original.blend",
+    "bytes": 2515671,
+    "sha256": "98984dee7f65cd9fb0c7fc82a61b1ebc796172e9a0e32f7b7dcb493cfe04fb31"
+  },
+  "authoringScripts": [
+    {
+      "path": "design/chat-scenes/collection-warm/build-scenes.py",
+      "sha256": "cc77ca66cb04be2aede2a29121ea136c5d7409de54fc802fc6e9f0a64df510bf"
+    },
+    {
+      "path": "design/chat-scenes/collection-warm/export-runtime.py",
+      "sha256": "91d55b06abe914b72dfeff674f93c8a59bd600f9bf9a9c113d16e3eb0ae525d3"
+    }
+  ],
+  "exports": [
+    {
+      "file": "clean-plate-1080.webp",
+      "width": 1080,
+      "height": 2400,
+      "decodedRgbaBytes": 10368000,
+      "bytes": 222750,
+      "sha256": "31705c52f94948e90621d3323f45901c178ee7e42e5cb1ae7fd620281ea4f129"
+    },
+    {
+      "file": "clean-plate-1440.webp",
+      "width": 1440,
+      "height": 3200,
+      "decodedRgbaBytes": 18432000,
+      "bytes": 334390,
+      "sha256": "15366f8fdf621945f0f02e8f61b50bb323b343fde0864a0d618e4eac1b08a912"
+    },
+    {
+      "file": "foreground-casing-1080.webp",
+      "width": 414,
+      "height": 532,
+      "decodedRgbaBytes": 880992,
+      "bytes": 18196,
+      "sha256": "ea64afae507d8932f0ac869b197dc554a90017f7585a29926c5fa92f4c5821c5"
+    },
+    {
+      "file": "foreground-casing-1440.webp",
+      "width": 552,
+      "height": 710,
+      "decodedRgbaBytes": 1567680,
+      "bytes": 22700,
+      "sha256": "2312f88eb5350b7c24c62285e0d45443bef46a2fef94f44ed94ca9770a4b0ef7"
+    },
+    {
+      "file": "foreground-foreground-1080.webp",
+      "width": 268,
+      "height": 396,
+      "decodedRgbaBytes": 424512,
+      "bytes": 32580,
+      "sha256": "19e76751a1924de0fce9694ac98570e01279394218ba73d61122a2aba8fbd97d"
+    },
+    {
+      "file": "foreground-foreground-1440.webp",
+      "width": 357,
+      "height": 528,
+      "decodedRgbaBytes": 753984,
+      "bytes": 41278,
+      "sha256": "d441f0032c6575a8df3b12c41172f1c94fd6c2cad406fa7eed28aac4fff7acc4"
+    },
+    {
+      "file": "foreground-table-1080.webp",
+      "width": 791,
+      "height": 557,
+      "decodedRgbaBytes": 1762348,
+      "bytes": 53490,
+      "sha256": "19c5cbdbac23a32f8e148732ac48556bf7141594b14bc0cab496eb1e6023eac4"
+    },
+    {
+      "file": "foreground-table-1440.webp",
+      "width": 1055,
+      "height": 743,
+      "decodedRgbaBytes": 3135460,
+      "bytes": 68342,
+      "sha256": "c4c17c96c62cfafeef36a1b491deed77dd8fd366aa38cff41a2ffefbd0e3ba42"
+    },
+    {
+      "file": "poster-1080.webp",
+      "width": 1080,
+      "height": 2400,
+      "decodedRgbaBytes": 10368000,
+      "bytes": 242762,
+      "sha256": "ce520d92d7856bddb5d565d08db1c28465a587ceb655bdbec8643f873f58cd52"
+    },
+    {
+      "file": "poster-1440.webp",
+      "width": 1440,
+      "height": 3200,
+      "decodedRgbaBytes": 18432000,
+      "bytes": 371000,
+      "sha256": "fcdc45feaca99fc69734753129a2411f858321da469cd1d6003ad557c14e9127"
+    },
+    {
+      "file": "thumbnail.webp",
+      "width": 360,
+      "height": 800,
+      "decodedRgbaBytes": 1152000,
+      "bytes": 28098,
+      "sha256": "15c573ec14e92a9f4efa74450a179e85d541680dc04daa38c30c1c584afbc4c7"
+    },
+    {
+      "file": "window-mask-1080.webp",
+      "width": 312,
+      "height": 232,
+      "decodedRgbaBytes": 289536,
+      "bytes": 9168,
+      "sha256": "a19daf8b6655ff91bb6e3ab0b322b03798340c702c3c531a8eaa01bf4c75a8a6"
+    },
+    {
+      "file": "window-mask-1440.webp",
+      "width": 416,
+      "height": 310,
+      "decodedRgbaBytes": 515840,
+      "bytes": 4364,
+      "sha256": "8b0c5f9799fc3329e23b7e09e63bb82f48d8add71d6c06ef1ddb3f3235ce803a"
+    }
+  ]
+}

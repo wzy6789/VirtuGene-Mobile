@@ -1,6 +1,9 @@
-﻿import { Icon } from '../ui/Icon';
+﻿
 import type { Character, WorldScene, WorldSceneEntry } from '../../db/index';
-import { cleanConstellationTitle } from '../../lib/world/constellation-typography';
+import { Avatar } from '../ui/Avatar';
+import { worldSceneArt } from './world-scene-art';
+import '../../styles/scene-detail-paper.css';
+import '../../styles/world-scene-directory.css';
 
 function statusLabel(status: WorldScene['status']): string {
   return status === 'active' ? '进行中' : status === 'paused' ? '已暂停' : status === 'finished' ? '已保存' : '未开始';
@@ -11,51 +14,40 @@ function entryLabel(entry: WorldSceneEntry, characters: Character[]): string {
   if (entry.kind === 'choice') return '选择';
   return characters.find(c => c.id === entry.speakerId)?.name ?? '记录';
 }
-export function WorldSceneConstellation({ scene, entries, characters, entriesLoading, onBack, onContinue }: {
-  scene: WorldScene; entries: WorldSceneEntry[]; characters: Character[]; entriesLoading: boolean;
-  onBack: () => void; onContinue: () => void;
+export function WorldSceneConstellation({ scene, entries, characters, busy, issue, onRetry, onContinue }: {
+  scene: WorldScene; entries: WorldSceneEntry[]; characters: Character[]; busy: boolean; issue?: string;
+  onRetry: () => void; onContinue: () => void;
 }) {
-  const cast = scene.characterIds.map(id => characters.find(c => c.id === id)).filter((c): c is Character => !!c);
+  const ownedCharacters = characters.filter(character => character.createdBy === scene.userId);
+  const cast = scene.characterIds.map(id => ownedCharacters.find(c => c.id === id)).filter((c): c is Character => !!c);
   const recent = entries.filter(e => e.kind !== 'system').slice(-3);
-  const facts = [
-    { label: '地点', value: scene.place || '未设定地点', tone: 'mint' },
-    { label: '时间', value: scene.timeLabel || '此刻', tone: 'violet' },
-    { label: '角色', value: cast.map(c => c.name).join(' · ') || '只有你', tone: 'warm' },
-    { label: '片段', value: `${entries.length} 条记录`, detail: scene.mood, tone: 'blue' },
-  ];
-  return <section className="vg-scene-constellation vg-sector-detail" aria-label={`世界星域：${scene.title}`}>
-    <header className="vg-scene-constellation-header">
-      <button type="button" onClick={onBack} className="vg-scene-back"><Icon name="back" size={18} /> 世界星域</button>
+  const art=worldSceneArt(scene);
+  return <section className="vg-scene-constellation vg-sector-detail" aria-label={`场景：${scene.title}`}>
+    <header className="vg-sector-title">
+      <h2>{scene.title}</h2>
       <span className={`vg-world-scene-status is-${scene.status}`}>{statusLabel(scene.status)}</span>
     </header>
-    <div className="vg-sector-identity">
-      <svg viewBox="0 0 360 140" fill="none" aria-hidden="true" focusable="false">
-        <path d="M15 106C85 33 242 130 346 27M17 31C100 98 252 13 340 102" stroke="currentColor" strokeOpacity=".12" />
-        <path d="M35 118C113 89 259 114 324 41" stroke="currentColor" strokeOpacity=".16" strokeDasharray="2 7" />
-        <circle cx="62" cy="42" r="1.5" fill="currentColor" opacity=".6" /><circle cx="296" cy="83" r="1.5" fill="currentColor" opacity=".6" />
-      </svg>
-      <span className="vg-sector-identity-star" aria-hidden="true">✦</span>
-      <h2>{cleanConstellationTitle(scene.title)}</h2>
-      <p>这个世界</p>
-    </div>
+    <div className="vg-sector-cover" aria-hidden="true"><img src={art.src} alt="" width={art.width} height={art.height} decoding="async" onError={event=>{event.currentTarget.style.visibility='hidden';}}/></div>
     <dl className="vg-sector-facts">
-      {facts.map(f => <div key={f.label} className={`vg-sector-fact is-${f.tone}`}>
-        <dt><i aria-hidden="true" />{f.label}</dt>
-        <dd>{f.value}</dd>
-        {f.detail && <span>{f.detail}</span>}
-      </div>)}
+      <div><dt>地点</dt><dd>{scene.place || '未设定地点'}</dd></div>
+      <div><dt>时间</dt><dd>{scene.timeLabel || '未设定时间'}</dd></div>
     </dl>
-    <div className="vg-sector-enter">
-      <button type="button" className="vg-scene-constellation-continue" onClick={onContinue}>
-        <span className="vg-scene-constellation-continue-label">{scene.status === 'finished' ? '回看世界' : '继续生活'}</span>
-        <span className="vg-scene-continue-arrow" aria-hidden="true"><Icon name="arrow" size={18} /></span>
-      </button>
-    </div>
+    <section className="vg-sector-cast" aria-label="参与角色">
+      <h3>同行的人</h3>
+      {cast.length ? <div>{cast.map(character => <span key={character.id}><Avatar avatar={character.avatar} size="sm" className="vg-sector-avatar"/><span>{character.name}</span></span>)}</div>
+        : <p>{scene.characterIds.length ? '参与角色资料暂不可用' : '这一幕只有你'}</p>}
+    </section>
     <section className="vg-sector-recent" aria-label="最近发生">
       <h3>最近发生</h3>
-      {entriesLoading ? <p className="vg-sector-empty">正在读取这段经历…</p> : recent.length ?
-        <div className="vg-sector-recent-list">{recent.map(e => <p key={e.id}><b>{entryLabel(e, characters)}</b><span>{e.content}</span></p>)}</div>
-        : <p className="vg-sector-empty">这里还没有经历，下一句话会决定它的方向。</p>}
+      {recent.length ? <div className="vg-sector-recent-list">{recent.map(e => <p key={e.id}><b>{entryLabel(e, ownedCharacters)}</b><span>{e.content}</span></p>)}</div>
+        : <p className="vg-sector-empty">还没有新的片段</p>}
     </section>
+    {issue && <div className="vg-sector-issue"><p role="alert">{issue}</p><button type="button" className="vg-button vg-button-secondary" disabled={busy} onClick={onRetry}>重新读取场景</button></div>}
+    <div className="vg-sector-enter">
+      <button type="button" className="vg-button vg-button-primary" disabled={busy} aria-busy={busy} onClick={onContinue}>
+        {busy ? '正在打开…' : scene.status === 'finished' ? '回看这一幕' : scene.status === 'draft' ? '进入场景' : '继续这一幕'}
+        
+      </button>
+    </div>
   </section>;
 }

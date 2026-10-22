@@ -1,3 +1,4 @@
+import '../../styles/world-reading-paper.css';
 /**
  * World Canvas / 世界空间（5.0.0 Living World §8 / §9 / §10 / §66 / §67）
  *
@@ -13,13 +14,13 @@
  * 交互纪律：
  * - **沉浸式**：进入后底部一级导航隐藏（§67），返回键先退出世界空间
  * - **键盘**：输入框始终可见（sticky 底部），内容区正确缩放（§66）
- * - **滚动**：输入框点击、键盘变化和新内容到达都跟随最新；加载旧内容保留视野。
+ * - **滚动**：停在底部才跟随；阅读历史时聚焦输入框不追尾，加载旧内容保留视野。
  * - **渐进式回应**（§57）：用户行动立刻可见，第一位角色生成完立刻出现，
  *   看到回复后即可继续输入（结算在后台继续）
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLatestMessageScroll } from '../ui/useLatestMessageScroll';
-import type { WorldAgentState, WorldLocation, WorldPresence, WorldScene, WorldSceneEntry } from '../../db/index';
+import { db, type WorldAgentState, type WorldLocation, type WorldPresence, type WorldScene, type WorldSceneEntry } from '../../db/index';
 import { useFeedback } from '../../lib/feedback';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
@@ -28,8 +29,8 @@ import { worldRepo } from '../../db/world-repo';
 import { worldSceneRepo } from '../../db/world-scene-repo';
 import { worldLocationRepo } from '../../db/world-location-repo';
 import { worldAgentRepo } from '../../db/world-agent-repo';
-import { Avatar } from '../ui/Avatar';
 import { Icon } from '../ui/Icon';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
 import {
   canvasPresence,
   ensureCanvasScene,
@@ -48,11 +49,12 @@ import { worldAiAvailability, type WorldAiAvailability } from '../../lib/world/w
 import { ensureWorldKernel } from '../../lib/world/world-kernel';
 import { runWorldPulse } from '../../lib/world/world-autonomy';
 import { worldEventRepo } from '../../db/world-event-repo';
-import { WorldStream } from './WorldStream';
+import { WorldStream,WorldCharacterAvatar } from './WorldStream';
 import { WorldComposer, WorldControlSheet, WorldSuggestions, type WorldControlAction } from './WorldControls';
 import { WorldExplorePanel } from './WorldExplorePanel';
 import { StoryCompass } from './StoryCompass';
 import { deriveWorldVisualState, visualCss, revealDelayFor } from '../../lib/world/world-immersion';
+import {registerSoulElement} from '../../lib/soul-handoff';
 
 const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 function canvasRevealDelay(entry: WorldSceneEntry, previousSpeaker: string | null): number {
@@ -74,18 +76,51 @@ function humanWorldError(message?: string): string {
   if (/截断|没有返回|空响应|生成失败|不可用的场景内容/i.test(text)) {
     return '这一轮没有接上，再试一次就好。';
   }
-  return text;
+  return /[\u3400-\u9fff]/.test(text) ? text : '这一轮没有接上，再试一次就好。';
 }
 
 export function WorldCanvas() {
   const userId = useAuthStore((s) => s.userId);
-  const characters = useChatStore((s) => s.characters);
   const canvasSceneId = useUIStore((s) => s.canvasSceneId);
+  if (!userId) return null;
+  // A new owner/scene starts with empty UI state, never one frame of the old
+  // transcript. Returning A → B → A also creates a fresh lifetime.
+  return <ScopedWorldCanvas key={JSON.stringify([userId, canvasSceneId])} userId={userId} canvasSceneId={canvasSceneId} />;
+}
+
+function ScopedWorldCanvas({ userId, canvasSceneId }: { userId: string; canvasSceneId: string | null }) {
+  const characters = useChatStore((s) => s.characters);
+  const mountedRef = useRef(false);
+  const isCurrent = useCallback(() => mountedRef.current
+    && useAuthStore.getState().userId === userId
+    && useUIStore.getState().activeView === 'canvas'
+    && useUIStore.getState().canvasSceneId === canvasSceneId, [userId, canvasSceneId]);
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const [scene, setScene] = useState<WorldScene | null>(null);
+  const sceneTitleRef=useCallback((node:HTMLSpanElement|null)=>{
+    if(node&&scene?.id)return registerSoulElement(node,JSON.stringify([userId,scene.id]),'world-scene');
+  },[userId,scene?.id]);
   const [entries, setEntries] = useState<WorldSceneEntry[]>([]);
+  const entriesRef = useRef(entries); entriesRef.current = entries;
+  const presentationGeneration = useRef(0);
   const [hasMore, setHasMore] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const loadingEarlierRef = useRef(false);
+  const earlierScopeRef = useRef(0);
+  const prependAnchorRef = useRef<{ node: HTMLDivElement; height: number; top: number } | null>(null);
+  useEffect(() => {
+    earlierScopeRef.current++;
+    loadingEarlierRef.current = false;
+    prependAnchorRef.current = null;
+    setLoadingEarlier(false);
+    return () => { earlierScopeRef.current++; };
+  }, [userId, canvasSceneId]);
   const [loading, setLoading] = useState(true);
+  const [loadAttempt,setLoadAttempt]=useState(0);
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -97,6 +132,10 @@ export function WorldCanvas() {
   const [headerOpen, setHeaderOpen] = useState(false);
   const [unseen, setUnseen] = useState(0);
   const [savedStory, setSavedStory] = useState(false);
+  const [savingStory, setSavingStory] = useState(false);
+  const savingStoryRef = useRef(false);
+  const recordEpochRef = useRef(0);
+  const [recordError, setRecordError] = useState<string | null>(null);
 
   useEffect(() => {
     setCanvasSheetOpen(sheetOpen);
@@ -132,6 +171,10 @@ export function WorldCanvas() {
   const [partials, setPartials] = useState<Record<string, PartialSlice>>({});
   const pendingPartialsRef = useRef<Map<string, PartialSlice>>(new Map());
   const partialFrameRef = useRef(0);
+  useLayoutEffect(() => () => {
+    if (partialFrameRef.current) cancelAnimationFrame(partialFrameRef.current);
+    pendingPartialsRef.current.clear();
+  }, []);
   /** 本轮里有过流式呈现的复合键：对应 entry 落库时跳过节拍延迟，避免"看过的再等一遍" */
   const streamedKeysRef = useRef<Set<string>>(new Set());
   const committedStreamKeysRef = useRef<Set<string>>(new Set());
@@ -152,6 +195,7 @@ export function WorldCanvas() {
 
   /** 流式增量上屏：按动画帧合帧批量替换，提交后跟随最新内容。 */
   const handleTurnPartial = useCallback((event: { turnId: string; sceneId: string; speakerId: string | null; field: 'narration' | 'dialogue' | 'action'; text: string }) => {
+    if (!isCurrent()) return;
     const key = partialKeyOf(event.turnId, event.sceneId, event.speakerId, event.field);
     if (committedStreamKeysRef.current.has(key)) return;
     streamedKeysRef.current.add(key);
@@ -159,6 +203,7 @@ export function WorldCanvas() {
     if (partialFrameRef.current) return;
     partialFrameRef.current = requestAnimationFrame(() => {
       partialFrameRef.current = 0;
+      if (!isCurrent()) return;
       const pending = pendingPartialsRef.current;
       if (pending.size === 0) return;
       pendingPartialsRef.current = new Map();
@@ -170,28 +215,44 @@ export function WorldCanvas() {
         return next;
       });
     });
-  }, [partialKeyOf]);
+  }, [partialKeyOf, isCurrent]);
 
   /* ------------------------------ 载入片段 ------------------------------ */
   useEffect(() => {
     if (!userId) return;
     let alive = true;
     setLoading(true);
+    setError(null);
     void (async () => {
       try {
         await useChatStore.getState().loadCharacters();
+        if (!alive || !isCurrent()) return;
         const list = useChatStore.getState().characters;
         const world = await worldRepo.ensureDefaultWorld(userId);
+        if (!alive || !isCurrent()) return;
         // 指定了片段就打开它（从星图/记忆页点进来）；否则取/建"此刻"
         const target = canvasSceneId ?? (await ensureCanvasScene({ userId, worldId: world.id, characters: list })).id;
-        await ensureWorldKernel({ userId, worldId: world.id, characterIds: list.map((character) => character.id) });
-        // 继续一段暂停中的世界：把它唤醒为进行中（finished 保持只读，绝不改写状态）
+        if (!alive || !isCurrent()) return;
         const targetScene = await worldSceneRepo.getScene(target);
-        if (targetScene && (targetScene.status === 'paused' || targetScene.status === 'draft')) {
-          await worldSceneRepo.setSceneStatus(target, 'active');
+        if (!alive || !isCurrent()) return;
+        if (!targetScene || targetScene.userId !== userId) {
+          setError('这一幕暂时无法打开，请重新读取或返回世界。');
+          return;
         }
+        await ensureWorldKernel({ userId, worldId: world.id, characterIds: list.map((character) => character.id) });
+        if (!alive || !isCurrent()) return;
+        // 继续一段暂停中的世界：把它唤醒为进行中（finished 保持只读，绝不改写状态）
+        const resumed = await db.transaction('rw', db.worldScenes, async () => {
+          const currentScene = await worldSceneRepo.getScene(target);
+          if (!alive || !isCurrent() || !currentScene || currentScene.userId !== userId) return false;
+          if (currentScene.status === 'paused' || currentScene.status === 'draft') await worldSceneRepo.setSceneStatus(target, 'active');
+          if (!alive || !isCurrent()) throw Error('world-scene:scope-changed');
+          return true;
+        });
+        if (!alive || !isCurrent()) return;
+        if (!resumed) { setError('这一幕暂时无法打开，请重新读取或返回世界。'); return; }
         const view = await loadCanvas(target, { userId });
-        if (!alive) return;
+        if (!alive || !isCurrent()) return;
         if (view) {
           setScene(view.scene);
           setEntryMemoryMode(view.scene.state.entryMemoryMode ?? 'memory');
@@ -201,19 +262,28 @@ export function WorldCanvas() {
           setEntries(view.entries);
           setHasMore(view.hasMore);
           setSuggestions(latestSuggestions(view.entries)?.options ?? []);
+        } else {
+          setError('这一幕暂时无法打开，请重新读取或返回世界。');
+          return;
         }
-        setSavedStory(await isSavedAsStory(userId, world.id, target));
+        const saved = await isSavedAsStory(userId, world.id, target);
+        if (!alive || !isCurrent()) return;
+        setSavedStory(saved);
         // 世界脉冲在首屏之后后台推进，不能让用户为了等“世界自己生活”而卡在 loading。
         void runWorldPulse({ userId, worldId: world.id, characters: list, reason: 'resume' }).then(async (pulse) => {
           if (!alive || pulse.eventIds.length === 0) return;
           const echo = await worldEventRepo.getById(pulse.eventIds[0]);
+          if (!alive || !isCurrent()) return;
           setToast(echo?.title ? `你离开的时候：${echo.title}` : '你离开的时候，世界也留下了一点动静。');
           const refreshed = await loadCanvas(target, { userId });
-          if (alive && refreshed) {
+          if (alive && isCurrent() && refreshed) {
             setScene(refreshed.scene);
             setEntries(refreshed.entries);
             setHasMore(refreshed.hasMore);
           }
+        }).catch(() => {
+          // Background ambience must not turn a usable scene into an error.
+          // The next scene visit can refresh it again.
         });
       } catch {
         if (alive) setError('世界没有打开成功，请稍后再试。');
@@ -222,7 +292,7 @@ export function WorldCanvas() {
       }
     })();
     return () => { alive = false; };
-  }, [userId, canvasSceneId]);
+  }, [userId, canvasSceneId, isCurrent,loadAttempt]);
 
   // The exploration layer is a read-only view over the same world records.
   // It is refreshed when a scene changes, so leaving and returning shows the
@@ -238,6 +308,7 @@ export function WorldCanvas() {
     void (async () => {
       try {
         const location = await worldLocationRepo.ensureFromScene(scene);
+        if (!alive || !isCurrent()) return;
         if (alive && scene.locationId !== location.id) {
           setScene((current) => current?.id === scene.id ? { ...current, locationId: location.id } : current);
         }
@@ -284,15 +355,15 @@ export function WorldCanvas() {
   }, [sheetOpen]);
 
   /* ------------------------------ 滚动跟随（§70） ------------------------------ */
+  const followLatest = useLatestMessageScroll(scrollerRef, canvasSceneId, (following) => {
+    stickRef.current = following;
+    if (following) setUnseen(0);
+  });
   const scrollToBottom = useCallback((smooth = false) => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
     stickRef.current = true;
     setUnseen(0);
-  }, []);
-
-  const followLatest = useLatestMessageScroll(scrollerRef);
+    followLatest(true, smooth ? 'smooth' : 'instant');
+  }, [followLatest]);
   const cancelFollowing = useRef<(() => void) | null>(null);
   const latestEntryId = entries.length ? entries[entries.length - 1].id : undefined;
   useEffect(() => {
@@ -306,6 +377,7 @@ export function WorldCanvas() {
 
   const appendEntry = useCallback((entry: WorldSceneEntry) => {
     visibleQueueRef.current = visibleQueueRef.current.then(async () => {
+      if (!isCurrent()) return;
       // 这条内容如果刚刚流式出现过，直接落位：清掉临时气泡，也不再等节拍延迟。
       // 复合键与流式增量一致（turnId + sceneId + speakerId + kind），
       // 旧数据没有 meta 时拿不到 turnId → 认为没流式过，走正常揭示节拍。
@@ -330,12 +402,13 @@ export function WorldCanvas() {
       }
       const reveal = wasStreamed ? 0 : canvasRevealDelay(entry, visibleSpeakerRef.current);
       if (reveal > 0) await wait(reveal);
+      if (!isCurrent()) return;
       setEntries((prev) => (prev.some((e) => e.id === entry.id) ? prev : [...prev, entry]));
       if (!stickRef.current) setUnseen((n) => n + 1);
       if (entry.kind === 'dialogue' || entry.kind === 'action') visibleSpeakerRef.current = entry.speakerId ?? null;
     });
     return visibleQueueRef.current;
-  }, [partialKeyOf]);
+  }, [partialKeyOf, isCurrent]);
 
   const onScroll = () => {
     const el = scrollerRef.current;
@@ -350,12 +423,15 @@ export function WorldCanvas() {
   /* ------------------------------ 一轮世界交互 ------------------------------ */
   const send = useCallback(async (value: string, origin: 'text' | 'suggestion' | 'control' = 'text', options: { forceSettle?: boolean } = {}) => {
     const payload = value.trim();
-    if (!payload || !scene || !userId || busy) return;
+    if (!payload || !scene || !userId || busy || awaitingVisibleReplyRef.current > 0 || savingStoryRef.current) return;
     if (scene.status === 'finished') return; // 已结束的世界只读
+    const generation = ++presentationGeneration.current;
+    const ownsPresentation = () => isCurrent() && presentationGeneration.current === generation;
     let awaitingVisibleReply = true;
     const releaseVisibleReply = () => {
       if (!awaitingVisibleReply) return;
       awaitingVisibleReply = false;
+      if (!isCurrent()) return;
       awaitingVisibleReplyRef.current = Math.max(0, awaitingVisibleReplyRef.current - 1);
       setBusy(awaitingVisibleReplyRef.current > 0);
     };
@@ -370,6 +446,7 @@ export function WorldCanvas() {
     stickRef.current = true;
     try {
       const world = await worldRepo.ensureDefaultWorld(userId);
+      if (!isCurrent()) return;
       const list = useChatStore.getState().characters;
       let firstCharacterReplyShown = false;
       const result = await runWorldTurn({
@@ -382,7 +459,8 @@ export function WorldCanvas() {
         entryMemoryMode,
         ...(options.forceSettle ? { forceSettle: true } : {}),
         onEvent: (event) => {
-          if (event.type === 'partial') handleTurnPartial(event);
+          if (!isCurrent()) return;
+          if (event.type === 'partial' && ownsPresentation()) handleTurnPartial(event);
           if (event.type === 'entry' || event.type === 'user_entry') {
             appendEntry(event.entry);
             // 世界流已经出现第一位角色的完整动作/对白后，允许用户继续输入。
@@ -397,6 +475,7 @@ export function WorldCanvas() {
         },
       });
       await visibleQueueRef.current;
+      if (!ownsPresentation()) return;
       if (result.status === 'failed') {
         setFailedTurnId(result.turnId);
         setError(humanWorldError(result.error));
@@ -404,19 +483,28 @@ export function WorldCanvas() {
         setSuggestions(result.suggestions);
       }
       // 本地动作可能改了地点/时间/在场的人 → 刷新这一段
-      const refreshed = await loadCanvas(scene.id, { userId });
-      if (refreshed) {
+      const visibleIds = new Set(entriesRef.current.map(entry => entry.id));
+      const [refreshed, visibleRows] = await Promise.all([
+        loadCanvas(scene.id, { userId }),
+        worldSceneRepo.getEntriesById([...visibleIds]),
+      ]);
+      if (ownsPresentation() && refreshed) {
+        const currentById = new Map([...visibleRows, ...refreshed.entries].map(entry => [entry.id, entry]));
         setScene(refreshed.scene);
-        setEntries(refreshed.entries);
-        setHasMore(refreshed.hasMore);
+        setEntries(previous => {
+          const merged = new Map(previous.filter(entry => !visibleIds.has(entry.id) || currentById.has(entry.id)).map(entry => [entry.id, entry]));
+          for (const entry of currentById.values()) merged.set(entry.id, entry);
+          return [...merged.values()].sort((a,b) => a.index-b.index);
+        });
+        setHasMore(refreshed.total > currentById.size);
       }
     } catch (cause) {
-      setError(humanWorldError(cause instanceof Error ? cause.message : String(cause)));
+      if (ownsPresentation()) setError(humanWorldError(cause instanceof Error ? cause.message : String(cause)));
     } finally {
       releaseVisibleReply();
-      clearPartials();
+      if (ownsPresentation()) clearPartials();
     }
-  }, [scene, userId, busy, appendEntry, entryMemoryMode, clearPartials, handleTurnPartial]);
+  }, [scene, userId, busy, appendEntry, entryMemoryMode, clearPartials, handleTurnPartial, isCurrent]);
 
   /** 世界主页的「灵感」按钮：进入世界后由它把那句话说出来（§79） */
   useEffect(() => {
@@ -429,11 +517,15 @@ export function WorldCanvas() {
   }, [send]);
 
   const retry = useCallback(async () => {
-    if (!failedTurnId) return;
+    if (!failedTurnId || awaitingVisibleReplyRef.current > 0 || savingStoryRef.current) return;
+    const generation = ++presentationGeneration.current;
+    const ownsPresentation = () => isCurrent() && presentationGeneration.current === generation;
+    const visibleEntryIds = new Set(entries.map(entry => entry.id));
     let awaitingVisibleReply = true;
     const releaseVisibleReply = () => {
       if (!awaitingVisibleReply) return;
       awaitingVisibleReply = false;
+      if (!isCurrent()) return;
       awaitingVisibleReplyRef.current = Math.max(0, awaitingVisibleReplyRef.current - 1);
       setBusy(awaitingVisibleReplyRef.current > 0);
     };
@@ -446,28 +538,39 @@ export function WorldCanvas() {
         turnId: failedTurnId,
         characters: useChatStore.getState().characters,
         onEvent: (event) => {
-          if (event.type === 'partial') handleTurnPartial(event);
+          if (!isCurrent()) return;
+          if (event.type === 'partial' && ownsPresentation()) handleTurnPartial(event);
           if (event.type === 'entry') appendEntry(event.entry);
           if (event.type === 'ready') void visibleQueueRef.current.then(releaseVisibleReply);
         },
       });
       await visibleQueueRef.current;
+      if (!ownsPresentation()) return;
+      // Retry reclaims generated rows from the failed attempt. Reconcile only
+      // the rows already on screen, keeping history loaded during the retry.
+      const currentRows = await worldSceneRepo.getEntriesById([...visibleEntryIds]);
+      if (!ownsPresentation()) return;
+      const currentById = new Map(currentRows.map(entry => [entry.id, entry]));
+      setEntries(previous => previous.filter(entry => !visibleEntryIds.has(entry.id) || currentById.has(entry.id))
+        .map(entry => currentById.get(entry.id) ?? entry));
       if (result?.status === 'completed') {
         setFailedTurnId(null);
         setSuggestions(result.suggestions);
       } else {
         setError(humanWorldError(result?.error));
       }
+    } catch (cause) {
+      if (ownsPresentation()) setError(humanWorldError(cause instanceof Error ? cause.message : String(cause)));
     } finally {
       releaseVisibleReply();
-      clearPartials();
+      if (ownsPresentation()) clearPartials();
     }
-  }, [failedTurnId, appendEntry, clearPartials, handleTurnPartial]);
+  }, [failedTurnId, entries, appendEntry, clearPartials, handleTurnPartial, isCurrent]);
 
   /* ------------------------------ 控制面板动作 ------------------------------ */
   const runControl = useCallback(async (action: WorldControlAction) => {
-    if (!scene || !userId) return;
-    const charactersNow = useChatStore.getState().characters;
+    if (!scene || !userId || !isCurrent() || savingStoryRef.current) return;
+    try {
     switch (action.kind) {
       case 'characters_talk':
         setSheetOpen(false);
@@ -482,6 +585,7 @@ export function WorldCanvas() {
             entryMemoryMode: action.mode,
           })),
         });
+        if (!isCurrent()) return;
         setToast(action.mode === 'memory' ? '角色会带着共同记忆进入' : '角色只带着此刻状态进入');
         return;
       case 'time_skip':
@@ -502,6 +606,7 @@ export function WorldCanvas() {
       case 'pause':
         // 暂时离开：保留进行状态，不结算、不释放角色。
         await pauseCanvas(scene.id, userId ?? undefined);
+        if (!isCurrent()) return;
         setSheetOpen(false);
         setToast('这一段留着，随时回来。');
         return;
@@ -511,6 +616,7 @@ export function WorldCanvas() {
         setBusy(true);
         try {
           const finishedScene = await worldSceneRepo.getScene(scene.id);
+          if (!isCurrent()) return;
           if (finishedScene?.status === 'finished') {
             setScene(finishedScene);
             setToast('这个世界已经结束并保存过了。');
@@ -521,11 +627,13 @@ export function WorldCanvas() {
             sceneId: scene.id,
             apiKey: useAuthStore.getState().apiKey ?? '',
           });
+          if (!isCurrent()) return;
           if (result.error) {
             setError(humanWorldError(result.error));
             return;
           }
           const refreshed = await loadCanvas(scene.id, { userId });
+          if (!isCurrent()) return;
           if (refreshed) {
             setScene(refreshed.scene);
             setEntries(refreshed.entries);
@@ -537,44 +645,106 @@ export function WorldCanvas() {
           if (result.unresolvedThreads > 0) parts.push(`${result.unresolvedThreads} 件未完成的事`);
           setToast(parts.join(' · '));
         } catch {
-          setError('结束这个世界时没能保存经历，请再试一次。');
+          if (isCurrent()) setError('结束这个世界时没能保存经历，请再试一次。');
         } finally {
-          setBusy(false);
+          if (isCurrent()) setBusy(false);
         }
         return;
       }
       case 'save_story': {
+        const recordEpoch = recordEpochRef.current;
+        const recordCurrent = () => isCurrent() && recordEpochRef.current === recordEpoch;
+        savingStoryRef.current = true;
+        setSavingStory(true); setRecordError(null);
+        try {
         const world = await worldRepo.ensureDefaultWorld(userId);
-        const saved = await saveAsStory({ userId, worldId: world.id, sceneId: scene.id });
-        setSheetOpen(false);
+        if (!recordCurrent()) return;
+        // One local action must not leave a timeline event without its memory or
+        // permissions if a later write fails. The existing record format is unchanged.
+        const saved = await db.transaction('rw', [db.worldScenes, db.worldSceneEntries, db.worldEvents, db.sharedMemories, db.characterKnowledge, db.memorySourceTombstones], async () => {
+          if (!recordCurrent()) throw Error('world-record:scope-changed');
+          const result = await saveAsStory({ userId, worldId: world.id, sceneId: scene.id });
+          if (!recordCurrent()) throw Error('world-record:scope-changed');
+          return result;
+        });
+        if (!recordCurrent()) return;
         if (saved) {
+          setSheetOpen(false);
           setSavedStory(true);
           setToast(`已经写入这个世界：${saved.title}`);
+        } else {
+          setRecordError('这一幕暂时无法写入记录，请重新打开后再试。');
+        }
+        } catch {
+          if (recordCurrent()) setRecordError('记录没有完整写入，请重试。原来的场景仍然保留。');
+        } finally {
+          savingStoryRef.current = false;
+          if (isCurrent()) setSavingStory(false);
         }
         return;
       }
       default:
         setSheetOpen(false);
     }
-  }, [scene, userId, send]);
+    } catch (cause) {
+      if (isCurrent()) setError(humanWorldError(cause instanceof Error ? cause.message : String(cause)));
+    }
+  }, [scene, userId, send, isCurrent]);
 
   const exitCanvas = useCallback(async () => {
-    if (scene?.status === 'active') await pauseCanvas(scene.id, userId ?? undefined);
+    // Exit intent cancels an uncommitted record before awaiting the pause write.
+    recordEpochRef.current++;
+    try {
+      if (scene?.status === 'active') await pauseCanvas(scene.id, userId ?? undefined);
+    } catch {
+      if (isCurrent()) setError('暂时没能保存暂停状态，请再试一次。');
+      return;
+    }
+    if (!isCurrent()) return;
     useUIStore.getState().setActiveView('chat');
     useUIStore.getState().setMobileTab('world');
-  }, [scene]);
+  }, [scene, userId, isCurrent]);
 
   const loadMore = useCallback(async () => {
-    const el = scrollerRef.current;
-    if (!scene || !hasMore || entries.length === 0) return;
-    const previousHeight = el?.scrollHeight ?? 0;
-    const older = await loadEarlier(scene.id, entries[0].index, 60, userId ?? undefined);
-    setEntries((prev) => [...older, ...prev]);
-    setHasMore(older.length >= 60);
-    requestAnimationFrame(() => {
-      if (el) el.scrollTop = el.scrollHeight - previousHeight;
-    });
-  }, [scene, hasMore, entries]);
+    if (!scene || !hasMore || entries.length === 0 || loadingEarlierRef.current) return;
+    const owner = userId;
+    const selectedScene = canvasSceneId;
+    const scope = earlierScopeRef.current;
+    const isCurrent = () => earlierScopeRef.current === scope
+      && useAuthStore.getState().userId === owner
+      && useUIStore.getState().canvasSceneId === selectedScene
+      && scrollerRef.current !== null;
+    loadingEarlierRef.current = true;
+    setLoadingEarlier(true);
+    try {
+      const older = await loadEarlier(scene.id, entries[0].index, 60, userId ?? undefined);
+      if (!isCurrent()) return;
+      const node = scrollerRef.current!;
+      // Measure after the request: the reader may have moved while it loaded.
+      prependAnchorRef.current = { node, height: node.scrollHeight, top: node.scrollTop };
+      setEntries((prev) => {
+        const ids = new Set(prev.map((entry) => entry.id));
+        return [...older.filter((entry) => !ids.has(entry.id)), ...prev];
+      });
+      setHasMore(older.length >= 60);
+    } catch {
+      if (isCurrent()) setToast('更早的内容暂时没有打开，可以再试一次。');
+    } finally {
+      if (isCurrent()) {
+        loadingEarlierRef.current = false;
+        setLoadingEarlier(false);
+      }
+    }
+  }, [scene, hasMore, entries, userId, canvasSceneId, setToast]);
+
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current;
+    if (!anchor) return;
+    prependAnchorRef.current = null;
+    if (anchor.node === scrollerRef.current) {
+      anchor.node.scrollTop = anchor.top + anchor.node.scrollHeight - anchor.height;
+    }
+  }, [entries]);
 
   const presence = useMemo(() => {
     if (!scene) return { present: [] };
@@ -584,21 +754,26 @@ export function WorldCanvas() {
   }, [scene, characters, worldPresence]);
 
   const moveToLocation = useCallback(async (location: WorldLocation) => {
-    if (!scene || !userId) return;
-    const moved = await moveSceneToLocation({
-      userId,
-      worldId: scene.worldId,
-      sceneId: scene.id,
-      locationId: location.id,
-    });
-    if (moved) setScene(moved);
-    setExploreOpen(false);
-    await send(`我想前往“${location.name}”，看看那里现在发生了什么`, 'control');
-  }, [moveSceneToLocation, scene, send, userId]);
+    if (!scene || !userId || !isCurrent()) return;
+    try {
+      const moved = await moveSceneToLocation({
+        userId,
+        worldId: scene.worldId,
+        sceneId: scene.id,
+        locationId: location.id,
+      });
+      if (!isCurrent()) return;
+      if (moved) setScene(moved);
+      setExploreOpen(false);
+      await send(`我想前往“${location.name}”，看看那里现在发生了什么`, 'control');
+    } catch {
+      if (isCurrent()) setError('暂时没能前往那里，请再试一次。');
+    }
+  }, [scene, send, userId, isCurrent]);
 
   useEffect(() => {
     if (!scene) return;
-    void canvasPresence(scene, characters);
+    void canvasPresence(scene, characters).catch(() => {});
   }, [scene, characters]);
 
   if (!userId) return null;
@@ -607,22 +782,22 @@ export function WorldCanvas() {
 
   return (
     <div
-      className={`vg-canvas relative vg-world-light-${canvasVisual?.light ?? 'night'} vg-world-particle-${canvasVisual?.particle ?? 'dust'}${busy ? ' vg-canvas-is-busy' : ''}${sheetOpen ? ' vg-canvas-sheet-open' : ''}`}
+      className={`vg-canvas vg-light-paper vg-reading-paper relative vg-world-light-${canvasVisual?.light ?? 'night'} vg-world-particle-${canvasVisual?.particle ?? 'dust'}${busy ? ' vg-canvas-is-busy' : ''}${sheetOpen ? ' vg-canvas-sheet-open' : ''}`}
       style={canvasVisual ? visualCss(canvasVisual) : undefined}
     >
       {/* 顶部只留入口、当前片段和两个动作；地点/人物详情点开再看。 */}
       <div className="vg-canvas-top">
         <button type="button" className="vg-canvas-back" onClick={() => void exitCanvas()} aria-label="离开世界"><Icon name="back" size={20} /></button>
         <div className="vg-canvas-title-stack">
-          <p className="vg-canvas-title">{scene?.title || '世界'}</p>
+          <h1 className="vg-canvas-title"><span ref={sceneTitleRef}>{scene?.title || '世界'}</span></h1>
           <p className="vg-canvas-place">{scene ? `${scene.place} · ${worldTimeLabel(scene)}` : '正在进入世界…'}</p>
         </div>
         <div className="vg-canvas-actions">
-          <button type="button" className="vg-canvas-more" onClick={() => setExploreOpen((value) => !value)} aria-expanded={exploreOpen}>
-            <span aria-hidden="true">⌖</span><span>探索</span>
+          <button type="button" className="vg-canvas-more" onClick={() => setExploreOpen((value) => !value)} aria-expanded={exploreOpen} aria-label="探索世界">
+            <Icon name="compass" size={23}/>
           </button>
           <button type="button" className="vg-canvas-more vg-canvas-menu-button" onClick={() => setHeaderOpen((v) => !v)} aria-expanded={headerOpen} aria-label="查看世界状态">
-            <span aria-hidden="true">···</span>
+            <Icon name="gear" size={23}/>
           </button>
         </div>
       </div>
@@ -639,6 +814,7 @@ export function WorldCanvas() {
       )}
       {headerOpen && scene && (
         <div className="vg-canvas-panel">
+          <h2 className="vg-canvas-panel-title">{scene.title}</h2>
           <p>地点：{scene.place}</p>
           <p>时间：{worldTimeLabel(scene)}</p>
           <p>氛围：{scene.mood}</p>
@@ -647,16 +823,20 @@ export function WorldCanvas() {
       )}
 
       {/* 内容流 */}
-      {scene && <StoryCompass key={scene.id} scene={scene} entries={entries} busy={busy}
+      {scene && <StoryCompass key={scene.id} scene={scene} entries={entries} busy={busy || savingStory}
         onAct={(value) => void send(value, 'control')}
         onGoal={async (sceneGoal) => {
-          await worldSceneRepo.patchSceneState(scene.id, { sceneGoal });
-          setScene((current) => current?.id === scene.id ? { ...current, state: { ...current.state, sceneGoal } } : current);
+          try {
+            await worldSceneRepo.patchSceneState(scene.id, { sceneGoal });
+            if (isCurrent()) setScene((current) => current?.id === scene.id ? { ...current, state: { ...current.state, sceneGoal } } : current);
+          } catch {
+            if (isCurrent()) setError('这次目标没有保存，请再试一次。');
+          }
         }} />}
-      <div className="vg-canvas-scroll" ref={scrollerRef} onScroll={onScroll}>
+      <div className="vg-canvas-scroll" role="region" aria-label="世界剧情记录" tabIndex={0} ref={scrollerRef} onScroll={onScroll} style={{ overflowAnchor: 'none' }}>
         {hasMore && (
-          <button type="button" className="vg-load-earlier" onClick={() => void loadMore()}>
-            查看更早内容
+          <button type="button" className="vg-load-earlier" onClick={() => void loadMore()} disabled={loadingEarlier} aria-busy={loadingEarlier}>
+            {loadingEarlier ? '正在读取更早内容…' : '查看更早内容'}
           </button>
         )}
         {loading ? (
@@ -693,7 +873,7 @@ export function WorldCanvas() {
                 const ordered = [...speakerSlices].sort((a, b) => (a.field === 'action' ? 0 : 1) - (b.field === 'action' ? 0 : 1));
                 return (
                   <div key={speakerId} className="vg-beat">
-                    <Avatar avatar={character?.avatar ?? '🙂'} size="sm" />
+                    <WorldCharacterAvatar character={character}/>
                     <div className="min-w-0 flex-1">
                       <p className="vg-beat-name">{character?.name ?? '某人'}</p>
                       {ordered.map((slice, index) => slice.field === 'action' ? (
@@ -709,25 +889,16 @@ export function WorldCanvas() {
           );
         })()}
 
-        {error && (
-          <div className="vg-canvas-error">
-            <p>{error}</p>
-            {failedTurnId && (
-              <button type="button" onClick={() => void retry()} disabled={busy}>重试</button>
-            )}
-          </div>
-        )}
       </div>
-
-      {unseen > 0 && (
-        <button type="button" className="vg-new-content" onClick={() => scrollToBottom(true)}>
-          ↓ 新内容
-        </button>
-      )}
 
       {/* 灵感与输入：角色召入直接用自然语言完成，不再占用一整行快捷栏。
           已结束的世界是只读回看：不再提供输入，出口明确。 */}
       <div className="vg-canvas-bottom">
+        {unseen > 0 && <button type="button" className="vg-new-content" style={{bottom:'calc(100% + 8px)',minHeight:44,fontSize:12}} onClick={()=>scrollToBottom(true)}>↓ 新内容</button>}
+        {error && <FeedbackNotice tone="error" message={error}>
+          {!scene && <button type="button" className="vg-button vg-button-secondary" disabled={loading} onClick={()=>setLoadAttempt(value=>value+1)}>重新打开这一幕</button>}
+          {failedTurnId && <button type="button" className="vg-button vg-button-secondary" onClick={()=>void retry()} disabled={busy}>重试</button>}
+        </FeedbackNotice>}
         {scene?.status === 'finished' ? (
           <div className="vg-canvas-finished">
             <p>这个世界已经结束，经历已经写入世界记录。</p>
@@ -742,22 +913,27 @@ export function WorldCanvas() {
             />
             <WorldComposer
               value={text}
-              onFocusInput={() => { stickRef.current = true; setUnseen(0); followLatest(true); }}
+              onFocusInput={() => { if (stickRef.current) followLatest(); }}
               onChange={setText}
               onSend={() => void send(text)}
               onOpenControls={() => setSheetOpen(true)}
-              busy={busy}
+              busy={busy || savingStory}
               aiDetail={ai && ai.status === 'UNAVAILABLE' ? ai.detail : null}
             />
           </>
         )}
+        {!sheetOpen && (savingStory || recordError) && <FeedbackNotice tone={recordError ? 'error' : 'info'} message={recordError ?? '正在写入世界记录…'} />}
         {savedStory && <p className="vg-canvas-saved">这一段已经写入世界记录。</p>}
       </div>
 
       <WorldControlSheet
+        surface="light-paper"
         open={sheetOpen}
         scene={scene}
-        busy={busy}
+        busy={busy || savingStory}
+        recordMessage={recordError ?? (savingStory ? '正在写入世界记录…' : undefined)}
+        recordFailed={!!recordError}
+        canSnapshotOnExit={isCurrent}
         entryMemoryMode={entryMemoryMode}
         onClose={() => setSheetOpen(false)}
         onAction={(action) => void runControl(action)}

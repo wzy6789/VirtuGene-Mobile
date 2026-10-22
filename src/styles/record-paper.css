@@ -1,0 +1,16 @@
+/* S03-B3: the actual record dialog opts in; no global reading surfaces change. */
+.vg-modal-panel.vg-record-paper{background:var(--bg);color:var(--text);border-color:var(--border);box-shadow:none}
+.vg-record-paper .vg-modal-header{min-height:56px;padding:6px 16px;background:var(--bg);border-color:var(--border)}
+.vg-record-paper .vg-modal-header h2{font-size:max(16px,1rem);font-weight:500;letter-spacing:normal}
+.vg-record-paper .vg-modal-header button{min-width:44px;min-height:44px}
+.vg-record-paper .vg-record-paper-body{max-width:42rem;margin-inline:auto;padding:24px;overflow-wrap:anywhere}
+.vg-record-paper .vg-record-title{font-size:max(26px,1.625rem);line-height:1.35;font-weight:500;letter-spacing:normal;text-shadow:none}
+.vg-record-paper .vg-record-metadata{display:grid;gap:8px;padding-top:0;border:0;font-size:max(13px,.8125rem);line-height:1.55;color:var(--text-secondary)}
+.vg-record-paper .vg-record-metadata>div{display:flex;gap:12px;margin:0;align-items:baseline}
+.vg-record-paper .vg-record-metadata dt{flex:0 0 6.5em}
+.vg-record-paper .vg-record-metadata dd{min-width:0;margin:0}
+.vg-record-paper .vg-record-prose{margin-top:24px;padding-top:24px;border-top:1px solid var(--border);font-size:max(16px,1rem);line-height:1.75;font-weight:400;color:var(--text);text-shadow:none}
+.vg-record-paper details{border-color:var(--border)}
+.vg-record-paper details summary{min-height:48px;padding:12px 0;justify-content:flex-start;font-size:max(14px,.875rem);color:var(--vg-accent);white-space:normal}
+.vg-record-paper .vg-record-paper-body>p:last-child{font-size:max(13px,.8125rem);line-height:1.55;color:var(--text-secondary)}
+@media(max-width:360px){.vg-record-paper .vg-record-paper-body{padding:20px}.vg-record-paper .vg-record-metadata>div{flex-wrap:wrap;gap:0 8px}}

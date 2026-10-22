@@ -1,0 +1,17 @@
+import {build} from 'esbuild';
+import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {createHash} from 'node:crypto';
+import {pathToFileURL} from 'node:url';
+const root='release/chat-core-implementation-20261021/output',before=process.argv.includes('--before');
+const source='src/lib/chat-output-quality.ts',frozen=root+'/before/'+source;
+mkdirSync(root,{recursive:true});
+const hash=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+const files=[source,'src/lib/chat/output-contract.ts','server/chat-messaging-policy.mjs','src/lib/ai/text.ts'];
+const hashes=()=>Object.fromEntries(files.map(p=>[p,hash(p)]));
+const sourceHashesBefore=hashes(),modulePath=resolve(root,`contract-${before?'before':'current'}-${Date.now()}.mjs`);
+await build({entryPoints:['scripts/verify/chat-output-contract.ts'],outfile:modulePath,bundle:true,platform:'node',format:'esm',define:{CONTRACT_BEFORE:JSON.stringify(before),'import.meta.env':'{}','import.meta.hot':'undefined'},plugins:before?[{name:'frozen-quality',setup(b){b.onLoad({filter:/[\\/]src[\\/]lib[\\/]chat-output-quality\.ts$/},()=>({loader:'ts',contents:readFileSync(frozen,'utf8')}));}}]:[]});
+const result=(await import(pathToFileURL(modulePath).href)).run();
+const path=modulePath.replace(/\.mjs$/,'.json');
+writeFileSync(path,JSON.stringify({...result,sourceHashesBefore,sourceHashesAfter:hashes(),frozenQualitySha:hash(frozen),apiCalls:0,microphoneUsed:false},null,2));
+console.log(JSON.stringify({path,complete:result.complete,checks:result.checks.length,failures:result.failures.map(c=>c.name)},null,2));if(!result.complete)process.exitCode=1;

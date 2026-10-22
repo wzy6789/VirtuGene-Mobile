@@ -1,0 +1,81 @@
+import fs from 'node:fs';
+import { build } from 'esbuild';
+import { createServer } from 'node:http';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
+const { chromium } = createRequire(join(dirname(process.execPath), 'package.json'))('playwright');
+const before = process.argv.includes('--before');
+const out = '.tmp-preview/ui-overhaul-20261017/connection-health/' + (before ? 'before' : 'after');
+fs.mkdirSync(out, { recursive: true });
+const fixture = `import React from 'react';import {createRoot} from 'react-dom/client';import {ApiKeyManager} from './src/components/settings/ApiKeyManager';import {SettingsPanel} from './src/components/settings/SettingsPanel';import {useAuthStore} from './src/store/auth-store';import {useSettingsStore} from './src/store/settings-store';import {saveProviderConfig} from './src/lib/ai/provider-config';import {persistSecret} from './src/lib/api-key-storage';import {notifyProviderCredentialsChanged} from './src/components/settings/useModelCatalog';
+const root=createRoot(document.getElementById('app'));let mode='editor',serial=0,response='success',held=null;const calls=[];
+window.fetch=async(url,options)=>{if(!String(url).startsWith('http://127.0.0.1:44555/'))throw Error('fixture:external-network-blocked');calls.push({method:options?.method??'GET'});if(response==='hold')await new Promise((resolve,reject)=>{held=resolve;options?.signal?.addEventListener('abort',()=>reject(new DOMException('aborted','AbortError')),{once:true});});return new Response(JSON.stringify(response==='failure'?{error:{message:'controlled failure'}}:{data:[{id:'fixture-model'},{id:'fixture-next'}]}),{status:response==='failure'?503:200,headers:{'Content-Type':'application/json'}});};
+navigator.mediaDevices.getUserMedia=async()=>{throw Error('fixture:microphone-blocked');};HTMLMediaElement.prototype.play=async()=>{throw Error('fixture:audio-blocked');};
+function mount(next='editor'){mode=next;serial++;root.render(<div className="mobile-layout h-screen bg-base text-ink"><h1 className="text-xl">本地隔离连接夹具</h1>{mode==='editor'?<ApiKeyManager key={serial} embedded onClose={()=>{}}/>:<SettingsPanel key={serial} open initialPage="connection" onClose={()=>{}}/>}</div>);}
+window.connectionFixture={calls,mount,mode:value=>{response=value;},release:()=>{response='success';held?.();held=null;},held:()=>!!held,record:()=>localStorage.getItem('virtugene-connection-checks-v1'),save:(baseUrl='http://127.0.0.1:44555/v1')=>saveProviderConfig('custom',{baseUrl,enabled:true,models:[{id:'fixture-model'},{id:'fixture-next'}]}),key:async value=>{await persistSecret('custom-key',value);notifyProviderCredentialsChanged();},owner:value=>useAuthStore.getState().login(value,'本地夹具',null,'🙂'),expire:()=>{const key='virtugene-connection-checks-v1',rows=JSON.parse(localStorage.getItem(key)||'{}');for(const row of Object.values(rows))row.at=Date.now()-25*3600000;localStorage.setItem(key,JSON.stringify(rows));window.dispatchEvent(new Event('vg:connection-check-change'));}};
+useAuthStore.getState().login('connection-owner-a','本地夹具',null,'🙂');useSettingsStore.setState({defaultModel:{provider:'custom',model:'fixture-model'}});window.connectionFixture.save();mount();`;
+const bundle = await build({ stdin: { contents: fixture, resolveDir: process.cwd(), loader: 'tsx' }, bundle: true, write: false, jsx: 'automatic', loader: { '.css': 'empty', '.png': 'dataurl', '.webp': 'dataurl' }, define: { 'import.meta.hot': 'undefined', 'import.meta.env': '{"DEV":true}', __APP_VERSION__: '"connection-check"' }, plugins: before ? [{ name: 'isolated-before', setup(b) { for (const name of ['ApiKeyManager', 'SettingsPanel']) b.onLoad({ filter: new RegExp(name + '\\.tsx$') }, () => ({ contents: fs.readFileSync('.tmp-preview/ui-overhaul-20261017/connection-health/' + name + '-before.tsx', 'utf8'), loader: 'tsx', resolveDir: resolve('src/components/settings') })); } }] : [], logLevel: 'silent' });
+const css = fs.readdirSync('dist/renderer/assets').filter(name => name.endsWith('.css')).map(name => fs.readFileSync('dist/renderer/assets/' + name, 'utf8')).join('\n');
+const server = createServer((req, res) => { if (req.url === '/fixture.js') { res.setHeader('Content-Type', 'text/javascript'); res.end(bundle.outputFiles[0].contents); } else { res.setHeader('Content-Type', 'text/html;charset=utf-8'); res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; media-src 'none'"); res.end('<!doctype html><html lang="zh-CN" class="dark"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>' + css + '</style><div id="app"></div><script src="/fixture.js"></script></html>'); } });
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const browser = await chromium.launch({ channel: 'chrome', headless: true }), checks = [], errors = [];
+const check = (value, name) => { checks.push({ name, pass: !!value }); if (!value) throw Error(name); };
+let page;
+try {
+  page = await browser.newPage({ viewport: { width: 320, height: 700 }, reducedMotion: 'reduce' });
+  page.setDefaultTimeout(4000); page.on('pageerror', error => errors.push(error.message));
+  await page.goto('http://127.0.0.1:' + server.address().port);
+  const open = async () => { await page.getByRole('button', { name: '配置 自定义 · OpenAI 兼容', exact: true }).click(); await page.getByRole('button', { name: '测试连接', exact: true }).waitFor(); };
+  const status = expected => page.locator('[data-provider-editor="custom"] [data-connection-check="' + expected + '"]');
+  const testing = () => page.getByRole('button', { name: '测试连接', exact: true });
+  const remount = async () => { await page.evaluate(() => connectionFixture.mount()); await open(); };
+  await open(); check(await page.evaluate(() => connectionFixture.calls.length) === 0, 'opening settings does not send a provider request');
+  if (before) {
+    await testing().click(); await page.getByText('服务商已响应，密钥可读取模型列表。具体模型权限以实际调用为准。', { exact: true }).waitFor();
+    await remount(); await testing().scrollIntoViewIfNeeded(); await page.screenshot({ path: out + '/reentered.png' });
+    check(await status('success').count() === 1, 'explicit saved test remains visible with its timestamp after leaving and reentering');
+  } else {
+    await status('untested').waitFor(); check(true, 'saved but never tested configuration is labelled untested');
+    await page.evaluate(() => connectionFixture.mode('hold')); await testing().click(); await status('checking').waitFor(); check(true, 'only explicit saved test enters checking state');
+    await page.evaluate(() => connectionFixture.release()); await status('success').waitFor();
+    check(await status('success').locator('time').getAttribute('datetime').then(value => Number.isFinite(Date.parse(value))), 'successful check includes an ISO-backed local time');
+    check(await status('success').innerText().then(value => value.includes('不代表所有模型都能生成回复')), 'catalog success does not claim model generation access');
+    const originalRecord = await page.evaluate(() => connectionFixture.record());
+    await remount(); await status('success').waitFor(); await testing().scrollIntoViewIfNeeded(); await page.screenshot({ path: out + '/reentered.png' }); check(await page.evaluate(() => connectionFixture.calls.length) === 1, 'reentry retains success and sends no automatic provider request');
+    await page.evaluate(() => connectionFixture.mount('overview')); await page.getByRole('region', { name: '当前默认模型' }).locator('[data-connection-check="success"]').waitFor(); check(true, 'actual settings overview displays the same saved-model record');
+    await remount(); await page.getByLabel('测试模型', { exact: true }).selectOption('fixture-next'); await status('untested').waitFor(); check(true, 'different selected model cannot inherit another model check');
+    await page.getByLabel('测试模型', { exact: true }).selectOption('fixture-model'); await status('success').waitFor();
+    await page.evaluate(() => connectionFixture.save('http://127.0.0.1:44555/saved-next')); await status('changed').waitFor(); check(true, 'changed saved endpoint invalidates the previous check');
+    await page.getByLabel('API 根地址', { exact: true }).fill('http://127.0.0.1:44555/temporary'); await testing().click();
+    await page.getByText('本次结果未写入已保存连接的检测记录，请确认已保存配置。', { exact: false }).waitFor();
+    check(await page.evaluate(() => connectionFixture.record()) === originalRecord && await status('changed').count() === 1, 'successful unsaved endpoint test cannot upgrade saved connection health');
+    await remount(); await page.evaluate(() => connectionFixture.mode('failure')); await testing().click(); await status('failure').waitFor(); check(true, 'explicit saved failure replaces prior success with a dated failure');
+    await page.screenshot({ path: out + '/failure-dark-320.png' });
+    const failureRecord = await page.evaluate(() => connectionFixture.record());
+    await page.evaluate(() => connectionFixture.key('fixture-secret-not-for-evidence')); await status('changed').waitFor(); check(true, 'changed encrypted credential invalidates prior success or failure');
+    await page.getByLabel('自定义 · OpenAI 兼容 API Key', { exact: true }).fill('temporary-key-not-for-evidence'); await page.evaluate(() => connectionFixture.mode('success')); await testing().click();
+    await page.getByText('本次结果未写入已保存连接的检测记录，请确认已保存配置。', { exact: false }).waitFor();
+    check(await page.evaluate(() => connectionFixture.record()) === failureRecord, 'successful temporary key cannot update the saved-key record');
+    await page.getByLabel('自定义 · OpenAI 兼容 API Key', { exact: true }).fill('');
+    await page.evaluate(() => connectionFixture.mode('hold')); await testing().click(); await status('checking').waitFor();
+    await page.evaluate(() => connectionFixture.save('http://127.0.0.1:44555/during-request')); await status('changed').waitFor(); await page.evaluate(() => connectionFixture.release()); await testing().waitFor({ state: 'visible' });
+    check(await page.evaluate(() => connectionFixture.record()) === failureRecord && await status('changed').count() === 1, 'response to an old saved endpoint cannot validate a newly saved endpoint');
+    await remount();
+    await page.evaluate(() => { connectionFixture.owner('connection-owner-b'); }); await open(); await status('untested').waitFor(); check(true, 'another account cannot see the first account detection status');
+    await page.evaluate(() => connectionFixture.owner('connection-owner-a')); await open(); await status('changed').waitFor();
+    await page.evaluate(() => connectionFixture.mode('hold')); await testing().click(); await status('checking').waitFor(); await page.getByRole('button', { name: '取消请求', exact: true }).click(); await status('changed').waitFor();
+    await page.evaluate(() => connectionFixture.release()); check(await page.evaluate(() => connectionFixture.record()) === failureRecord, 'cancelling a pending check preserves its prior record');
+    await page.evaluate(() => connectionFixture.mode('hold')); await testing().click(); await status('checking').waitFor();
+    await page.evaluate(() => connectionFixture.owner('connection-owner-b')); await page.evaluate(() => connectionFixture.release()); await open(); await status('untested').waitFor();
+    check(await page.evaluate(() => connectionFixture.record()) === failureRecord, 'late response after account change cannot persist or disclose a former account check');
+    await page.evaluate(() => connectionFixture.owner('connection-owner-a')); await open(); await page.evaluate(() => connectionFixture.mode('success')); await testing().click(); await status('success').waitFor();
+    await page.evaluate(() => connectionFixture.expire()); await status('expired').waitFor(); check(true, '24-hour expiry is explicit and never silently retests');
+    const metadata = await page.evaluate(() => connectionFixture.record()); check(!['fixture-secret-not-for-evidence', 'http://', 'fixture-model', 'connection-owner', 'controlled failure'].some(value => metadata.includes(value)), 'stored metadata contains no key endpoint account ID model ID or provider response');
+    await page.evaluate(() => document.documentElement.classList.remove('dark')); await page.screenshot({ path: out + '/expired-light-320.png' });
+    check(await page.locator('.vg-provider-settings').evaluate(node => node.scrollWidth <= node.clientWidth + 1), 'new status and timestamp remain within 320px layout');
+    await page.evaluate(() => { const key = 'virtugene-connection-checks-v1', records = JSON.parse(localStorage.getItem(key)); for (const record of Object.values(records)) record.at = new Date().toISOString(); localStorage.setItem(key, JSON.stringify(records)); window.dispatchEvent(new Event('vg:connection-check-change')); });
+    await status('untested').waitFor(); check(await status('success').count() === 0, 'string timestamps are ignored instead of bypassing record expiry');
+    check(!errors.length, 'no browser runtime errors');
+  }
+} catch (error) { errors.push(error.stack); await page?.screenshot({ path: out + '/failure.png' }).catch(() => {}); }
+finally { await browser.close(); await new Promise(r => server.close(r)); const result = { status: errors.length ? 'fail' : 'pass', checks, errors, scope: 'Actual settings/provider components, real local encrypted credential storage, controlled in-memory provider responses only. No external model, microphone/audio, Android or website publication.', productionStyles: 'Existing latest dist CSS reused; this fixture does not rebuild renderer CSS.' }; fs.writeFileSync(out + '/result.json', JSON.stringify(result, null, 2)); console.log(JSON.stringify({ status: result.status, checks: checks.length, errors })); if (errors.length) process.exitCode = 1; }

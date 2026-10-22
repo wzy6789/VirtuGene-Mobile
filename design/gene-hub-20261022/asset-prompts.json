@@ -1,0 +1,27 @@
+{
+  "initialBriefs": [
+    {
+      "key": "landscape",
+      "prompt": "Create a high-resolution portrait 9:20 photographic mobile wallpaper, ideally at least 1024 pixels wide, professional real landscape photography not digital illustration. An open Chinese mountain lake at blue hour just after sunset, distant layered karst and pine-covered ridgelines and a soft low mist, a few tiny natural warm shore lights far away, cool blue-grey water reflecting the faint peach horizon. Composition specifically for a dark mobile app: upper 45 percent mostly quiet dark indigo sky and distant muted ridges, major landscape detail and an elegant rocky pine silhouette confined to lower half/right side, with open negative space in upper left for real UI controls. Natural dynamic range, clear fine water and rock texture, beautiful but understated non-symmetric composition, believable subdued color, no bloom, no fantasy glow, no purple neon, no giant moon, no planets, no obvious AI smoothness, no people. Fully outdoors. Absolutely no room, bedroom, bed, sofa, furniture, window frame, terrace, railing, tea table, building interior, signs, typography or watermark. Actual landscape depth and nighttime atmosphere, crisp focus, excellent image clarity. A complete photographic asset, not a screenshot, no UI."
+    },
+    {
+      "key": "coast",
+      "prompt": "Create a high-resolution portrait 9:20 photographic mobile wallpaper, ideally at least 1024 pixels wide, true professional coastal night photography, quiet dark teal and slate colours. Fully outdoors on an open rugged coastline at late blue hour, ocean seen from low cliff height, diagonal pale sea foam and weathered rocks in lower right and lower half, softly luminous far ocean horizon around middle height, deep blue clean sky with only very few subtle natural stars, dark open upper 45 percent to support a dark mobile profile UI. Moonlight softly reflects in the water from outside the frame, no visible large moon or artificial glow. Real geology and imperfect organic waves, fine surface texture, no overly regular wave patterns, realistic photography with clear detail, cinematic but restrained, beautiful calm place to breathe. Different scene and composition from Chinese mountain lake. Absolutely no bedroom, indoor setting, bed, sofa, chair, furniture, window frame, door, terrace, balcony, cafe, people, buildings, galaxies, planet, typography or watermark. No neon, no surreal glowing ocean, no AI illustration, no heavy blur. This is a standalone sharp photographic background asset, no UI."
+    }
+  ],
+  "artEdits": [
+    {
+      "key": "landscape",
+      "source": "F:/VirtuGene-Mobile/design/gene-hub-20261022/mountain-lake-original.png",
+      "prompt": "Refine this portrait mountain-lake background into a quieter, more majestic work of cinematic landscape art. Preserve its outdoors Chinese mountain lake identity, layered ridges, blue-hour palette, calm open sky, and portrait composition. User correction: much less image noise, more artistic atmosphere, grand and awe-inspiring scale. Remove fine photographic grain, speckles, stippled foliage and oversharpened texture entirely. Smooth clean deep-indigo sky, broad coherent bands of mist, monumental distant mountains with elegant Chinese shanshui composition, restrained warm gold horizon gradually blended into blue. Simplify the close rocky foreground and small pine details so the huge lake and mountains feel expansive. Clear large-scale shapes, subtle natural light, refined tonal control like a premium cinematic matte painting grounded in realistic landscape, not cheap fantasy art or plastic AI render. It must look crisp and intentional, not Gaussian-blurred. Upper 40 percent remains quiet and dark enough for white mobile UI text. No dense stars, no glowing magical objects, no giant moon, no indoor elements, furniture, bedrooms, buildings, people, typography or watermark. Deliver one complete clean high-resolution portrait wallpaper, no UI, no frame."
+    },
+    {
+      "key": "coast",
+      "source": "F:/VirtuGene-Mobile/design/gene-hub-20261022/night-coast-original.png",
+      "prompt": "Refine this portrait coastal-night background into a clean, majestic, artistic cinematic seascape. Preserve the fully outdoor coastline, dark teal/slate blue night and open upper sky. User correction: fewer noisy details and stronger artistic atmosphere and immense scale. Remove grain, dense star specks, crunchy rocks and repetitive white foam microtexture. Replace with broad graceful sculptural waves, smooth water transitions, fewer larger clean rock silhouettes, a vast distant horizon and a soft silver path of natural light across the sea. Fine tonal gradation, large organized shapes, refined low-noise surfaces, subtle mist for epic depth, beautifully art-directed like premium cinematic matte painting grounded in believable sea photography. Dramatic grandeur with quiet restraint, not neon fantasy, no plastic AI smoothness, no oversharpening, no Gaussian blur. Keep upper 40 percent mostly smooth deep blue for mobile interface, no visible giant moon, no room, bedroom, beds, furniture, window, cafe, buildings, people, text, UI or watermark. Deliver one complete crisp high-resolution portrait wallpaper."
+    }
+  ],
+  "tool": "built-in image_gen",
+  "calls": 4,
+  "backgrounds": "art revisions selected; original variants preserved in design only"
+}

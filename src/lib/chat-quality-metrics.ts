@@ -3,7 +3,8 @@ import { stripRoleplayActions } from './ai/text';
 
 export interface ChatQualitySample { at: number; rawChars: number; savedChars: number; differenceRatio: number; approximate: boolean; retries: number; captured: boolean; alert: boolean; issue?: string; streamed?: boolean; actionRemovedChars?:number; collapsedLineBreaks?:number;introducedChineseSpaces?:number }
 export type QualityMode = 'private' | 'proactive' | 'group';
-export interface QualityEvent { at:number;mode:QualityMode;issue?:string;retries:number;blocked:boolean;streamed:boolean;durationMs?:number;firstVisibleMs?:number }
+export interface ChatTiming { preparationMs?:number; providerMs?:number; totalDurationMs?:number; sendToFirstVisibleMs?:number; firstAnswerMs?:number; answerToVisibleMs?:number }
+export interface QualityEvent extends ChatTiming { at:number;mode:QualityMode;issue?:string;retries:number;blocked:boolean;streamed:boolean;durationMs?:number;firstVisibleMs?:number }
 const issues = new Set(['empty','repeat-user','generic','repeat-own','too-long','over-structured','question-barrage','voice-conflict','uninvited-staging','emotional-script','self-report-risk','user-source-risk']);
 const eventKey = (owner:string) => `virtugene-chat-quality-events:${owner}`;
 function events(owner:string): QualityEvent[] {
@@ -13,7 +14,8 @@ function events(owner:string): QualityEvent[] {
 export function recordQualityEvent(owner:string, event:Omit<QualityEvent,'at'>): void {
   if (!owner || useAuthStore.getState().userId !== owner || !['private','proactive','group'].includes(event.mode)) return;
   const row:QualityEvent={at:Date.now(),mode:event.mode,issue:issues.has(event.issue ?? '') ? event.issue : undefined,retries:Math.max(0,Math.min(1,event.retries || 0)),blocked:!!event.blocked,streamed:!!event.streamed,
-    durationMs:Number.isFinite(event.durationMs) ? Math.max(0,event.durationMs!) : undefined,firstVisibleMs:Number.isFinite(event.firstVisibleMs)?Math.max(0,event.firstVisibleMs!):undefined};
+    durationMs:Number.isFinite(event.durationMs) ? Math.max(0,event.durationMs!) : undefined,firstVisibleMs:Number.isFinite(event.firstVisibleMs)?Math.max(0,event.firstVisibleMs!):undefined,
+    ...Object.fromEntries((['preparationMs','providerMs','totalDurationMs','sendToFirstVisibleMs','firstAnswerMs','answerToVisibleMs'] as const).filter(key=>Number.isFinite(event[key])).map(key=>[key,Math.max(0,event[key]!)]))};
   try {localStorage.setItem(eventKey(owner),JSON.stringify([...events(owner),row].slice(-200)));window.dispatchEvent(new Event('vg:chat-quality'));} catch { /* best effort */ }
 }
 const key = (owner: string) => `virtugene-chat-quality:${owner}`;
@@ -48,14 +50,14 @@ export function cleanupDifference(raw: string, saved: string): { ratio: number; 
 function read(owner: string): ChatQualitySample[] {
   try { const data = JSON.parse(localStorage.getItem(key(owner)) ?? '[]'); return Array.isArray(data) ? data.filter(s => s && Number.isFinite(s.at) && Number.isFinite(s.differenceRatio) && typeof s.captured === 'boolean' && Number.isFinite(s.retries)).slice(-200) : []; } catch { return []; }
 }
-export function recordChatQuality(owner: string, raw: string, saved: string, retries: number, captured: boolean, quality: {issue?:string;streamed?:boolean;durationMs?:number;firstVisibleMs?:number} = {}): void {
+export function recordChatQuality(owner: string, raw: string, saved: string, retries: number, captured: boolean, quality: ChatTiming & {issue?:string;streamed?:boolean;durationMs?:number;firstVisibleMs?:number} = {}): void {
   if (useAuthStore.getState().userId !== owner) return;
   const difference = cleanupDifference(raw, saved);
   const chineseSpaces=(s:string)=>(s.match(/\p{Script=Han}[ \t]+(?=\p{Script=Han})/gu)??[]).length;
   const sample: ChatQualitySample = { at: Date.now(), rawChars: difference.rawChars, savedChars: difference.savedChars, differenceRatio: difference.ratio, approximate: difference.approximate, retries, captured, alert: captured && difference.ratio > 0.15, ...quality,
     actionRemovedChars:captured?Math.max(0,raw.length-stripRoleplayActions(raw).length):undefined,collapsedLineBreaks:captured?(raw.match(/\r\n|[\r\n]/gu)??[]).length:undefined,introducedChineseSpaces:captured?Math.max(0,chineseSpaces(saved)-chineseSpaces(raw)):undefined};
   try { localStorage.setItem(key(owner), JSON.stringify([...read(owner), sample].slice(-200))); } catch { /* diagnostics never block chatting */ }
-  recordQualityEvent(owner,{mode:'private',issue:quality.issue,retries,blocked:false,streamed:!!quality.streamed,durationMs:quality.durationMs,firstVisibleMs:quality.firstVisibleMs});
+  recordQualityEvent(owner,{mode:'private',issue:quality.issue,retries,blocked:false,streamed:!!quality.streamed,durationMs:quality.durationMs,firstVisibleMs:quality.firstVisibleMs,preparationMs:quality.preparationMs,providerMs:quality.providerMs,totalDurationMs:quality.totalDurationMs,sendToFirstVisibleMs:quality.sendToFirstVisibleMs,firstAnswerMs:quality.firstAnswerMs,answerToVisibleMs:quality.answerToVisibleMs});
 }
 export function chatQualityReport() {
   const owner = useAuthStore.getState().userId;
@@ -64,7 +66,9 @@ export function chatQualityReport() {
   const recentEvents=owner ? events(owner) : [];
   const byMode=Object.fromEntries((['private','proactive','group'] as QualityMode[]).map(mode => {
     const rows=recentEvents.filter(e=>e.mode===mode),timed=rows.filter(e=>e.durationMs !== undefined),visible=rows.filter(e=>e.firstVisibleMs !== undefined);
+    const averageTiming=(key:keyof ChatTiming)=>{const measured=rows.filter(row=>Number.isFinite(row[key]));return measured.length?measured.reduce((sum,row)=>sum+row[key]!,0)/measured.length:null;};
     return [mode,{checked:rows.length,retried:rows.filter(e=>e.retries>0).length,improvedAfterRetry:rows.filter(e=>e.retries>0&&!e.issue).length,unresolvedAfterRetry:rows.filter(e=>e.retries>0&&e.issue).length,unresolved:rows.filter(e=>e.issue).length,blocked:rows.filter(e=>e.blocked).length,streamedUnresolved:rows.filter(e=>e.streamed&&e.issue).length,averageDurationMs:timed.length ? timed.reduce((sum,e)=>sum+e.durationMs!,0)/timed.length : null,averageFirstVisibleMs:visible.length?visible.reduce((sum,e)=>sum+e.firstVisibleMs!,0)/visible.length:null,
+      averagePreparationMs:averageTiming('preparationMs'),averageProviderMs:averageTiming('providerMs'),averageTotalDurationMs:averageTiming('totalDurationMs'),averageSendToFirstVisibleMs:averageTiming('sendToFirstVisibleMs'),averageFirstAnswerMs:averageTiming('firstAnswerMs'),averageAnswerToVisibleMs:averageTiming('answerToVisibleMs'),
       issues:Object.fromEntries([...issues].map(issue=>[issue,rows.filter(e=>e.issue===issue).length]))}];
   }));
   return { samples, events:recentEvents, byMode, turns: samples.length, measuredTurns: captured.length, alerts: captured.filter(s => s.alert).length, retryTriggers: samples.reduce((sum, s) => sum + s.retries, 0), retryRate: samples.length ? samples.filter(s => s.retries > 0).length / samples.length : 0, streamedQualityIssues:samples.filter(s => s.streamed && s.issue).length, checkedTurns:samples.filter(s => typeof s.streamed === 'boolean').length, averageDifference: captured.length ? captured.reduce((sum, s) => sum + s.differenceRatio, 0) / captured.length : null };

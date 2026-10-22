@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { useAuthStore } from '../../store/auth-store';
 import { userRepo } from '../../db/user-repo';
 import { hashPassword, verifyPassword, encryptApiKey } from '../../lib/crypto';
 import { persistApiKey } from '../../lib/api-key-storage';
+import { SettingsField } from './SettingsUI';
+import { Icon } from '../ui/Icon';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
 
 /**
  * 修改密码（手机端设置）：
@@ -20,8 +23,12 @@ export function ChangePasswordSection() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
-  const inputCls =
-    'w-full px-3 py-2 bg-surface border border-line-strong rounded-lg text-sm text-ink placeholder-gray-500 focus:outline-none focus:border-gene-purple/50 transition-colors';
+  const owner = useAuthStore(s => s.userId);
+  const lock = useRef(false);
+  const alive = useRef(true);
+  const formId = useId();
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => { setOpen(false); reset(); }, [owner]);
 
   const reset = () => {
     setOldPwd('');
@@ -32,25 +39,28 @@ export function ChangePasswordSection() {
   };
 
   const handleSubmit = async () => {
+    if (lock.current) return;
     setError(null);
     const { userId, apiKey } = useAuthStore.getState();
     if (!userId) return;
+    const current = () => alive.current && useAuthStore.getState().userId === userId;
 
     // 1. 新密码校验
     if (!newPwd || newPwd.length < 6) { setError('新密码至少需要 6 位'); return; }
     if (newPwd !== confirmPwd) { setError('两次输入的新密码不一致'); return; }
     if (newPwd === oldPwd) { setError('新密码不能与原密码相同'); return; }
 
-    setBusy(true);
+    lock.current = true; setBusy(true);
     try {
       // 2. 验证原密码
       const user = await userRepo.findByUsername(useAuthStore.getState().username ?? '');
+      if (!current()) return;
       if (!user) { setError('账号不存在'); return; }
       const ok = await verifyPassword(oldPwd, user.passwordHash, user.passwordSalt);
+      if (!current()) return;
       if (!ok) { setError('原密码不正确'); return; }
 
       // 3. 用新密码重新哈希 + 重新加密 API Key
-      const saltBytes = Uint8Array.from(atob(user.passwordSalt), (c) => c.charCodeAt(0));
       const newSaltBytes = crypto.getRandomValues(new Uint8Array(16));
       const { hash, salt } = await hashPassword(newPwd, newSaltBytes);
       // 解密旧 Key（用原密码），用新密码重新加密
@@ -61,6 +71,7 @@ export function ChangePasswordSection() {
         apiKeyIv = iv;
         apiKeyCiphertext = ciphertext;
       }
+      if (!current() || user.id !== userId) return;
       await userRepo.update(userId, {
         passwordHash: hash,
         passwordSalt: salt,
@@ -68,16 +79,17 @@ export function ChangePasswordSection() {
         apiKeyCiphertext,
       });
       // 4. 更新设备加密存储的 Key（新密码下的密文已更新，但设备密钥不变）
-      if (apiKey) void persistApiKey(apiKey);
-
-      setDone(true);
-      setTimeout(() => { setOpen(false); reset(); }, 1500);
+      if (!current()) return;
+      if (apiKey) void persistApiKey(apiKey, current);
+      setOldPwd(''); setNewPwd(''); setConfirmPwd(''); setDone(true);
     } catch (e) {
-      setError((e as Error)?.message ?? '修改失败，请重试');
+      if (current()) setError((e as Error)?.message ?? '修改失败，请重试');
     } finally {
-      setBusy(false);
+      lock.current = false;
+      if (alive.current) setBusy(false);
     }
   };
+  const close = () => { if (!lock.current) { setOpen(false); reset(); } };
 
   return (
     <div>
@@ -86,36 +98,36 @@ export function ChangePasswordSection() {
         className="w-full flex items-center gap-3 px-4 py-3 text-sm text-ink transition-colors hover:bg-surface"
       >
         <span className="text-sm flex-1 text-left">修改密码</span>
-        <span aria-hidden="true" className="text-gray-400 text-xs">›</span>
+        <Icon name="chevron" size={18} />
       </button>
 
-      <Modal presentation="dialog" canSnapshotOnExit={() => false} panelClassName="vg-settings-panel" open={open} onClose={() => { setOpen(false); reset(); }} title="修改密码" width="max-w-sm" closeOnBackdrop={false} footer={!done ? <div className="vg-settings-design !py-3">              <div className="flex justify-end gap-2">
-                <button onClick={() => { setOpen(false); reset(); }} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
+      <Modal presentation="dialog" canSnapshotOnExit={() => false} panelClassName="vg-settings-panel" open={open} onClose={close} title="修改密码" width="max-w-sm" closeOnBackdrop={false} footer={!done ? <div className="vg-settings-design !py-3">              <div className="flex justify-end gap-2">
+                <button type="button" disabled={busy} onClick={close} className="vg-button vg-button-secondary">取消</button>
                 <button
-                  onClick={() => void handleSubmit()}
+                  type="submit" form={formId}
                   disabled={busy || !oldPwd || !newPwd || !confirmPwd}
-                  className="px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] transition-all disabled:opacity-50"
+                  className="vg-button vg-button-primary"
                 >
                   {busy ? '修改中…' : '确认修改'}
                 </button>
-              </div></div> : undefined}>
-        <div className="vg-settings-design space-y-4">
+              </div></div> : <div className="vg-settings-design !py-3"><button type="button" onClick={close} className="vg-button vg-button-primary w-full">完成</button></div>}>
+        <form id={formId} className="vg-settings-design space-y-4" aria-busy={busy} onSubmit={event => { event.preventDefault(); void handleSubmit(); }}>
           {done ? (
             <div className="py-8 text-center">
-              <p className="text-lg mb-2">✓</p>
-              <p className="text-sm text-life-cyan">密码已修改</p>
+              <Icon name="check" size={28} className="mx-auto mb-3 text-sub" />
+              <p className="text-base text-ink" role="status">密码已修改</p>
             </div>
           ) : (
             <>
-              <p className="text-xs text-gray-500">先验证原密码，再设置新密码（输两次避免输错）。修改后 API Key 会用新密码重新加密。</p>
-              <input type="password" value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} placeholder="原密码" className={inputCls} />
-              <input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} placeholder="新密码（至少 6 位）" className={inputCls} />
-              <input type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} placeholder="再次输入新密码" className={inputCls} />
-              {error && <p className="text-xs text-red-400">{error}</p>}
+              <p className="text-sm leading-7 text-sub">验证原密码后设置新密码。已绑定的 API Key 会随之重新加密。</p>
+              <SettingsField label="原密码" type="password" autoComplete="current-password" value={oldPwd} disabled={busy} onChange={e => { setOldPwd(e.target.value); setError(null); }} />
+              <SettingsField label="新密码" hint="至少 6 位，不能与原密码相同。" type="password" autoComplete="new-password" value={newPwd} disabled={busy} onChange={e => { setNewPwd(e.target.value); setError(null); }} />
+              <SettingsField label="再次输入新密码" type="password" autoComplete="new-password" value={confirmPwd} disabled={busy} onChange={e => { setConfirmPwd(e.target.value); setError(null); }} />
+              {error && <FeedbackNotice message={error} tone="error" />}
 
             </>
           )}
-        </div>
+        </form>
       </Modal>
     </div>
   );

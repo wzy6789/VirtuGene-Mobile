@@ -173,18 +173,57 @@ export function isPersonalExperienceQuestion(message: string): boolean {
     /^(?:那|所以|对了|想问问)?\s*你.{0,10}(?:小时候|童年|以前|从前|曾经|过去|刚才|刚刚|最近).{0,24}(?:吗|么|没|过|什么|哪|谁|怎么)/u.test(clause.trim()));
 }
 
-/** A declared pause of a named subject, not a question, report or quoted line.
- * This only limits conversation focus; it never changes records or identity. */
-export function setsAsideNamedTopic(message:string):boolean {
-  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
-  if(/^(?:他|她|他们|她们|朋友|同事|如果|假如|假设|比如|例如|翻译|解释|帮我写|写一句|写一段)/u.test(text))return false;
-  return text.split(/[。！!\n]|(?<=[？?])/u).some(sentence=>{
-    if(/^(?:他|她|朋友|同事|如果|假如|假设|比如|例如|我(?:刚|刚才)?听(?:说|到|他|她)|翻译|解释|帮我写|写一句|写一段)/u.test(sentence.trim()))return false;
-    return sentence.split(/[，,；;]/u).some(clause=>{
-      const match=clause.trim().match(/^(?:我|我们|咱们)?(?:今天|现在|这次|暂时)?(?:先|就)?(?:不再|不)(?:聊|说|提)([^。！？!?，,；;\n]{1,24}?)(?:了|吧)?$/u);
-      return !!match&&!/^(?:了|吧|啊|呀|呢)$|^(?:也|就|都)(?:行|可以|好|没关系|罢)|(?:什么|怎么|谁|哪里|哪儿|是否|是不是|为什么|何时|多久)/u.test(match[1]);
-    });
+/** A direct request to reconcile the actor's own claim. This requests a
+ * source check; it neither proves the claim nor declares it fabricated. */
+export function questionsCharacterClaim(message:string):boolean {
+  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,quoted=>' '.repeat(quoted.length));
+  return [...text.matchAll(/([^。！？!?；;\n]+)([。！？!?；;\n]|$)/gu)].some(match=>{
+    const part=match[1].trim();
+    if(/^(?:朋友|同事|他|她|他们|她们|如果|假如|假设|比如|例如|翻译|解释|改写|帮我写|替我写|给我写|写一句|写一段)/u.test(part))return false;
+    if(/^(?:(?:请|麻烦)(?:你)?(?:帮我)?(?:翻译|解释|改写)|我(?:刚才|刚|又)?(?:听说|听到|听见|看到|看见|转述|引用))/u.test(part))return false;
+    const addressed=/(?:你(?:刚才|刚刚|上一条|前面|之前)?(?:说|讲|提)|你(?:刚才|刚刚|上一条|前面|之前)(?:那句|的话))/u.test(part);
+    const provenance=/(?:真的|真实|编的|编出来|想象的|来源|依据)/u.test(part);
+    const inquiry=/[？?]/u.test(match[2])||/(?:吗|么|是不是|是否|还是|直说|说清楚|告诉我|坦白|哪里|哪儿)/u.test(part);
+    if(addressed&&provenance&&inquiry)return true;
+    // A deictic object can carry the subject: "那件事如果只是你想象的，就直说".
+    // It must still address the actor and ask for clarification, rather than
+    // treating every mention of imagination as a real-life source dispute.
+    return /(?:这|那)[^，,]{1,32}(?:如果|要是)?(?:只|仅仅)?是你(?:自己)?(?:编的|编出来的|想象的|虚构的)/u.test(part)
+      &&/(?:直说|说清楚|告诉我|坦白|承认)/u.test(part);
   });
+}
+
+/** Source spans for speaker-owned focus controls. They are not event outcomes:
+ * “不聊” says nothing about whether the underlying event was completed. */
+function setAsideTopicClauses(message:string):Array<{start:number;end:number}>{
+  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,quoted=>' '.repeat(quoted.length));
+  const spans:Array<{start:number;end:number}>=[];
+  for(const sentence of text.matchAll(/([^。！？!?\n]+)([。！？!?\n]|$)/gu)){
+    const leading=sentence[1].trim();
+    if(/^(?:他|她|他们|她们|朋友|同事|如果|假如|假设|比如|例如|我(?:刚|刚才)?听(?:说|到|他|她)|翻译|解释|帮我写|给我写|替我写|请(?:你)?写|写一句|写一段)/u.test(leading)
+      ||/^[^，,：:]{1,16}(?:说|表示|提到|问)[，,：:]/u.test(leading))continue;
+    for(const clause of sentence[1].matchAll(/([^，,；;]+)([，,；;]|$)/gu)){
+      if(!clause[2]&&/[？?]/u.test(sentence[2]))continue;
+      const match=clause[1].trim().match(/^(?:我|我们|咱们)?(?:今天|现在|这次|暂时)?(?:先|就)?(?:(?:不再|不|不想(?:再)?)(?:聊|说|提)|(?:别|不要)(?:再)?(?:聊|说|提))([^。！？!?，,；;\n]{1,24}?)(?:了|吧)?$/u);
+      if(match&&!/^(?:了|吧|啊|呀|呢)$|^(?:也|就|都)(?:行|可以|好|没关系|罢)|(?:什么|怎么|谁|哪里|哪儿|是否|是不是|为什么|何时|多久)/u.test(match[1])){
+        const start=sentence.index!+clause.index!;spans.push({start,end:start+clause[1].length});
+      }
+    }
+  }
+  return spans;
+}
+
+/** Mask only the declined clause for relevance. Original history remains
+ * untouched, and later affirmative mentions of the same word still count. */
+export function withoutSetAsideTopicClauses(message:string):string{
+  let result=message;
+  for(const span of setAsideTopicClauses(message).reverse())result=result.slice(0,span.start)+' '.repeat(span.end-span.start)+result.slice(span.end);
+  return result;
+}
+
+/** This changes conversational focus only, never records or identity. */
+export function setsAsideNamedTopic(message:string):boolean {
+  return setAsideTopicClauses(message).length>0;
 }
 
 export function hasExplicitTopicShift(message:string):boolean {
@@ -231,6 +270,7 @@ export function isStandaloneClosing(message:string):boolean {
   if(!/[?？]/u.test(message)&&/^(?:今天|今晚)?(?:(?:就|先)?聊到这(?:里)?|(?:就|先)这样)(?:吧|了|啦)?$/u.test(end)
     &&clauses.slice(0,-1).every(part=>/^(?:嗯+|好(?:的|吧|呀|啦)?|行|谢谢(?:你)?(?:听我说|陪我聊(?:天)?)?|今天聊得(?:挺|很)?(?:开心|舒服)|我(?:就|也|挺|很)?喜欢听你说(?:自己的)?(?:想法|看法))$/u.test(part)))return true;
   const text=message.trim().replace(/^(?:行|好(?:的)?|嗯)[，,\s]+/u,'')
+    .replace(/^(?:先不聊了|先不说了|不聊了)[，,。！!\s]+/u,'')
     .replace(/^(?:今(?:天|晚))?(?:就这样|先这样|先聊到这(?:里)?|聊到这(?:里)?)[，,。！!\s]+/u,'')
     .replace(/^(?:明天|改天|下次)(?:再|接着)(?:聊|说|弄|做|处理)(?:吧|了)?[，,。！!\s]+/u,'');
   return /^(?:嗯+|好(?:的|吧|呀|啦)?|行|算了|先这样|晚安|拜拜|明天见|回见|我先下了|我先睡了)(?:[呀啦哦嗯喽吧。！!，,～~\s])*$/u.test(text);

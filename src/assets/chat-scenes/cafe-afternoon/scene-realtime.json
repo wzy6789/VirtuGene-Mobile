@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "sceneId": "cafe-afternoon",
+  "file": "scene.glb",
+  "bytes": 118364,
+  "sha256": "44524200e23a90704756164395970174847976ad14e3b7c0e6aaf7e01b71c222",
+  "triangles": 2484,
+  "vertices": 1292,
+  "drawCalls": 2,
+  "geometryBoundsBlender": {
+    "min": [
+      -3.4128823280334473,
+      2.9100000858306885,
+      -7.588691711425781
+    ],
+    "max": [
+      3.4128823280334473,
+      10.600000381469727,
+      7.588691711425781
+    ]
+  },
+  "effectQuad": [
+    [
+      -1.409138,
+      -2.123667,
+      -10.05
+    ],
+    [
+      2.870467,
+      -2.123667,
+      -10.05
+    ],
+    [
+      2.870467,
+      6.382607,
+      -10.05
+    ],
+    [
+      -1.409138,
+      6.382607,
+      -10.05
+    ]
+  ],
+  "lightPoint": [
+    -1.576926,
+    1.760456,
+    -6.3
+  ],
+  "cup": [
+    -0.368967,
+    -0.840506,
+    -2.9
+  ],
+  "camera": {
+    "verticalFovDegrees": 60
+  },
+  "materialStrategy": "Generated native photographic-style art projected on original volumetric fixed-view depth geometry. Approximate window optics, not free-view PBR or ray-traced glass.",
+  "source": {
+    "file": "design/chat-scenes/cinematic-20261021/cafe-afternoon-depth.blend",
+    "sha256": "c6f0c33526ce714c074a2f2774ee7ea471db45e6e402e1f35f21868275581b1d",
+    "art": {
+      "file": "design/chat-scenes/cinematic-20261021/cafe-afternoon-source.png",
+      "width": 841,
+      "height": 1870,
+      "sha256": "13cd5b27ab5d767ca9ec3239b87e50b925f66784256c0e0ae1fefea121a205ae",
+      "origin": "Built-in image generation; original photographic-style environment artwork, not a Blender render.",
+      "nativeResolution": true,
+      "upscaled": false,
+      "model": "未确认",
+      "reasoning": "未确认"
+    }
+  },
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认",
+  "ambientVolume": {
+    "origin": [
+      -1.194405,
+      -1.501111,
+      -5.0
+    ],
+    "across": [
+      2.38881,
+      0.0,
+      -0.0
+    ],
+    "up": [
+      0.0,
+      2.424871,
+      -0.0
+    ],
+    "depth": [
+      0,
+      0,
+      -2.0
+    ]
+  }
+}

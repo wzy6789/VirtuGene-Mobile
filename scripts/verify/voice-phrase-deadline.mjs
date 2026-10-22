@@ -1,0 +1,13 @@
+import { build } from 'esbuild';
+import { readFileSync,writeFileSync,mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { dirname } from 'node:path';
+const dir='.tmp-preview/voice-phrase-deadline-20261016',before=process.argv.includes('--before'),label=before?'before':'after';
+const path=before?`${dir}/before/utterance.ts`:'src/lib/voice-call/utterance.ts',source=readFileSync(path,'utf8');
+mkdirSync(`${dir}/${label}`,{recursive:true});const outfile=`${dir}/${label}/verify.cjs`;
+await build({entryPoints:['scripts/verify/voice-phrase-deadline.ts'],outfile,bundle:true,platform:'node',format:'cjs',plugins:[{name:'selected-buffer',setup(b){b.onLoad({filter:/voice-call[\\/]utterance\.ts$/},args=>({contents:source,loader:'ts',resolveDir:dirname(args.path)}));}}]});
+const run=spawnSync(process.execPath,[outfile],{encoding:'utf8',timeout:20000,maxBuffer:4*1024*1024});
+writeFileSync(`${dir}/${label}/run.txt`,(run.stdout??'')+(run.stderr??''));
+if(run.status===0){const report={...JSON.parse(run.stdout),sourceHash:createHash('sha256').update(source).digest('hex')};writeFileSync(`${dir}/${label}/report.json`,JSON.stringify(report,null,2));console.log(JSON.stringify(report));}else console.error(run.stderr||run.error);
+process.exitCode=run.status??1;

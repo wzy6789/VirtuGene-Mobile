@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
+import { Icon } from '../ui/Icon';
 
 const ACTIVE_TIME_KEY = 'virtugene-active-use-ms';
 const REMINDER_INTERVAL_MS = 2 * 60 * 60 * 1000;
@@ -36,15 +37,15 @@ export function UseTimeReminder() {
   return (
     <Modal presentation="dialog" open={open} onClose={() => setOpen(false)} width="max-w-sm" closeOnBackdrop={false}>
       <div className="p-6 text-center">
-        <div className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full border border-life-cyan/30 bg-life-cyan/10 text-xl">◌</div>
+        <div aria-hidden="true" className="mx-auto mb-4 grid h-12 w-12 place-items-center rounded-full border border-line bg-surface text-[color:var(--vg-accent)]"><Icon name="moon" size={24} /></div>
         <h2 className="text-base font-semibold text-ink">回到现实，休息一会儿</h2>
-        <p className="mt-3 text-xs leading-6 text-gray-400">
+        <p className="mt-3 text-sm leading-7 text-sub">
           你已累计使用约两小时。当前互动内容由人工智能生成，角色并非真实人物。建议放下手机、活动身体，和身边的人聊一聊。
         </p>
         <button
           type="button"
           onClick={() => setOpen(false)}
-          className="mt-6 w-full rounded-lg bg-gene-purple px-4 py-2.5 text-sm font-medium text-white active:opacity-80"
+          className="vg-button vg-button-primary mt-6 w-full"
         >
           我知道了
         </button>

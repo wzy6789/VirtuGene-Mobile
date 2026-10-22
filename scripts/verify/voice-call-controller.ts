@@ -2,16 +2,107 @@ import assert from 'node:assert/strict';
 import { VoiceCallController, type CallAudioPort, type CallView } from '../../src/lib/voice-call/controller';
 import { NativeCallAudio, type NativeAudioEvent, type NativeCallPlugin } from '../../src/lib/voice-call/native-audio';
 import { projectCallMessages, callSummarySource, type VoiceCallRecord } from '../../src/lib/voice-call/record';
-import { MimoCallClient } from '../../src/lib/voice-call/mimo';
+import { MimoCallClient, CallApiError } from '../../src/lib/voice-call/mimo';
+import { MAX_CALL_TEXT_LENGTH, type CallInputMode } from '../../src/lib/voice-call/input';
 let checks = 0;
 const check = (condition: unknown, label: string) => { assert.ok(condition, label); checks++; };
 const sleep = () => new Promise<void>(resolve => setTimeout(resolve, 0));
 async function until(predicate: () => boolean) { for (let i = 0; i < 100; i++) { if (predicate()) return; await sleep(); } throw new Error('verification timed out'); }
-const capabilities = { sampleRate: 16000 as const, echoCancellation: true, noiseSuppression: true, routes: [{ id: 1, type: 2, label: 'speaker', selected: true }] };
+const capabilities = { sampleRate: 16000 as const, echoCancellation: true, noiseSuppression: true, routes: [{ id: 1, type: 2, label: 'speaker', selected: true }, { id: 2, type: 3, label: 'headset', selected: false }] };
 function capture(callId: string, sequence: number, amplitude: number): NativeAudioEvent {
   const pcm = new Uint8Array(3200), view = new DataView(pcm.buffer);
   for (let i = 0; i < pcm.length; i += 2) view.setInt16(i, amplitude, true);
   return { type: 'capture', callId, pcm: btoa(String.fromCharCode(...pcm)), sampleRate: 16000, sequence, at: sequence * 100 };
+}
+function segmentedSpeechFixture(id: string, ignoreAbort = false) {
+  type Request = { wav: Uint8Array; options: Parameters<MimoCallClient['recognize']>[1]; completed: boolean;
+    complete(text: string): void; fail(error: Error): void };
+  const requests: Request[] = [], inputs: Uint8Array[] = [], usages: number[] = [];
+  let callback: (event: NativeAudioEvent) => void = () => {}, view: CallView | undefined;
+  let sequence = 0, frames = 0, dialogues = 0, syntheses = 0, contextText = '';
+  const controller = new VoiceCallController(id, { audio: {
+    start: async cb => { callback = cb; return capabilities; }, beginPlayback: async () => { frames = 0; },
+    append: async (_turn, pcm) => { frames += pcm.length / 2; return { playedFrames: frames, writtenFrames: frames }; },
+    drain: async () => ({ playedFrames: frames, writtenFrames: frames, complete: true }),
+    interrupt: async () => ({ playedFrames: 0, writtenFrames: 0 }), close: async () => {}, pause: async () => {},
+    mute: async () => {}, resume: async () => ({ routes: capabilities.routes }), route: async () => ({ routes: capabilities.routes }),
+  }, voice: '茉莉', style: '既有说话风格', context: async text => { contextText = text; return [{ role: 'user', content: text }]; },
+  onView: value => { view = value; }, onUsage: (stage, usage) => { if (stage === 'asr') usages.push(usage.inputTokens); }, api: {
+    recognize: (wav, options) => new Promise<string>((resolve, reject) => {
+      options.onRequest?.();
+      let settled = false;
+      const finish = (text?: string, error?: Error) => {
+        if (settled) return; settled = true; options.signal.removeEventListener('abort', abort);
+        if (error) reject(error);
+        else { request.completed = true; if (!options.signal.aborted) options.onUsage?.({ inputTokens: wav.length, outputTokens: text!.length }); resolve(text!); }
+      };
+      const abort = () => { if (!ignoreAbort) finish(undefined, new DOMException('Aborted', 'AbortError')); };
+      const request: Request = { wav, options, completed: false, complete: text => finish(text), fail: error => finish(undefined, error) };
+      requests.push(request); options.signal.addEventListener('abort', abort, { once: true }); if (options.signal.aborted) abort();
+    }),
+    dialogue: async (messages, options) => { dialogues++; check(messages.at(-1)?.content === contextText, 'merged speech uses the original host context'); await options.onText('合并回应。'); },
+    synthesize: async (_text, voice, style, options) => { syntheses++; check(voice === '茉莉' && style === '既有说话风格', 'merged speech retains the original voice and delivery'); await options.onPcm(new Uint8Array([0, 0, 0, 0])); },
+  } });
+  return { controller, requests, inputs, usages, get view() { return view; }, get dialogues() { return dialogues; }, get syntheses() { return syntheses; }, get contextText() { return contextText; },
+    send(count: number, speech = true) {
+      for (let i = 0; i < count; i++) {
+        const event = capture(id, sequence, speech ? 1000 + sequence : 0); sequence++;
+        inputs.push(Uint8Array.from(atob(event.pcm!), char => char.charCodeAt(0))); callback(event);
+      }
+    },
+    pause() { callback({ callId: id, type: 'paused', at: 0, reason: 'background' }); },
+  };
+}
+function typedCallFixture(id: string, inputMode: CallInputMode = 'text', ignoreAbort = false) {
+  type Dialogue = { options: Parameters<MimoCallClient['dialogue']>[1]; text: string; complete(text?: string): Promise<void>; fail(error: Error): void };
+  let callback: (event: NativeAudioEvent) => void = () => {}, view: CallView | undefined, frames = 0, turnId = '';
+  let asr = 0, syntheses = 0, resumes = 0, closes = 0, starts = 0;
+  let stopWait: Promise<void> | undefined, modeWait: Promise<void> | undefined;
+  const state: { failure?: 'start' | 'context' | 'tts' | 'append' | 'drain' | 'mode'; modeError?: string; holdDrain?: boolean; withdrawn?: boolean; padding?: boolean } = {};
+  const startModes: CallInputMode[] = [], modeChanges: CallInputMode[] = [], stages: string[] = [], contexts: { text: string; mode?: CallInputMode; previous: readonly string[] }[] = [];
+  const requests: Dialogue[] = [], drains: (() => void)[] = [];
+  const completionMarkers: (string | undefined)[] = [];
+  const controller = new VoiceCallController(id, { inputMode, voice: '茉莉', style: '原角色语气', audio: {
+    start: async (cb, options) => { starts++; startModes.push(options?.inputMode ?? 'voice'); callback = cb; if (state.failure === 'start') throw new Error('voice:permission'); return capabilities; },
+    setInputMode: async mode => { modeChanges.push(mode); const wait = modeWait; modeWait = undefined; await wait; if (state.failure === 'mode') throw new Error(state.modeError ?? 'voice:permission'); },
+    beginPlayback: async turn => { frames = 0; turnId = turn; },
+    append: async (_turn, pcm) => { if (state.failure === 'append') throw new Error('voice:audio_bridge_timeout'); frames += pcm.length / 2; return { turnId, playedFrames: Math.min(1, frames), writtenFrames: frames,
+      ...(state.padding ? { sampleRate: 24000, startupPaddingFrames: 100, nativeQueuedFrames: 100 + frames - Math.min(1, frames) } : {}) }; },
+    drain: async () => { if (state.holdDrain) { state.holdDrain = false; await new Promise<void>(resolve => { drains.push(resolve); }); } if (state.failure === 'drain') throw new Error('voice:audio_playback_receipt'); return { turnId, playedFrames: frames, writtenFrames: frames, complete: true,
+      ...(state.padding ? { sampleRate: 24000, startupPaddingFrames: 100, nativeQueuedFrames: 100 } : {}) }; },
+    interrupt: async completedTurnId => { completionMarkers.push(completedTurnId); const wait = stopWait; stopWait = undefined; await wait; return { turnId, playedFrames: Math.min(1, frames), writtenFrames: frames }; },
+    mute: async () => {}, pause: async () => {}, close: async () => { closes++; },
+    resume: async () => { resumes++; return { routes: capabilities.routes }; }, route: async () => ({ routes: capabilities.routes }),
+  }, context: async (text, exchanges, _signal, mode) => {
+    contexts.push({ text, mode, previous: exchanges.map(exchange => exchange.userText) });
+    if (state.failure === 'context') throw new Error('voice:context_changed');
+    return { messages: [{ role: 'system', content: '原角色设定、真实记忆与关系' }, { role: 'user', content: text }],
+      assertCurrent: async () => { if (state.withdrawn) throw new Error('voice:source_withdrawn'); } };
+  }, onView: value => { view = value; }, onRequest: stage => { stages.push(stage); }, api: {
+    recognize: async (_wav, options) => { asr++; options.onRequest?.(); return '语音模式真实转写'; },
+    dialogue: (messages, options) => new Promise<void>((resolve, reject) => {
+      options.onRequest?.();
+      const abort = () => { if (!ignoreAbort) reject(new DOMException('Aborted', 'AbortError')); };
+      options.signal.addEventListener('abort', abort, { once: true });
+      const cleanup = () => options.signal.removeEventListener('abort', abort);
+      requests.push({ options, text: messages.at(-1)!.content, complete: async (text = '原角色语音回答。') => {
+        try { await options.onText(text); options.onUsage?.({ inputTokens: 2, outputTokens: 1 }); cleanup(); resolve(); } catch (error) { cleanup(); reject(error); }
+      }, fail: error => { cleanup(); reject(error); } });
+    }),
+    synthesize: async (_text, voice, style, options) => {
+      syntheses++; options.onRequest?.();
+      check(voice === '茉莉' && style === '原角色语气', 'typed input retains the character voice and delivery settings');
+      if (state.failure === 'tts') throw new CallApiError('service', 'tts', 503);
+      await options.onPcm(new Uint8Array([0, 0, 0, 0])); options.onUsage?.({ inputTokens: 1, outputTokens: 1 });
+    },
+  } });
+  return { controller, state, requests, drains, startModes, modeChanges, stages, contexts, completionMarkers,
+    get view() { return view; }, get asr() { return asr; }, get syntheses() { return syntheses; }, get resumes() { return resumes; }, get closes() { return closes; }, get starts() { return starts; },
+    capture() { for (let i = 0; i < 12; i++) callback(capture(id, i, i < 5 ? 8000 : 0)); },
+    event(type: 'paused' | 'routeLost' | 'interrupted') { callback({ callId: id, type, turnId, at: 0, reason: 'background', playedFrames: 1, writtenFrames: frames }); },
+    delayStop() { let release!: () => void; stopWait = new Promise<void>(resolve => { release = resolve; }); return release; },
+    delayMode() { let release!: () => void; modeWait = new Promise<void>(resolve => { release = resolve; }); return release; },
+  };
 }
 async function main() {
   let callback: (event: NativeAudioEvent) => void = () => {}, played = 0, stopped = 0, closed = 0, asr = 0, synthesis = 0;
@@ -28,7 +119,9 @@ async function main() {
     context: async (text, exchanges) => [{ role: 'system', content: '既有角色设定与记忆' }, ...exchanges.flatMap(e => [{ role: 'user' as const, content: e.userText }, { role: 'assistant' as const, content: e.heardText }]), { role: 'user', content: text }],
     api: {
       recognize: async (_wav, options) => { asr++; options.onText?.('今天天气不错'); return '今天天气不错'; },
-      dialogue: async (messages, options) => { check(messages[0].content === '既有角色设定与记忆', 'controller uses host context'); await options.onText('（微笑）那出去走走。'); await options.onText('别忘了带水。'); },
+      // The healthy flow uses dialogue; raw staging rejection has its own
+      // regression in voice-call-recovery.ts.
+      dialogue: async (messages, options) => { check(messages[0].content === '既有角色设定与记忆', 'controller uses host context'); await options.onText('那出去走走。'); await options.onText('别忘了带水。'); },
       synthesize: async (_text, _voice, _style, options) => { synthesis++; await options.onPcm(new Uint8Array([1, 2, 3, 4])); },
     },
   });
@@ -44,7 +137,7 @@ async function main() {
   await controller.resume(); check(view?.phase === 'listening', 'explicit recovery resumes native audio');
   const exchanges = await controller.end();
   check(closed === 1 && exchanges.length === 1 && exchanges[0].heardText === '那出去走走。别忘了带水。', 'hangup releases native audio and returns completed listening facts');
-  check(exchanges[0].generatedText.includes('（微笑）') && !exchanges[0].heardText.includes('微笑'), 'record retains generated stage directions but heard speech excludes them');
+  check(exchanges[0].generatedText === '那出去走走。别忘了带水。' && !exchanges[0].heardText.includes('微笑'), 'healthy dialogue retains complete generated text and confirmed heard speech');
   check(exchanges[0].segments.every(segment => segment.playbackSampleRate === 8000), 'SCO playback acknowledgements retain their actual frame rate');
   const record: VoiceCallRecord = { id: 'test-call', sessionId: 'session', userId: 'user', characterId: 'role', startedAt: 1, endedAt: 2, voice: '茉莉', exchanges, summaryState: 'pending', messageIds: [] };
   const projected = projectCallMessages(record);
@@ -95,11 +188,51 @@ async function main() {
   await permission.start(); check(view?.phase === 'error' && deniedStarts === 1, 'permission denial becomes a recoverable error without retry');
   await permission.resume(); check(view?.phase === 'listening' && deniedStarts === 2, 'explicit permission recovery initializes a new native session');
   await permission.end();
+  for (const code of ['microphone_denied', 'microphone_disabled', 'bluetooth_denied']) {
+    let attempts = 0;
+    const bridgePermission = new VoiceCallController(`bridge-${code}`, { audio: { ...audio,
+      start: async cb => { attempts++; if (attempts === 1) throw { message: `voice:${code}` }; callback = cb; return capabilities; },
+    }, voice: '茉莉', style: '', context: async () => [], onView: value => { view = value; } });
+    await bridgePermission.start();
+    check(view?.phase === 'error' && view.error === `voice:${code}` && attempts === 1, 'plain-object Capacitor permission error preserves its fixed code without automatic retry');
+    await bridgePermission.resume();
+    check(view?.phase === 'listening' && attempts === 2, 'explicit permission recovery starts a fresh native session after a bridge rejection');
+    await bridgePermission.end();
+  }
   let clock = 0;
   const duration = new VoiceCallController('duration-call', { audio, voice: '茉莉', style: '', context: async () => [], now: () => clock, onView: v => { view = v; } });
   await duration.start(); clock = 60 * 60_000 + 1;
   callback(capture('duration-call', 0, 8000)); await until(() => view?.phase === 'ended');
   check((await duration.end()).length === 0, 'duration limit closes a long call without submitting another ASR');
+  {
+    const id = 'continuous-30-second-capture'; let submitted: Uint8Array | undefined, recognitionRequests = 0;
+    const longCapture = new VoiceCallController(id, { audio, voice: '茉莉', style: '', context: async () => [], onView: value => { view = value; }, api: {
+      recognize: async wav => { recognitionRequests++; submitted = wav; return ''; }, dialogue: async () => {}, synthesize: async () => {},
+    } });
+    await longCapture.start();
+    try {
+      // Distinct final 500ms must not be mistaken for a silence-triggered ending.
+      for (let i = 0; i < 300; i++) callback(capture(id, i, i < 295 ? 8000 : 13000));
+      await until(() => !!submitted);
+      check(submitted!.length === 960044 && new DataView(submitted!.buffer).getInt16(submitted!.length - 2, true) === 13000,
+        '30-second continuous speech retains all PCM including the voiced final 500ms');
+      check(recognitionRequests === 1, 'the bounded long utterance submits one ASR without retry');
+    } finally { await longCapture.end(); }
+  }
+  {
+    const id = 'silence-trim-capture'; let submitted: Uint8Array | undefined;
+    const shortCapture = new VoiceCallController(id, { audio, voice: '茉莉', style: '', context: async () => [], onView: value => { view = value; }, api: {
+      recognize: async wav => { submitted = wav; return ''; }, dialogue: async () => {}, synthesize: async () => {},
+    } });
+    await shortCapture.start();
+    try {
+      for (let i = 0; i < 12; i++) callback(capture(id, i, i < 5 ? 13000 : 0));
+      await until(() => !!submitted);
+      const wav = submitted!, samples = new DataView(wav.buffer);
+      check(wav.length === 22444 && samples.getInt16(44 + 15998, true) === 13000 && samples.getInt16(wav.length - 2, true) === 0,
+        'silence-triggered ending preserves voiced PCM and only keeps 200ms of the silent tail');
+    } finally { await shortCapture.end(); }
+  }
   let metricClock = 0;
   const measured = new VoiceCallController('metrics-call', { audio: { ...audio, append: async (turnId, pcm) => {
     metricClock += 110;
@@ -111,11 +244,11 @@ async function main() {
     synthesize: async (_text, _voice, _style, options) => { metricClock += 20; await options.onPcm(new Uint8Array([0, 0, 0, 0])); },
   } });
   await measured.start();
-  for (let i = 0; i < 12; i++) { metricClock = (i + 1) * 100; callback(capture('metrics-call', i, i < 5 ? 8000 : 0)); }
+  for (let i = 0; i < 12; i++) { metricClock = (i + 1) * 100; callback(capture('metrics-call', i, i < 5 ? 8000 : 0)); await sleep(); }
   await until(() => view?.phase === 'listening' && view.heardText === '回应。');
   const timed = (await measured.end())[0].metrics;
-  check(timed.vadWaitMs === 700 && timed.asrMs === 10 && timed.firstTextMs === 30 && timed.firstPcmMs === 50, 'stage timings retain the stop-phrase wait as a separate measurement');
-  check(timed.firstPlaybackMs === 160 && timed.firstPlaybackFromSpeechMs === 860, 'speech-to-playback includes the 700ms VAD wait instead of understating latency');
+  check(timed.vadWaitMs === 700 && timed.asrMs === 0 && timed.asrRequestMs === 10 && timed.firstTextMs === 20 && timed.firstPcmMs === 40, 'ASR request work overlaps endpoint detection; remaining ASR wait and actual request duration are distinct');
+  check(timed.firstPlaybackMs === 150 && timed.firstPlaybackFromSpeechMs === 850, 'speech-to-playback includes the full 700ms grace period even when ASR finishes early');
   check(timed.llmFirstTokenMs === 20 && timed.ttsFirstChunkMs === 20, 'LLM and TTS timings are measured from their own stage starts');
 
   for (const source of ['event', 'append', 'drain'] as const) {
@@ -199,9 +332,9 @@ async function main() {
     getRoutes: async () => ({ routes: [] }), setRoute: async () => ({ routes: [] }), requestBluetooth: async () => {},
   };
   const bridge = new NativeCallAudio('bridge-call', plugin); let delivered = 0;
-  await bridge.start(() => { delivered++; });
+  await bridge.start(event => { if (event.type !== 'clock') delivered++; });
   listener(capture('wrong-call', 0, 8000)); listener(capture('bridge-call', 1, 8000)); listener(capture('bridge-call', 1, 8000));
-  check(delivered === 1, 'bridge filters other calls and replayed capture');
+  check(delivered === 1 && bridge.clockSnapshot().status === 'unsupported', 'bridge filters other calls and replayed capture; old native clock support remains explicitly unknown');
   const signal = new AbortController().signal;
   await bridge.beginPlayback('turn-1', signal);
   listener({ callId: 'bridge-call', type: 'interrupted', turnId: 'turn-1', at: 0 });
@@ -215,12 +348,12 @@ async function main() {
   await assert.rejects(pending, (e: any) => e.name === 'AbortError'); checks++;
   const oldListener = listener;
   await bridge.close(); check(removals === 1 && bridgeStops === 1, 'bridge cleanup removes listener and native session');
-  await bridge.start(() => { delivered++; });
+  await bridge.start(event => { if (event.type !== 'clock') delivered++; });
   oldListener(capture('bridge-call', 0, 8000));
   listener(capture('bridge-call', 0, 8000));
   check(delivered === 3, 'fresh native capture sequence is accepted after bridge restart');
   await bridge.close(); check(removals === 2 && bridgeStops === 2, 'restarted bridge releases its replacement listener and session');
-  await bridge.start(() => { delivered++; });
+  await bridge.start(event => { if (event.type !== 'clock') delivered++; });
   let nativeMuteRequests = 0;
   plugin.mute = async options => { if (options.muted) nativeMuteRequests++; };
   await bridge.mute(true); listener(capture('bridge-call', 22, 8000));
@@ -230,7 +363,11 @@ async function main() {
   check(nativeMuteRequests === 2 && removals === 3, 'explicit dead-session recovery rebuilds audio and restores mute');
   await bridge.mute(false); listener(capture('bridge-call', 0, 8000));
   check(delivered === 4, 'recovered recorder accepts fresh sequence with the existing callback');
-  await bridge.close(); check(removals === 4 && bridgeStops === 4, 'recovered audio releases the new native session');
+  plugin.resume = async () => { throw { message: 'voice:capture_ended' }; };
+  await bridge.resume();
+  listener(capture('bridge-call', 0, 8000));
+  check(delivered === 5 && removals === 4, 'Capacitor plain-object dead-session error rebuilds recorder and accepts fresh capture');
+  await bridge.close(); check(removals === 5 && bridgeStops === 5, 'recovered audio releases the new native session');
   let releaseListener: (() => void) | undefined, cancelledStarts = 0, cancelledRemovals = 0;
   const cancelledPlugin: NativeCallPlugin = { ...plugin,
     addListener: async () => { await new Promise<void>(resolve => { releaseListener = resolve; }); return { remove: async () => { cancelledRemovals++; } }; },
@@ -283,6 +420,32 @@ async function main() {
   await assert.rejects(stalledBridge.close(), /voice:audio_bridge_timeout/); checks++;
   check(timeoutRemovals === 1, 'stalled native stop still removes its listener');
   await assert.rejects(stalledBridge.start(() => {}), /voice:audio_release_failed/); checks++;
+  let cleanupResumes = 0, cleanupBegins = 0;
+  const failedCleanup = new NativeCallAudio('failed-output-cleanup', { ...plugin,
+    stopPlayback: async () => ({ playedFrames: 0, writtenFrames: 0, cleanupFailures: 1 }),
+    resume: async () => { cleanupResumes++; return { routes: [] }; },
+    beginPlayback: async () => { cleanupBegins++; }, stop: async () => {},
+  });
+  await failedCleanup.start(() => {});
+  await assert.rejects(failedCleanup.interrupt(), /voice:audio_release_failed/); checks++;
+  await assert.rejects(failedCleanup.resume(), /voice:audio_release_failed/); checks++;
+  await assert.rejects(failedCleanup.beginPlayback('unsafe-replacement', new AbortController().signal), /voice:audio_release_failed/); checks++;
+  check(cleanupResumes === 0 && cleanupBegins === 0, 'unconfirmed output cleanup cannot reopen capture or create another track');
+  await failedCleanup.close();
+  let cleanupListener!: (event: NativeAudioEvent) => void;
+  const cleanupEvents: NativeAudioEvent[] = [];
+  const failedNativeStop = new NativeCallAudio('native-cleanup-event', { ...plugin,
+    addListener: async (_name, cb) => { cleanupListener = cb; return { remove: async () => {} }; },
+    stop: async () => { throw { message: 'voice:audio_release_failed' }; },
+  });
+  await failedNativeStop.start(event => { if (event.type !== 'clock') cleanupEvents.push(event); });
+  cleanupListener({ callId: 'native-cleanup-event', type: 'interrupted', at: 0, cleanupFailures: 1 });
+  cleanupListener(capture('native-cleanup-event', 0, 8000));
+  check(cleanupEvents.length === 1 && cleanupEvents[0].type === 'paused' && cleanupEvents[0].reason === 'voice:audio_release_failed',
+    'native-initiated teardown failure pauses the bridge before subsequent microphone frames can start inference');
+  await assert.rejects(failedNativeStop.resume(), /voice:audio_release_failed/); checks++;
+  await assert.rejects(failedNativeStop.close(), (error: any) => error.message === 'voice:audio_release_failed'); checks++;
+  await assert.rejects(failedNativeStop.start(() => {}), /voice:audio_release_failed/); checks++;
   const playbackPlugin: NativeCallPlugin = { ...plugin, appendPcm: async () => new Promise(() => {}), drain: async () => new Promise(() => {}), stop: async () => {} };
   const timedPlayback = new NativeCallAudio('timed-playback', playbackPlugin, 10, 10);
   await timedPlayback.start(() => {});
@@ -328,7 +491,7 @@ async function main() {
     getRoutes: async () => new Promise(resolve => { resolveRoutes = resolve; }),
     setRoute: async () => new Promise(() => {}), stop: async () => {},
   };
-  const controlBridge = new NativeCallAudio('control-bounds', controlPlugin, 10);
+  const controlBridge = new NativeCallAudio('control-bounds', controlPlugin, 10, 18_000, 10);
   await controlBridge.start(event => { if (event.type === 'capture') controlCapture++; });
   const pendingMute = controlBridge.mute(true);
   listener(capture('control-bounds', 0, 8000));
@@ -376,9 +539,9 @@ async function main() {
     recognize: async () => { routeAsr++; return ''; }, dialogue: async () => {}, synthesize: async () => {},
   } });
   await routeController.start();
-  const routeChange = routeController.selectRoute(1); await until(() => routeRequests === 1);
+  const routeChange = routeController.selectRoute(2); await until(() => routeRequests === 1);
   for (let i = 0; i < 12; i++) callback(capture('routing-capture', i, i < 5 ? 8000 : 0));
-  await routeController.selectRoute(1);
+  await routeController.selectRoute(2);
   check(routeAsr === 0 && routeRequests === 1 && view?.routing, 'route change holds capture and rejects overlapping selection');
   const newerRoutes = [{ id: 2, type: 3, label: 'headset', selected: true }];
   callback({ callId: 'routing-capture', type: 'routes', at: 0, routes: newerRoutes });
@@ -393,7 +556,7 @@ async function main() {
     route: async () => new Promise(resolve => { releaseLostRoute = resolve; }),
   }, voice: '茉莉', style: '', context: async () => [], onView: value => { view = value; } });
   await lostRouteController.start();
-  const lostRouteChange = lostRouteController.selectRoute(1); await until(() => !!releaseLostRoute);
+  const lostRouteChange = lostRouteController.selectRoute(2); await until(() => !!releaseLostRoute);
   callback({ callId: 'routing-loss', type: 'routeLost', reason: 'headset-disconnected', at: 0 });
   releaseLostRoute({ routes: capabilities.routes }); await lostRouteChange;
   check(view?.phase === 'paused' && view.error === 'headset-disconnected', 'route acknowledgement cannot resume a call paused by device loss');
@@ -446,7 +609,7 @@ async function main() {
   check(timedListenerRemoved === 1, 'timed-out registration removes its late listener rather than retaining native callbacks');
   for (const stage of ['before-tts', 'before-pcm', 'queued-next', 'withdrawn'] as const) {
     const id = `source-withdraw-${stage}`;
-    let evidenceValid = stage !== 'before-tts' && stage !== 'withdrawn', syntheses = 0, pcmAppends = 0, modelAborted = false;
+    let evidenceValid = stage !== 'before-tts' && stage !== 'withdrawn', syntheses = 0, pcmAppends = 0, modelAborted = false, modelCalls = 0;
     let resumeCalls = 0, startCalls = 0;
     const sourceError = stage === 'withdrawn' ? 'voice:source_withdrawn' : 'voice:context_changed';
     let releasePcm!: () => void;
@@ -461,6 +624,7 @@ async function main() {
     }), api: {
       recognize: async () => '聊聊吧',
       dialogue: async (_messages, options) => {
+        modelCalls++;
         await options.onText('第一句话。第二句话。');
         await new Promise<void>((_resolve, reject) => {
           const abort = () => { modelAborted = true; reject(new DOMException('Aborted', 'AbortError')); };
@@ -485,7 +649,7 @@ async function main() {
       check(view?.error === sourceError && resumeCalls === 0, 'late route loss preserves source withdrawal and cannot make the old call recoverable');
     }
     const withdrawalRows = await withdrawn.end();
-    check(view?.error === sourceError && modelAborted, `${stage} source withdrawal cancels the waiting dialogue without waiting for network timeout`);
+    check(view?.error === sourceError && (stage === 'before-tts' || stage === 'withdrawn' ? modelCalls === 0 : modelCalls === 1 && modelAborted), `${stage} withdrawal blocks model transmission or cancels an already pending dialogue`);
     check(syntheses === (stage === 'before-tts' || stage === 'withdrawn' ? 0 : stage === 'queued-next' ? 2 : 1) && pcmAppends === (stage === 'queued-next' ? 1 : 0), `${stage} withdrawal prevents stale PCM append; a previously authorized one-sentence prefetch may already be billable`);
     check(withdrawalRows.length === 1 && withdrawalRows[0].heardText === (stage === 'queued-next' ? '第一句话。' : ''), `${stage} withdrawal preserves full listening receipts and never certifies revoked queued speech`);
   }
@@ -501,7 +665,7 @@ async function main() {
     await empty.start();
     for (let i = 0; i < 12; i++) callback(capture(id, i, i < 5 ? 8000 : 0));
     await until(() => view?.phase === 'error');
-    check(view?.error === 'voice:reply_empty' && ttsCalls === 0, 'empty or action-only answer pauses explicitly without a billable synthesis or automatic retry');
+    check(view?.error === (answer.trim()?'voice:reply_filtered':'voice:reply_empty') && ttsCalls === 0, 'empty or action-only answer pauses explicitly without a billable synthesis or automatic retry');
     await empty.resume();
     check(view?.phase === 'listening', 'empty answer permits explicit recovery for fresh user speech');
     const rows = await empty.end();
@@ -539,7 +703,7 @@ async function main() {
     }
   }
   for (const transportTimeout of [false, true]) {
-    const id = `prefetch-failure-${transportTimeout}`; let requests = 0, appends = 0, modelAborted = false, drainAborted = false;
+    const id = `prefetch-failure-${transportTimeout}`; let requests = 0, appends = 0, modelAborted = false, drainAborted = false, drainsStarted = 0;
     const savedTimer = globalThis.setTimeout;
     if (transportTimeout) globalThis.setTimeout = ((callback: any, delay?: number, ...args: any[]) => savedTimer(callback, delay === 45000 ? 0 : delay, ...args)) as typeof setTimeout;
     const transport = new MimoCallClient(async () => 'mock-key', (async () => {
@@ -550,6 +714,7 @@ async function main() {
       audio: { ...audio,
         append: async () => { appends++; return { playedFrames: 0, writtenFrames: 2 }; },
         drain: async (_turn, signal) => new Promise((_, reject) => {
+          drainsStarted++;
           const abort = () => { drainAborted = true; reject(new DOMException('Aborted', 'AbortError')); };
           if (signal.aborted) abort(); else signal.addEventListener('abort', abort, { once: true });
         }),
@@ -572,12 +737,425 @@ async function main() {
     await failedPrefetch.start();
     for (let i = 0; i < 12; i++) callback(capture(id, i, i < 5 ? 8000 : 0));
     await until(() => view?.phase === 'error');
-    check(view?.error === (transportTimeout ? 'timeout' : 'voice:quota') && modelAborted && drainAborted && requests === 2 && appends === 1,
-      'prefetch failure preserves its real cause, cancels the active drain and dialogue, and prevents further requests');
+    check(view?.error === (transportTimeout ? 'timeout' : 'voice:quota') && modelAborted && (!drainsStarted || drainAborted) && requests === 2 && appends === 1,
+      'prefetch failure preserves its real cause, cancels dialogue and any started drain, and prevents further requests');
     const rows = await failedPrefetch.end();
     check(rows.length === 1 && rows[0].heardText === '' && rows[0].segments.every(segment => segment.playedAt === undefined),
       'failed prefetch does not promote an incomplete preceding receipt or pending future sentence to listening facts');
     } finally { globalThis.setTimeout = savedTimer; await failedPrefetch.end(); }
+  }
+  {
+    const id = 'local-audio-failure'; let requests = 0, paused = 0;
+    const client = new MimoCallClient(async () => 'mock-key', (async () => {
+      requests++;
+      return new Response('data: {"choices":[{"delta":{"audio":{"data":"AAAAAA=="}}}]}\n\ndata: [DONE]\n\n', { headers: { 'Content-Type': 'text/event-stream' } });
+    }) as typeof fetch);
+    const failedAudio = new VoiceCallController(id, { audio: { ...audio,
+      append: async () => { throw { message: 'voice:audio_backpressure' }; },
+      pause: async () => { paused++; },
+    }, voice: '茉莉', style: '', onView: value => { view = value; }, context: async () => [], api: {
+      recognize: async () => '你好', dialogue: async (_messages, options) => { await options.onText('我在。'); },
+      synthesize: (text, voice, style, options) => client.synthesize(text, voice, style, options),
+    } });
+    await failedAudio.start();
+    for (let i = 0; i < 12; i++) callback(capture(id, i, i < 5 ? 8000 : 0));
+    await until(() => view?.phase === 'error');
+    check(view?.error === 'voice:audio_backpressure' && paused === 1, 'actual TTS transport preserves a native write failure and pauses audio instead of misreporting network');
+    check(requests === 1, 'local audio failure does not trigger another billable synthesis');
+    const rows = await failedAudio.end();
+    check(rows.length === 1 && rows[0].heardText === '', 'failed native audio write never becomes heard conversation');
+  }
+  for (const failed of [false, true]) {
+    const id = `device-stop-recovery-${failed}`; let stops = 0, resumes = 0, finishStop!: () => void, rejectStop!: (error: Error) => void;
+    const recoveringDevice = new VoiceCallController(id, { audio: { ...audio,
+      interrupt: async () => { stops++; return new Promise((resolve, reject) => { finishStop = () => resolve({ playedFrames: 0, writtenFrames: 0 }); rejectStop = reject; }); },
+      resume: async () => { resumes++; return { routes: [] }; },
+      pause: async () => {},
+    }, voice: '茉莉', style: '', context: async () => [], onView: value => { view = value; } });
+    await recoveringDevice.start();
+    callback({ callId: id, type: 'paused', at: 0, reason: 'background' });
+    callback({ callId: id, type: 'routeLost', at: 1, reason: 'route-lost' });
+    const recovery = recoveringDevice.resume(); await sleep();
+    check(stops === 1 && resumes === 0 && view?.phase === 'paused', 'repeated device pauses share one native stop and resume waits for its acknowledgement');
+    if (failed) rejectStop(new Error('voice:audio_bridge_timeout')); else finishStop();
+    await recovery;
+    check(failed ? resumes === 0 && view?.error === 'voice:audio_bridge_timeout' : resumes === 1 && view?.phase === 'listening',
+      'device stop failure is reported without automatic reopening; successful stop permits explicit recovery');
+    await recoveringDevice.end();
+  }
+  for (const cleanupFails of [false, true]) {
+    const id = `late-failed-turn-cleanup-${cleanupFails}`;
+    let asrRequests = 0, dialogueRequests = 0, stopRequests = 0;
+    let finishOldStop!: () => void, finishNewRecognition!: () => void;
+    let newSignal: AbortSignal | undefined;
+    const isolated = new VoiceCallController(id, { audio: { ...audio,
+      interrupt: async () => {
+        if (++stopRequests === 1) await new Promise<void>((resolve, reject) => {
+          finishOldStop = () => cleanupFails ? reject(new Error('voice:audio_bridge_timeout')) : resolve();
+        });
+        return { playedFrames: 0, writtenFrames: 0 };
+      },
+    }, voice: '茉莉', style: '', context: async text => [{ role: 'user', content: text }], onView: value => { view = value; }, api: {
+      recognize: async (_wav, options) => {
+        if (++asrRequests === 1) return '第一轮原话';
+        newSignal = options.signal;
+        return new Promise<string>((resolve, reject) => {
+          const abort = () => reject(new DOMException('Aborted', 'AbortError'));
+          options.signal.addEventListener('abort', abort, { once: true });
+          finishNewRecognition = () => { options.signal.removeEventListener('abort', abort); resolve('新轮原话'); };
+        });
+      },
+      dialogue: async (_messages, options) => {
+        if (++dialogueRequests === 1) throw new CallApiError('network', 'dialogue');
+        await options.onText('新轮回应。');
+      },
+      synthesize: async (_text, _voice, _style, options) => { await options.onPcm(new Uint8Array([0, 0, 0, 0])); },
+    } });
+    try {
+      await isolated.start();
+      for (let i = 0; i < 12; i++) callback(capture(id, i, i < 5 ? 8000 : 0));
+      await until(() => stopRequests === 1);
+      check(view?.phase === 'generating' && asrRequests === 1, 'failed turn can be awaiting native cleanup before its error is published');
+      await isolated.interrupt();
+      const previous = isolated.getRecords();
+      check(previous.length === 1 && previous[0].userText === '第一轮原话' && previous[0].interrupted && !previous[0].heardText,
+        'manual stop preserves the failed turn original speech once without creating assistant listening facts');
+      for (let i = 0; i < 12; i++) callback(capture(id, i + 12, i < 5 ? 8000 : 0));
+      await until(() => asrRequests === 2);
+      check(view?.phase === 'recognizing' && !newSignal!.aborted, 'fresh speech starts a separate live turn after the manual stop');
+      finishOldStop(); await sleep(); await sleep();
+      check(view?.phase === 'recognizing' && !view.error && !newSignal!.aborted && isolated.getRecords().length === 1,
+        'late success or failure of old error cleanup cannot save, abort or report an error on the new exchange');
+      finishNewRecognition();
+      await until(() => view?.phase === 'listening' && view.heardText === '新轮回应。');
+      const completed = isolated.getRecords();
+      check(completed.length === 2 && completed[0].turnId !== completed[1].turnId && completed[0].userText === '第一轮原话'
+        && !completed[0].heardText && completed[1].userText === '新轮原话' && completed[1].heardText === '新轮回应。'
+        && completed[1].segments.every(segment => segment.playedAt !== undefined),
+        'new turn completes normally and only its fully acknowledged response becomes listening evidence');
+    } finally { finishOldStop?.(); await isolated.end(); }
+  }
+  {
+    const fixture = segmentedSpeechFixture('continuous-40-second-merge');
+    await fixture.controller.start();
+    try {
+      fixture.send(400); fixture.send(7, false);
+      check(fixture.requests.length === 1 && !fixture.requests[0].options.signal.aborted && fixture.dialogues === 0,
+        'forty-second continuous speech keeps the first ASR alive and queues its tail without an early reply');
+      fixture.requests[0].complete('前段实际转写'); await until(() => fixture.requests.length === 2);
+      check(fixture.dialogues === 0 && fixture.view?.userText === '前段实际转写', 'completed prefix waits for its queued tail before the single dialogue');
+      fixture.requests[1].complete('尾段实际转写'); await until(() => fixture.view?.phase === 'listening');
+      check(fixture.requests.every(request => request.wav.length <= 960044) && fixture.requests.length === 2,
+        'each unique speech segment uses one WAV of at most thirty seconds and one ASR request');
+      check(Buffer.concat(fixture.requests.map(request => Buffer.from(request.wav.subarray(44))))
+        .equals(Buffer.concat(fixture.inputs.slice(0, 402).map(pcm => Buffer.from(pcm)))),
+        'marked PCM covers all forty seconds once in order, plus exactly two hundred milliseconds of silent tail');
+      check(fixture.contextText === '前段实际转写\n尾段实际转写' && fixture.dialogues === 1 && fixture.syntheses === 1,
+        'real completed segment text merges in order for one original-role reply after the true pause');
+      check(fixture.usages.length === 2 && fixture.usages[0] === fixture.requests[0].wav.length && fixture.usages[1] === fixture.requests[1].wav.length,
+        'one usage receipt is attributed to each actual segment request without invented duplicates');
+      const records = fixture.controller.getRecords();
+      check(records.length === 1 && records[0].userText === fixture.contextText && records[0].heardText === '合并回应。',
+        'the segmented utterance becomes one exchange with only fully acknowledged assistant speech');
+    } finally { await fixture.controller.end(); }
+  }
+  for (const tailFrames of [0, 1]) {
+    const fixture = segmentedSpeechFixture(`completed-prefix-short-tail-${tailFrames}`);
+    await fixture.controller.start();
+    try {
+      fixture.send(300); fixture.requests[0].complete('已完成前段'); await sleep();
+      check(fixture.dialogues === 0, 'early ASR completion never answers before the actual utterance ends');
+      fixture.send(tailFrames); fixture.send(7, false);
+      if (tailFrames) { await until(() => fixture.requests.length === 2); fixture.requests[1].complete('短尾'); }
+      await until(() => fixture.view?.phase === 'listening');
+      check(fixture.requests.length === (tailFrames ? 2 : 1) && fixture.dialogues === 1 && fixture.syntheses === 1
+        && fixture.contextText === (tailFrames ? '已完成前段\n短尾' : '已完成前段'),
+        'sub-two-hundred-millisecond continuation and silence-only tail both finish the same utterance without an extra silent ASR');
+    } finally { await fixture.controller.end(); }
+  }
+  for (const action of ['interrupt', 'pause', 'mute', 'route', 'end'] as const) {
+    const fixture = segmentedSpeechFixture(`queued-speech-cancel-${action}`);
+    await fixture.controller.start();
+    try {
+      fixture.send(300); fixture.requests[0].complete('真实完成前缀'); await sleep();
+      fixture.send(600); await until(() => fixture.requests.length === 2); fixture.requests[1].options.onText?.('当前段未完成草稿');
+      check(fixture.requests.length === 2 && fixture.view?.userText === '真实完成前缀\n当前段未完成草稿', 'normal recognition subtitles include the active draft while a later segment is bounded in the queue');
+      if (action === 'pause') fixture.pause();
+      else if (action === 'mute') await fixture.controller.mute(true);
+      else if (action === 'route') await fixture.controller.selectRoute(2);
+      else await fixture.controller[action]();
+      await sleep();
+      const saved = fixture.controller.getRecords();
+      check(saved.length === 1 && saved[0].userText === '真实完成前缀' && !saved[0].heardText && fixture.view?.userText === '真实完成前缀',
+        'stop, background, mute, route and hangup preserve only completed recognition in facts and restored subtitles');
+      check(fixture.requests[1].options.signal.aborted && fixture.requests.length === 2 && fixture.dialogues === 0 && fixture.syntheses === 0,
+        'cancellation aborts the active ASR and clears its queued continuation without future model requests');
+    } finally { await fixture.controller.end(); }
+  }
+  {
+    const fixture = segmentedSpeechFixture('speech-queue-overflow');
+    await fixture.controller.start();
+    try {
+      fixture.send(300); fixture.requests[0].complete('已确认前缀'); await sleep();
+      fixture.send(600); await until(() => fixture.requests.length === 2); fixture.requests[1].options.onText?.('尚未完成草稿'); fixture.send(300);
+      check(fixture.view?.phase === 'error' && fixture.view.error === 'voice:utterance_queue_full' && fixture.view.userText === '已确认前缀',
+        'more than two pending segments pauses explicitly and restores confirmed text instead of displaying an unfinished draft');
+      check(fixture.requests.length === 2 && fixture.requests[1].options.signal.aborted && fixture.dialogues === 0,
+        'queue overflow does not request its queued or overflowing PCM or retry recognition');
+      check(fixture.controller.getRecords().length === 1 && fixture.controller.getRecords()[0].userText === '已确认前缀',
+        'overflow preserves the completed prefix and does not claim the unrecognized remainder');
+    } finally { await fixture.controller.end(); }
+  }
+  for (const errorKind of ['asr', 'text-limit'] as const) {
+    const fixture = segmentedSpeechFixture(`speech-prefix-failure-${errorKind}`);
+    await fixture.controller.start();
+    try {
+      const prefix = errorKind === 'text-limit' ? '真'.repeat(4090) : '已确认前缀';
+      fixture.send(300); fixture.requests[0].complete(prefix); await sleep();
+      fixture.send(1); fixture.send(7, false); await until(() => fixture.requests.length === 2);
+      fixture.requests[1].options.onText?.('当前段草稿');
+      if (errorKind === 'asr') fixture.requests[1].fail(new CallApiError('service', 'asr', 503));
+      else fixture.requests[1].complete('超过总转写长度的真实尾段');
+      await until(() => fixture.view?.phase === 'error');
+      check(fixture.view?.error === (errorKind === 'asr' ? 'service' : 'voice:utterance_transcript_limit') && fixture.view.userText === prefix,
+        'ASR failure or combined transcript overflow reports its own cause and restores completed-prefix subtitles');
+      check(fixture.controller.getRecords().length === 1 && fixture.controller.getRecords()[0].userText === prefix
+        && fixture.controller.getRecords()[0].userText.length <= 4096 && fixture.dialogues === 0,
+        'failed or over-budget tail cannot become facts, reach dialogue or enlarge stored user text beyond its bound');
+    } finally { await fixture.controller.end(); }
+  }
+  for (const lateFailure of [false, true]) {
+    const fixture = segmentedSpeechFixture(`late-cancelled-asr-${lateFailure}`, true);
+    await fixture.controller.start();
+    try {
+      fixture.send(300); fixture.requests[0].complete('原完成前缀'); await sleep(); fixture.send(600); await until(() => fixture.requests.length === 2);
+      const cancelled = fixture.requests[1]; await fixture.controller.interrupt();
+      fixture.send(5); fixture.send(7, false); await until(() => fixture.requests.length === 3);
+      assert.throws(() => cancelled.options.onText?.('迟到草稿'), error => (error as Error).name === 'AbortError'); checks++;
+      if (lateFailure) cancelled.fail(new CallApiError('network', 'asr')); else cancelled.complete('迟到结果');
+      await sleep();
+      check(fixture.view?.phase === 'recognizing' && !fixture.view.error && !fixture.requests[2].options.signal.aborted
+        && fixture.controller.getRecords().length === 1, 'late cancelled ASR text, completion or error cannot start its old queue or mutate the new turn');
+      fixture.requests[2].complete('新轮真实原话'); await until(() => fixture.view?.phase === 'listening');
+      check(fixture.contextText === '新轮真实原话' && fixture.controller.getRecords().length === 2
+        && fixture.controller.getRecords()[0].userText === '原完成前缀', 'a fresh turn completes while the cancelled speech retains only its completed prefix');
+    } finally { await fixture.controller.end(); }
+  }
+  {
+    const fixture = typedCallFixture('typed-real-input');
+    fixture.state.padding = true;
+    await fixture.controller.start();
+    try {
+      check(fixture.startModes[0] === 'text' && fixture.view?.inputMode === 'text' && fixture.view.phase === 'listening', 'text call starts the playback-only input mode explicitly');
+      fixture.capture(); fixture.event('interrupted');
+      check(fixture.asr === 0 && fixture.contexts.length === 0 && fixture.view?.phase === 'listening', 'text mode ignores capture and stale microphone interruption events');
+      for (const [text, code] of [['', 'voice:text_empty'], ['  \n\t ', 'voice:text_empty'], ['字'.repeat(MAX_CALL_TEXT_LENGTH + 1), 'voice:text_limit']] as const) {
+        await assert.rejects(fixture.controller.sendText(text), error => (error as Error).message === code); checks++;
+      }
+      check(fixture.requests.length === 0 && fixture.controller.getRecords().length === 0, 'rejected blank or oversized text creates no model request or saved user fact');
+      const text = '  用户自己输入的原话\n保留换行和首尾空白。  ';
+      check(await fixture.controller.sendText(text), 'valid typed input returns accepted without waiting for a model reply');
+      await until(() => fixture.requests.length === 1);
+      check(fixture.view?.phase === 'generating' && fixture.view.userText === text && fixture.contexts[0].mode === 'text'
+        && fixture.requests[0].text === text && fixture.asr === 0, 'typed input enters generation with the exact user text and explicit text context, skipping ASR');
+      await fixture.requests[0].complete(); await until(() => fixture.view?.phase === 'listening');
+      const saved = fixture.controller.getRecords()[0];
+      check(saved.userText === text && saved.heardText === '原角色语音回答。' && saved.metrics.asrMs === undefined && saved.metrics.latencyBasis === undefined,
+        'typed turn saves original text and fully played reply without invented ASR or microphone latency');
+      check(saved.metrics.playback?.startupPaddingFrames === 100 && saved.metrics.playback.voiceQueuedFrames === 0
+        && saved.metrics.playback.queuedFrames === 100 && saved.metrics.playback.peakQueuedFrames === 101,
+        'diagnostics include real pending silence while heard speech remains based only on supplied voice frames');
+      check(fixture.completionMarkers.filter(Boolean).length === 1 && fixture.completionMarkers.at(-1) === saved.turnId,
+        'only the fully drained turn supplies a completion identity; setup cancellation has no completion marker');
+      check(!fixture.stages.includes('asr') && fixture.stages.join(',') === 'dialogue,tts', 'typed usage contains only the actual dialogue and TTS requests');
+      check(await fixture.controller.sendText('字'.repeat(MAX_CALL_TEXT_LENGTH)), 'the exact shared text length boundary is accepted');
+      await until(() => fixture.requests.length === 2); await fixture.controller.interrupt();
+      check(fixture.controller.getRecords()[1].userText.length === MAX_CALL_TEXT_LENGTH && !fixture.controller.getRecords()[1].heardText,
+        'accepted length-boundary text survives interruption without promoting an unplayed reply');
+      check(fixture.completionMarkers.at(-1) === undefined && fixture.completionMarkers.filter(Boolean).length === 1,
+        'manual interruption does not mark its turn as completed for buffer feedback');
+    } finally { await fixture.controller.end(); }
+  }
+  {
+    const fixture = typedCallFixture('typed-explicit-send-and-late-reply', 'text', true);
+    await fixture.controller.start();
+    try {
+      await fixture.controller.sendText('原轮真实输入'); await until(() => fixture.requests.length === 1);
+      const release = fixture.delayStop();
+      const replacing = fixture.controller.sendText('新轮明确发送');
+      check(!(await fixture.controller.sendText('同时点击不应重复接受')), 'parallel text sends cannot enter the same stop-and-accept boundary twice');
+      await sleep(); check(fixture.requests[0].options.signal.aborted && fixture.requests.length === 1, 'explicit sending cancels generation and waits for the old native stop');
+      release(); check(await replacing, 'replacement text is accepted only after the old stop acknowledgement');
+      await until(() => fixture.requests.length === 2);
+      await fixture.requests[0].complete('旧轮迟到台词。'); await sleep();
+      check(fixture.view?.userText === '新轮明确发送' && fixture.view.phase === 'generating' && !fixture.requests[1].options.signal.aborted,
+        'late cancelled dialogue cannot overwrite, abort or speak over the accepted new text turn');
+      await fixture.requests[1].complete(); await until(() => fixture.view?.phase === 'listening');
+      const saved = fixture.controller.getRecords();
+      check(saved.length === 2 && saved[0].userText === '原轮真实输入' && !saved[0].heardText && saved[1].userText === '新轮明确发送'
+        && saved[1].heardText === '原角色语音回答。', 'replacement preserves both genuine user inputs and only the fully heard new response');
+    } finally { await fixture.controller.end(); }
+  }
+  {
+    const fixture = typedCallFixture('typed-send-during-playback');
+    await fixture.controller.start();
+    try {
+      fixture.state.holdDrain = true;
+      await fixture.controller.sendText('播放中的原轮输入'); await until(() => fixture.requests.length === 1); await fixture.requests[0].complete();
+      await until(() => fixture.view?.phase === 'playing' && fixture.drains.length === 1);
+      check(await fixture.controller.sendText('明确打断播放再回答'), 'explicit typed sending also interrupts current playback');
+      await until(() => fixture.requests.length === 2);
+      const partial = fixture.controller.getRecords()[0];
+      check(partial.userText === '播放中的原轮输入' && !partial.heardText && partial.segments[0].playedFrames === 1 && partial.segments[0].interrupted,
+        'playback interruption keeps its partial receipt while withholding unplayed sentence facts');
+      fixture.drains[0](); await fixture.requests[1].complete(); await until(() => fixture.view?.phase === 'listening');
+      check(fixture.controller.getRecords().length === 2 && fixture.controller.getRecords()[1].heardText === '原角色语音回答。',
+        'old playback drain completion cannot certify the interrupted old sentence or disturb new playback');
+    } finally { fixture.drains.forEach(resolve => resolve()); await fixture.controller.end(); }
+  }
+  for (const action of ['paused', 'routeLost', 'interrupt', 'mode', 'end'] as const) {
+    const fixture = typedCallFixture(`typed-cancel-${action}`, 'text', true);
+    await fixture.controller.start();
+    try {
+      await fixture.controller.sendText('已经接受的真实文字'); await until(() => fixture.requests.length === 1);
+      if (action === 'paused' || action === 'routeLost') fixture.event(action);
+      else if (action === 'mode') await fixture.controller.setInputMode('voice');
+      else await fixture.controller[action]();
+      check(fixture.requests[0].options.signal.aborted && fixture.controller.getRecords()[0].userText === '已经接受的真实文字'
+        && !fixture.controller.getRecords()[0].heardText, 'pause, route loss, manual interrupt, input-mode switch and hangup cancel typed responses while preserving accepted words');
+      if (action !== 'interrupt') check(!(await fixture.controller.sendText('不应偷偷发送')) && fixture.requests.length === 1, 'paused, voice-mode or ended call rejects text without automatic recovery or resend');
+      await fixture.requests[0].complete('取消后的迟到台词。'); await sleep();
+      check(fixture.syntheses === 0 && fixture.controller.getRecords().length === 1, 'late cancelled typed replies make no future synthesis and no duplicate facts');
+      if (action === 'paused' || action === 'routeLost') {
+        check(fixture.resumes === 0, 'rejected paused typed input does not secretly resume native audio');
+        await fixture.controller.resume(); check(fixture.resumes === 1 && fixture.requests.length === 1 && fixture.view?.phase === 'listening', 'manual resume restores text mode without replaying rejected or cancelled input');
+      }
+    } finally { await fixture.controller.end(); }
+  }
+  for (const failure of ['context', 'dialogue', 'tts', 'append', 'drain'] as const) {
+    const fixture = typedCallFixture(`typed-response-failure-${failure}`);
+    if (failure !== 'dialogue') fixture.state.failure = failure;
+    await fixture.controller.start();
+    try {
+      check(await fixture.controller.sendText('出错仍应保留这段原话'), 'accepted typed text does not wait for downstream success');
+      if (failure !== 'context') {
+        await until(() => fixture.requests.length === 1);
+        if (failure === 'dialogue') fixture.requests[0].fail(new CallApiError('service', 'dialogue', 503));
+        else await fixture.requests[0].complete();
+      }
+      await until(() => fixture.view?.phase === 'error');
+      const saved = fixture.controller.getRecords();
+      check(saved.length === 1 && saved[0].userText === '出错仍应保留这段原话' && !saved[0].heardText && fixture.asr === 0,
+        'context, dialogue, TTS, append and drain failures retain user text while excluding incomplete assistant playback');
+      const requestsBefore = fixture.requests.length;
+      check(!(await fixture.controller.sendText('保留草稿直到恢复')) && fixture.requests.length === requestsBefore && fixture.resumes === 0,
+        'typed failure does not accept, resume or automatically retry the next draft');
+      if (failure === 'dialogue' || failure === 'tts') check(fixture.view?.errorStage === failure && fixture.view.errorHttpStatus === 503,
+        'typed model failures retain the real stage and HTTP status');
+      fixture.state.failure = undefined; await fixture.controller.resume();
+      check(fixture.view?.phase === 'listening' && fixture.requests.length === requestsBefore, 'manual error recovery does not resend the failed typed turn');
+    } finally { await fixture.controller.end(); }
+  }
+  {
+    const fixture = typedCallFixture('typed-hangup-during-accept');
+    await fixture.controller.start();
+    await fixture.controller.sendText('已接受旧输入'); await until(() => fixture.requests.length === 1);
+    const release = fixture.delayStop(), pending = fixture.controller.sendText('挂断前尚未接受的新草稿');
+    await sleep(); const ending = fixture.controller.end(); release();
+    check(!(await pending), 'hangup while waiting for stop cannot return accepted for unsent text');
+    await ending;
+    check(fixture.requests.length === 1 && fixture.controller.getRecords().length === 1 && fixture.controller.getRecords()[0].userText === '已接受旧输入',
+      'hangup during typed acceptance saves only the already accepted input and starts no future request');
+  }
+  {
+    const fixture = typedCallFixture('typed-mode-native-confirmation');
+    await fixture.controller.start();
+    try {
+      const release = fixture.delayMode(), switching = fixture.controller.setInputMode('voice');
+      await until(() => fixture.modeChanges.length === 1);
+      fixture.capture();
+      check(fixture.view?.inputMode === 'text' && fixture.view.inputModePending && fixture.asr === 0 && !(await fixture.controller.sendText('切换中不接受')),
+        'mode remains unchanged and capture/text are excluded until native confirmation');
+      await assert.rejects(fixture.controller.setInputMode('text'), error => (error as Error).message === 'voice:input_mode_pending'); checks++;
+      release(); await switching; fixture.capture(); await until(() => fixture.requests.length === 1);
+      check(fixture.view?.inputMode === 'voice' && !fixture.view.inputModePending && fixture.asr === 1 && fixture.contexts[0].mode === 'voice',
+        'confirmed voice mode resumes the existing ASR path with voice context');
+      await fixture.controller.setInputMode('text');
+      check(fixture.controller.getRecords()[0].userText === '语音模式真实转写' && fixture.requests[0].options.signal.aborted,
+        'voice-to-text switch cancels the original response and retains its completed real ASR input');
+      check(await fixture.controller.sendText('切回文字后发送'), 'confirmed text mode accepts a new typed turn');
+      await until(() => fixture.requests.length === 2); await fixture.requests[1].complete(); await until(() => fixture.view?.phase === 'listening');
+      check(fixture.asr === 1 && fixture.controller.getRecords()[1].userText === '切回文字后发送', 'mode round trip adds no ASR for the typed follow-up');
+    } finally { await fixture.controller.end(); }
+  }
+  {
+    const fixture = typedCallFixture('typed-mode-permission-failure');
+    await fixture.controller.start();
+    try {
+      fixture.state.failure = 'mode';
+      await assert.rejects(fixture.controller.setInputMode('voice'), error => (error as Error).message === 'voice:permission'); checks++;
+      check(fixture.view?.inputMode === 'text' && !fixture.view.inputModePending && fixture.view.phase === 'error', 'failed native mode switch retains the last acknowledged input mode');
+      check(!(await fixture.controller.sendText('失败后保留草稿')) && fixture.asr === 0, 'failed mode switch cannot secretly accept a draft or start microphone recognition');
+      await assert.rejects(fixture.controller.setInputMode('voice'), error => (error as Error).message === 'voice:input_unavailable'); checks++;
+      fixture.state.failure = undefined; await fixture.controller.resume();
+      check(fixture.view?.inputMode === 'text' && fixture.view.phase === 'listening' && fixture.requests.length === 0, 'manual recovery preserves acknowledged text mode without replay');
+    } finally { await fixture.controller.end(); }
+  }
+  {
+    const fixture = typedCallFixture('typed-mode-late-hangup');
+    await fixture.controller.start();
+    const release = fixture.delayMode(), switching = fixture.controller.setInputMode('voice');
+    await until(() => fixture.modeChanges.length === 1); await fixture.controller.end(); release(); await switching;
+    check(fixture.view?.phase === 'ended' && fixture.view.inputMode === 'text' && !fixture.view.inputModePending && fixture.asr === 0,
+      'native mode confirmation after hangup cannot reactivate the call or publish a different mode');
+  }
+  for (const committed of [true, false]) {
+    const fixture = typedCallFixture(`typed-mode-paused-before-ack-${committed}`, 'voice');
+    await fixture.controller.start();
+    try {
+      const release = fixture.delayMode(), switching = fixture.controller.setInputMode('text');
+      await until(() => fixture.modeChanges.length === 1);
+      fixture.event('paused');
+      check(fixture.view?.phase === 'paused' && fixture.view.inputMode === 'voice' && fixture.view.inputModePending,
+        'device pause can reach the controller before the pending native mode acknowledgement');
+      if (!committed) { fixture.state.failure = 'mode'; fixture.state.modeError = 'voice:inactive'; }
+      release();
+      if (committed) await switching;
+      else { await assert.rejects(switching, error => (error as Error).message === 'voice:inactive'); checks++; }
+      check(fixture.view?.inputMode === (committed ? 'text' : 'voice') && !fixture.view.inputModePending
+        && fixture.view.phase === (committed ? 'paused' : 'error'),
+        'a committed mode acknowledgement updates mode while keeping the call paused, and rejected uncommitted mode keeps the previous mode');
+      fixture.capture();
+      check(!(await fixture.controller.sendText('后台不应偷偷接收')) && fixture.asr === 0 && fixture.requests.length === 0 && fixture.resumes === 0,
+        'neither late mode acknowledgement nor rejection can resume audio or accept input during device suspension');
+      if (committed) {
+        await fixture.controller.resume();
+        check(await fixture.controller.sendText('确认继续后才接收文字'), 'explicit resume uses the acknowledged text mode after a device pause');
+        await until(() => fixture.requests.length === 1); await fixture.requests[0].complete(); await until(() => fixture.view?.phase === 'listening');
+        check(fixture.controller.getRecords()[0].userText === '确认继续后才接收文字' && fixture.asr === 0,
+          'text accepted after explicit recovery remains a real typed turn without an ASR request');
+      }
+    } finally { await fixture.controller.end(); }
+  }
+  {
+    const fixture = typedCallFixture('typed-permission-denied-start', 'voice');
+    fixture.state.failure = 'start'; await fixture.controller.start();
+    check(fixture.view?.phase === 'error' && !(await fixture.controller.sendText('不应假装接收')), 'failed call initialization does not accept typed input');
+    await fixture.controller.setInputMode('text'); fixture.state.failure = undefined;
+    check(fixture.starts === 1 && fixture.modeChanges.length === 0 && fixture.view?.phase === 'error', 'changing a failed start target only updates configuration and does not automatically reopen audio');
+    await fixture.controller.resume();
+    check(fixture.startModes.join(',') === 'voice,text' && fixture.view?.phase === 'listening' && fixture.view.inputMode === 'text', 'explicit resume after failed initialization starts the newly selected mode');
+    await fixture.controller.end();
+  }
+  {
+    const fixture = typedCallFixture('typed-revoked-source'); await fixture.controller.start();
+    await fixture.controller.sendText('已接受但背景来源撤回'); await until(() => fixture.requests.length === 1); fixture.state.withdrawn = true;
+    await fixture.requests[0].complete(); await until(() => fixture.view?.phase === 'error');
+    check(fixture.view?.error === 'voice:source_withdrawn' && !fixture.controller.getRecords()[0].heardText && fixture.syntheses === 0,
+      'typed input shares source authorization and cannot synthesize from withdrawn context');
+    await fixture.controller.resume();
+    check(!(await fixture.controller.sendText('撤回后未接收的草稿')) && fixture.resumes === 0 && fixture.requests.length === 1, 'source revocation is terminal for the current typed call and never auto-repairs memory');
+    await fixture.controller.end();
   }
   console.log(JSON.stringify({ checks, realApiCalls: 0, modelTokens: 0, deviceTested: false, mode: 'mock-controller-and-bridge' }));
 }

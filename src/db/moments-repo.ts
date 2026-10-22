@@ -63,7 +63,7 @@ async function generateComment(userId: string, character: Character, moment: Mom
     userId,
     characterId: character.id,
     audience: [character.id],
-    ...(world ? { worldId: world.id } : {}),
+    ...(world ? { scene: { worldId: world.id } } : {}),
     topic: `朋友圈 ${moment.text} ${reply?.content ?? ''}`,
     // 角色可以用自己的私有经历判断语气与距离；来源集合由服务决定。
     mode: 'moments-comment',

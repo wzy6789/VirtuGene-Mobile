@@ -1,0 +1,11 @@
+import { build } from 'esbuild';
+import { spawnSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import assert from 'node:assert/strict';
+const dir = '.tmp-preview/voice-segment-playback-20261015';
+await build({ entryPoints: ['scripts/verify/voice-segment-echo.ts'], outfile: `${dir}/echo.cjs`, bundle: true, platform: 'node', format: 'cjs' });
+const result = spawnSync(process.execPath, [`${dir}/echo.cjs`], { encoding: 'utf8', timeout: 30000 });
+writeFileSync(`${dir}/echo-latest.txt`, result.stdout + result.stderr);
+assert.equal(result.status, 0, result.stderr || String(result.error));
+const report = JSON.parse(result.stdout); writeFileSync(`${dir}/echo-after.json`, JSON.stringify(report, null, 2));
+console.log(JSON.stringify(report));

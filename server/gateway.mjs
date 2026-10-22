@@ -4,7 +4,10 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DEEPSEEK_MODEL_ID, deepseekGenerationOptions } from './deepseek-policy.mjs';
 import { withChatMessagingPolicy } from './chat-messaging-policy.mjs';
+import {boundChatHistory} from './chat-history-policy.mjs';
 import { MEMORY_SOURCE_POLICY, memorySpeaker } from './memory-source-policy.mjs';
+import {isCompleteSummaryHistory} from './summary-history-policy.mjs';
+import { responseCancellation } from './response-cancellation.mjs';
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -127,6 +130,7 @@ function loginAccount(body) {
 }
 
 const json = (res, status, payload) => {
+  if (res.destroyed || res.writableEnded) return;
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -217,8 +221,11 @@ function content(textValue, image) {
   return [{ type: 'text', text: textValue || '[图片]' }, { type: 'image_url', image_url: { url: image.slice(0, 2_500_000) } }];
 }
 
+function boundedRequestHistory(body){
+  return boundChatHistory((Array.isArray(body.history)?body.history:[]).map(item=>({role:item?.role==='assistant'?'assistant':'user',content:typeof item?.content==='string'?item.content:'',image:item?.image})));
+}
 function chatGenerationOptions(body) {
-  const history = Array.isArray(body.history) ? body.history.slice(-12) : [];
+  const history = boundedRequestHistory(body);
   return deepseekGenerationOptions({
     disableThinking: body.disableThinking === true,
     visionRequest: body.forceVision === true || Boolean(body.image) || history.some(item => Boolean(item?.image)),
@@ -231,7 +238,7 @@ function buildMessages(body) {
   const system = text(body.systemPrompt, 26_000);
   const instruction = '这是 VirtuGene 的拟人化互动。不得声称自己是真实人类，不得诱导用户依赖、排斥现实关系、过度消费或服从角色；不得鼓励自伤、自杀、暴力或危险行为。遇到用户可能面临人身安全风险时，优先关心现实安全，鼓励立即联系可信任的人和当地紧急援助。';
   const messaging = body.structuredOutput === true ? system : withChatMessagingPolicy(system);
-  const history = Array.isArray(body.history) ? body.history.slice(-12) : [];
+  const history = boundedRequestHistory(body);
   return [
     { role: 'system', content: `${instruction}\n\n${messaging}${body.retryHint ? `\n\n${text(body.retryHint, 500)}` : ''}` },
     ...history.map((item) => ({ role: item?.role === 'assistant' ? 'assistant' : 'user', content: content(text(item?.content, 1_200), item?.image) })),
@@ -252,7 +259,9 @@ function safetyIntervention(message) {
 }
 
 function auxMessages(operation, payload) {
-  const history = Array.isArray(payload?.history) ? payload.history.slice(-24) : [];
+  const isSummary = operation === 'context-summary';
+  if (isSummary && !isCompleteSummaryHistory(payload?.history)) throw Object.assign(new Error('invalid_summary_batch'), {status:400});
+  const history = isSummary ? payload.history : Array.isArray(payload?.history) ? payload.history.slice(-24) : [];
   const text = typeof payload?.text === 'string' ? payload.text.slice(0, 12_000) : '';
   const context = typeof payload?.context === 'string' ? payload.context.slice(0, 8_000) : '';
   const previousSummary = typeof payload?.previousSummary === 'string' ? payload.previousSummary.slice(0, 2_500) : '';
@@ -263,7 +272,7 @@ function auxMessages(operation, payload) {
       .filter(Boolean)
       .slice(0, 8)
     : [];
-  const transcript = history.map((item) => `${operation === 'context-summary' ? memorySpeaker(item?.role, item?.userAuthored) : item?.role === 'assistant' ? 'assistant' : 'user'}: ${String(item?.content || '').slice(0, 1_000)}`).join('\n');
+  const transcript = history.map((item) => `${isSummary&&item.groupMember?'群成员：':''}${isSummary ? memorySpeaker(item?.role, item?.userAuthored) : item?.role === 'assistant' ? 'assistant' : 'user'}: ${isSummary ? item.content : String(item?.content || '').slice(0, 1_000)}`).join('\n');
   const prompts = {
     memory: '从对话中提取值得长期记住的用户事实。只记录用户明确说过或能直接确定的内容，不能把角色猜测当事实；注意时间范围和用户对旧事实的纠正。只输出 JSON 数组，例如 ["用户喜欢咖啡"]；没有就输出 []。',
     emotion: '分析 assistant 消息里的角色状态，只输出 JSON 对象：{"dimensions":{"valence":5,"arousal":5,"intimacy":5,"engagement":5,"expressiveness":5,"stability":5},"dominantEmotion":"","summary":""}。每个分数 1 到 10。',
@@ -279,16 +288,19 @@ function auxMessages(operation, payload) {
       : operation === 'context-summary' && protectedMemories.length > 0
         ? `用户明确要求长期保留的记忆（必须逐条保留）：\n${protectedMemories.map((item) => `- ${item}`).join('\n')}\n\n本次新增对话：\n${transcript || text}`
       : transcript || text;
-  return [{ role: 'system', content: operationPrompt }, { role: 'user', content: user.slice(0, 20_000) }];
+  if (isSummary && user.length > 20_000) throw Object.assign(new Error('invalid_summary_batch'), {status:400});
+  return [{ role: 'system', content: operationPrompt }, { role: 'user', content: isSummary ? user : user.slice(0, 20_000) }];
 }
 
-async function aux(operation, payload) {
+async function aux(operation, payload, res) {
   if (!DEEPSEEK_API_KEY) throw Object.assign(new Error('missing_provider_key'), { status: 503 });
+  const cancellation = responseCancellation(res, 45_000);
+  try {
   const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: DEFAULT_MODEL, messages: auxMessages(operation, payload), ...deepseekGenerationOptions({ jsonMode: true, temperature: 0.3 }), max_tokens: operation === 'diary' ? 900 : operation === 'context-summary' ? 1_600 : 600, response_format: { type: 'json_object' } }),
-    signal: AbortSignal.timeout(45_000),
+    signal: cancellation.signal,
   });
   if (!response.ok) {
     const error = new Error(`provider_${response.status}`);
@@ -296,13 +308,17 @@ async function aux(operation, payload) {
     throw error;
   }
   const data = await response.json();
+  if (operation === 'context-summary' && data.choices?.[0]?.finish_reason === 'length') throw Object.assign(new Error('incomplete_summary'), {status:502});
   const raw = data.choices?.[0]?.message?.content;
   if (typeof raw !== 'string' || !raw.trim()) throw Object.assign(new Error('invalid_provider_json'), { status: 502 });
   try { return JSON.parse(raw.replace(/^```json?\s*/i, '').replace(/\s*```$/, '')); } catch { throw Object.assign(new Error('invalid_provider_json'), { status: 502 }); }
+  } finally { cancellation.cleanup(); }
 }
 
-async function chat(body) {
+async function chat(body, res) {
   if (!DEEPSEEK_API_KEY) throw Object.assign(new Error('missing_provider_key'), { status: 503 });
+  const cancellation = responseCancellation(res, 60_000);
+  try {
   const model = DEFAULT_MODEL;
   const response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -314,7 +330,7 @@ async function chat(body) {
       max_tokens: body.forceVision ? 900 : body.structuredOutput ? Math.max(16, Math.min(4000, Math.round(Number(body.maxTokens ?? 3500)) || 3500)) : 700,
       ...(body.structuredOutput ? { response_format: { type: 'json_object' } } : {}),
     }),
-    signal: AbortSignal.timeout(60_000),
+    signal: cancellation.signal,
   });
   if (!response.ok) {
     const error = new Error(`provider_${response.status}`);
@@ -331,6 +347,7 @@ async function chat(body) {
     usage: data.usage ? { inputTokens: Number(data.usage.prompt_tokens || 0), outputTokens: Number(data.usage.completion_tokens || 0) } : undefined,
     modelId: model,
   };
+  } finally { cancellation.cleanup(); }
 }
 
 function writeSseHead(res) {
@@ -464,7 +481,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJson(req);
     if (req.url === '/v1/aux') {
       if (!['memory', 'emotion', 'context-settle', 'context-summary', 'diary'].includes(body.operation)) return json(res, 400, { error: 'invalid_request' });
-      return json(res, 200, await aux(body.operation, body.payload || {}));
+      return json(res, 200, await aux(body.operation, body.payload || {}, res));
     }
     if (!text(body.message, 4_000).trim() || !text(body.systemPrompt, 12_000).trim()) return json(res, 400, { error: 'invalid_request' });
     const intervention = safetyIntervention(body.message);
@@ -472,7 +489,7 @@ const server = http.createServer(async (req, res) => {
       await streamChat(body, intervention, res);
       return;
     }
-    return json(res, 200, intervention || await chat(body));
+    return json(res, 200, intervention || await chat(body, res));
   } catch (error) {
     const status = Number(error?.status || 502);
     const mapped = status === 401 ? 'auth:invalid_key' : status === 402 ? 'billing:insufficient' : status === 429 ? 'rate:limited' : 'server:error';

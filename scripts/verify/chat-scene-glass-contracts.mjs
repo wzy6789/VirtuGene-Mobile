@@ -1,0 +1,2 @@
+import{build}from'esbuild';import{mkdirSync}from'node:fs';import{pathToFileURL}from'node:url';import{resolve}from'node:path';
+const out='.tmp-preview/chat-immersive-themes-20261021';mkdirSync(out,{recursive:true});await build({entryPoints:['scripts/verify/chat-scene-glass-contracts.ts'],outfile:out+'/glass-contracts.mjs',bundle:true,platform:'node',format:'esm',target:'node20'});await import(pathToFileURL(resolve(out+'/glass-contracts.mjs')).href+'?t='+Date.now());

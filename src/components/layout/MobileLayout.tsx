@@ -13,6 +13,7 @@ import { breathe } from '../../lib/haptics';
 import { beginSoulHandoff, cancelSoulHandoff, soulElement, soulHandoffTo } from '../../lib/soul-handoff';
 import { useMobilePageMotion } from '../ui/useMobilePageMotion';
 import { openAssistantWorkspace } from '../../lib/secretary/navigation';
+import { ElasticTabs } from '../ui/ElasticTabs';
 
 const ChatPage = lazyFeature(() => import('../../pages/ChatPage').then(m => ({ default: m.ChatPage })));
 const MobileWorldPage = lazyFeature(() => import('../world/MobileWorldPage').then(m => ({ default: m.MobileWorldPage })));
@@ -76,28 +77,31 @@ function TabIcon({ name, active }: { name: MobileTab; active: boolean }) {
   const common = {
     fill: 'none',
     stroke,
-    strokeWidth: 1.8,
+    strokeWidth: active ? 1.9 : 1.65,
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
+    'aria-hidden': true as const,
+    focusable: false,
   };
+  const tint = { fill: active ? 'currentColor' : 'none', fillOpacity: active ? .14 : 0 };
   if (name === 'chat')
     return (
       <svg width="22" height="22" viewBox="0 0 24 24" {...common}>
-        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+        <path {...tint} d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
       </svg>
     );
   if (name === 'characters')
     return (
       <svg width="22" height="22" viewBox="0 0 24 24" {...common}>
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
+        <circle {...tint} cx="12" cy="7" r="4" />
       </svg>
     );
   if (name === 'world')
     return (
       <svg width="22" height="22" viewBox="0 0 24 24" {...common}>
         {/* 世界：一颗星球 + 运行轨迹（Living World） */}
-        <circle cx="12" cy="12" r="7.2" />
+        <circle {...tint} cx="12" cy="12" r="7.2" />
         <path d="M3.6 10.4c3.4-1.7 7.9-2.4 12-1.6 2.6.5 4.6 1.4 5.4 2.4" />
         <path d="M20.4 15.2c-3.4 1.5-7.6 2.1-11.5 1.4-2.7-.5-4.7-1.5-5.5-2.5" />
       </svg>
@@ -105,8 +109,9 @@ function TabIcon({ name, active }: { name: MobileTab; active: boolean }) {
   // 手账已下沉为「世界 → 我的生活」内容页，不再是底部 tab，因此这里没有 diary 图标
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" {...common}>
-      <circle cx="12" cy="8" r="4" />
-      <path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1" />
+      <rect {...tint} x="3" y="4" width="18" height="16" rx="3" />
+      <circle cx="9" cy="10" r="2" />
+      <path d="M5.5 16a3.5 3.5 0 0 1 7 0 M15 9h3 M15 13h3" />
     </svg>
   );
 }
@@ -116,7 +121,7 @@ function TabIcon({ name, active }: { name: MobileTab; active: boolean }) {
  * - 手账不是 tab：从「世界 → 我的生活」进入，进入后底部导航保持可见（点任意一级导航即退出）
  * - tab 状态放 ui-store（聊天页可返回角色页）
  * - 键盘弹出（输入聚焦）时隐藏底部导航，避免四个 tab 被顶到输入框上面
- * - 激活 tab 有胶囊高亮 + 顶部小圆点强调（学习微信/QQ）
+ * - 激活 tab 使用同一块哑光底片与图标填充，不显示提醒圆点
  * - 页面进入方向跟随导航，手势退场由各自的手势层负责
  */
 export function MobileLayout() {
@@ -128,6 +133,8 @@ export function MobileLayout() {
   const canvasSceneId = useUIStore((s) => s.canvasSceneId);
   const worldTheaterOpen = useUIStore((s) => s.worldTheaterOpen);
   const fetchUnreadCounts = useChatStore((s) => s.fetchUnreadCounts);
+  const owner = useAuthStore((s) => s.userId);
+  const navContentRef = useRef<HTMLElement>(null);
   /** 键盘弹出（输入聚焦）时隐藏底部 tab */
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const navigationRef = useRef<{
@@ -153,7 +160,7 @@ export function MobileLayout() {
   const settingsOpen = activeView === 'worldSettings';
   const overlayOpen = isWorldOverlay(activeView);
   const chatDetailOpen = CHAT_DETAIL_VIEWS.includes(activeView);
-  const activeTab: MobileTab = chatDetailOpen ? 'chat' : overlayOpen ? 'world' : tab;
+  const activeTab: MobileTab = chatDetailOpen ? (tab === 'world' ? 'world' : 'chat') : overlayOpen ? 'world' : tab;
 
   /** 受保护的移动端 history 栈：详情先返回，最后才允许离开应用。 */
   useEffect(() => {
@@ -229,7 +236,13 @@ export function MobileLayout() {
 
   useEffect(() => {
     const unsubscribe = useUIStore.subscribe((state, before) => {
-      if (state.mobileTab !== before.mobileTab || state.activeView !== before.activeView && state.activeView !== 'chat' && !(state.activeView === 'actionCabin' && soulHandoffTo('cabin'))) { cancelSoulHandoff(); chatEntry.current++; return; }
+      if(before.activeView==='canvas'&&state.activeView==='chat'&&state.mobileTab==='world'&&before.canvasSceneId){
+        const key=JSON.stringify([useAuthStore.getState().userId,before.canvasSceneId]);
+        chatEntry.current++;
+        beginSoulHandoff(key,soulElement(key,'world-scene'),'world-entry');
+        return;
+      }
+      if (state.mobileTab !== before.mobileTab || state.activeView !== before.activeView && state.activeView !== 'chat' && !(state.activeView === 'actionCabin' && soulHandoffTo('cabin')) && !(state.activeView === 'canvas' && soulHandoffTo('world-scene'))) { cancelSoulHandoff(); chatEntry.current++; return; }
       if ((before.chatFromList && !state.chatFromList || before.chatFromCharacters && !state.chatFromCharacters) && state.mobileTab === before.mobileTab && state.activeView === 'chat' && !soulHandoffTo('list')) {
         const id = useChatStore.getState().selectedCharacterId;
         if (id) beginSoulHandoff(`avatar:${id}`,soulElement(`avatar:${id}`,'chat'),'list');
@@ -245,39 +258,49 @@ export function MobileLayout() {
     return () => clearInterval(timer);
   }, [fetchUnreadCounts]);
 
-  // 键盘/输入状态检测：输入框/文本域聚焦 → 立即隐藏底部导航（微信式，四个 tab 不顶上来）；
-  // 失焦延迟恢复（键盘收起动画期间保持隐藏）。
-  // 注意：Android WebView 默认 adjustResize 模式下 window 与 visualViewport 同比例缩小，
-  // ratio 始终 ≈1 —— 因此 visualViewport 事件只负责「确认弹起」，绝不反向置 false，
-  // 恢复一律由 focusout 延迟检测完成，避免误把「键盘开着」覆盖回 false（tab 又顶上来）。
+  // Text entry hides navigation immediately. Restore after focus has settled and
+  // the viewport has recovered; adjustResize can keep its ratio near one even
+  // while the keyboard is open, so a focused text field always takes priority.
   useEffect(() => {
     const vv = window.visualViewport;
     let focusTimer: ReturnType<typeof setTimeout> | undefined;
+    const textEntry = (node: EventTarget | null) => {
+      if (!(node instanceof HTMLElement) || node.closest('[inert]')) return false;
+      if (node instanceof HTMLTextAreaElement) return !node.disabled && !node.readOnly;
+      if (node instanceof HTMLInputElement) return !node.disabled && !node.readOnly && !['button', 'submit', 'reset', 'checkbox', 'radio', 'range', 'file', 'hidden', 'color', 'date', 'time', 'month', 'week', 'datetime-local'].includes(node.type);
+      return node.isContentEditable;
+    };
+    const restore = () => {
+      clearTimeout(focusTimer);
+      focusTimer = setTimeout(() => {
+        const ratio = vv ? vv.height / window.innerHeight : 1;
+        if (ratio >= 0.85 && !textEntry(document.activeElement)) setKeyboardOpen(false);
+      }, 250);
+    };
     const confirmOpen = () => {
       const ratio = vv ? vv.height / window.innerHeight : 1;
       if (ratio < 0.85) setKeyboardOpen(true);
+      else if (!textEntry(document.activeElement)) restore();
     };
     if (vv) {
       vv.addEventListener('resize', confirmOpen);
       vv.addEventListener('scroll', confirmOpen);
     }
     const onFocusIn = (e: FocusEvent) => {
-      clearTimeout(focusTimer);
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) {
+      if (textEntry(e.target)) {
+        clearTimeout(focusTimer);
         setKeyboardOpen(true);
-      }
+      } else restore();
     };
-    const onFocusOut = () => {
-      // 延迟恢复：等键盘收起动画结束再显示导航；键盘仍开着（ratio 未恢复）则不恢复
-      focusTimer = setTimeout(() => {
-        const ratio = vv ? vv.height / window.innerHeight : 1;
-        const focused = document.activeElement;
-        if (ratio >= 0.85 && !focused?.matches('input, textarea')) setKeyboardOpen(false);
-      }, 250);
-    };
+    // Removing a focused field need not fire focusout. Reconcile after the
+    // dismissal action too, without observing every mutation during streaming.
+    const onPointerUp = (e: PointerEvent) => { if (!textEntry(e.target)) restore(); };
+    const onEscape = (e: KeyboardEvent) => { if (e.key === 'Escape') restore(); };
     document.addEventListener('focusin', onFocusIn);
-    document.addEventListener('focusout', onFocusOut);
+    document.addEventListener('focusout', restore);
+    document.addEventListener('pointerup', onPointerUp, true);
+    document.addEventListener('keydown', onEscape, true);
+    window.addEventListener('vg:back-request', restore);
     return () => {
       clearTimeout(focusTimer);
       if (vv) {
@@ -285,11 +308,17 @@ export function MobileLayout() {
         vv.removeEventListener('scroll', confirmOpen);
       }
       document.removeEventListener('focusin', onFocusIn);
-      document.removeEventListener('focusout', onFocusOut);
+      document.removeEventListener('focusout', restore);
+      document.removeEventListener('pointerup', onPointerUp, true);
+      document.removeEventListener('keydown', onEscape, true);
+      window.removeEventListener('vg:back-request', restore);
     };
   }, []);
 
   const chatEntry = useRef(0);
+
+  // Start the chat chunk on an actual selection, alongside the indexed session read.
+  // Merely opening Messages must not pull in the entire send/appearance pipeline.
 
   const switchTab = (t: MobileTab, clicked = false) => {
     chatEntry.current++; cancelSoulHandoff();
@@ -322,30 +351,30 @@ export function MobileLayout() {
     key: pageKey, tab: activeTab,
     depth: immersive ? 2 : overlayOpen || chatDetailOpen || chatFromCharacters || chatFromList ? 1 : 0,
   });
+  const navigationHidden = immersive || keyboardOpen || (tab === 'chat' && chatFromList) || (tab === 'characters' && chatFromCharacters);
+  const floatingNavigation = !navigationHidden && activeView === 'chat' && !worldTheaterOpen;
 
   return (
-    <div className="mobile-layout relative h-full w-full flex flex-col bg-app overflow-hidden">
+    <div className="mobile-layout relative h-full w-full flex flex-col bg-app overflow-hidden" data-floating-navigation={floatingNavigation || undefined}>
       {/* 固定氛围层：光晕、轨道与少量信号点，不随列表滚动 */}
       <SoulAtmosphere />
 
-      {/* 顶部状态栏保留品牌深色，适配原生白色状态图标。
-          无刘海屏 env(safe-area-inset-top)=0，故叠加固定 24px 兜底，
-          保留现有原生安全区避让方式 */}
+      {/* 只避让尚未由原生处理的安全区，不再额外叠加固定状态栏高度。 */}
       <div
         className="mobile-statusbar absolute top-0 inset-x-0 z-20 pointer-events-none"
-        style={{ height: 'calc(env(safe-area-inset-top, 0px) + 24px)' }}
+        style={{ height: 'var(--vg-safe-top)' }}
       />
 
-      {/* 内容区从深色条下方开始（同样叠加 24px 兜底） */}
+      {/* 背景铺满顶部，内容仅避让真实系统图标/摄像头区域。 */}
       <div
         data-soul-host
         className="relative z-10 flex flex-col h-full"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 24px)' }}
+        style={{ paddingTop: 'var(--vg-safe-top)' }}
       >
         <NotificationCloud />
 
         {/* 内容区：单一页面入场动画，避免重复位移 */}
-        <main className="flex-1 min-h-0 overflow-hidden">
+        <main ref={navContentRef} className="flex-1 min-h-0 overflow-hidden">
           <Suspense fallback={<div className="vg-loading" role="status">正在打开你的空间…</div>}>
           <MobileTabSwipe
             activeTab={tab}
@@ -394,15 +423,15 @@ export function MobileLayout() {
                     /* 微信式：会话列表推入聊天，返回回到会话列表（底部 tab 仍高亮「消息」） */
                     <ChatPage />
                   ) : (
-                    <MobileChatListPage onSelect={(c) => { const entry = ++chatEntry.current, owner = useAuthStore.getState().userId; void useChatStore.getState().selectCharacter(c.id).then(() => { if (entry !== chatEntry.current || owner !== useAuthStore.getState().userId || useChatStore.getState().selectedCharacterId !== c.id) return; beginSoulHandoff(`avatar:${c.id}`,soulElement(`avatar:${c.id}`,'list'),'chat'); openChat('list'); }).catch(() => cancelSoulHandoff()); }} />
+                    <MobileChatListPage onSelect={(c, source) => { void ChatPage.preload(); const entry = ++chatEntry.current, owner = useAuthStore.getState().userId; void useChatStore.getState().selectCharacter(c.id).then(() => { if (entry !== chatEntry.current || owner !== useAuthStore.getState().userId || useChatStore.getState().selectedCharacterId !== c.id) return; beginSoulHandoff(`avatar:${c.id}`,source ?? soulElement(`avatar:${c.id}`,'list'),'chat'); openChat('list'); }).catch(() => cancelSoulHandoff()); }} />
                   ))}
-                {tab === 'world' && <MobileWorldPage />}
+                {tab === 'world' && <MobileWorldPage onCanvasIntent={()=>void WorldCanvas.preload()}/>}
                 {tab === 'characters' && (
                   chatFromCharacters ? (
                     /* 微信式：角色页推入聊天覆盖层，返回后回到角色列表（底部 tab 仍高亮「角色」） */
                     <ChatPage />
                   ) : (
-                    <MobileCharacterPage onSelect={() => openChat('characters')} />
+                    <MobileCharacterPage onChatIntent={() => { void ChatPage.preload(); }} onSelect={() => openChat('characters')} />
                   )
                 )}
                 {tab === 'me' && <MobileMePage />}
@@ -416,38 +445,32 @@ export function MobileLayout() {
 
         {/* 底部导航（含手势安全区）。输入框聚焦后直接从布局移除：
             键盘出现时四个导航不会经历“向上浮起”的动画，也不会占据输入框下方空间。 */}
-        <nav
+        <ElasticTabs
+          ariaLabel="主导航"
+          role="navigation"
           className={`mobile-bottom-nav shrink-0 ${
-            immersive || keyboardOpen || (tab === 'chat' && chatFromList) || (tab === 'characters' && chatFromCharacters)
+            navigationHidden
               ? 'hidden'
-              : 'vg-navigation flex items-stretch pb-[env(safe-area-inset-bottom)]'
+              : 'vg-navigation flex items-stretch'
           }`}
-        >
-          <span className="vg-nav-indicator" aria-hidden="true"
-            style={{ transform: `translate3d(${MOBILE_TABS.findIndex(t => t.key === activeTab) * 100}%,0,0)` }} />
-          {MOBILE_TABS.map((t) => {
+          value={activeTab}
+          enabled={!navigationHidden}
+          gestureKey={`${owner}|${activeView}|${chatFromList}|${chatFromCharacters}|${keyboardOpen}`}
+          contentRef={activeView === 'chat' ? navContentRef : undefined}
+          itemClassName="vg-nav-tab"
+          onItemIntent={preloadTab}
+          onChange={t => switchTab(t, true)}
+          onReselect={t => switchTab(t, true)}
+          items={MOBILE_TABS.map((t) => {
             const active = activeTab === t.key;
-            return (
-              <button
-                key={t.key}
-                aria-current={active ? 'page' : undefined}
-                className={`vg-nav-tab relative flex-1 h-14 flex flex-col items-center justify-center gap-1 text-[11px] transition-colors active:bg-surface ${
-                  active ? 'text-life-cyan' : 'text-gray-400'
-                }`}
-                onPointerEnter={() => preloadTab(t.key)}
-                onPointerDown={() => preloadTab(t.key)}
-                onFocus={() => preloadTab(t.key)}
-                onClick={() => switchTab(t.key,true)}
-              >
-                {/* 激活态图标胶囊高亮 */}
-                <span className="vg-nav-icon flex items-center justify-center w-10 h-7 rounded-full">
+            return { value: t.key, ariaLabel: t.label, label: <>
+                <span className="vg-nav-icon">
                   <TabIcon name={t.key} active={active} />
                 </span>
-                <span className={`leading-none ${active ? 'font-semibold' : ''}`}>{t.label}</span>
-              </button>
-            );
+                <span>{t.label}</span>
+              </> };
           })}
-        </nav>
+        />
       </div>
     </div>
   );

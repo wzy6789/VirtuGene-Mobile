@@ -55,14 +55,27 @@ export function RelationshipConstellation({
   characters,
   states,
   events,
+  compact = false,
 }: {
   userId: string;
   characters: Character[];
   states: RelationshipState[];
   events: RelationshipEvent[];
+  compact?: boolean;
 }) {
   characters = characters.filter(c => c.agentProfile !== 'secretary');
   const userAvatar = useAuthStore((state) => state.avatar) ?? DEFAULT_USER_AVATAR;
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [focusedRef, setFocusedRef] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  if(compact){
+    const points=[{ref:userRef(userId),x:180,y:40},...characters.slice(0,4).map((c,index)=>({ref:characterRef(c.id),x:[40,130,230,320][index],y:104}))];
+    const positions=new Map(points.map(p=>[p.ref,p]));
+    return <figure className="vg-relations-diagram"><svg viewBox="0 0 360 140" role="img" aria-label="当前已载入角色的关系记录示意图">
+      {states.filter(s=>positions.has(s.subjectA)&&positions.has(s.subjectB)).map(s=>{const a=positions.get(s.subjectA)!,b=positions.get(s.subjectB)!;return <line key={s.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="var(--vg-accent)" strokeWidth="1.5"/>;})}
+      {points.map(p=><circle key={p.ref} cx={p.x} cy={p.y} r="7" fill="var(--bg-panel)" stroke="var(--vg-accent)" strokeWidth="2"/>)}
+    </svg><figcaption>仅示意已载入的连接，完整身份和解释以上方列表为准。</figcaption></figure>;
+  }
   const userNode: GraphNode = { id: `u:${userId}`, ref: userRef(userId), name: '你', avatar: userAvatar, x: CENTER.x, y: CENTER.y, user: true };
   const characterNodes: GraphNode[] = characters.map((character, index) => ({
     id: character.id,
@@ -94,9 +107,6 @@ export function RelationshipConstellation({
     }
   }
 
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [focusedRef, setFocusedRef] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
   const originRef = userNode.ref;
   const activeFocusRef = focusedRef && characterNodes.some((node) => node.ref === focusedRef) ? focusedRef : originRef;
   const focusEdges = edges

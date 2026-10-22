@@ -1,0 +1,41 @@
+import {chromium} from 'playwright';
+import {starfieldPreview} from '../preview-starfield-upgrade.mjs';
+import {mkdirSync,writeFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+const before=process.env.VG_RELATIONS_BEFORE==='1',out=process.env.VG_RELATIONS_OUT||`.tmp-preview/stage2-ui-20261018/S05/${before?'before':'checks'}`;mkdirSync(out,{recursive:true});
+const server=await starfieldPreview({port:0,output:out+'/server'}),browser=await chromium.launch({channel:'chrome'}),report={at:new Date().toISOString(),before,checks:[],screenshots:[],errors:[],limits:['Actual MobileLayout and relation components; separate synthetic database and no model/media/native calls.','Browser text scaling/viewport does not prove Android IME/GPU or manual screen-reader quality.']};
+const check=(ok,name,detail)=>{report.checks.push({pass:!!ok,name,detail});assert(ok,name+' '+JSON.stringify(detail??''));};
+try{
+ for(const theme of ['dark','light'])for(const [width,height,font,long]of [[390,844,100,false],[320,640,200,true],[430,932,100,false]]){
+  const page=await browser.newPage({viewport:{width,height},isMobile:true,hasTouch:true,deviceScaleFactor:1,reducedMotion:'reduce'});page.setDefaultTimeout(7000);page.on('pageerror',e=>report.errors.push(e.message));await page.goto(server.address+`/app?virtugene-preview=mobile&theme=${theme}&state=relations-sample&view=relations`);await page.getByText('正在读取你们的关系…',{exact:true}).waitFor({state:'hidden'});await page.getByRole('heading',{name:'关系网络',exact:true}).waitFor();if(long)await page.evaluate(()=>window.starfieldPreview.relationFixture('long'));await page.evaluate(()=>document.fonts.ready);if(font!==100)await page.evaluate(f=>document.documentElement.style.setProperty('font-size',f+'%','important'),font);await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+  const label=`${theme}-${width}-font${font}`;check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),label+' no horizontal overflow');
+  const listFile=label+'-list.png';await page.screenshot({path:out+'/'+listFile});report.screenshots.push({file:listFile,theme,width,height,font,state:'list'});
+  if(!before){
+   check(await page.locator('[data-relation-key]').count()===3,label+' existing user/character and character-pair records form readable rows');check(await page.locator('.vg-relations-map summary').count()===1,label+' map is a secondary collapsed disclosure');
+   const row=page.locator('[data-relation-key]').last(),title=await row.locator('strong').innerText(),trigger=row.getByRole('button');await trigger.scrollIntoViewIfNeeded();const top=await page.locator('.vg-relations-page').evaluate(el=>el.scrollTop);await trigger.click();const detail=page.getByRole('dialog',{name:'关系详情',exact:true});await detail.getByRole('heading',{name:title,exact:true}).waitFor();check(await detail.locator('.vg-relation-reason').count()===5,label+' detail exposes all5 current explanations');check(!(await detail.innerText()).includes('trust'),label+' internal facet numbers/keys never leak');
+   const file=label+'-detail.png';await page.screenshot({path:out+'/'+file});report.screenshots.push({file,theme,width,height,font,state:'detail'});
+   await detail.getByRole('button',{name:'返回',exact:true}).click();await detail.waitFor({state:'hidden'});check(await trigger.evaluate(el=>document.activeElement===el),label+' return restores actual relation row focus');check(Math.abs(await page.locator('.vg-relations-page').evaluate(el=>el.scrollTop)-top)<2,label+' return preserves list position');
+   if(width===390){
+    await trigger.click();await detail.locator('.vg-relation-reason').first().waitFor();await detail.getByRole('button',{name:'查看来源',exact:true}).first().click();const source=page.getByRole('dialog',{name:'记录详情',exact:true});await source.getByRole('heading',{name:'雨停前的约定',exact:true}).waitFor();check(true,theme+' actual selected source opens with existing authorisation reader');await source.getByRole('button',{name:'返回',exact:true}).click();await source.waitFor({state:'hidden'});
+    await page.evaluate(()=>window.starfieldPreview.relationFixture('delete-event'));await page.waitForFunction(()=>document.querySelectorAll('.vg-relation-reason').length===4);check(!await detail.getByText('在站台上说清了各自的打算，答应下次把那本书带回来。',{exact:true}).isVisible(),theme+' deleted explanation vanishes while detail is open');
+    await page.evaluate(()=>window.starfieldPreview.relationFixture('private-source'));await detail.getByText('来源已不可用',{exact:true}).first().waitFor();check(await detail.getByRole('button',{name:'查看来源',exact:true}).count()===0,theme+' private source cannot reopen old source body');
+    await page.evaluate(()=>window.starfieldPreview.relationFixture('revoke-world'));await page.getByRole('alert').filter({hasText:/不可用|读取/}).first().waitFor();check(await detail.locator('.vg-relation-reason').count()===0,theme+' revoked world clears explanations in active detail');
+   }
+  }
+  const state=await page.evaluate(()=>window.starfieldPreview.snapshot());check(state.mobileLayout&&state.IS_MOBILE&&Object.values(state.isolation).every(n=>n===0),label+' real mobile and zero external attempts',state.isolation);await page.close();
+ }
+ if(!before)for(const theme of ['dark','light']){
+  const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,reducedMotion:'reduce'});page.setDefaultTimeout(7000);page.on('pageerror',e=>report.errors.push(e.message));
+  const open=async()=>{await page.goto(server.address+`/app?virtugene-preview=mobile&theme=${theme}&state=relations-sample&view=relations`);await page.locator('[data-relation-key]').last().waitFor();};await open();
+  await page.locator('[data-relation-key]').last().getByRole('button').click();const detail=page.getByRole('dialog',{name:'关系详情',exact:true});await detail.locator('.vg-relation-reason').first().waitFor();
+  await page.evaluate(()=>window.starfieldPreview.relationFixture('invalid-time'));await detail.getByText('时间未记录',{exact:true}).waitFor();check(await detail.locator('.vg-relation-reason').count()===5,theme+' legacy invalid date preserves explanations without crashing');
+  await page.evaluate(()=>window.starfieldPreview.relationFixture('remove-role'));await detail.getByRole('alert').waitFor();await page.waitForFunction(()=>document.querySelectorAll('[data-relation-key]').length===1);check(true,theme+' removed character clears selected detail and stale pair row');
+  await open();await page.evaluate(()=>window.starfieldPreview.relationFixture('no-reasons'));await page.locator('[data-relation-key]').last().getByRole('button').click();await detail.getByText('还没有记录到变化。已有等阶与状态仍按当前资料展示。',{exact:true}).waitFor();check(await detail.locator('.vg-relation-facets dd').count()>0,theme+' missing reasons keeps actual facets without inventing explanations');
+  await detail.getByRole('button',{name:'返回',exact:true}).click();await page.evaluate(()=>window.starfieldPreview.clearCharacters());await page.getByText('你还没有角色。先去「角色」里认识一个吧。',{exact:true}).waitFor();check(await page.locator('[data-relation-key]').count()===0,theme+' real empty state contains no stale relationship rows');
+  await open();await page.evaluate(()=>{window.starfieldPreview.failRelationRead();return window.starfieldPreview.relationFixture('no-reasons');});await page.getByRole('heading',{name:'关系读取失败',exact:true}).waitFor();await page.getByRole('button',{name:'重新读取',exact:true}).click();await page.locator('[data-relation-key]').last().waitFor();check(true,theme+' failed read can retry original local records');
+  await page.evaluate(()=>window.starfieldPreview.changeAccountOnly());await page.waitForFunction(()=>!document.body.innerText.includes('程砚')&&!document.body.innerText.includes('知微'));check(true,theme+' switching accounts clears previous identities');await page.close();
+ }
+ check(report.errors.length===0,'no runtime errors',report.errors);report.pass=true;
+}catch(e){report.pass=false;report.failure=e.stack;process.exitCode=1;}
+finally{report.source=server.manifest;writeFileSync(out+'/result.json',JSON.stringify(report,null,2));await browser.close();await new Promise(r=>server.server.close(r));}
+console.log(JSON.stringify({out,pass:report.pass,checks:report.checks.length,failure:report.failure}));

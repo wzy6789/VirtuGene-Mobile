@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "sceneId": "mist-coast",
+  "file": "scene.glb",
+  "bytes": 460632,
+  "sha256": "248bbc11759cea93f7e6242104f0b89e07c7aad36c52e2e4c65af3305b21cb4f",
+  "triangles": 24860,
+  "vertices": 12926,
+  "drawCalls": 1,
+  "geometryBoundsBlender": {
+    "min": [
+      -110.0,
+      -8.0,
+      -19.0
+    ],
+    "max": [
+      110.0,
+      105.19999694824219,
+      61.0
+    ]
+  },
+  "camera": {
+    "position": [
+      -0.25,
+      2.5,
+      7.8
+    ],
+    "rotationQuaternion": [
+      0.7426978349685669,
+      0.6692664623260498,
+      -0.014702056534588337,
+      -0.016315151005983353
+    ],
+    "verticalFovDegrees": 61.92751306414704
+  },
+  "effectQuad": [
+    [
+      -3.04,
+      1.04,
+      -3.98
+    ],
+    [
+      3.04,
+      1.04,
+      -3.98
+    ],
+    [
+      3.04,
+      3.56,
+      -3.98
+    ],
+    [
+      -3.04,
+      3.56,
+      -3.98
+    ]
+  ],
+  "lightPoint": [
+    1.2,
+    2.7,
+    -3.85
+  ],
+  "cup": null,
+  "source": {
+    "file": "design/chat-scenes/collection-cool/mist-coast/VirtuGene-mist-coast-Original.blend",
+    "sha256": "2a3e94109bd10b3a23fd73dcba6d3c2c074517c0842c62706417cc07f773729c",
+    "originalObjects": 69,
+    "originalTriangles": 24860
+  },
+  "apertureCutForRealtime": false,
+  "distantBackgroundDepthWrite": false,
+  "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认"
+}

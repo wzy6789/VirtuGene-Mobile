@@ -1,9 +1,29 @@
 import { db, type Session } from './index';
-import { invalidateSessionSummaryMemory, invalidateUnpinnedMemoriesForMessages } from './memory-repo';
+import { invalidateSessionSummaryMemory, invalidateUnpinnedMemoriesForMessages } from './memory-invalidation';
 import { protectDeletedSessionMessages } from './message-deletion';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
+import {updateConversationIfCurrent} from './chat-topic-state-repo';
+
+export interface SummaryWriteGuard {
+  previousSummary?:string;
+  protectedMemories?:Record<string,number>;
+  expectedSummaryRevision?:number;
+  expectedConversationVersion?:number;
+  coveragePolicy?:Session['summaryCoveragePolicy'];
+  principal?:{userId:string;characterId:string;privateOnly?:boolean;isCurrent?:()=>boolean};
+}
+class SummaryPrincipalChanged extends Error {}
+function matchesSummaryGuard(session:Session|undefined,guard?:SummaryWriteGuard):session is Session{
+  if(!session||guard?.principal?.isCurrent?.()===false||(guard&&session.summary!==guard.previousSummary))return false;
+  if(guard?.principal&&(session.userId!==guard.principal.userId||session.characterId!==guard.principal.characterId))return false;
+  if(guard?.principal?.privateOnly&&session.type==='group')return false;
+  if(guard?.expectedSummaryRevision!==undefined&&(!Number.isSafeInteger(guard.expectedSummaryRevision)||guard.expectedSummaryRevision<0||(session.summaryRevision??0)!==guard.expectedSummaryRevision))return false;
+  if(guard?.expectedConversationVersion!==undefined&&(!Number.isSafeInteger(guard.expectedConversationVersion)||guard.expectedConversationVersion<0||(session.conversation?.version??0)!==guard.expectedConversationVersion))return false;
+  return true;
+}
 
 export const sessionRepo = {
+  updateConversationIfCurrent,
   /** 该用户全部会话（补记助手等场景需要跨角色收集某天的对话） */
   async getByUser(userId: string): Promise<Session[]> {
     return db.sessions
@@ -25,6 +45,18 @@ export const sessionRepo = {
     return db.sessions.get(id);
   },
 
+  /** Fresh indexed authorization without cloning a long summary's source maps.
+   * The caller still reads the full session when it actually needs its context. */
+  async isOwnedPrivateSession(id: string, userId: string, characterId: string): Promise<boolean> {
+    return db.transaction('r', db.sessions, async () => {
+      const [owned, groups] = await Promise.all([
+        db.sessions.where('[characterId+userId]').equals([characterId, userId]).primaryKeys(),
+        db.sessions.where('[characterId+userId+type]').equals([characterId, userId, 'group']).primaryKeys(),
+      ]);
+      return owned.includes(id) && !groups.includes(id);
+    });
+  },
+
   async create(session: Session): Promise<string> {
     return db.sessions.add(session);
   },
@@ -37,9 +69,14 @@ export const sessionRepo = {
     return db.sessions.update(id, { updatedAt: Date.now() });
   },
 
-  async markSummaryAttempt(id: string, attemptedAt = Date.now()): Promise<number> {
+  async markSummaryAttempt(id: string, attemptedAt = Date.now(),guard?:SummaryWriteGuard): Promise<number> {
     // 不改会话 updatedAt：失败的后台摘要不能伪装成用户最近聊过。
-    return db.sessions.update(id, { summaryAttemptedAt: attemptedAt });
+    try{return await db.transaction('rw',db.sessions,async()=>{
+      if(!matchesSummaryGuard(await db.sessions.get(id),guard))return 0;
+      const written=await db.sessions.update(id,{summaryAttemptedAt:attemptedAt});
+      if(guard?.principal?.isCurrent?.()===false)throw new SummaryPrincipalChanged();
+      return written;
+    });}catch(error){if(error instanceof SummaryPrincipalChanged)return 0;throw error;}
   },
 
   async update(id: string, patch: Partial<Session>): Promise<number> {
@@ -53,12 +90,13 @@ export const sessionRepo = {
     sourceMessageIds?: string[],
     sourceMessageRevisions?: Record<string, number>,
     sourceMessageOffsets?: Record<string, number>,
-    guard?: { previousSummary?: string; protectedMemories?: Record<string, number> },
+    guard?: SummaryWriteGuard,
   ): Promise<number> {
     const patch: Partial<Session> = {
       summary,
       summaryUpdatedAt: Date.now(),
       summaryAttemptedAt: undefined,
+      summaryCoveragePolicy: guard?.coveragePolicy,
       ...(sourceMessageIds ? {
         summarySourceMessageIds: [...new Set(sourceMessageIds)],
         summarySourceMessageRevisions: sourceMessageRevisions ?? {},
@@ -66,23 +104,35 @@ export const sessionRepo = {
       } : {}),
     };
     if (witnessedBy) patch.summaryWitnessedBy = [...new Set(witnessedBy)].sort();
-    return db.transaction('rw', [db.sessions, db.messages, db.memories, db.memorySourceTombstones], async () => {
+    const current=()=>guard?.principal?.isCurrent?.()!==false;
+    try{return await db.transaction('rw', [db.sessions, db.messages, db.memories, db.memorySourceTombstones], async () => {
+      if(!current())return 0;
       const session = await db.sessions.get(id);
-      if (!session || (guard && session.summary !== guard.previousSummary)) return 0;
+      if (!matchesSummaryGuard(session,guard)) return 0;
+      if(!Number.isSafeInteger(session.summaryRevision??0)||(session.summaryRevision??0)<0||(session.summaryRevision??0)>=Number.MAX_SAFE_INTEGER)return 0;
       const audiences = witnessedBy?.length ? witnessedBy : [session.characterId];
-      const suppressionSets = await Promise.all(audiences.map(actor => memorySourceTombstoneRepo.suppressedMessages(session.userId, actor)));
-      for (const sourceId of sourceMessageIds ?? []) {
-        const message = await db.messages.get(sourceId);
+      const ids=[...new Set(sourceMessageIds??[])];
+      const protectedEntries=Object.entries(guard?.protectedMemories??{});
+      const [sources,protectedRows,suppressionSets]=await Promise.all([
+        db.messages.bulkGet(ids),db.memories.bulkGet(protectedEntries.map(([memoryId])=>memoryId)),
+        Promise.all(audiences.map(actor=>memorySourceTombstoneRepo.selectedSuppressedMessages(session.userId,actor,ids))),
+      ]);
+      for (let i=0;i<ids.length;i++) {
+        const sourceId=ids[i],message=sources[i],offset=sourceMessageOffsets?.[sourceId];
         if (!message || message.sessionId !== id || message.failed || suppressionSets.some(ids => ids.has(sourceId))
-          || (message.revision ?? 1) !== (sourceMessageRevisions?.[sourceId] ?? 1)) return 0;
+          || (message.revision ?? 1) !== (sourceMessageRevisions?.[sourceId] ?? 1)
+          ||(offset!==undefined&&(!Number.isInteger(offset)||offset<0||offset>message.content.length))) return 0;
       }
-      for (const [memoryId, revision] of Object.entries(guard?.protectedMemories ?? {})) {
-        const memory = await db.memories.get(memoryId);
+      for (let i=0;i<protectedEntries.length;i++) {
+        const [,revision]=protectedEntries[i],memory=protectedRows[i];
         if (!memory || memory.userId !== session.userId || memory.characterId !== session.characterId
           || !memory.pinned || (memory.status ?? 'active') !== 'active' || (memory.updatedAt ?? memory.createdAt) !== revision) return 0;
       }
-      return db.sessions.update(id, patch);
-    });
+      if(!current())return 0;
+      const written=await db.sessions.update(id,{...patch,summaryRevision:(session.summaryRevision??0)+1});
+      if(!current())throw new SummaryPrincipalChanged();
+      return written;
+    });}catch(error){if(error instanceof SummaryPrincipalChanged)return 0;throw error;}
   },
 
   async deleteById(id: string): Promise<void> {

@@ -1,0 +1,61 @@
+{
+  "passed": true,
+  "results": [
+    {
+      "scene": "hearth-cabin",
+      "quality": "1080",
+      "decodedBytesWithPoster": 24093388,
+      "decodedBytesAfterPosterRelease": 13725388,
+      "maskTransparentPixels": 11216,
+      "maskOpaquePixels": 53107,
+      "webpCompositeMeanChannelDifference": 0.71312,
+      "nativeSource": [
+        2160,
+        4800
+      ],
+      "exactUncompressedNeutralComposite": true
+    },
+    {
+      "scene": "hearth-cabin",
+      "quality": "1440",
+      "decodedBytesWithPoster": 42836964,
+      "decodedBytesAfterPosterRelease": 24404964,
+      "maskTransparentPixels": 25282,
+      "maskOpaquePixels": 99157,
+      "webpCompositeMeanChannelDifference": 0.52334,
+      "nativeSource": [
+        2160,
+        4800
+      ],
+      "exactUncompressedNeutralComposite": true
+    },
+    {
+      "scene": "night-train",
+      "quality": "1080",
+      "decodedBytesWithPoster": 25513184,
+      "decodedBytesAfterPosterRelease": 15145184,
+      "maskTransparentPixels": 34464,
+      "maskOpaquePixels": 332260,
+      "webpCompositeMeanChannelDifference": 0.53432,
+      "nativeSource": [
+        2160,
+        4800
+      ],
+      "exactUncompressedNeutralComposite": true
+    },
+    {
+      "scene": "night-train",
+      "quality": "1440",
+      "decodedBytesWithPoster": 45359744,
+      "decodedBytesAfterPosterRelease": 26927744,
+      "maskTransparentPixels": 66811,
+      "maskOpaquePixels": 597246,
+      "webpCompositeMeanChannelDifference": 0.30281,
+      "nativeSource": [
+        2160,
+        4800
+      ],
+      "exactUncompressedNeutralComposite": true
+    }
+  ]
+}

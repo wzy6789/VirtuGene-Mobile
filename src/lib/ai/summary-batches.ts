@@ -3,8 +3,11 @@
  * the summarizer. Long pasted messages are sent in 1,200-character segments so
  * a gateway payload cap cannot silently mark the unseen tail as summarized.
  */
-export const SUMMARY_SEGMENT_CHARS = 1_200;
-export const SUMMARY_BATCH_SEGMENTS = 12;
+import {SUMMARY_HISTORY_SEGMENT_CHARS,SUMMARY_HISTORY_MAX_SEGMENTS} from '../../../server/summary-history-policy.mjs';
+import {hasSettledReplyDelivery,isIncompleteAssistantReply,type ReplyDeliveryState} from '../chat/reply-delivery';
+export const SUMMARY_SEGMENT_CHARS = SUMMARY_HISTORY_SEGMENT_CHARS;
+export const SUMMARY_BATCH_SEGMENTS = SUMMARY_HISTORY_MAX_SEGMENTS;
+interface SummaryInput extends ReplyDeliveryState {id:string;revision?:number;content:string}
 
 export interface SummaryCursor {
   sourceMessageIds?: string[];
@@ -35,13 +38,13 @@ function sameRevision<T extends { id: string; revision?: number }>(message: T, c
 }
 
 /** Return non-empty messages whose complete current revision is not covered. */
-export function findUncoveredSummaryMessages<T extends { id: string; revision?: number; content: string }>(
+export function findUncoveredSummaryMessages<T extends SummaryInput>(
   messages: T[],
   cursor: SummaryCursor,
 ): T[] {
   const sourceIds = new Set(cursor.sourceMessageIds ?? []);
   return messages.filter((message) => {
-    if (!message.content.trim()) return false;
+    if (!message.content.trim()||!hasSettledReplyDelivery(message)||isIncompleteAssistantReply(message)) return false;
     if (!sourceIds.has(message.id) || !sameRevision(message, cursor)) return true;
     const offset = cursor.sourceMessageOffsets?.[message.id];
     // Old summaries had no offset. Their prompt clipped each message to 1,200
@@ -52,22 +55,27 @@ export function findUncoveredSummaryMessages<T extends { id: string; revision?: 
 }
 
 /** Build a chronological, bounded batch and advance offsets only for sent text. */
-export function buildSummaryBatch<T extends { id: string; revision?: number; content: string }>(
+export function buildSummaryBatch<T extends SummaryInput>(
   messages: T[],
   cursor: SummaryCursor,
   maxSegments = SUMMARY_BATCH_SEGMENTS,
+  sourceIds:ReadonlySet<string> = new Set(cursor.sourceMessageIds ?? []),
 ): SummarySegment<T>[] {
-  const sourceIds = new Set(cursor.sourceMessageIds ?? []);
   const segments: SummarySegment<T>[] = [];
   for (const message of messages) {
     if (segments.length >= maxSegments) break;
-    if (!message.content.trim()) continue;
+    if (!message.content.trim()||!hasSettledReplyDelivery(message)||isIncompleteAssistantReply(message)) continue;
     const validPrior = sourceIds.has(message.id) && sameRevision(message, cursor);
     const priorOffset = cursor.sourceMessageOffsets?.[message.id];
     let offset = validPrior
       ? (priorOffset ?? Math.min(message.content.length, SUMMARY_SEGMENT_CHARS))
       : 0;
     offset = Math.max(0, Math.min(message.content.length, offset));
+    // Legacy clipping could end inside a surrogate pair. Repeat its first
+    // code unit with the tail rather than send an orphan low surrogate.
+    if (offset > 0 && offset < message.content.length
+      && /[\uD800-\uDBFF]/.test(message.content[offset - 1])
+      && /[\uDC00-\uDFFF]/.test(message.content[offset])) offset -= 1;
     while (offset < message.content.length && segments.length < maxSegments) {
       const endOffset = nextSegmentEnd(message.content, offset);
       segments.push({ message, content: message.content.slice(offset, endOffset), endOffset });

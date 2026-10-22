@@ -3,10 +3,12 @@ import { cancelSoulHandoff, registerSoulElement } from '../../lib/soul-handoff';
 import { Modal } from './Modal';
 import { AnimatedValue } from './AnimatedValue';
 import { prefersReducedMotion, subscribeReducedMotion } from '../../lib/mobile-motion';
+import { Icon } from './Icon';
 
 export function ImagePreview({ images, initialIndex = 0, onClose, soulKeys }: { images: string[]; initialIndex?: number; onClose: () => void; soulKeys?: string[] }) {
-  const [index, setIndex] = useState(Math.min(Math.max(0, initialIndex), images.length - 1));
+  const [index, setIndex] = useState(Math.min(Math.max(0, initialIndex), Math.max(0, images.length - 1)));
   const current = useRef(index); current.current = index;
+  const closeRef = useRef(onClose); closeRef.current = onClose;
   const stage = useRef<HTMLDivElement>(null), track = useRef<HTMLDivElement>(null);
   const motion = useRef<Animation | null>(null);
   const gesture = useRef<{ id: number; x: number; y: number; base: number; baseY: number; dx: number; dy: number; lastX: number; lastTime: number; velocity: number; axis: 'x' | 'y' | null } | null>(null);
@@ -36,15 +38,22 @@ export function ImagePreview({ images, initialIndex = 0, onClose, soulKeys }: { 
     animation.onfinish = () => { if (motion.current === animation) { animation.cancel(); motion.current = null; node.style.willChange = ''; } };
   };
   useLayoutEffect(() => {
+    // A gallery can shrink while open; settle on a surviving frame before paint.
+    const bounded = Math.max(0, Math.min(current.current, images.length - 1));
+    if (bounded !== current.current) { current.current = bounded; setIndex(bounded); }
     reset();
     const observer = new ResizeObserver(reset); if (stage.current) observer.observe(stage.current);
     const unsubscribe = subscribeReducedMotion(reset);
-    return () => { observer.disconnect(); unsubscribe(); reset(); };
-  }, []);
+    const hidden = () => { if (document.hidden) reset(); };
+    window.addEventListener('blur', reset); document.addEventListener('visibilitychange', hidden);
+    return () => { observer.disconnect(); unsubscribe(); window.removeEventListener('blur', reset); document.removeEventListener('visibilitychange', hidden); reset(); };
+  }, [images.length]);
+  useEffect(() => { if (!images.length) closeRef.current(); }, [images.length]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); go(current.current + (event.key === 'ArrowRight' ? 1 : -1)); } };
     document.addEventListener('keydown', key); return () => document.removeEventListener('keydown', key);
   }, [images.length]);
+  if (!images.length) return null;
   return <Modal open onClose={onClose} title="图片预览" mobileFullHeight width="max-w-none" panelClassName="vg-media-viewer" canSnapshotOnExit={() => false}>
     <div className="vg-media-stage" ref={stage} data-no-page-swipe data-no-back-swipe data-preview-index={index}
       onPointerDown={event => {
@@ -97,9 +106,9 @@ export function ImagePreview({ images, initialIndex = 0, onClose, soulKeys }: { 
         const velocity = performance.now() - g.lastTime < 100 ? g.velocity : 0;
         const commit = g.axis === 'x' && Math.sign(velocity || g.dx) === Math.sign(g.dx) && (Math.abs(g.dx) > event.currentTarget.clientWidth * .2 || Math.abs(g.dx) >= 35 && Math.abs(velocity) > .65);
         go(current.current + (commit ? g.dx < 0 ? 1 : -1 : 0));
-      }} onPointerCancel={reset}>
-      <div className="vg-media-track" ref={track}>{images.map((src, i) => <div className="vg-media-frame" key={i}><img ref={node=>{if(node && i === current.current && soulKeys?.[i])return registerSoulElement(node,soulKeys[i],'media');}} data-soul-key={soulKeys?.[i]} data-soul-role="media" src={src} alt={`动态图片 ${i + 1}`} draggable={false} /></div>)}</div>
+      }} onPointerCancel={reset} onLostPointerCapture={event => { if (gesture.current?.id === event.pointerId) reset(); }}>
+      <div className="vg-media-track" ref={track}>{images.map((src, i) => <div className="vg-media-frame" key={i}><img ref={node=>{if(node && i === current.current && soulKeys?.[i])return registerSoulElement(node,soulKeys[i],'media');}} data-soul-key={soulKeys?.[i]} data-soul-role="media" src={src} alt={`图片 ${i + 1}`} draggable={false} /></div>)}</div>
     </div>
-    <div className="vg-media-controls"><button type="button" aria-label="上一张图片" disabled={index === 0} onClick={() => go(current.current - 1)}>‹</button><span><AnimatedValue value={index + 1} /> / {images.length}<small>左右切换 · 下拉关闭</small></span><button type="button" aria-label="下一张图片" disabled={index === images.length - 1} onClick={() => go(current.current + 1)}>›</button></div>
+    <div className="vg-media-controls"><button type="button" aria-label="上一张图片" disabled={index === 0} onClick={() => go(current.current - 1)} className="flex items-center justify-center"><Icon name="back" size={22} /></button><span aria-live="polite"><AnimatedValue value={index + 1} /> / {images.length}<small>左右切换 · 下拉关闭</small></span><button type="button" aria-label="下一张图片" disabled={index === images.length - 1} onClick={() => go(current.current + 1)} className="flex items-center justify-center"><Icon name="chevron" size={22} /></button></div>
   </Modal>;
 }

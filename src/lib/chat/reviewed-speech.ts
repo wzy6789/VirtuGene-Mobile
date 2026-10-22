@@ -92,8 +92,11 @@ export async function listSpeech(owner: string, characterId: string): Promise<Ar
   assertOwner(owner);
   const character = await db.characters.get(characterId);
   if (!editable(character, owner)) return [];
-  const suppressed = await memorySourceTombstoneRepo.suppressedMessages(owner, characterId);
-  const result = await Promise.all((character.reviewedSpeechSamples ?? []).slice(-8).map(async sample => ({ sample, active: await validSources(owner, character, sample, suppressed).catch(() => false) })));
+  const samples = (character.reviewedSpeechSamples ?? []).slice(-8);
+  const sourceIds = samples.flatMap(sample => Array.isArray(sample.sources)
+    ? sample.sources.flatMap(source => source && typeof source.id === 'string' ? [source.id] : []) : []);
+  const suppressed = await memorySourceTombstoneRepo.selectedSuppressedMessages(owner, characterId, sourceIds);
+  const result = await Promise.all(samples.map(async sample => ({ sample, active: await validSources(owner, character, sample, suppressed).catch(() => false) })));
   assertOwner(owner); return result;
 }
 export async function removeSpeech(owner: string, characterId: string, id: string): Promise<void> {

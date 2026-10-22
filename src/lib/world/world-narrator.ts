@@ -72,6 +72,7 @@ export async function narrateWorldBeat(params: NarrateParams): Promise<NarrateRe
 
   try {
     const res = await worldChat({
+      sourceContext:params.ctx,
       messages: [
         { role: 'system', content: `${NARRATOR_INSTRUCTION}\n\n${renderWorldBrief(params.ctx, 8, params.userText)}` },
         { role: 'user', content: trigger },

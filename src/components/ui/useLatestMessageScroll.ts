@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { prefersReducedMotion } from '../../lib/mobile-motion';
 
+export interface HistoryScrollSnapshot {
+  element:HTMLDivElement;
+  sessionKey?:string|null;
+  intentVersion:number;
+}
+
 /** Recheck after layout/keyboard animation; coalesce bursts and cancel on exit. */
 export function useLatestMessageScroll(ref: RefObject<HTMLDivElement | null>, sessionKey?: string | null, onFollowingChange?: (following: boolean) => void) {
   const pending = useRef<{ frame: number; timers: ReturnType<typeof setTimeout>[] }>({ frame: 0, timers: [] });
@@ -10,6 +16,8 @@ export function useLatestMessageScroll(ref: RefObject<HTMLDivElement | null>, se
   const sequence = useRef(0);
   const geometry = useRef({ node: null as HTMLDivElement | null, extent: 0, viewport: 0, dirty: true });
   const ownScrollTop = useRef<number | null>(null);
+  const intentVersion=useRef(0),scope=useRef(sessionKey);
+  scope.current=sessionKey;
   const listener = useRef(onFollowingChange);
   listener.current = onFollowingChange;
   // Content/viewport observers invalidate dimensions. Animation frames reuse
@@ -44,7 +52,7 @@ export function useLatestMessageScroll(ref: RefObject<HTMLDivElement | null>, se
     // The current return already tracks the live target. Token/layout updates
     // should not replace it with an instantaneous jump.
     if (returning.current && !force) return () => {};
-    if (force) { interacting.current = false; setFollowing(true); }
+    if (force) { intentVersion.current++; interacting.current = false; setFollowing(true); }
     if (!following.current || interacting.current) return () => {};
     cancel();
     geometry.current.dirty = true;
@@ -102,10 +110,12 @@ export function useLatestMessageScroll(ref: RefObject<HTMLDivElement | null>, se
     const initial = element ? measure(element) : null;
     let previousExtent = initial?.extent ?? 0;
     let previousViewport = initial?.viewport ?? 0;
+    let previousTop=element?.scrollTop??0;
     let inputUntil = 0;
     const onScroll = () => {
       if (!element) return;
       if (returning.current) {
+        previousTop=element.scrollTop;
         previousExtent = geometry.current.extent; previousViewport = geometry.current.viewport;
         return;
       }
@@ -113,12 +123,17 @@ export function useLatestMessageScroll(ref: RefObject<HTMLDivElement | null>, se
       // Ignore feedback from our own animation; actual gestures clear this mark.
       // Layout changes are handled separately by the size/content observers.
       if (!interacting.current && ownScrollTop.current !== null && Math.abs(top - ownScrollTop.current) < 1) {
+        previousTop=top;
         previousExtent = geometry.current.extent; previousViewport = geometry.current.viewport;
         return;
       }
       ownScrollTop.current = null;
       const size = measure(element, true);
       const layoutChanged = size.extent !== previousExtent || size.viewport !== previousViewport;
+      // Native momentum and scrollbar/keyboard scrolling can continue after
+      // pointerup. Size-only corrections are not a fresh reading decision.
+      if(!layoutChanged&&Math.abs(top-previousTop)>.5)intentVersion.current++;
+      previousTop=top;
       previousExtent = size.extent; previousViewport = size.viewport;
       // Virtual rows and composer panels can shift the browser's scroll anchor.
       // A layout adjustment is not a decision to stop following the conversation.
@@ -163,9 +178,9 @@ export function useLatestMessageScroll(ref: RefObject<HTMLDivElement | null>, se
     const interruptReturn = () => {
       if (returning.current && element) setFollowing(element.scrollHeight - element.scrollTop - element.clientHeight < 72);
     };
-    const takeOver = () => { ownScrollTop.current = null; interruptReturn(); interacting.current = true; inputUntil = performance.now() + 250; cancel(); cancelAnimationFrame(resizeFrame); resizeFrame = 0; };
+    const takeOver = () => { intentVersion.current++; ownScrollTop.current = null; interruptReturn(); interacting.current = true; inputUntil = performance.now() + 250; cancel(); cancelAnimationFrame(resizeFrame); resizeFrame = 0; };
     const release = () => { if (!interacting.current) return; interacting.current = false; onScroll(); };
-    const wheel = () => { ownScrollTop.current = null; interruptReturn(); inputUntil = performance.now() + 250; cancel(); cancelAnimationFrame(resizeFrame); resizeFrame = 0; };
+    const wheel = () => { intentVersion.current++; ownScrollTop.current = null; interruptReturn(); inputUntil = performance.now() + 250; cancel(); cancelAnimationFrame(resizeFrame); resizeFrame = 0; };
     const key = (event: KeyboardEvent) => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ', 'Escape'].includes(event.key)) wheel(); };
     const outsidePress = () => { if (returning.current) wheel(); };
     const outsideKey = (event: KeyboardEvent) => { if (returning.current) key(event); };
@@ -207,5 +222,23 @@ export function useLatestMessageScroll(ref: RefObject<HTMLDivElement | null>, se
       cancel();
     };
   }, [ref, scroll, cancel, sessionKey, setFollowing, measure, writeScroll]);
-  return scroll;
+  const captureHistory=useCallback(():HistoryScrollSnapshot|null=>{
+    const element=ref.current;if(!element)return null;
+    cancel();setFollowing(false);ownScrollTop.current=null;
+    return{element,sessionKey:scope.current,intentVersion:intentVersion.current};
+  },[ref,cancel,setFollowing]);
+  const historyCurrent=useCallback((snapshot:HistoryScrollSnapshot)=>ref.current===snapshot.element&&snapshot.element.isConnected&&scope.current===snapshot.sessionKey&&intentVersion.current===snapshot.intentVersion,[ref]);
+  const restoreHistory=useCallback((snapshot:HistoryScrollSnapshot,target:number)=>{
+    if(!historyCurrent(snapshot))return false;
+    geometry.current.dirty=true;
+    const node=snapshot.element;
+    writeScroll(node,Math.max(0,Math.min(target,node.scrollHeight-node.clientHeight)));
+    return true;
+  },[historyCurrent,writeScroll]);
+  const recognizeProgrammaticScroll=useCallback((element:Element|null)=>{
+    if(element&&element===ref.current)ownScrollTop.current=element.scrollTop;
+  },[ref]);
+  // Keep the callable contract used by world/group pages. Only the ordinary
+  // chat pager consumes the additional ownership operations.
+  return Object.assign(scroll,{captureHistory,historyCurrent,restoreHistory,recognizeProgrammaticScroll});
 }

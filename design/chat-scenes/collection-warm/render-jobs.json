@@ -1,0 +1,50 @@
+[
+  {
+    "scene": "hearth-cabin",
+    "job": "--export",
+    "pid": 35664,
+    "exitCode": 0,
+    "seconds": 79.85,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-warm\\hearth-cabin\\export.log"
+  },
+  {
+    "scene": "hearth-cabin",
+    "job": "--mask",
+    "pid": 53232,
+    "exitCode": 0,
+    "seconds": 3.72,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-warm\\hearth-cabin\\mask.log"
+  },
+  {
+    "scene": "hearth-cabin",
+    "job": "--source",
+    "pid": 50940,
+    "exitCode": 0,
+    "seconds": 21.89,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-warm\\hearth-cabin\\source.log"
+  },
+  {
+    "scene": "night-train",
+    "job": "--export",
+    "pid": 50000,
+    "exitCode": 0,
+    "seconds": 15.86,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-warm\\night-train\\export.log"
+  },
+  {
+    "scene": "night-train",
+    "job": "--mask",
+    "pid": 55028,
+    "exitCode": 0,
+    "seconds": 3.12,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-warm\\night-train\\mask.log"
+  },
+  {
+    "scene": "night-train",
+    "job": "--source",
+    "pid": 43804,
+    "exitCode": 0,
+    "seconds": 20.07,
+    "log": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-warm\\night-train\\source.log"
+  }
+]

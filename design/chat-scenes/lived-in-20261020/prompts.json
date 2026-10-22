@@ -1,0 +1,22 @@
+{
+  "tool": "built-in image_gen__imagegen",
+  "model": "未确认",
+  "reasoning": "未确认",
+  "calls": [
+    {
+      "id": "guofeng-tea-room",
+      "mode": "edit",
+      "reference": "src/assets/chat-scenes/cafe-rain-night/poster-1080.webp",
+      "output": "guofeng-tea-room-source.png",
+      "prompt": "Create one full portrait environment art-direction reference for the VirtuGene mobile chat background, traditional Chinese guofeng / Song-dynasty elegant tea study. EDIT this project-owned 3D room reference, retaining its fixed portrait camera, quiet upper wall/ceiling space, window in the middle-right, seating in the middle-left, foreground tea table in the lower quarter. Full-bleed environment only, no UI, no text, no people, no logos. Replace contemporary cafe furniture with elegant dark walnut Ming-style daybed/straight wooden arm chair with sage woven cushion, a quiet rectangular timber tea table with celadon gaiwan and a thread-bound poetry volume. Wall is warm silk-plaster with one restrained original ink landscape hanging scroll. Fine Chinese timber lattice window, a partially rolled bamboo blind at the top, outside a misty bamboo courtyard at blue dusk. Small warm paper lantern to the left; tactile wood grain, jade/celadon porcelain, linen, soft actual contact shadows. A lucid high-quality stylized 3D animation-film environment with subtle Chinese painting color sensibility, not a flat watercolor illustration. Ink blue, muted jade green, warm parchment, dark rosewood, restrained amber light. Deep spatial separation, readable material edges, no global blur, no exaggerated fog, no bloom. This is a feasible Blender-room reference; use simple physical furniture silhouettes, not elaborate dragons/ornament. Keep an open, calm upper half suitable for overlaying readable messages in the real app. Maintain the original vertical mobile background aspect ratio.",
+      "note": "This was generated before the user refined the direction to realistic lived-in National/Urban scenes. The actual output was kept for its natural material detail, and integrated directly rather than substituting a rough procedural reconstruction."
+    },
+    {
+      "id": "urban-window-seat",
+      "mode": "generate",
+      "output": "urban-window-seat-source.png",
+      "prompt": "Create one production-ready high-resolution photorealistic portrait background asset for the mobile companionship chat app VirtuGene. 9:20 tall portrait mobile composition, use highest available native resolution, crisp genuine material texture. A quietly lived-in urban apartment window seat at blue hour, photographed with a natural 40mm architectural camera, subtle cinematic lighting, absolutely no cartoon or low-poly aesthetics. Upper 30% is quiet charcoal plaster and window lintel with very little detail, suitable for overlaying messages. Lower right middle: expansive tall window on the right with clean dark bronze mullions overlooking a real understated dense city skyline in blue dusk, several warm windows reflected softly in wet buildings, no signs/letters/neon. Lower left middle: a comfortable warm grey linen armchair with softly crumpled blanket and one dark olive cushion; modest floor lamp with warm linen shade to its left. Foreground lower quarter: tactile walnut coffee table stretching across bottom, one open ceramic tea cup on saucer on left, a slightly worn closed cloth book and simple pen on the right. A small plant partly enters left edge. Honest soft contact shadows, warm amber light on near furniture contrasting cool city window, balanced exposure, controlled highlights. It must feel like a real place to unwind and tell someone about your day, not luxury real-estate staging, not an AI fantasy showroom. Do not add people, animals, letters, UI, buttons, logos, fairy sparkles, particles, bloom, global blur, heavy fog or exaggerated bokeh. Distinct fore/mid/background with steady fixed camera. Fully finished standalone environment art, not a mockup board."
+    }
+  ],
+  "limits": "Native tool outputs are 842x1869 and 841x1870. They are not upscaled or described as 4K. Model tokens and image-generation billing are not exposed by this tool; unknown, not reported as zero."
+}

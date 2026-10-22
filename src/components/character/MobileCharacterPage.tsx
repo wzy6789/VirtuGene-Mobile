@@ -1,6 +1,4 @@
 import { Icon } from '../ui/Icon';
-import { MultiFilterChips } from '../ui/PhysicalInteractions';
-import { AnimatedValue } from '../ui/AnimatedValue';
 import { ConnectionEmptyState } from '../ui/ConnectionEmptyState';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useChatStore } from '../../store/chat-store';
@@ -14,18 +12,21 @@ import { FeedbackNotice } from '../ui/FeedbackNotice';
 import { Modal } from '../ui/Modal';
 import { beginSoulHandoff, soulElement } from '../../lib/soul-handoff';
 import { resonate } from '../../lib/haptics';
-import { Avatar } from '../ui/Avatar';
-import { BrandWordmark } from '../ui/BrandWordmark';
 import { getSortKey } from '../../lib/pinyin';
 import type { Character } from '../../db/index';
 import { isStoryCharacter } from '../../lib/character-domain';
-import { SecretaryWorkspaceCard } from '../secretary/SecretaryWorkspaceCard';
+import { openAssistantWorkspace } from '../../lib/secretary/navigation';
 import { ensureOwnedChatCharacter } from '../../lib/character-chat';
+import { CharacterPortrait } from './CharacterCover';
+import { featuredCharacters } from './character-space-model';
+import '../../styles/character-space.css';
+import { PrimaryPageBackdrop } from '../layout/PrimaryPageBackdrop';
 
-let savedCharacters: {owner:string;top:number;search:string;filter:'all'|'own';tags:string[]} | undefined;
+let savedCharacters: {owner:string;top:number;search:string} | undefined;
 
-export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
+export function MobileCharacterPage({ onSelect, onChatIntent }: { onSelect: () => void; onChatIntent?: () => void }) {
   const characters = useChatStore(s => s.characters);
+  const previews = useChatStore(s => s.charPreviews);
   const loadCharacters = useChatStore(s => s.loadCharacters);
   const fetchUnreadCounts = useChatStore(s => s.fetchUnreadCounts);
   const selectCharacter = useChatStore(s => s.selectCharacter);
@@ -36,19 +37,17 @@ export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [search, setSearch] = useState(() => savedCharacters?.owner === userId ? savedCharacters.search : '');
-  const [filter, setFilter] = useState<'all' | 'own'>(() => savedCharacters?.owner === userId ? savedCharacters.filter : 'all');
-  const [selectedTags, setSelectedTags] = useState<string[]>(() => savedCharacters?.owner === userId ? savedCharacters.tags : []);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const savedState = useRef({search,filter,tags:selectedTags}); savedState.current = {search,filter,tags:selectedTags};
+  const savedState = useRef({search}); savedState.current = {search};
   useLayoutEffect(() => { if (scrollRef.current && savedCharacters?.owner === userId) scrollRef.current.scrollTop = savedCharacters.top; return () => { if (scrollRef.current) savedCharacters = {owner:userId,top:scrollRef.current.scrollTop,...savedState.current}; }; },[userId]);
-  const tagOptions = useMemo(() => {
-    const counts = new Map<string, number>();
-    characters.filter(isStoryCharacter).forEach(c => new Set(c.tags ?? []).forEach(t => { if (t.trim()) counts.set(t, (counts.get(t) ?? 0) + 1); }));
-    return [...new Set([...[...counts].sort((a, b) => b[1] - a[1]).map(([tag]) => tag).slice(0, 16), ...selectedTags])];
-  }, [characters, selectedTags]);
   const previousOwner = useRef(userId);
-  useEffect(() => { if (previousOwner.current !== userId) { previousOwner.current = userId; setSelectedTags([]); setSearch(''); setFilter('all'); } },[userId]);
-  const [editor, setEditor] = useState<{ character?: Character } | null>(null);
+  useLayoutEffect(() => { if (previousOwner.current !== userId) {
+    previousOwner.current = userId; savedCharacters = undefined;
+    scrollRestored.current = false; navigationEpoch.current++;
+    setSearch(''); setProfile(null); setManage(null); setEditor(null); setDeleting(null); setNetwork(false); setGroups(false); setTools(false);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  } },[userId]);
+  const [editor, setEditor] = useState<{ character?: Character; initialTab?: 'pool' | 'create' } | null>(null);
   const [manage, setManage] = useState<Character | null>(null);
   const [profile, setProfile] = useState<Character | null>(null);
   const profileRef = useRef(profile); profileRef.current = profile;
@@ -59,7 +58,10 @@ export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
   const lock = useRef(false);
   const [groups, setGroups] = useState(false);
   const [network, setNetwork] = useState(false);
+  const [tools, setTools] = useState(false);
+  const navigationEpoch = useRef(0);
   const isOwn = (c: Character) => !c.isPreset && c.createdBy === userId;
+  const scopedCharacters = useMemo(() => characters.filter(c => c.createdBy === userId || c.isPreset || c.published), [characters, userId]);
 
   useEffect(() => {
     let alive = true;
@@ -72,17 +74,35 @@ export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
 
   const visible = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
-    return characters.filter(c => isStoryCharacter(c) && (filter === 'all' || (!c.isPreset && c.createdBy === userId)) &&
-      (!selectedTags.length || selectedTags.some(tag => c.tags?.includes(tag))) &&
+    return scopedCharacters.filter(c => isStoryCharacter(c) &&
       (!query || [c.name, c.signature ?? '', ...(c.tags ?? [])].some(value => value.toLocaleLowerCase().includes(query))))
       .sort((a, b) => getSortKey(a.name).localeCompare(getSortKey(b.name)));
-  }, [characters, search, filter, userId, selectedTags]);
+  }, [scopedCharacters, search]);
+  const filtering = !!search.trim();
+  const featured = useMemo(() => filtering ? [] : featuredCharacters(visible, previews, userId), [filtering, visible, previews, userId]);
+  const featuredIds = new Set(featured.map(c => c.id));
+  const orderedCharacters = [...featured, ...visible.filter(c => !featuredIds.has(c.id))];
+  const scrollRestored = useRef(false);
+  useLayoutEffect(() => {
+    if (!loading && !scrollRestored.current) {
+      scrollRestored.current = true;
+      if (scrollRef.current && savedCharacters?.owner === userId) scrollRef.current.scrollTop = savedCharacters.top;
+    }
+  }, [loading, userId]);
+  const openProfile = (c: Character) => {
+    navigationEpoch.current++;
+    beginSoulHandoff(`avatar:${c.id}`, soulElement(`avatar:${c.id}`, 'list'), 'profile');
+    setProfile(c);
+  };
 
   const enterChat = async (c: Character) => {
+    onChatIntent?.();
+    const epoch = ++navigationEpoch.current;
+    const fromProfile = profileRef.current?.id === c.id;
     const target = await ensureOwnedChatCharacter(c, userId);
-    if (useAuthStore.getState().userId !== userId) return;
+    if (useAuthStore.getState().userId !== userId || epoch !== navigationEpoch.current || (fromProfile && profileRef.current?.id !== c.id)) return;
     await selectCharacter(target.id);
-    if (!mounted.current || profileRef.current?.id !== c.id || useAuthStore.getState().userId !== userId || useChatStore.getState().selectedCharacterId !== target.id) return;
+    if (!mounted.current || epoch !== navigationEpoch.current || (fromProfile && profileRef.current?.id !== c.id) || useAuthStore.getState().userId !== userId || useChatStore.getState().selectedCharacterId !== target.id) return;
     beginSoulHandoff(`avatar:${target.id}`,soulElement(`avatar:${c.id}`,'profile'),'chat');
     setProfile(null); onSelect();
   };
@@ -94,44 +114,39 @@ export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
     finally { lock.current = false; setBusy(false); }
   };
 
-  return <div className="vg-characters h-full min-h-0 flex flex-col overflow-hidden">
-    <header className="vg-character-heading shrink-0 px-5 pt-5 pb-3">
+  return <div className="vg-characters vg-character-gallery vg-destination-page h-full min-h-0 flex flex-col overflow-hidden" data-primary-scene="mountain-lake">
+    <PrimaryPageBackdrop page="characters" />
+    <header className="vg-gallery-heading shrink-0">
       <div className="flex items-center justify-between gap-3">
-        <div><p className="vg-brand-wordmark"><BrandWordmark /></p><h1 className="mt-1 text-2xl font-semibold text-ink">角色</h1></div>
-        <button aria-label="＋ 添加角色" onClick={() => setEditor({})} className="vg-primary-action min-h-11 rounded-full px-4 text-sm inline-flex items-center gap-2"><Icon name="plus" size={16} />添加角色</button>
+        <h1>角色</h1>
+        <div className="vg-gallery-heading-actions"><button type="button" aria-label="更多角色功能" onClick={() => setTools(true)} className="vg-gallery-more"><Icon name="more" size={22}/></button></div>
       </div>
+      <nav className="vg-gene-entrances" aria-label="基因入口">
+        <button type="button" className="vg-gene-entrance vg-scene-glass" onClick={() => setEditor({ initialTab: 'pool' })}><Icon name="database" size={25}/><span>基因库</span></button>
+        <button type="button" className="vg-gene-entrance vg-scene-glass" onClick={() => setEditor({ initialTab: 'create' })}><Icon name="plus" size={25}/><span>创建基因</span></button>
+      </nav>
       <div className="vg-search-field vg-conversation-search mt-4 flex items-center px-3">
-        <input aria-label="搜索角色" placeholder="搜索名字、签名或标签" value={search} onChange={e => setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none" />
+        <Icon name="search" size={18}/>
+        <input aria-label="搜索角色" placeholder="搜索角色" value={search} onChange={e => setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none" />
         {search && <button aria-label="清空搜索" className="h-11 w-11 text-sub" onClick={() => setSearch('')}><Icon name="close" size={18} /></button>}
       </div>
     </header>
-    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-6">
-      <div className="vg-character-shortcuts grid grid-cols-2 gap-3 mb-4">
-        <button onClick={() => setNetwork(true)} className="is-relations min-h-20 rounded-2xl border border-life-cyan/20 px-4 text-left">
-          <span className="vg-shortcut-title text-base font-medium text-ink">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="12" cy="5" r="2.5" /><circle cx="5" cy="17" r="2.5" /><circle cx="19" cy="17" r="2.5" /><path d="m10.5 7-4 7.5m7-7.5 4 7.5M7.5 17h9" /></svg>
-            关系星图
-          </span><span className="mt-1 block text-xs text-sub">看看彼此的连接</span>
-        </button>
-        <button onClick={() => setGroups(true)} className="is-groups min-h-20 rounded-2xl border border-gene-purple/20 px-4 text-left">
-          <span className="vg-shortcut-title text-base font-medium text-ink">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 4v1" /></svg>
-            角色群聊
-          </span><span className="mt-1 block text-xs text-sub">一起聊点什么</span>
-        </button>
-      </div>
-      <div className="mb-4"><SecretaryWorkspaceCard onOpen={c => void enterChat(c)} /></div>
-      <div className="vg-character-tabs flex items-center gap-1 mb-2" role="tablist" aria-label="角色分类">
-        {(['all', 'own'] as const).map(value => <button key={value} role="tab" aria-selected={filter === value} onClick={() => setFilter(value)} className={`min-h-11 px-3 text-sm rounded-xl ${filter === value ? 'text-ink bg-surface font-semibold' : 'text-sub'}`}>{value === 'all' ? '全部' : '我的角色'}</button>)}
-        <span className="ml-auto text-xs text-sub"><AnimatedValue value={visible.length} /> 位</span>
-      </div>
-      {tagOptions.length > 0 && <MultiFilterChips options={tagOptions} value={selectedTags} onChange={setSelectedTags} />}
-      {error && !deleting && <div role="alert" className="mb-3 rounded-xl bg-red-500/10 p-3 text-sm text-red-400">{error}<button className="ml-3 underline" onClick={() => setRetry(v => v + 1)}>重试</button></div>}
-      {loading && characters.length === 0 ? <div className="vg-character-loading" role="status"><span className="sr-only">正在读取角色…</span>{[0,1,2].map(i=><div key={i} className="vg-skeleton-row" aria-hidden="true"><i /><span><b /><b /></span></div>)}</div> : visible.length === 0 ? <ConnectionEmptyState searching={!!search || selectedTags.length > 0}
-        title={search || selectedTags.length ? '没有找到匹配的角色' : '在这里，认识一个新的灵魂'}
-        detail={search || selectedTags.length ? '试试其他关键词，或清除筛选重新看看。' : '创建一个角色，让彼此的故事慢慢生长。'}
-        action={<button onClick={() => { if (search || selectedTags.length) { setSearch(''); setSelectedTags([]); } else setEditor({}); }}>{search || selectedTags.length ? '清除筛选' : '添加角色'}</button>} /> : <div className="space-y-2">{visible.map(c => <CharacterRow key={c.id} character={c} onOpen={() => setProfile(c)} onManage={isOwn(c) ? () => setManage(c) : undefined} />)}</div>}
+    <div ref={scrollRef} className="vg-gallery-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden" onScroll={() => { if (scrollRef.current) savedCharacters = { owner: userId, top: scrollRef.current.scrollTop, ...savedState.current }; }}>
+      {error && !deleting && <div role="alert" className="mb-3 rounded-xl bg-red-500/10 p-3 text-sm text-red-400">{error}<button className="ml-3 min-h-11 px-3 underline" onClick={() => setRetry(v => v + 1)}>重试</button></div>}
+      {loading && scopedCharacters.length === 0 ? <div className="vg-gallery-loading" role="status"><span className="sr-only">正在读取角色…</span>{[0,1,2].map(i=><div key={i} className="vg-skeleton-row" aria-hidden="true"><i /><span><b /><b /></span></div>)}</div> : visible.length === 0 ? <ConnectionEmptyState searching={filtering}
+        title={filtering ? '没有找到匹配的角色' : '还没有角色'}
+        detail={filtering ? '试试其他关键词。' : '从基因库添加，或创建自己的角色。'}
+        action={<button onClick={() => { if (filtering) setSearch(''); else setEditor({ initialTab: 'create' }); }}>{filtering ? '清空搜索' : '创建基因'}</button>} /> : <section className="vg-gallery-collection vg-scene-glass" aria-label={filtering ? '搜索结果' : '角色列表'}>
+          <div className={`vg-gallery-list${filtering ? ' is-filtered' : ''}`}>{orderedCharacters.map(c => <CharacterRow key={c.id} character={c} onOpen={() => openProfile(c)} onManage={isOwn(c) ? () => setManage(c) : undefined} />)}</div>
+        </section>}
     </div>
+    <Modal presentation="dialog" open={tools} onClose={() => setTools(false)} title="角色工具" width="max-w-sm">
+      <div className="vg-gallery-tools">
+        <button type="button" onClick={() => { setTools(false); setNetwork(true); }}><Icon name="connection" size={22}/><span><strong>关系星图</strong><small>查看角色之间的联系</small></span></button>
+        <button type="button" onClick={() => { setTools(false); setGroups(true); }}><Icon name="moment" size={22}/><span><strong>角色群聊</strong><small>让大家在同一段对话中相遇</small></span></button>
+        <button type="button" onClick={() => { setTools(false); openAssistantWorkspace('today'); }}><Icon name="spark" size={22}/><span><strong>生活助理</strong><small>今日安排与待处理事项</small></span></button>
+      </div>
+    </Modal>
     <Modal presentation="dialog" open={!!manage} onClose={() => setManage(null)} title={manage?.name} width="max-w-sm">
       <div className="vg-dialog-actions p-4 space-y-2">
         {manage?.agentProfile === 'secretary' ? <button className="w-full min-h-12 rounded-xl bg-surface text-sm text-ink" onClick={() => { setManage(null); window.dispatchEvent(new Event('virtugene:open-secretary')); }}>助理管理 · 解雇与聘用</button> : <>
@@ -143,10 +158,10 @@ export function MobileCharacterPage({ onSelect }: { onSelect: () => void }) {
     <Modal presentation="dialog" open={!!deleting} onClose={() => { if (!busy) setDeleting(null); }} title="删除角色" width="max-w-sm" closeOnBackdrop={false}>
       <div className="vg-delete-confirmation m-5" aria-busy={busy}><p>确定删除「{deleting?.name}」？关联的对话、记忆和关系也会清除，无法恢复。</p>{busy && <p role="status" className="mt-3 text-sm text-sub">正在清理聊天与关联记录，完成后会自动关闭。</p>}{error && <FeedbackNotice className="mt-3" message={error} tone="error" />}<div className="mt-5 flex gap-3"><button disabled={busy} className="flex-1 min-h-11 rounded-xl border border-line" onClick={() => setDeleting(null)}>取消</button><button disabled={busy} onClick={() => void remove()} className="flex-1 min-h-11 rounded-xl bg-red-500/15 text-red-400">{busy ? '正在删除…' : '确认删除'}</button></div></div>
     </Modal>
-    {profile && <CharacterProfileModal key={profile.id} character={characters.find(c => c.id === profile.id) ?? profile} worldCharacters={characters} userId={userId} onClose={() => setProfile(null)} onChat={enterChat} />}
-    {editor && <CharacterAddModal key={editor.character?.id ?? 'new'} open onClose={() => setEditor(null)} editCharacter={editor.character} onSelected={() => { if (!editor.character) onSelect(); }} />}
+    {profile && (profile.createdBy === userId || profile.isPreset || profile.published) && <CharacterProfileModal key={`${userId}:${profile.id}`} character={scopedCharacters.find(c => c.id === profile.id) ?? profile} worldCharacters={scopedCharacters} userId={userId} onClose={() => { navigationEpoch.current++; setProfile(null); }} onChat={enterChat} />}
+    {editor && <CharacterAddModal key={editor.character?.id ?? `new-${editor.initialTab ?? 'pool'}`} open initialTab={editor.initialTab} onClose={() => setEditor(null)} editCharacter={editor.character} onSelected={() => { if (!editor.character) onSelect(); }} />}
     {groups && <GroupChatPage onClose={() => setGroups(false)} />}
-    {network && <RelationNetworkModal open onClose={() => setNetwork(false)} characters={characters.filter(isStoryCharacter)} userId={userId} />}
+    {network && <RelationNetworkModal open onClose={() => setNetwork(false)} characters={scopedCharacters.filter(isStoryCharacter)} userId={userId} />}
   </div>;
 }
 
@@ -156,14 +171,15 @@ function CharacterRow({ character: c, onOpen, onManage }: { character: Character
   const origin = useRef({ x: 0, y: 0 });
   const cancel = () => { if (timer.current) clearTimeout(timer.current); timer.current = null; };
   useEffect(() => cancel, []);
-  return <div className="vg-character-row flex items-center rounded-2xl border border-line bg-panel/45">
-    <button className="flex min-w-0 flex-1 items-center gap-3 p-3 text-left select-none" onClick={() => { if (!held.current) onOpen(); held.current = false; }}
+  const signature = c.signature?.trim() || c.tags?.filter(Boolean).slice(0, 3).join(' · ');
+  return <article className="vg-gallery-character">
+    <button className="vg-gallery-character-open" aria-label={`打开${c.name}的角色空间`} onClick={() => { if (!held.current) onOpen(); held.current = false; }}
       onPointerDown={e => { cancel(); held.current = false; origin.current = { x: e.clientX, y: e.clientY }; if (onManage && e.button === 0) timer.current = setTimeout(() => { held.current = true; onManage(); }, 550); }}
       onPointerMove={e => { if (Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) > 8) cancel(); }} onPointerUp={cancel} onPointerCancel={cancel} onPointerLeave={cancel}
       onContextMenu={e => { if (onManage) { e.preventDefault(); cancel(); held.current = true; onManage(); } }}>
-      <Avatar avatar={c.avatar} size="lg" className="!w-12 !h-12" soulKey={`avatar:${c.id}`} soulRole="list" />
-      <span className="min-w-0 flex-1"><span className="block truncate text-base font-medium text-ink">{c.name}</span><span className="mt-1 block truncate text-xs text-sub">{c.signature || (c.tags ?? []).slice(0, 3).join(' · ') || '点击查看角色'}</span></span>
+      <CharacterPortrait character={c} className="vg-gallery-character-avatar" soulRole="list" />
+      <span className="vg-gallery-character-copy"><strong>{c.name}</strong>{signature && <span>{signature}</span>}</span>
     </button>
-    {onManage && <button aria-label={`管理${c.name}`} onClick={onManage} className="min-h-12 w-11 shrink-0 text-sub grid place-items-center"><Icon name="more" size={20} /></button>}
-  </div>;
+    {onManage && <button aria-label={`管理${c.name}`} onClick={onManage} className="vg-gallery-character-manage"><Icon name="more" size={20} /></button>}
+  </article>;
 }

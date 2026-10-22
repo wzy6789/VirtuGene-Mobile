@@ -1,0 +1,94 @@
+import {db,type Message} from '../../src/db';
+import {inspectChatOutput} from '../../src/lib/chat-output-quality';
+import {findSelfReportRisk,omitUnsupportedSelfReportEpisodes} from '../../src/lib/chat-self-report-risk';
+import {advanceExplicitTopics} from '../../src/lib/chat-topic-outcomes';
+import {emptyChatConversationState} from '../../src/lib/chat-conversation-state';
+import {updateConversationIfCurrent,readValidatedConversation} from '../../src/db/chat-topic-state-repo';
+import {selectReplyPlan} from '../../src/lib/chat/topic-candidates';
+import {findUserVisualRisk,omitUnsupportedUserVisual} from '../../src/lib/chat-user-visual-risk';
+import {reviewCallSpeech} from '../../src/lib/voice-call/speech-quality';
+const checks:Array<{name:string;ok:boolean;detail?:unknown}>=[];
+const check=(name:string,ok:unknown,detail?:unknown)=>checks.push({name,ok:!!ok,...(detail===undefined?{}:{detail})});
+const scope={userId:'review-owner',characterId:'review-character',sessionId:'review-session'};
+let serial=0;const row=(content:string):Message=>({id:'review-'+(++serial),sessionId:scope.sessionId,role:'user',content,createdAt:Date.UTC(2026,9,22)+serial*1000,isProactive:false,revision:1});
+Object.assign(window,{async runRecordedRegressions(){
+  const objectScene='那只杯子现在在你手里，估计还挺无辜。';
+  const previousCup='我把杯子当成手机找了半天。';
+  const visualContext={mode:'private' as const,userMessage:previousCup,hasCurrentImage:false,hasUserVisualEvidence:false};
+  check('fresh real sample cannot turn a past cup anecdote into a current user scene',!inspectChatOutput(objectScene,visualContext).check.ok);
+  check('current scene inference is source-sensitive even without a verb claiming sight',!!findUserVisualRisk(objectScene,false,previousCup,false));
+  check('old image history is not current physical-state evidence',!inspectChatOutput(objectScene,{...visualContext,hasUserVisualEvidence:true}).check.ok);
+  check('omitting unsupported current scene keeps the independent genuine reaction',omitUnsupportedUserVisual('哈哈，这个我是真喜欢。'+objectScene,false,previousCup,false)==='哈哈，这个我是真喜欢。');
+  for(const source of ['杯子现在在我手里。','杯子现在就在我手里。','那只杯子在我手里。'])
+    check('a direct current user statement supports its own object position: '+source,inspectChatOutput(objectScene,{...visualContext,userMessage:source}).check.ok);
+  for(const source of ['刚才杯子在我手里。','杯子现在不在我手里。','杯子现在在我手里吗？','朋友说“杯子现在在我手里”。'])
+    check('past, negative, question or somebody else cannot establish the present user scene: '+source,!inspectChatOutput(objectScene,{...visualContext,userMessage:source}).check.ok);
+  for(const speech of ['那只杯子现在可能在你手里。','要是那只杯子现在在你手里，恐怕要抗议了。','这个决定现在在你手里。','“那只杯子现在在你手里”是原文，不是我的观察。'])
+    check('current-object check keeps uncertainty, conditional, metaphor and quoted analysis: '+speech,inspectChatOutput(speech,visualContext).check.ok);
+  check('a current attached image retains the existing evidence boundary',inspectChatOutput(objectScene,{...visualContext,hasCurrentImage:true,hasUserVisualEvidence:true}).check.ok);
+  check('an earlier past clause cannot excuse a separate asserted current location',!inspectChatOutput('刚才是个笑话，那只杯子现在在你手里。',visualContext).check.ok);
+  check('an explicit continuing current user position remains valid',inspectChatOutput(objectScene,{...visualContext,userMessage:'杯子还在我手里。'}).check.ok);
+  check('voice cleanup rejects the unsupported present-object premise',reviewCallSpeech(objectScene,previousCup)==='');
+  check('voice cleanup retains the same directly sourced current position',reviewCallSpeech(objectScene,'杯子现在在我手里。')===objectScene);
+  const invented='我也有过拿错东西，越急越觉得手里的就是对的。';
+  check('captured completed autobiographical episode requires an independent source',!!findSelfReportRisk(invented));
+  check('episode omission retains independent present feeling',omitUnsupportedSelfReportEpisodes('我还想听你说。'+invented)==='我还想听你说。');
+  check('an independently sourced concrete episode remains usable',!findSelfReportRisk('我也有过拿错东西。','',['独立经历：你曾拿错东西。']));
+  const routine='我有时候东西明明在眼前，还会先往别处找。';
+  const recentView='最近看窗外的叶子，比看花还多——你觉得好笑吗？';
+  check('captured subject-omitted recent observation is not authorized by a question suffix',!!findSelfReportRisk(recentView));
+  check('recent observation requires an independent record in shared output review',!inspectChatOutput(recentView,{mode:'private',userMessage:'换点轻松的小事，你选。'}).check.ok);
+  check('unpublished recent observation omission retains the independent current preference',omitUnsupportedSelfReportEpisodes('我喜欢叶子的颜色。'+recentView)==='我喜欢叶子的颜色。');
+  for(const speech of ['我最近看窗外的叶子，比看花还多。','最近我在看窗外的树。','这几天望着天空的云。'])
+    check('recent first-person observation requires evidence: '+speech,!!findSelfReportRisk(speech));
+  check('the exact independently recorded recent observation stays valid',!findSelfReportRisk(recentView,'',['独立经历：最近看窗外的叶子，比看花还多。']));
+  check('an observation record without the new comparative detail is insufficient',!!findSelfReportRisk(recentView,'',['独立经历：最近看窗外的叶子。']));
+  check('a voice example cannot authenticate its recent observation',!!findSelfReportRisk(recentView,'对话样本：你说最近看窗外的叶子，比看花还多。'));
+  for(const speech of ['最近我更喜欢叶子的颜色。','要是最近看窗外的叶子多一些，可能会注意到颜色。','最近看窗外的叶子比看花多吗？','朋友最近看窗外的叶子，比看花还多。','你说“最近看窗外的叶子，比看花还多”，这是举例。'])
+    check('recent observation guard retains preferences, conditionals and reported speech: '+speech,!findSelfReportRisk(speech));
+  const recentIdea='其实我最近有个挺傻的念头，想在窗边摆一排小东西，看着它们一个个排好，心就静下来。';
+  check('real follow-up concrete recurring self-report requires its own source',!!findSelfReportRisk(routine));
+  check('real follow-up retrospective idea is not a newly expressed present wish',!!findSelfReportRisk(recentIdea));
+  check('recurring anecdote omission keeps the independent current preference',omitUnsupportedSelfReportEpisodes('这个想法我喜欢。'+routine)==='这个想法我喜欢。');
+  check('retrospective thought omission keeps the independent current preference',omitUnsupportedSelfReportEpisodes('这个想法我喜欢。'+recentIdea)==='这个想法我喜欢。');
+  check('independent authored routine supports that exact recurring method',!findSelfReportRisk(routine,'',['独立经历：你有时候东西明明在眼前，还会先往别处找。']));
+  for(const text of ['我有时候会觉得这件事挺好笑。','我有个挺傻的念头，想在窗边摆一排小东西。','假如我有时候东西明明在眼前，还会先往别处找，你会笑吗？','你说“我有时候东西明明在眼前，还会先往别处找”，这句挺逗。'])check('recurring-source check preserves current opinion, idea or nonassertion: '+text,!findSelfReportRisk(text));
+  for(const text of ['假如我也有过拿错东西，可能也会懵。','你说“我也有过拿错东西”，这句挺逗。','我也有过拿错东西吗？','我也会犯迷糊。','我有一个想法。'])check('past-source guard preserves nonassertions: '+text,!findSelfReportRisk(text));
+  const claim='那我说个正经的，你说汤姆笨得很有章法，我记住了。';
+  const source='我的看法还是那个：他不算坏，只是笨得很有章法，每回设的套子都绕回自己身上。';
+  const context={mode:'private' as const,userMessage:'咱们聊点别的，你选。',recentReplies:[source],recentUserMessages:['你觉得汤姆算坏猫吗？']};
+  check('captured assistant-only phrase cannot become a user quotation',!inspectChatOutput(claim,context).check.ok);
+  check('actual affirmative user adoption supports its attribution',inspectChatOutput(claim,{...context,recentUserMessages:['我也觉得汤姆笨得很有章法。']}).check.ok);
+  for(const text of ['你刚才说周日下午三点，坐地铁去。','假如你说汤姆笨得很有章法，我可能会笑。','“你说汤姆笨得很有章法”，这句是引用。'])check('source-attribution check preserves supported or nonliteral speech: '+text,inspectChatOutput(text,{...context,recentUserMessages:['周日下午三点。','我坐地铁去。']}).check.ok);
+  for(const raw of ['她将额头贴上你的肩膀，闭上眼睛。','她把头靠在你的肩上，安静地抱着你。'])check('ordinary roleplay still rejects raw narrated body action: '+raw,!inspectChatOutput(raw,{mode:'private',userMessage:'继续扮演古月娜，聊聊今天的事。'}).check.ok);
+  for(const raw of ['小说里她把头靠在肩上，这是叙述。','她把报告整理好了。','The students’ books are on the desk.',"The students' books are on the desk.","Don't move Alice's books."])
+    check('format contract preserves legitimate speech: '+raw,inspectChatOutput(raw,{mode:'private',userMessage:'解释这句话。'}).check.ok);
+  check('genuinely unfinished English quotation remains buffered',!inspectChatOutput("'The students have books",{mode:'private'}).check.ok);
+  for(const raw of ['刚才说从早走到晚，是我一开始想岔了。','之前提到从早走到晚，我说的是一个设想。','我还是更喜欢有点热闹的。刚才说从早走到晚，是我一开始想岔了，安静久了反而没意思。\n---\n不过小街也别挑那种挤得走不动路的，能慢慢看、能停下来听两句就好。我最想看铺子里摆的小东西，挑一样合眼缘的带回来。'])
+    check('reporting an earlier utterance is not an unnamed moving character: '+raw,inspectChatOutput(raw,{mode:'private',userMessage:'说说你的偏好。'}).check.ok);
+  check('a reporting clause cannot exempt an independent narrated action',!inspectChatOutput('刚才说从早走到晚，是个设想。她将额头贴上你的肩膀。',{mode:'private'}).check.ok);
+  await db.delete();await db.open();
+  await db.sessions.add({id:scope.sessionId,userId:scope.userId,characterId:scope.characterId,title:'审查回归',createdAt:1,updatedAt:1,unreadCount:0});
+  const a=row('英语考试周六。'),b=row('另外一场英语考试周日。'),amb=row('英语考试改到周一。');
+  const advance=(state:any,message:Message)=>advanceExplicitTopics(state,{message,domain:'user-reality'});
+  const state={...emptyChatConversationState(),...advance(advance(advance({},a),b),amb)};
+  await db.messages.bulkPut([a,b,amb]);
+  check('native ambiguity setup writes source-backed state',await updateConversationIfCurrent(scope,0,state));
+  const loaded=await readValidatedConversation(scope);
+  check('ambiguous same-name change survives native reload',!!loaded?.conversation?.ambiguousTopic);
+  check('same-source replay preserves ambiguity',!!advance(loaded?.conversation,amb).ambiguousTopic);
+  check('unrelated exchange pauses rather than silently deciding an ambiguity',!!advance(loaded?.conversation,row('今天的云很好看。')).ambiguousTopic);
+  const selected=selectReplyPlan({...scope,trigger:'return-visit',userText:'',character:{name:'搭档',tags:[],systemPrompt:'自然聊天'},recent:[],state:loaded?.conversation,topicsValidated:true,now:Date.now()});
+  check('reloaded ambiguity cannot select one event for follow-up',!selected.candidates.some(item=>item.kind==='follow-up'||item.kind==='care'));
+  const clarifyingMessage=row('周六那场英语考试改到周一。');
+  const clarified=advance(loaded?.conversation,clarifyingMessage);
+  check('a concrete selection clears the earlier ambiguity',!clarified.ambiguousTopic&&clarified.topics?.some((topic:any)=>topic.slots.date?.value==='周一'),clarified);
+  check('date-qualified correction updates the selected original without inventing a third exam',clarified.topics?.length===2&&clarified.topics.some((topic:any)=>topic.anchorSource.messageId===a.id&&topic.slots.date?.value==='周一')&&clarified.topics.some((topic:any)=>topic.anchorSource.messageId===b.id&&topic.slots.date?.value==='周日'));
+  const unrelated=row('今天的云很好看。');await db.messages.put(unrelated);
+  const forged={...state,ambiguousTopic:{...state.ambiguousTopic,message:{messageId:unrelated.id,revision:1,start:0,end:unrelated.content.length}}};
+  check('imported ambiguity cannot point at an unrelated user statement',!await updateConversationIfCurrent(scope,loaded!.version,forged));
+  await db.messages.update(amb.id,{content:'不是这个意思。',revision:2});
+  const edited=await readValidatedConversation(scope);
+  check('edited ambiguity source stops the old control taking effect',!edited?.conversation?.ambiguousTopic);
+  return {complete:checks.every(item=>item.ok),checks,failures:checks.filter(item=>!item.ok),apiCalls:0};
+}});

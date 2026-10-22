@@ -1,7 +1,8 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useId, useMemo, useRef, useState } from 'react';
 import type { Character, WorldEvent, WorldPulse, WorldScene } from '../../db/index';
 import type { WorldKernelSnapshot } from '../../lib/world/world-kernel';
 import { eventLabel } from '../../lib/world/world-timeline';
+import { Icon } from '../ui/Icon';
 
 function pulseLabel(pulse: WorldPulse | null, busy: boolean): string {
   if (busy) return '世界正在向前行走';
@@ -37,6 +38,8 @@ export const WorldLivingPanel = memo(function WorldLivingPanel({
   onPulse: () => void;
 }) {
   const [locationId, setLocationId] = useState<string | null>(null);
+  const detailId = useId();
+  const locationButtons = useRef(new Map<string, HTMLButtonElement>());
   const selectedLocation = kernel.locations.find((location) => location.id === locationId) ?? null;
   const characterById = useMemo(() => new Map(characters.map((character) => [character.id, character])), [characters]);
   const locations = kernel.locations.slice(0, 8);
@@ -62,7 +65,7 @@ export const WorldLivingPanel = memo(function WorldLivingPanel({
           <p>{pulseLabel(pulse, pulseBusy)}{durationLabel(pulse) ? ` · ${durationLabel(pulse)}` : ''}</p>
         </div>
         <button type="button" className="vg-living-pulse-button" onClick={onPulse} disabled={pulseBusy || characters.length === 0}>
-          <span aria-hidden="true">{pulseBusy ? '◌' : '↗'}</span>
+          <Icon name={pulseBusy ? 'clock' : 'arrow'} size={16} />
           {pulseBusy ? '行走中' : '走一步'}
         </button>
       </header>
@@ -95,7 +98,7 @@ export const WorldLivingPanel = memo(function WorldLivingPanel({
           const place = kernel.locations.find((location) => location.id === presence?.locationId);
           return (
             <article key={character.id} className="vg-living-person">
-              <span className="vg-living-person-mark" aria-hidden="true">{presence?.status === 'present' ? '·' : '—'}</span>
+              <span className={`vg-living-person-mark ${presence?.status === 'present' ? 'is-present' : ''}`} aria-hidden="true" />
               <div>
                 <strong>{character.name}</strong>
                 <span>{place?.name ?? '还没有固定地点'}</span>
@@ -110,7 +113,7 @@ export const WorldLivingPanel = memo(function WorldLivingPanel({
         <span>地点正在发生什么</span>
         <small>点开一个地点</small>
       </div>
-      <div data-no-page-swipe="true" className="vg-living-locations" role="list">
+      <div data-no-page-swipe="true" className="vg-living-locations" role="group" aria-label="世界地点">
         {locations.map((location) => {
           const people = kernel.presences.filter((presence) => presence.locationId === location.id && presence.status === 'present');
           const activeSceneCount = scenes.filter((scene) => scene.locationId === location.id || scene.place === location.name).filter((scene) => scene.status === 'active').length;
@@ -118,8 +121,10 @@ export const WorldLivingPanel = memo(function WorldLivingPanel({
           return (
             <button
               type="button"
-              role="listitem"
               key={location.id}
+              ref={node => { if (node) locationButtons.current.set(location.id, node); else locationButtons.current.delete(location.id); }}
+              aria-expanded={location.id === locationId}
+              aria-controls={detailId}
               className={`vg-living-location ${location.id === locationId ? 'is-selected' : ''} ${active ? 'is-active' : ''}`}
               onClick={() => setLocationId((current) => current === location.id ? null : location.id)}
             >
@@ -132,10 +137,10 @@ export const WorldLivingPanel = memo(function WorldLivingPanel({
       </div>
 
       {selectedLocation && (
-        <div className="vg-living-location-detail">
+        <div id={detailId} className="vg-living-location-detail" role="region" aria-label={`${selectedLocation.name}地点视角`}>
           <div className="vg-living-location-detail-head">
             <div><span>LOCATION LENS</span><strong>{selectedLocation.name}</strong></div>
-            <button type="button" onClick={() => setLocationId(null)} aria-label="关闭地点视角">收起</button>
+            <button type="button" onClick={() => { setLocationId(null); locationButtons.current.get(selectedLocation.id)?.focus(); }} aria-label="关闭地点视角"><Icon name="close" size={18} /></button>
           </div>
           <p className="vg-living-location-description">{selectedLocation.description ?? '这里还没有被写下固定的样子，下一次发生会留下第一笔记忆。'}</p>
           {selectedPeople.length > 0 && (

@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "sceneId": "moonlit-bedroom",
+  "designWidth": 1440,
+  "designHeight": 3201.9024970273485,
+  "thumbnail": {
+    "file": "thumbnail.webp",
+    "width": 360,
+    "height": 800,
+    "bytes": 62842,
+    "sha256": "5f023ddf38008d433d84ee91232de89b59a3c9ba7b187b4bf9b8ba0db21e667e",
+    "decodedRgbaBytes": 1152000
+  },
+  "qualities": {
+    "841": {
+      "poster": {
+        "file": "poster-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 383880,
+        "sha256": "8f728402554c2af97f07e5b4283466a99e10f02b8894c76d6ceb6f95839a2ea5",
+        "decodedRgbaBytes": 6290680
+      },
+      "cleanPlate": {
+        "file": "poster-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 383880,
+        "sha256": "8f728402554c2af97f07e5b4283466a99e10f02b8894c76d6ceb6f95839a2ea5",
+        "decodedRgbaBytes": 6290680
+      },
+      "layers": [],
+      "windowMask": {
+        "rect": [
+          645.5172413793103,
+          8.561236623067776,
+          614.6967895362664,
+          1837.2413793103449
+        ],
+        "file": "window-mask-841.webp",
+        "width": 359,
+        "height": 1073,
+        "bytes": 5692,
+        "sha256": "bfa9cddd147d517fc9436fd5b68f6c5d7b20c5b1c2e3ee4f61a4c20b7e870cd3",
+        "decodedRgbaBytes": 1540828
+      },
+      "decodedBytesWithPoster": 7831508
+    }
+  },
+  "windowPolygon": [
+    [
+      648.0,
+      227.33507728894173
+    ],
+    [
+      1512.0,
+      -80.04756242568372
+    ],
+    [
+      1512.0,
+      2049.217598097503
+    ],
+    [
+      648.0,
+      1764.2482758620692
+    ]
+  ],
+  "lightRect": [
+    28.8,
+    896.5326991676577,
+    576.0,
+    960.5707491082045
+  ],
+  "glass": {
+    "strength": 0.5,
+    "frost": 0.0
+  },
+  "cupMouth": [
+    434.88,
+    2298.965992865636
+  ],
+  "provenance": "Built-in image generation; original photographic-style environment artwork, not a Blender render.",
+  "compositeStrategy": "Native photographic-style art on independently authored volumetric depth; same camera and semantic window mask, no duplicated foreground."
+}

@@ -1,0 +1,49 @@
+/* Root destinations have separate photography; their glass shares one material family. */
+.vg-destination-page{position:relative;isolation:isolate;min-width:0;background:var(--bg)}
+.vg-primary-page-backdrop{position:absolute;inset:0;z-index:-1;overflow:hidden;pointer-events:none;background:var(--bg)}
+.vg-primary-page-backdrop>img{display:block;width:100%;height:100%;object-fit:cover;object-position:center;filter:none;opacity:1}
+.vg-primary-page-backdrop::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(5,11,19,.13),transparent 45%,rgba(5,11,19,.08))}
+.vg-destination-page :is(.vg-gallery-heading h1,.vg-space-heading h1){color:#f3f5f8;text-shadow:0 2px 12px rgba(3,7,13,.45)}
+.vg-destination-page .vg-space-heading::after{display:none}
+.vg-destination-page .vg-search-field{border-color:var(--vg-glass-edge);background:var(--vg-glass-control-sheen),var(--vg-glass-content-bg);box-shadow:inset 0 1px 0 var(--vg-glass-highlight)}
+.vg-destination-page .vg-gallery-heading-actions{gap:8px}
+.vg-destination-page .vg-gallery-more{border:1px solid var(--vg-glass-edge);background:var(--vg-glass-control-sheen),var(--vg-glass-content-bg)}
+:root.dark .vg-destination-page{--vg-glass-scene-fill:rgba(20,28,39,.63);--vg-glass-scene-bloom:rgba(223,233,249,.09)}
+
+/* Two short entries, then a continuous list using the same geometry as Messages. */
+.vg-gene-entrances{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}
+.vg-gene-entrance{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-width:0;min-height:84px;padding:12px;border-radius:20px;color:var(--text);font-size:max(16px,1rem);font-weight:var(--vg-weight-label);line-height:1.4}
+.vg-gene-entrance>svg{flex:none;color:var(--vg-accent)}
+.vg-gene-entrance:active{--vg-optic-bloom:var(--vg-glass-selection-light)}
+.vg-destination-page .vg-gallery-collection{padding:0 12px;border-radius:20px}
+.vg-destination-page .vg-gallery-list{grid-template-columns:minmax(0,1fr);gap:0;margin:0}
+.mobile-layout .vg-destination-page .vg-gallery-character{position:relative;display:flex;align-items:center;min-width:0;padding:0;border:0;border-bottom:1px solid var(--vg-glass-edge);border-radius:0;background:transparent;box-shadow:none}
+.mobile-layout .vg-destination-page .vg-gallery-character:last-child{border-bottom:0}
+.vg-destination-page .vg-gallery-character-open{display:flex;flex-direction:row;align-items:center;gap:12px;flex:1;min-width:0;min-height:84px;padding:12px 0;text-align:left;border-radius:12px}
+.vg-destination-page .vg-gallery-character .vg-character-portrait-host{display:block;flex:none}
+.vg-destination-page .vg-gallery-character-avatar{width:48px;height:48px;border-radius:50%;object-fit:cover;object-position:50% 28%;box-shadow:0 0 0 1px var(--vg-glass-edge)}
+.vg-destination-page .vg-gallery-character-copy{display:flex;flex:1;min-width:0;gap:4px}
+.vg-destination-page .vg-gallery-character-copy strong{font-size:max(16px,1rem);line-height:1.45}
+.vg-destination-page .vg-gallery-character-copy>span{font-size:max(14px,.875rem);line-height:1.5}
+.vg-destination-page .vg-gallery-character-manage{position:relative;flex:none;color:var(--text-secondary)}
+.vg-destination-page .vg-gallery-character-open:focus-visible{outline-offset:-4px}
+
+/* Profile and preferences form the reading planes; the photograph stays fixed during scroll. */
+.vg-personal-scene .vg-personal-space{background:transparent;position:relative;padding-top:4px}
+.vg-personal-scene .vg-personal-profile{margin-top:10px;padding:4px 16px 0;border-radius:22px}
+.vg-personal-scene .vg-personal-identity{width:100%;padding:12px 28px 10px 0;margin-top:0;border-radius:16px}
+.vg-personal-scene .vg-personal-identity>svg{right:0;top:28px}
+.vg-personal-scene .vg-personal-identity strong{font-size:max(20px,1.25rem);text-wrap:wrap}
+.vg-personal-scene .vg-personal-numbers{padding:6px 0 16px;gap:8px 20px}
+.vg-personal-scene .vg-personal-weekly{--vg-optic-sample:none;margin-top:12px;min-height:54px;padding:12px 16px;border-radius:18px}
+.vg-personal-scene .vg-personal-links{margin-top:14px;padding:16px;border-radius:22px}
+.vg-personal-scene .vg-personal-links h2{font-size:13px;line-height:1.5;font-weight:400}
+.vg-personal-scene .vg-personal-row{font-size:max(16px,1rem);border-color:var(--vg-optic-edge)}
+.vg-personal-scene .vg-personal-exit{align-self:center;min-width:140px;margin-top:16px;background:var(--vg-glass-content-bg);border:1px solid color-mix(in srgb,var(--vg-danger) 24%,var(--vg-glass-edge));border-radius:18px}
+
+@media(max-width:359px){
+ .vg-gene-entrances{gap:10px}
+ .vg-destination-page .vg-gallery-character-open{gap:10px}
+ .vg-personal-scene .vg-personal-space{padding-inline:16px}
+ .vg-personal-scene .vg-personal-identity strong{font-size:max(18px,1.125rem)}
+}

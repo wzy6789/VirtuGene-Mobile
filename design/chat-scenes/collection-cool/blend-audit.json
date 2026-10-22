@@ -1,0 +1,73 @@
+{
+  "snow-study": {
+    "blendFile": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-cool\\snow-study\\VirtuGene-snow-study-Original.blend",
+    "bytes": 3919582,
+    "sha256": "b1d30d70a6460ca6d58b18db949f1eb2c4cc59d456259b5da4d721a665ee8610",
+    "objects": 838,
+    "meshes": 255,
+    "materials": 19,
+    "externalImages": [],
+    "camera": {
+      "location": [
+        0.11999999731779099,
+        -7.699999809265137,
+        2.549999952316284
+      ],
+      "rotation": [
+        1.45404052734375,
+        -2.934863463366355e-09,
+        0.022342650219798088
+      ],
+      "lens": 31.0,
+      "sensorFit": "VERTICAL",
+      "sensorHeight": 36.0
+    },
+    "objectNameSignature": "ba1f33b9507bfde6fbdbc2e7106ef9e06faa8ae5722d38ce99c14fd0d795dcdc",
+    "sourceSceneOriginal": true,
+    "cyclesDevice": "GPU",
+    "threadLimit": 6,
+    "anchors": {
+      "actualCupLipProjected": [
+        313.30559492111206,
+        2103.555965423584
+      ],
+      "cupMouthDesignPixelError": 0.0004050788879226275,
+      "actualLampProjected": [
+        108.7490165233612,
+        1819.8701858520508
+      ],
+      "lightRectContainsVisibleLamp": true
+    }
+  },
+  "mist-coast": {
+    "blendFile": "F:\\VirtuGene-Mobile\\design\\chat-scenes\\collection-cool\\mist-coast\\VirtuGene-mist-coast-Original.blend",
+    "bytes": 1475578,
+    "sha256": "2a3e94109bd10b3a23fd73dcba6d3c2c074517c0842c62706417cc07f773729c",
+    "objects": 72,
+    "meshes": 32,
+    "materials": 13,
+    "externalImages": [],
+    "camera": {
+      "location": [
+        -0.25,
+        -7.800000190734863,
+        2.5
+      ],
+      "rotation": [
+        1.4668768644332886,
+        -2.9400863965634016e-09,
+        -0.043927766382694244
+      ],
+      "lens": 30.0,
+      "sensorFit": "VERTICAL",
+      "sensorHeight": 36.0
+    },
+    "objectNameSignature": "239f9c61e02b4cf9faec6eea40895ed1be222af8dee9d3b57495fe60e574f953",
+    "sourceSceneOriginal": true,
+    "cyclesDevice": "GPU",
+    "threadLimit": 6,
+    "anchors": {
+      "noFakeSteamAnchor": true
+    }
+  }
+}

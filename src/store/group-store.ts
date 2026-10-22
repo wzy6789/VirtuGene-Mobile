@@ -5,8 +5,8 @@ import { db, type Group, type Session, type Message } from '../db/index';
 import { groupRepo } from '../db/group-repo';
 import { sessionRepo } from '../db/session-repo';
 import { messageRepo } from '../db/message-repo';
+import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
 import { characterRepo } from '../db/character-repo';
-import { memoryRepo } from '../db/memory-repo';
 import { worldRepo } from '../db/world-repo';
 import { buildRelationshipToneContext } from '../lib/chat-context';
 import { useAuthStore } from './auth-store';
@@ -19,8 +19,6 @@ import type { GroupMemberBrief, GroupTurn } from '../lib/ai/group-chat';
 import { prepareMemoryMetadata } from '../lib/memory-engine';
 import { buildSummaryBatch, findUncoveredSummaryMessages } from '../lib/ai/summary-batches';
 import { boundAuxiliaryHistory } from '../lib/ai/history-window';
-import {luXueQiRelationshipForTurn} from '../lib/lu-xue-qi-runtime';
-import {guYueNaRelationshipForTurn} from '../lib/gu-yue-na-runtime';
 
 /** 主动发言触发：距上一条消息超过该时长（且在群聊页停留时）触发一次 */
 const PROACTIVE_AFTER_MS = 5 * 60_000;
@@ -37,6 +35,8 @@ const SUMMARY_WINDOW = 36;
 /** 摘要增量重建阈值：新增未覆盖消息数达到该值才重新生成 */
 const SUMMARY_REGENERATE_THRESHOLD = 12;
 const groupMemoryInFlight = new Set<string>();
+let groupSelection = 0;
+let groupListRequest = 0;
 
 interface GroupState {
   groups: Group[];
@@ -74,7 +74,8 @@ interface GroupState {
 
 async function getOrCreateGroupSession(groupId: string, userId: string): Promise<Session> {
   const existing = await db.sessions.where('groupId').equals(groupId).toArray();
-  if (existing.length > 0) return existing[0];
+  const owned = existing.find(session => session.userId === userId && session.type === 'group');
+  if (owned) return owned;
   const now = Date.now();
   const session: Session = {
     id: crypto.randomUUID(),
@@ -119,7 +120,11 @@ function groupPromptTrace(briefs: GroupMemberBrief[], session: Session | undefin
 
 /** 构建群聊上下文：成员人设（含经当前全体成员见证的跨场景记忆） */
 async function buildBriefs(group: Group, userId: string, query = ''): Promise<GroupMemberBrief[]> {
-  const { buildCharacterMemoryContext, renderMemoryRetrievalStatus } = await loadForAccount(userId, () => import('../lib/character-memory'));
+  const [{ buildCharacterMemoryContext, renderMemoryRetrievalStatus }, { luXueQiRelationshipForTurn }, { guYueNaRelationshipForTurn }] = await Promise.all([
+    loadForAccount(userId, () => import('../lib/character-memory')),
+    loadForAccount(userId, () => import('../lib/lu-xue-qi-runtime')),
+    loadForAccount(userId, () => import('../lib/gu-yue-na-runtime')),
+  ]);
   if (useAuthStore.getState().userId !== userId) throw new Error('Account changed');
   const world = await worldRepo.ensureDefaultWorld(userId).catch(() => null);
   const members = (await Promise.all(group.characterIds.map((id) => characterRepo.getById(id)))).filter(
@@ -142,7 +147,7 @@ async function buildBriefs(group: Group, userId: string, query = ''): Promise<Gr
         buildCharacterMemoryContext({
           userId, characterId: c.id, topic: query,
           audience: [c.id], mode: 'group-chat',
-          ...(world ? { worldId: world.id } : {}),
+          ...(world ? { scene: { worldId: world.id } } : {}),
           includePrivateCharacterLifeEvents: true,
           budget: 1800,
         }),
@@ -215,7 +220,8 @@ async function maybeSummarizeGroup(sessionId: string, apiKey: string): Promise<v
     // 超长群消息按字符偏移分批，不能因被截断而误标为已总结。
     const segments = buildSummaryBatch(uncovered, cursor);
     if (segments.length === 0) return;
-    const history = segments.map(({ message, content }) => ({ role: message.role, content: (message.senderId ? '群成员：' : '') + content }));
+    // Attribution is metadata, outside the original segment/offset budget.
+    const history = segments.map(({ message, content }) => ({ role: message.role, content, groupMember:!!message.senderId }));
     await sessionRepo.markSummaryAttempt(sessionId);
     const result = await ipc.context.summarize({
       apiKey,
@@ -255,6 +261,7 @@ async function maybeExtractGroupMemories(sessionId: string, memberIds: string[],
     if (!userId || members.length < 2) return;
     const session = await sessionRepo.getById(sessionId);
     if (!session || session.userId !== userId || session.type !== 'group') return;
+    const { memoryRepo } = await loadForAccount(userId, () => import('../db/memory-repo'));
     const msgs = (await messageRepo.getBySession(sessionId)).filter((message) => !message.failed && witnessedByAll(message, members));
     const userCount = msgs.filter((m) => m.role === 'user').length;
     if (userCount < 6) return;
@@ -380,6 +387,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
 
   loadGroups: async () => {
     const userId = useAuthStore.getState().userId ?? '';
+    const request = ++groupListRequest;
     const groups = await groupRepo.getByUser(userId);
     // 群预览：每个群会话的最后消息 + 未读（会话列表显示）
     const groupPreviews: Record<string, { content: string; createdAt: number; unread: number }> = {};
@@ -394,6 +402,7 @@ export const useGroupStore = create<GroupState>((set, get) => ({
         unread: session.unreadCount ?? 0,
       };
     }
+    if (request !== groupListRequest || useAuthStore.getState().userId !== userId) return;
     set({ groups, groupPreviews });
     const { currentGroupId } = get();
     if (currentGroupId && !groups.some((g) => g.id === currentGroupId)) {
@@ -421,10 +430,14 @@ export const useGroupStore = create<GroupState>((set, get) => ({
 
   selectGroup: async (groupId) => {
     const userId = useAuthStore.getState().userId ?? '';
+    const request = ++groupSelection;
+    const current = () => request === groupSelection && useAuthStore.getState().userId === userId;
     const group = await groupRepo.getById(groupId);
-    if (!group) return;
+    if (!current() || !userId || group?.userId !== userId) return;
     const session = await getOrCreateGroupSession(groupId, userId);
+    if (!current()) return;
     const msgs = await messageRepo.getBySession(session.id);
+    if (!current()) return;
     set({ currentGroupId: groupId, currentGroup: group, currentSessionId: session.id, groupMessages: msgs, groupError: null });
     await sessionRepo.clearUnread(session.id);
   },
@@ -737,18 +750,29 @@ export const useGroupStore = create<GroupState>((set, get) => ({
     const userId = useAuthStore.getState().userId ?? '';
     if (!currentGroup || !currentSessionId) return;
     try {
-      const msgs = await messageRepo.getBySession(currentSessionId);
-      const m = msgs.find((x) => x.id === messageId);
-      if (!m || !m.content) return;
+      const selected = await messageRepo.getById(messageId);
+      if (!selected || selected.sessionId !== currentSessionId || !selected.content || selected.failed) return;
+      const { memoryRepo } = await loadForAccount(userId, () => import('../db/memory-repo'));
+      const stillSelected = () => useAuthStore.getState().userId === userId && get().currentGroup?.id === currentGroup.id && get().currentSessionId === currentSessionId;
+      if (!stillSelected()) return;
+      // The source may change while a cold chunk downloads. Recheck the selected
+      // primary keys, current membership and suppression in the same commit as memory.
+      await db.transaction('rw', [db.messages, db.sessions, db.groups, db.characters, db.memories, db.memorySourceTombstones, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge], async () => {
+      const [m, session, group] = await Promise.all([messageRepo.getById(messageId), sessionRepo.getById(currentSessionId), groupRepo.getById(currentGroup.id)]);
+      if (!stillSelected() || !m || m.failed || m.sessionId !== currentSessionId || m.content !== selected.content || (m.revision ?? 1) !== (selected.revision ?? 1)
+        || session?.userId !== userId || session.type !== 'group' || session.groupId !== currentGroup.id || group?.userId !== userId) return;
+      const members = await db.characters.bulkGet([...new Set(group.characterIds)]);
+      const candidates = members.filter((c): c is NonNullable<typeof c> => !!c && c.createdBy === userId && c.agentProfile !== 'secretary' && !!m.witnessedBy?.includes(c.id));
+      const suppressed = await Promise.all(candidates.map(c => memorySourceTombstoneRepo.selectedSuppressedMessages(userId, c.id, [m.id])));
       const now = Date.now();
       const speakerName = m.role === 'user' ? '用户' : (await characterRepo.getById(m.senderId ?? ''))?.name ?? '群成员';
       const rememberedContent = `${speakerName}在群里说过：${m.content}`.slice(0, 240);
-      for (const charId of currentGroup.characterIds) {
-        // 显式记住也不能把角色没有见过的旧群消息补成“共同经历”。
-        if (!m.witnessedBy?.includes(charId)) continue;
+      for (const [index, character] of candidates.entries()) {
+        if (!stillSelected()) throw Error('group-memory:selection-changed');
+        if (suppressed[index].has(m.id)) continue;
         await memoryRepo.create({
           id: crypto.randomUUID(),
-          characterId: charId,
+          characterId: character.id,
           userId,
           content: rememberedContent,
           type: 'auto',
@@ -756,10 +780,13 @@ export const useGroupStore = create<GroupState>((set, get) => ({
           createdAt: now,
           sourceSessionId: currentSessionId,
           sourceMessageIds: [m.id],
+          sourceMessageRevisions: { [m.id]: m.revision ?? 1 },
           confidence: 1,
           updatedAt: now,
         });
       }
+      if (!stillSelected()) throw Error('group-memory:selection-changed');
+      });
     } catch {
       /* 静默 */
     }

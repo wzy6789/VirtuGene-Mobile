@@ -1,0 +1,53 @@
+{
+  "polar-refuge": {
+    "window": [0.375, 0.13, 1.06, 0.65],
+    "opening": [[0.375,0.173],[1.06,0.075],[1.06,0.651],[0.375,0.584]],
+    "cup": [0.258,0.782], "lamp": [0.12,0.394],
+    "glass": {"strength":0.75,"frost":0.8},
+    "lightRect": [0.0,0.30,0.34,0.28],
+    "furniture": [
+      {"name":"Window left timber jamb","polygon":[[0.343,0.17],[0.376,0.16],[0.376,0.594],[0.343,0.59]],"depth":9.7,"thickness":0.18},
+      {"name":"Window top timber lintel","polygon":[[0.25,0.153],[1.08,0.05],[1.08,0.082],[0.25,0.183]],"depth":9.6,"thickness":0.20},
+      {"name":"Thick winter sill","polygon":[[0.36,0.565],[1.08,0.62],[1.08,0.654],[0.36,0.587]],"depth":9.55,"thickness":0.22},
+      {"name":"Wool armchair back","polygon":[[-0.02,0.505],[0.31,0.505],[0.36,0.54],[0.37,0.655],[-0.02,0.69]],"depth":6.2,"thickness":0.35},
+      {"name":"Upholstered right arm","polygon":[[0.35,0.597],[0.59,0.601],[0.68,0.634],[0.67,0.754],[0.58,0.78],[0.46,0.689]],"depth":5.5,"thickness":0.3},
+      {"name":"Wool seat","polygon":[[0.05,0.66],[0.52,0.662],[0.59,0.762],[0.10,0.777]],"depth":5.65,"thickness":0.3},
+      {"name":"Foreground oak table","polygon":[[-0.10,0.725],[0.15,0.718],[1.08,0.827],[1.08,1.08],[-0.10,1.08]],"depth":3.3,"thickness":0.2},
+      {"name":"Closed leather book","polygon":[[0.58,0.859],[0.84,0.833],[1.02,0.901],[0.79,0.938]],"depth":3.15,"thickness":0.05}
+    ]
+  },
+  "orbital-observatory": {
+    "window": [0.345, -0.03, 1.05, 0.68],
+    "opening": [[0.361,0.091],[1.05,-0.055],[1.05,0.679],[0.461,0.606],[0.369,0.565],[0.345,0.52],[0.345,0.128]],
+    "cup": [0.335,0.801], "lamp": [0.10,0.423],
+    "glass": {"strength":0.80,"frost":0.0},
+    "lightRect": [0.0,0.33,0.35,0.28],
+    "furniture": [
+      {"name":"Pressure frame left spine","polygon":[[0.28,0.10],[0.344,0.09],[0.344,0.53],[0.28,0.57]],"depth":9.65,"thickness":0.22},
+      {"name":"Pressure frame lower bevel","polygon":[[0.35,0.56],[0.48,0.613],[1.08,0.678],[1.08,0.699],[0.47,0.636],[0.33,0.585]],"depth":9.55,"thickness":0.24},
+      {"name":"Ash wall shelving","polygon":[[-0.08,-0.08],[0.27,-0.08],[0.27,0.6],[-0.08,0.6]],"depth":10.4,"thickness":0.25},
+      {"name":"Lounge upholstered back","polygon":[[-0.02,0.508],[0.26,0.517],[0.32,0.589],[0.30,0.672],[-0.02,0.714]],"depth":6.3,"thickness":0.40},
+      {"name":"Rounded lounge arm","polygon":[[0.24,0.594],[0.49,0.612],[0.59,0.647],[0.59,0.732],[0.48,0.747],[0.36,0.683]],"depth":5.65,"thickness":0.30},
+      {"name":"Lounge seat","polygon":[[0.03,0.665],[0.42,0.656],[0.53,0.721],[0.24,0.755],[0.01,0.736]],"depth":5.8,"thickness":0.30},
+      {"name":"Foreground dark ash table","polygon":[[-0.1,0.823],[0.25,0.779],[0.62,0.80],[1.08,0.85],[1.08,1.08],[-0.1,1.08]],"depth":3.3,"thickness":0.2},
+      {"name":"Clothbound orbit journal","polygon":[[0.56,0.853],[0.81,0.826],[1.05,0.881],[0.91,0.938]],"depth":3.15,"thickness":0.05}
+    ]
+  },
+  "moonlit-bedroom": {
+    "window": [0.45, 0.015, 1.05, 0.64],
+    "opening": [[0.45,0.071],[1.05,-0.025],[1.05,0.64],[0.45,0.551]],
+    "cup": [0.302,0.718], "lamp": [0.17,0.38],
+    "glass": {"strength":0.50,"frost":0.0},
+    "lightRect": [0.02,0.28,0.40,0.30],
+    "furniture": [
+      {"name":"Window dark left jamb","polygon":[[0.403,0.055],[0.448,0.045],[0.448,0.558],[0.403,0.551]],"depth":9.6,"thickness":0.18},
+      {"name":"Window top lintel","polygon":[[0.37,0.033],[1.08,-0.06],[1.08,-0.03],[0.37,0.065]],"depth":9.55,"thickness":0.18},
+      {"name":"Sheer linen curtain","polygon":[[0.875,-0.05],[1.08,-0.05],[1.08,0.665],[0.865,0.583]],"depth":8.5,"thickness":0.08},
+      {"name":"Soft bed headboard","polygon":[[-0.06,0.357],[0.04,0.355],[0.119,0.438],[0.11,0.51],[-0.06,0.5]],"depth":6.2,"thickness":0.25},
+      {"name":"Rumpled linen bed","polygon":[[-0.08,0.46],[0.18,0.478],[0.38,0.504],[0.67,0.536],[0.92,0.587],[1.08,0.648],[0.85,0.733],[-0.08,0.77]],"depth":5.0,"thickness":0.4},
+      {"name":"Open paperback on duvet","polygon":[[0.04,0.55],[0.29,0.537],[0.47,0.572],[0.28,0.595],[0.03,0.574]],"depth":4.8,"thickness":0.02},
+      {"name":"Foreground bedroom bench","polygon":[[-0.1,0.813],[0.36,0.756],[1.08,0.707],[1.08,0.85],[-0.1,0.955]],"depth":3.3,"thickness":0.20},
+      {"name":"Small closed bedside book","polygon":[[0.60,0.752],[0.90,0.736],[1.01,0.771],[0.77,0.806],[0.61,0.784]],"depth":3.14,"thickness":0.04}
+    ]
+  }
+}

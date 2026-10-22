@@ -1,4 +1,4 @@
-import { GU_YUE_NA_CANON_CONTEXT } from './gu-yue-na-canon';
+import { GU_YUE_NA_CANON_CONTEXT } from './gu-yue-na-canon-data';
 
 const BEGIN = '[VirtuGene · 古月娜的关心]';
 const END = '[/VirtuGene · 古月娜的关心]';

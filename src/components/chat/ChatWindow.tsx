@@ -1,31 +1,34 @@
 import { useVoiceCallUIStore } from '../../store/voice-call-ui-store';
+import { useVoiceCallStore } from '../../store/voice-call-store';
+import { callOrbPresence } from '../../lib/voice-call/orb-presence';
 import { lazyFeature } from '../ui/lazyFeature';
 import { ActionCabinLauncher } from '../todo/ActionCabinLauncher';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
-import { useLatestMessageScroll } from '../ui/useLatestMessageScroll';
-import { AnimatedValue } from '../ui/AnimatedValue';
+import { useVirtualizer,elementScroll } from '@tanstack/react-virtual';
+import { useLatestMessageScroll,type HistoryScrollSnapshot } from '../ui/useLatestMessageScroll';
 import { useChatStore } from '../../store/chat-store';
 import { beginSoulHandoff, soulElement } from '../../lib/soul-handoff';
 import { confirm } from '../../lib/haptics';
-import { useCharacterStateStore } from '../../store/character-state-store';
 import { useFeedback } from '../../lib/feedback';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
 import { useSettingsStore } from '../../store/settings-store';
 import { MessageBubble } from './MessageBubble';
 import { StreamingReply } from './StreamingReply';
+import { useReplyWaiting } from './useReplyWaiting';
 import { ChatReplyStream } from '../../lib/chat-stream';
 import { Avatar } from '../ui/Avatar';
 import { ChatInput } from './ChatInput';
 import type { ChatInputHandle } from './ChatInput';
 import { BalanceBanner, type ChatError } from './BalanceBanner';
 import { ChatHeaderMoreMenu } from './ChatHeaderMoreMenu';
-import { getRelationLevel } from '../../lib/affinity';
+import { useChatAtmosphere, useChatAtmosphereRest } from './useChatAtmosphere';
+import { ChatBackgroundLayer } from './ChatBackgroundLayer';
 import { SwipeBackView } from '../ui/SwipeBackView';
 import { IS_MOBILE } from '../../lib/platform';
-import { messageRepo } from '../../db/message-repo';
+import { messageRepo, sameMessageFailureSource } from '../../db/message-repo';
 import { sessionRepo } from '../../db/session-repo';
 import { memoryRepo } from '../../db/memory-repo';
+import { publishMemoryWrite } from '../../lib/memory-write-events';
 import { stateRepo } from '../../db/state-repo';
 import { sharedMemoryRepo } from '../../db/shared-memory-repo';
 import { worldRepo } from '../../db/world-repo';
@@ -43,12 +46,10 @@ import { secretaryFailureMessage } from '../../lib/secretary/failure';
 import type { Message } from '../../db/index';
 import { sendRoleChatReply, type ChatRequest } from '../../lib/chat/send-service';
 import { withChatSessionLock } from '../../lib/chat/request-coordinator';
-import { CharacterSoulOrb } from './CharacterSoulOrb';
-import { useOrbAttention } from '../../lib/use-orb-attention';
 import { Icon } from '../ui/Icon';
 
 
-const ImmersiveSceneCard = lazyFeature(() => import('./ImmersiveSceneCard').then(m => ({ default: m.ImmersiveSceneCard })));
+import { CharacterSoulOrb } from './CharacterSoulOrb';
 const SecretaryMoreMenu = lazyFeature(() => import('../secretary/SecretaryMoreMenu').then(m => ({default:m.SecretaryMoreMenu})));
 const SecretaryTaskCards = lazyFeature(() => import('./SecretaryTaskCards').then(m => ({ default: m.SecretaryTaskCards })));
 const SecretaryPersonalityModal = lazyFeature(() => import('../secretary/SecretaryPersonalityModal').then(m => ({ default: m.SecretaryPersonalityModal })));
@@ -58,6 +59,7 @@ const SecretaryDailyReviewModal = lazyFeature(() => import('../secretary/Secreta
 // 记忆依据弹窗只在长按菜单里用到：与手账/群聊同一套按需加载策略，不进首屏主包
 const MemoryBasisModal = lazy(() => import('./MemoryBasisModal').then((m) => ({ default: m.MemoryBasisModal })));
 const ReviewedSpeechModal = lazy(() => import('./ReviewedSpeechModal').then(m => ({ default: m.ReviewedSpeechModal })));
+const CharacterProfileModal=lazyFeature(()=>import('../character/CharacterProfileModal').then(m=>({default:m.CharacterProfileModal})));
 
 const FIVE_MINUTES = 5 * 60 * 1000;
 
@@ -84,7 +86,9 @@ function formatTimeLabel(ts: number): string {
 
 interface ChatWindowProps {
   emotionToggle?: React.ReactNode;
-  workspace?: { onInbox: () => void; onManage: () => void; onReview: () => void; draft?: { id: number; text: string }; onBusy: (busy: boolean) => void; todoContext?: import('../../lib/secretary/workspace-todo').SecretaryTodoContext; onTodoHandled?: (results: import('../../lib/secretary/types').SecretaryResult[]) => Promise<void> };
+  /** Optional sample palette. Production uses this reading layout with saved role colors. */
+  surface?: 'light-paper';
+  workspace?: { onInbox: () => void; onManage: () => void; onReview: () => void; draft?: { id: number; text: string }; onBusy: (busy: boolean) => void; onWaiting?: (waiting: boolean) => void; onReplyVisible?: (visible: boolean) => void; todoContext?: import('../../lib/secretary/workspace-todo').SecretaryTodoContext; onTodoHandled?: (results: import('../../lib/secretary/types').SecretaryResult[]) => Promise<void> };
 }
 
 /** 心情 → 小表情（气泡角上显示） */
@@ -96,11 +100,35 @@ function moodEmoji(mood: number): string {
   return '😠';
 }
 
-export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
+/** Subscribe only to visible call state; capture levels never redraw the chat page. */
+function ChatCallNotice({ userId, characterId, sessionId }: { userId: string; characterId: string; sessionId: string }) {
+  const visible = useVoiceCallUIStore(s => s.minimized && s.target?.userId === userId && s.target.character.id === characterId && s.target.sessionId === sessionId);
+  const owned = useVoiceCallStore(s => s.owner?.userId === userId && s.owner.characterId === characterId && s.owner.sessionId === sessionId);
+  const phase = useVoiceCallStore(s => s.view?.phase);
+  const inputMode = useVoiceCallStore(s => s.view?.inputMode);
+  const inputModePending = useVoiceCallStore(s => s.view?.inputModePending);
+  const muted = useVoiceCallStore(s => s.view?.muted);
+  const finishing = useVoiceCallStore(s => s.finishing);
+  if (!visible) return null;
+  const status = owned && finishing ? ({ saving: '正在保存交流文字', summary: '通话已结束，正在整理摘要', memory: '通话已结束，正在检查记忆' })[finishing]
+    : callOrbPresence(owned && phase ? { phase, inputMode, inputModePending, muted } : undefined).label;
+  return <div data-chat-call-status className="relative z-20 px-3 pt-2 shrink-0"><div className="vg-feedback-card" data-tone="info" style={{ flexWrap: 'nowrap' }}>
+    <span className="vg-feedback-copy" role="status" aria-atomic="true" style={{ flexBasis: 'auto' }}>{`语音通话 · ${status}`}</span>
+    <div className="vg-feedback-actions"><button type="button" onClick={() => {
+      const ui = useVoiceCallUIStore.getState(), target = ui.target;
+      if (useAuthStore.getState().userId !== userId || target?.userId !== userId || target.character.id !== characterId || target.sessionId !== sessionId) return;
+      const key = `${userId}:${characterId}:${sessionId}`;
+      beginSoulHandoff(key, soulElement(key, 'call-capsule'), 'call'); ui.restore();
+    }}>返回通话</button></div>
+  </div></div>;
+}
+
+export function ChatWindow({ emotionToggle, workspace, surface }: ChatWindowProps) {
 
   const messages = useChatStore((s) => s.messages);
   const currentSessionId = useChatStore((s) => s.currentSessionId);
   const showVoiceCall = useVoiceCallUIStore(s => s.blocksChat && s.target?.sessionId === currentSessionId);
+  const callTarget = useVoiceCallUIStore(s => s.target);
   const selectedCharacterId = useChatStore((s) => s.selectedCharacterId);
   const characters = useChatStore((s) => s.characters);
   const addMessage = useChatStore((s) => s.addMessage);
@@ -113,16 +141,15 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
   const userId = useAuthStore((s) => s.userId) ?? '';
   const userAvatar = useAuthStore((s) => s.avatar) ?? DEFAULT_USER_AVATAR;
   /** 角色当前心情（气泡角上的小表情） */
-  const charMood = useCharacterStateStore((s) => s.mood);
-  const affinity = useCharacterStateStore((s) => s.affinity);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollController=useRef<ReturnType<typeof useLatestMessageScroll>|null>(null);
   const roomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
   useEffect(() => { if (workspace?.draft) inputRef.current?.setDraft(workspace.draft.text); }, [workspace?.draft?.id]);
-  const fillSceneDraft = useCallback((text: string) => inputRef.current?.setDraft(text), []);
 
   const [sending, setSending] = useState(false);
-  useEffect(() => { workspace?.onBusy(sending); }, [sending, workspace?.onBusy]);
+  const [settlingReply, setSettlingReply] = useState(false);
+  useEffect(() => { workspace?.onBusy(sending || settlingReply); }, [sending, settlingReply, workspace?.onBusy]);
   const requestsRef = useRef(new Map<string, ChatRequest>());
   // Preview and virtualized history have different parents. Do not replay their
   // entrance/sweep when an already-visible streaming bubble is saved.
@@ -142,6 +169,11 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
   }, [userId]);
   const [error, setError] = useState<ChatError>(null);
   const [secretaryError, setSecretaryError] = useState<string | null>(null);
+  const replyWaiting = useReplyWaiting(sending && !replyVisible && !error && !secretaryError, `${userId}:${currentSessionId}`);
+  useEffect(() => { workspace?.onWaiting?.(replyWaiting); }, [replyWaiting, workspace?.onWaiting]);
+  useEffect(() => () => workspace?.onWaiting?.(false), [workspace?.onWaiting]);
+  useEffect(() => { workspace?.onReplyVisible?.(replyVisible); }, [replyVisible, workspace?.onReplyVisible]);
+  useEffect(() => () => workspace?.onReplyVisible?.(false), [workspace?.onReplyVisible]);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   /** 记忆依据（长按消息 → 查看这条回复参考了哪些本地记忆/未完成事件/共同事件） */
   const [basisMessage, setBasisMessage] = useState<Message | null>(null);
@@ -152,6 +184,8 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
   const [collectNotice, setCollectNotice] = useState<'created' | 'exists' | 'failed' | null>(null);
   /** 首次进入聊天：会话未锁定模型时弹出模型选择（选定后聊天中不可改） */
   const [showModelPick, setShowModelPick] = useState(false);
+  const [showProfile,setShowProfile]=useState(false);
+  useEffect(()=>setShowProfile(false),[selectedCharacterId,currentSessionId,userId]);
   const [showSecretaryPersonality, setShowSecretaryPersonality] = useState(false);
   const [showSecretaryInbox, setShowSecretaryInbox] = useState(false);
   const [showSecretaryDailyReview, setShowSecretaryDailyReview] = useState(false);
@@ -166,9 +200,25 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
   const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
 
   const character = characters.find((c) => c.id === selectedCharacterId);
-  const orbAttention=useOrbAttention(replyVisible?`${userId}:${selectedCharacterId}:${currentSessionId}:${streamingReply?.ids[0]??'reply'}`:undefined,roomRef,()=>scrollRef.current);
+  const atmosphere = useChatAtmosphere(character, userId);
+  const roleAvatar = atmosphere.config.roleVisual?.avatar?.image || character?.avatar || '🧬';
+  const reportBackgroundImageError = useCallback((message:string) => feedback(message,{tone:'error'}),[feedback]);
+  useChatAtmosphereRest(roomRef, `${userId}:${currentSessionId}`,atmosphere.config);
   const hasAiAccess = useAiAvailability(resolveModel(character, sessionSelection?.id === currentSessionId ? sessionSelection.model : null));
-  const relationName = getRelationLevel(affinity).level.name;
+  const callLabel = callTarget ? `返回与${callTarget.character.name}的语音通话` : character ? `与${character.name}语音通话` : '语音通话';
+  const callDisabled = !callTarget && (sending || settlingReply || !currentSessionId);
+  const openVoiceCall = character && currentSessionId ? () => {
+    const current = useChatStore.getState(), ui = useVoiceCallUIStore.getState();
+    if (useAuthStore.getState().userId !== userId || current.currentSessionId !== currentSessionId || current.selectedCharacterId !== character.id) return;
+    if (ui.target) {
+      if (ui.target.userId !== userId) return;
+      const key = `${userId}:${ui.target.character.id}:${ui.target.sessionId}`;
+      beginSoulHandoff(key, soulElement(key, 'call-capsule'), 'call'); ui.restore(); return;
+    }
+    if (sending || settlingReply) return;
+    beginSoulHandoff(`${userId}:${character.id}:${currentSessionId}`, soulElement(`role-orb:${character.id}`, 'chat'), 'call');
+    ui.open({ character, sessionId: currentSessionId, userId });
+  } : undefined;
 
   useEffect(() => {
     if (character?.agentProfile !== 'secretary' || character.secretaryStatus === 'dismissed' || !currentSessionId || !userId) return;
@@ -255,7 +305,9 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
     setReplyingTo(null);
     const candidate = currentSessionId ? requestsRef.current.get(currentSessionId) : undefined;
     const pending = candidate?.userId === userId ? candidate : undefined;
-    setSending(!!pending);
+    const settling = !!pending?.stopped && !pending.stream.published;
+    setSending(!!pending && !settling);
+    setSettlingReply(settling);
     setStreamingReply(pending?.stream.published && !pending.completed ? pending.stream : null);
     setReplyVisible(pending?.stream.published ?? false);
     setError(null);
@@ -306,14 +358,14 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
           key: msg.id,
           divider: showDivider ? formatTimeLabel(msg.createdAt) : null,
           message: msg,
-          avatar: msg.role === 'user' ? userAvatar : character?.avatar ?? '🧬',
+          avatar: msg.role === 'user' ? userAvatar : roleAvatar,
           // 每条消息都是独立的聊天气泡：连续发送时也重复显示头像，
           // 避免多条消息被误读成一整段合并文本。
           showIdentity: true,
         });
       }
       return result;
-    }, [messages, userAvatar, character]);
+    }, [messages, userAvatar, character, roleAvatar]);
 
     const virtualizer = useVirtualizer({
       count: rows.length,
@@ -322,6 +374,14 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
       estimateSize: () => 84,
       overscan: 8,
       getItemKey: (index: number) => rows[index].key,
+      // The installed virtualizer owns ID/measurement anchoring. Navigation
+      // to appended output remains owned by useLatestMessageScroll below.
+      anchorTo:'end',
+      followOnAppend:false,
+      scrollToFn:(offset,options,instance)=>{
+        elementScroll(offset,options,instance);
+        scrollController.current?.recognizeProgrammaticScroll(instance.scrollElement);
+      },
     });
 
     // Keep scrolled to the latest message on new messages / session switch /
@@ -329,7 +389,13 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
     const lastRowKey = rows.length > 0 ? rows[rows.length - 1].key : null;
 
     const [followingLatest, setFollowingLatest] = useState(true);
-    const scrollToLatest = useLatestMessageScroll(scrollRef, currentSessionId, setFollowingLatest);
+    const scrollScope=JSON.stringify([userId,currentSessionId]);
+    const scrollToLatest = useLatestMessageScroll(scrollRef, scrollScope, setFollowingLatest);
+    scrollController.current=scrollToLatest;
+    const [historyStatus,setHistoryStatus]=useState<{scope:string;loading:boolean;error:boolean}>();
+    const historyRequest=useRef<{scope:string;ownership:HistoryScrollSnapshot;anchorId?:string;offset:number;loading:boolean}|null>(null);
+    const historyFrame=useRef(0);
+    useEffect(()=>()=>cancelAnimationFrame(historyFrame.current),[]);
 
     useEffect(() => {
       if (!lastRowKey) return;
@@ -345,16 +411,32 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
 
     // 输入框编辑时，键盘调整继续跟随最新消息；工具区展开则保留历史阅读位置。
 
-    /** 加载更早消息：记录滚动位置，插入后补偿高度差，保持当前视野不跳变 */
+    /** Preserve a visible identity, never replay an obsolete whole-list height. */
     const handleLoadEarlier = async () => {
-      const el = scrollRef.current;
-      const prevScrollTop = el?.scrollTop ?? 0;
-      const prevScrollHeight = el?.scrollHeight ?? 0;
-      await loadEarlierMessages();
-      requestAnimationFrame(() => {
-        if (!el) return;
-        el.scrollTop = prevScrollTop + (el.scrollHeight - prevScrollHeight);
-      });
+      if(historyRequest.current?.scope===scrollScope&&historyRequest.current.loading)return;
+      const ownership=scrollToLatest.captureHistory();if(!ownership)return;
+      const el=ownership.element,box=el.getBoundingClientRect();
+      const anchor=[...el.querySelectorAll<HTMLElement>('[data-message-id]')].find(node=>{const rect=node.getBoundingClientRect();return rect.bottom>box.top+1&&rect.top<box.bottom;});
+      const request={scope:scrollScope,ownership,anchorId:anchor?.dataset.messageId,offset:anchor?anchor.getBoundingClientRect().top-box.top:0,loading:true};
+      historyRequest.current=request;cancelAnimationFrame(historyFrame.current);
+      setHistoryStatus({scope:scrollScope,loading:true,error:false});
+      const owned=()=>historyRequest.current===request&&mountedRef.current&&useAuthStore.getState().userId===userId&&useChatStore.getState().currentSessionId===currentSessionId&&scrollRef.current===el&&el.isConnected;
+      let failed=false;
+      try{await loadEarlierMessages();}catch{failed=true;}
+      finally{
+        request.loading=false;
+        if(owned()){
+          setHistoryStatus({scope:scrollScope,loading:false,error:failed});
+          historyFrame.current=requestAnimationFrame(()=>{
+            historyFrame.current=0;
+            if(!owned()||!scrollToLatest.historyCurrent(ownership)||!request.anchorId)return;
+            const node=[...el.querySelectorAll<HTMLElement>('[data-message-id]')].find(row=>row.dataset.messageId===request.anchorId);
+            if(!node)return; // Removed/unrendered anchors have no guessed fallback.
+            const delta=node.getBoundingClientRect().top-el.getBoundingClientRect().top-request.offset;
+            if(Math.abs(delta)>.75)scrollToLatest.restoreHistory(ownership,el.scrollTop+delta);
+          });
+        }
+      }
     };
 
     const handleSend = async (text: string) => {
@@ -442,11 +524,16 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
     };
 
     /** 长按"记住"：把消息内容存入角色记忆（用户显式想让角色记住） */
+    const rememberLock = useRef(false);
     const handleRemember = async (m: Message) => {
-      if (!character || !currentSessionId) return;
+      if (!character || !currentSessionId || rememberLock.current || m.sessionId !== currentSessionId) return;
+      const actor = character.id, session = currentSessionId, owner = userId;
+      const current = () => mountedRef.current && useAuthStore.getState().userId === owner
+        && useChatStore.getState().currentSessionId === session && useChatStore.getState().selectedCharacterId === actor;
+      rememberLock.current = true;
       try {
         const now = Date.now();
-        await memoryRepo.create({
+        const receipt = await memoryRepo.remember({
           id: crypto.randomUUID(),
           characterId: character.id,
           userId,
@@ -458,17 +545,14 @@ export function ChatWindow({ emotionToggle, workspace }: ChatWindowProps) {
           // 溯源：用户手动记住的记忆，明确指向这一条消息
           sourceSessionId: currentSessionId,
           sourceMessageIds: [m.id],
+          sourceMessageRevisions: { [m.id]: m.revision ?? 1 },
           confidence: 1,
           updatedAt: now,
-        });
-        await stateRepo.recordLifeEvent(character.id, userId, {
-          type: 'memory',
-          title: '你把一段话郑重地留在了记忆里',
-          detail: m.content.slice(0, 180),
-        });
+        }, current);
+        if (current()) publishMemoryWrite(receipt);
       } catch {
-        /* 静默：保存失败不影响聊天 */
-      }
+        if (current()) feedback('这条记忆没有保存，请重试。', { tone: 'error' });
+      } finally { rememberLock.current = false; }
     };
 
     /**
@@ -589,13 +673,18 @@ const performSendSafely = async (text: string, apiMessage: string, userMsg: Mess
       }) };
     requestsRef.current.set(sessionId, request); // Synchronous lock, before the first DB await.
     setSecretaryError(null);
+    setSettlingReply(false);
     setSending(true); setReplyVisible(false); setStreamingReply(null);
+    // Show the sender's message before local persistence/model preparation.
+    // A failed write stays visible and can be persisted again on retry.
+    if (saveUser) { addMessage(userMsg); scrollToLatest(true); }
+    let userSaved = !saveUser;
     try {
       await withChatSessionLock(sessionId, async () => {
       if (request.controller.signal.aborted || useAuthStore.getState().userId !== userId) return;
-      if (saveUser) {
+      if (saveUser || !await messageRepo.getById(userMsg.id)) {
         await messageRepo.create(userMsg);
-        addMessage(userMsg);
+        userSaved = true;
         if (mountedRef.current && useAuthStore.getState().userId === userId && !request.controller.signal.aborted) confirm();
         await sessionRepo.touch(sessionId);
         if (useChatStore.getState().currentSessionId === sessionId) setReplyingTo(null);
@@ -604,18 +693,26 @@ const performSendSafely = async (text: string, apiMessage: string, userMsg: Mess
       await performSend(text, apiMessage, userMsg, image, request);
       });
     } catch (cause) {
-      if (request.controller.signal.aborted || useAuthStore.getState().userId !== userId) return;
-      if (mountedRef.current && useChatStore.getState().currentSessionId === userMsg.sessionId) {
+      if (useAuthStore.getState().userId !== userId) return;
+      if (request.controller.signal.aborted && userSaved) return;
+      const sameAccount=()=>useAuthStore.getState().userId===userId;
+      const marked=!!character&&await messageRepo.markFailedIfUnchanged(userMsg,userId,character.id,sameAccount).catch(()=>false);
+      // An input whose first local write failed still needs its retry button.
+      // This fallback changes only the matching local bubble, never a replaced
+      // database row or a newer message revision already shown in the UI.
+      const unsavedLocal=!userSaved&&!marked&&await messageRepo.getById(userMsg.id).then(row=>!row,()=>true);
+      const shown=useChatStore.getState().messages.find(message=>message.id===userMsg.id);
+      if(!(marked||unsavedLocal)||!sameAccount()||!sameMessageFailureSource(shown,userMsg))return;
+      updateMessage(userMsg.id, { failed: true });
+      if (!request.controller.signal.aborted && mountedRef.current && useChatStore.getState().currentSessionId === userMsg.sessionId) {
         if (character?.agentProfile === 'secretary') { setError(null); setSecretaryError(secretaryFailureMessage(cause)); }
         else setError('server:error');
       }
-      await messageRepo.markFailed(userMsg.id, true).catch(() => undefined);
-      updateMessage(userMsg.id, { failed: true });
     } finally {
       request.stream.dispose();
       if (requestsRef.current.get(sessionId) === request) requestsRef.current.delete(sessionId);
       if (mountedRef.current && useAuthStore.getState().userId === userId && useChatStore.getState().currentSessionId === sessionId) {
-        setSending(false); setStreamingReply(null); setReplyVisible(false);
+        setSending(false); setSettlingReply(false); setStreamingReply(null); setReplyVisible(false);
       }
     }
 };
@@ -662,9 +759,10 @@ return (
       enabled={IS_MOBILE && !!character && !workspace}
       onBack={backToCharacters}
     >
-    <div ref={roomRef} className={`chat-room h-full flex flex-col${character?.agentProfile === 'secretary' ? ' vg-secretary-room' : ''}`}>
+    <div ref={roomRef} className={`chat-room vg-chat-atmosphere h-full flex flex-col${character?.agentProfile === 'secretary' ? ' vg-secretary-room' : ' vg-chat-paper'}${surface === 'light-paper' && character?.agentProfile !== 'secretary' ? ' vg-light-paper' : ''}`} data-paper-material={surface === 'light-paper' && atmosphere.config.mode === 'clean' ? 'true' : undefined} data-chat-atmosphere={atmosphere.primary} data-chat-motion={atmosphere.motion} data-chat-phase={sending ? replyVisible ? 'streaming' : 'waiting' : 'idle'} style={atmosphere.style}>
+      {character && <ChatBackgroundLayer key={`background:${userId}:${character.id}`} config={atmosphere.config} userId={userId} onImageError={reportBackgroundImageError}/>}
       {/* Header */}
-      {!workspace && <div className="chat-header relative z-30 h-14 flex items-center gap-1 px-3 sm:px-4 border-b border-line shrink-0 bg-gradient-to-r from-gene-purple/[0.07] via-transparent to-life-cyan/[0.05]">
+      {!workspace && <div className="chat-header relative z-30 min-h-14 py-2 flex items-center gap-1 px-3 sm:px-4 border-b border-line shrink-0 bg-gradient-to-r from-gene-purple/[0.07] via-transparent to-life-cyan/[0.05]">
         <div className="absolute bottom-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-gene-purple/45 to-transparent" />
         {/* 手机端返回角色页（微信式）：聊天 → 回到选人界面 */}
         {IS_MOBILE && (
@@ -672,7 +770,7 @@ return (
             onClick={backToCharacters}
             title="返回"
             aria-label="返回"
-            className="shrink-0 w-8 h-8 -ml-1 flex items-center justify-center rounded-lg text-gray-500 hover:bg-surface hover:text-ink active:bg-surface-strong transition-colors"
+            className="shrink-0 w-11 h-11 -ml-1 flex items-center justify-center rounded-lg text-gray-500 hover:bg-surface hover:text-ink active:bg-surface-strong transition-colors"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 18l-6-6 6-6" />
@@ -680,50 +778,38 @@ return (
           </button>
         )}
         {character && (
-          <div key={`title-${selectedCharacterId}`} className={`chat-header-title min-w-0 ${character.agentProfile==='secretary'?'absolute left-1/2 max-w-[calc(100%-14rem)] -translate-x-1/2 text-center':'relative flex-1 text-left'} animate-fade-in`}>
-            {IS_MOBILE && <Avatar avatar={character.avatar} size="sm" className="vg-chat-identity-avatar !w-8 !h-8 !text-base" soulKey={`avatar:${character.id}`} soulRole="chat" />}
-            <div className="vg-chat-identity-copy"><div className="text-base sm:text-lg font-semibold leading-tight text-ink truncate">{character.name}</div>
-            {IS_MOBILE ? <div className={`vg-chat-presence${sending ? ' is-responding' : ''}`}>
-              <span className="vg-presence-signal" aria-hidden="true"><i /><i /><i /></span>
-              <span role={sending ? 'status' : undefined}><AnimatedValue value={sending ? character.agentProfile === 'secretary' ? '正在为你处理' : '正在回应你' : character.agentProfile === 'secretary' ? character.secretaryStatus === 'dismissed' ? '助理空缺 · 记录保留' : '生活助理 · 在职' : relationName} /></span>
-            </div> : sending && <div className="mt-0.5 text-xs text-life-cyan animate-pulse">正在回应你</div>}</div>
-          </div>
+          <button type="button" aria-label={`查看${character.name}的角色详情`} onClick={()=>character.agentProfile==='secretary'?setShowSecretaryPersonality(true):setShowProfile(true)} key={`title-${selectedCharacterId}`} style={{ minWidth: 0 }} className={`chat-header-title min-w-0 ${character.agentProfile==='secretary'?'absolute left-1/2 max-w-[calc(100%-14rem)] -translate-x-1/2 text-center':'relative flex-1 text-left'} animate-fade-in`}>
+            {IS_MOBILE && <span className="vg-chat-avatar-frame"><Avatar avatar={roleAvatar} size="sm" loading="eager" fallback={character.name.slice(0,1)||'TA'} className="vg-chat-identity-avatar !w-8 !h-8 !text-base" soulKey={`avatar:${character.id}`} soulRole="chat" /></span>}
+            <div className="vg-chat-identity-copy min-w-0 overflow-hidden"><div role="heading" aria-level={1} title={character.name} className="text-base sm:text-lg font-semibold leading-tight text-ink truncate">{character.name}</div>
+            {IS_MOBILE ? <div className={`vg-chat-presence${replyWaiting ? ' is-responding' : ''}${sending && replyVisible ? ' is-streaming' : ''}`}>
+              {replyWaiting ? <span role="status" aria-label="正在回应">正在回应</span> : <span>{character.agentProfile === 'secretary' ? character.secretaryStatus === 'dismissed' ? '助理空缺 · 记录保留' : '生活助理' : '陪伴聊天'}</span>}
+            </div> : replyWaiting && <div role="status" aria-label="正在回应" className="mt-0.5 text-xs text-life-cyan">正在回应</div>}</div>
+          </button>
         )}
         {character?.agentProfile === 'secretary' && <div className="flex-1 min-w-0" />}
-        {character && character.agentProfile !== 'secretary' && <button aria-label={`与${character.name}语音通话`} title="语音通话" disabled={sending} onClick={() => { if (character && currentSessionId) useVoiceCallUIStore.getState().open({ character, sessionId: currentSessionId, userId }); }} className="shrink-0 min-w-12 h-12 flex flex-col gap-1 items-center justify-center rounded-lg text-sub hover:bg-surface"><Icon name="phone" size={18}/><span className="text-xs leading-none">语音通话</span></button>}
-        {character && character.agentProfile !== 'secretary' && <CharacterSoulOrb character={character} sending={sending} streaming={replyVisible} failed={!!error} attention={orbAttention} soulKey={`role-orb:${character.id}`} soulRole="chat" />}
+        {character && character.agentProfile !== 'secretary' && openVoiceCall && <button type="button" aria-label={callLabel} title={callLabel} disabled={callDisabled} onClick={openVoiceCall} className="shrink-0 flex h-11 w-11 items-center justify-center rounded-xl text-sub hover:bg-surface disabled:opacity-40"><Icon name="phone" size={21}/></button>}
         {character?.agentProfile === 'secretary' && <ActionCabinLauncher from="chat" compact emotion={sending?'thinking':'idle'} />}
         {character?.agentProfile === 'secretary' ? <SecretaryMoreMenu key={character.id} onInbox={() => setShowSecretaryInbox(true)} onReview={() => setShowSecretaryDailyReview(true)} onManage={() => setShowSecretaryPersonality(true)} disabled={sending || character.secretaryStatus === 'dismissed'} /> : (
-          <ChatHeaderMoreMenu character={character} modelLabel={sessionMeta.modelLabel} cost={sessionMeta.cost} />
+          <ChatHeaderMoreMenu key={`${userId}:${selectedCharacterId}:${currentSessionId}`} character={character} sessionId={currentSessionId ?? undefined} modelLabel={sessionMeta.modelLabel} cost={sessionMeta.cost} callDisabled={callDisabled} callLabel={callLabel} onVoiceCall={openVoiceCall} />
         )}
       </div>}
 
+      {character && currentSessionId && character.agentProfile !== 'secretary' && <ChatCallNotice userId={userId} characterId={character.id} sessionId={currentSessionId}/>}
+
       {/* Messages — 桌面端点击空白聚焦输入（像微信）；
           手机端不全局聚焦：只有点输入框才弹键盘（避免点喇叭/气泡误弹） */}
-      {character && character.agentProfile !== 'secretary' && (
-        <ImmersiveSceneCard
-          key={selectedCharacterId}
-          character={character}
-          userId={userId}
-          sessionId={currentSessionId}
-          affinity={affinity}
-          mood={charMood}
-          lastMessageAt={messages.length > 0 ? messages[messages.length - 1].createdAt : undefined}
-          onPrompt={fillSceneDraft}
-        />
-      )}
       {character?.agentProfile === 'secretary' && <SecretaryQuickActions embedded={!!workspace} key={`actions-${character.id}`} busy={sending} vacant={character.secretaryStatus === 'dismissed'} onDraft={draft => { inputRef.current?.setDraft(draft); inputRef.current?.focus(); }} onSend={request => { void handleSend(request); }} onInbox={workspace?.onInbox ?? (() => setShowSecretaryInbox(true))} onManage={workspace?.onManage ?? (() => setShowSecretaryPersonality(true))} onReview={workspace?.onReview ?? (() => setShowSecretaryDailyReview(true))} />}
       {showSecretaryPersonality && character?.agentProfile === 'secretary' && <SecretaryPersonalityModal key={`management-${character.id}`} character={character} open onClose={() => setShowSecretaryPersonality(false)} />}
       {showSecretaryInbox && character?.agentProfile === 'secretary' && <SecretaryInboxModal key={`inbox-${character.id}`} character={character} open busy={sending} onClose={() => setShowSecretaryInbox(false)} onDraft={request => { setShowSecretaryInbox(false); inputRef.current?.setDraft(request); inputRef.current?.focus(); }} />}
       {showSecretaryDailyReview && character?.agentProfile === 'secretary' && <SecretaryDailyReviewModal key={`review-${character.id}`} character={character} open onClose={() => setShowSecretaryDailyReview(false)} />}
 
-      <div key={currentSessionId} ref={scrollRef} role="region" aria-label="聊天记录" tabIndex={-1} className="chat-thread immersive-chat-scroll animate-message-in flex-1 overflow-y-auto px-4 py-3" onClick={IS_MOBILE ? undefined : () => inputRef.current?.focus()}>
+      <div key={`thread:${currentSessionId}`} ref={scrollRef} role="region" aria-label="聊天记录" tabIndex={-1} className="chat-thread immersive-chat-scroll animate-message-in flex-1 overflow-y-auto px-4 py-3" onClick={IS_MOBILE ? undefined : () => inputRef.current?.focus()}>
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             {character && (
               <div className={`opening-scene max-w-sm text-center px-7 py-8${character.agentProfile === 'secretary' ? ' vg-secretary-opening' : ''}`}>
-                <div className="opening-orbit mx-auto mb-5"><Avatar avatar={character.avatar} size="lg" className="h-full w-full" /></div>
-                <p className="text-xs tracking-[0.16em] uppercase text-life-cyan/70">{character.agentProfile === 'secretary' ? '你的生活助理' : relationName}</p>
+                <div className="opening-orbit mx-auto mb-5"><Avatar avatar={roleAvatar} size="lg" className="h-full w-full" /></div>
+                <p className="text-xs text-sub">{character.agentProfile === 'secretary' ? '你的生活助理' : '陪伴聊天'}</p>
                 <h2 className="mt-2 text-lg font-semibold text-ink">{character.name}</h2>
                 <p className="mt-3 text-[13px] leading-7 text-gray-500">{character.greeting || '你来了。'}</p>
                 <button onClick={() => character.agentProfile === 'secretary' && character.secretaryStatus === 'dismissed' ? setShowSecretaryPersonality(true) : inputRef.current?.focus()} className="mt-5 opening-action">{character.agentProfile === 'secretary' ? character.secretaryStatus === 'dismissed' ? '聘用新的助理' : '交代第一件事' : '和 TA 说句话'}</button>
@@ -735,17 +821,22 @@ return (
           </div>
         ) : (
           <>
-            {hasMoreMessages && (
-              <div className="flex justify-center py-2">
+            {(hasMoreMessages||historyStatus?.scope===scrollScope)&&(
+              <div className="vg-chat-history-load">
+                {hasMoreMessages?<>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     void handleLoadEarlier();
                   }}
-                  className="text-xs text-life-cyan hover:underline"
+                  disabled={historyStatus?.scope===scrollScope&&historyStatus.loading}
+                  aria-busy={historyStatus?.scope===scrollScope&&historyStatus.loading}
+                  data-read-error={historyStatus?.scope===scrollScope&&historyStatus.error?'true':undefined}
                 >
-                  ↑ 加载更早的消息
+                  <Icon name="clock" size={16}/>{historyStatus?.scope===scrollScope&&historyStatus.loading?'正在读取…':historyStatus?.scope===scrollScope&&historyStatus.error?'读取失败，重试':'加载更早的消息'}
                 </button>
+                {historyStatus?.scope===scrollScope&&historyStatus.error&&<span className="sr-only" role="alert">更早的消息暂时没有读到，已显示的聊天仍保留，可重试。</span>}
+                </>:<span role="status">已到最早的消息</span>}
               </div>
             )}
             <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
@@ -798,23 +889,13 @@ return (
             </div>
           </>
         )}
-        {character?.agentProfile !== 'secretary' && (streamingReply?.sessionId === currentSessionId || (sending && !replyVisible)) && <StreamingReply key={currentSessionId} stream={streamingReply?.sessionId === currentSessionId ? streamingReply : null} avatar={character?.avatar ?? '🧬'} />}
-        {character?.agentProfile === 'secretary' && sending && !replyVisible && (
-          <div className="vg-typing-row flex items-start gap-2 mb-2.5 animate-message-in" role="status" aria-label="正在准备回复">
-            <Avatar avatar={character?.avatar ?? '🧬'} size="sm" />
-            <div className="vg-typing-bubble bg-msgai text-gray-400 text-sm px-4 py-3.5 rounded-2xl rounded-bl-md border border-line/70 flex items-center gap-1.5">
-              <span className="typing-glow inline-flex gap-1 rounded-full" aria-hidden="true">
-                <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </span>
-            </div>
-          </div>
-        )}
+        {character?.agentProfile !== 'secretary' && streamingReply?.sessionId === currentSessionId && <StreamingReply key={currentSessionId} stream={streamingReply} avatar={roleAvatar} />}
       </div>
 
       {character?.agentProfile === 'secretary' && secretaryError ? <div role="alert" className="mx-4 mb-2 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm text-red-400 break-words">{secretaryError}</div> : <BalanceBanner error={error} />}
       {rows.length > 0 && <div className="vg-latest-message-anchor" data-visible={!followingLatest} aria-hidden={followingLatest} inert={followingLatest}><button type="button" tabIndex={followingLatest ? -1 : 0} className="vg-latest-message-button" aria-label="回到最新消息" onClick={event => { if (event.detail === 0) scrollRef.current?.focus({ preventScroll: true }); scrollToLatest(true, 'smooth'); }}><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14m-6-6 6 6 6-6" /></svg>回到最新</button></div>}
+
+      {showProfile&&character&&<Suspense fallback={null}><CharacterProfileModal character={character} userId={userId} sessionId={currentSessionId} onClose={()=>setShowProfile(false)} onChat={()=>setShowProfile(false)}/></Suspense>}
 
       {/* 收藏反馈：世界层在另一个页面，必须让用户知道"真的记住了"并给一条去路 */}
       {collectNotice && (
@@ -877,24 +958,28 @@ return (
 
       {/* Reply banner */}
       {replyingTo && (
-        <div className="flex items-center gap-2 px-4 py-2 border-t border-line bg-panel">
+        <div className="flex items-center gap-2 pl-4 pr-2 border-t border-line bg-panel">
           <span className="text-xs text-life-cyan">引用</span>
-          <span className="text-xs text-gray-500 flex-1 truncate">{replyingTo.content}</span>
+          <span className="text-sm text-sub flex-1 truncate">{replyingTo.content}</span>
           <button
+            type="button"
             onClick={() => setReplyingTo(null)}
-            className="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-ink hover:bg-surface transition-colors"
+            className="w-11 h-11 shrink-0 flex items-center justify-center rounded-xl text-sub hover:text-ink hover:bg-surface transition-colors"
             title="取消引用"
+            aria-label="取消引用"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
+            <Icon name="close" size={18} />
           </button>
         </div>
       )}
 
-      <ChatInput ref={inputRef} onSend={handleSend} onSendImage={IS_MOBILE ? handleSendImage : undefined} onSendVoice={IS_MOBILE ? handleSendVoice : undefined}
-        onStop={sending && character?.agentProfile !== 'secretary' ? () => { const request = currentSessionId ? requestsRef.current.get(currentSessionId) : undefined; if (request) { request.stopped = true; request.controller.abort(); } } : undefined}
-        disabled={sending || showVoiceCall || character?.secretaryStatus === 'dismissed'} onFocusInput={() => scrollToLatest(true)} />
+      <div className="vg-chat-composer-dock shrink-0">
+        {character&&character.agentProfile!=='secretary'&&<div className="vg-chat-orb-dock"><CharacterSoulOrb character={character} sending={sending} streaming={replyVisible} failed={!!error} quiet={sending&&replyVisible}/></div>}
+      <ChatInput key={JSON.stringify([userId, currentSessionId])} draftOwnerId={userId} draftSessionId={currentSessionId ?? undefined} ref={inputRef} onSend={handleSend} onSendImage={IS_MOBILE ? handleSendImage : undefined} onSendVoice={IS_MOBILE ? handleSendVoice : undefined}
+        onStop={sending && character?.agentProfile !== 'secretary' ? () => { const request = currentSessionId ? requestsRef.current.get(currentSessionId) : undefined; if (request) { request.stopped = true; request.controller.abort(); if (!request.stream.published) { setSending(false); setSettlingReply(true); } } } : undefined}
+        sendBlocked={settlingReply}
+        disabled={sending || showVoiceCall || character?.secretaryStatus === 'dismissed'} onFocusInput={() => scrollToLatest()} />
+      </div>
     </div>
     </SwipeBackView>
 );

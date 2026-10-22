@@ -28,6 +28,10 @@ const server = http.createServer((req, res) => {
     await page.goto(`http://127.0.0.1:${port}/secretary.html?virtugene-preview=mobile`);
     await page.waitForFunction(() => !!window.secretaryTest);
     const result = await page.evaluate(() => window.secretaryTest.runChecks());
+    if (process.env.VG_VERIFY_DATA_ONLY === '1') {
+      console.log(`PASS secretary data: ${result.checks} checks; UI was explicitly not run`);
+      return;
+    }
     await page.evaluate(id => window.secretaryTest.mountCards(id), result.lastTask);
     const editor = page.getByRole('textbox', { name: '朋友圈文案' });
     await editor.waitFor(); assert.equal(await editor.inputValue(), '散步回来，心情轻了些。'); pass('real result card reads the saved draft');
@@ -45,7 +49,7 @@ const server = http.createServer((req, res) => {
     await page.evaluate(() => window.secretaryTest.mountGuide(false));
     await page.getByRole('dialog', { name: '先认识你的私人助理' }).waitFor();
     assert.equal(await page.getByRole('textbox', { name: '助理名字' }).inputValue(), '');
-    assert.equal(await page.getByRole('button', { name: '取好名字，开始创建' }).isDisabled(), true); pass('new onboarding starts with an empty user naming field');
+    assert.equal(await page.getByRole('button', { name: '创建助理', exact: true }).isDisabled(), true); pass('new onboarding starts with an empty user naming field');
     assert.equal(await page.getByRole('radio').count(), 7);
     const previewRows = await page.evaluate(() => window.secretaryTest.db.messages.count());
     for (const scene of ['随便聊聊', '分享开心', '需要补问']) {
@@ -76,7 +80,7 @@ const server = http.createServer((req, res) => {
     await page.getByText('收到。会议待办已创建，明天15:00。', { exact: true }).waitFor(); pass('onboarding lets users choose among five levels with a tone preview');
     await page.getByRole('radio', { name: '男性形象', exact: true }).check();
     await page.getByAltText('冷面管家 · 男性形象').evaluate(image => image.decode()); pass('onboarding renders the personality-specific male anime portrait');
-    await page.getByRole('textbox', { name: '助理名字' }).fill('禾禾'); await page.getByRole('button', { name: '取好名字，开始创建' }).click();
+    await page.getByRole('textbox', { name: '助理名字' }).fill('禾禾'); await page.getByRole('button', { name: '创建助理', exact: true }).click();
     await page.waitForFunction(async () => (await window.secretaryTest.db.characters.where('createdBy').equals('new-onboarding-user').first())?.name === '禾禾');
     await page.getByRole('dialog').waitFor({ state: 'hidden' }); pass('new user naming creates and opens their own secretary');
     assert.equal(await page.evaluate(async () => (await window.secretaryTest.db.characters.where('createdBy').equals('new-onboarding-user').first()).secretaryPersonality), 'professional'); pass('onboarding persists the chosen personality');
@@ -91,7 +95,7 @@ const server = http.createServer((req, res) => {
     pass('reopening the setup offers only the existing assistant and no personality reselection');
     await page.evaluate(() => window.secretaryTest.mountGuide(true));
     await page.getByRole('dialog', { name: '聘用你的私人助理' }).waitFor(); pass('existing users receive the secretary introduction');
-    await page.getByRole('button', { name: '稍后再说，角色页可以随时创建' }).click();
+    await page.getByRole('button', { name: '稍后再说', exact: true }).click();
     assert.equal(await page.evaluate(async () => window.secretaryTest.db.characters.where('createdBy').equals('existing-onboarding-user').count()), 0); pass('deferring the introduction does not silently create a named character');
     await page.evaluate(() => window.secretaryTest.remountCurrentGuide());
     await page.waitForTimeout(100); assert.equal(await page.getByRole('dialog').count(), 0); pass('dismissed introduction stays dismissed on the next entry');
@@ -338,8 +342,10 @@ const server = http.createServer((req, res) => {
     assert.equal(await enterAssistant.count(), 0); pass('unified assistant card keeps today and conversation visible while details remain collapsed');
     assert.equal(await page.locator('.vg-conversation-row').filter({ hasText: home.name }).count(), 0); pass('home keeps one dedicated assistant entry separate from role conversation rows');
     await page.getByRole('textbox', { name: '搜索聊天' }).fill('首页普通角色');
-    assert.equal(await workspace.count(), 1); pass('assistant workspace remains accessible while role chats are searched');
+    assert.equal(await workspace.count(), 0); pass('focused role search hides the nonmatching assistant workspace');
     await page.getByRole('button', { name: '清空搜索' }).click();
+    await workspaceToggle.waitFor();
+    assert.equal(await workspace.count(), 1); pass('clearing role search restores the existing assistant workspace');
     for (const width of [320, 390, 430]) { await page.setViewportSize({ width, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)); }
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: path.join(screenshotRoot, 'secretary-home.png'), fullPage: true }); pass('assistant home card fits 320 through 430px screens');
@@ -380,8 +386,8 @@ const server = http.createServer((req, res) => {
     await page.locator('#assistant-pending:not([hidden])').waitFor();
     await page.getByRole('button', { name: '返回消息', exact: true }).click(); pass('assistant dedicated menu opens unified pending page');
     await page.evaluate(() => window.secretaryTest.mountRoleDirectory());
-    await page.getByRole('region', { name: '生活助理工作台' }).waitFor();
-    assert.equal(await page.locator('.vg-character-row').filter({ hasText: home.name }).count(), 0);
+    await page.getByRole('button', { name: '打开生活助理', exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: `打开${home.name}的角色空间`, exact: true }).count(), 0);
     assert.equal(await page.getByRole('tab', { name: '全部', exact: true }).count(), 1); pass('role library keeps assistant workspace separate from searchable role rows');
     await page.evaluate(() => window.secretaryTest.mountGroupPicker());
     await page.getByRole('button', { name: '发起群聊', exact: true }).first().click();

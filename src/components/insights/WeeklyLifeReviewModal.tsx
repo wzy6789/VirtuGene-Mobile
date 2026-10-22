@@ -6,6 +6,7 @@ import { stateRepo } from '../../db/state-repo';
 import { useAuthStore } from '../../store/auth-store';
 import { useChatStore } from '../../store/chat-store';
 import { Modal } from '../ui/Modal';
+import { Icon } from '../ui/Icon';
 import type { Character, LifeEvent } from '../../db/index';
 
 type TrailItem = {
@@ -45,12 +46,15 @@ export function WeeklyLifeReviewModal({ open, onClose }: { open: boolean; onClos
   const [activeCharacters, setActiveCharacters] = useState(0);
   const [milestoneCount, setMilestoneCount] = useState(0);
   const [memoryCount, setMemoryCount] = useState(0);
+  const [readFailed, setReadFailed] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (!open || !userId) return;
     let alive = true;
     const since = Date.now() - WEEK;
     setLoading(true);
+    setReadFailed(false);
     void Promise.all([
       stateRepo.getAllByUser(userId),
       diaryRepo.getByUser(userId),
@@ -88,6 +92,7 @@ export function WeeklyLifeReviewModal({ open, onClose }: { open: boolean; onClos
       setMemoryCount(weeklyMemories.length);
     }).catch(() => {
       if (!alive) return;
+      setReadFailed(true);
       setTrail([]);
       setDiaryCount(0);
       setAverageMood(null);
@@ -98,31 +103,33 @@ export function WeeklyLifeReviewModal({ open, onClose }: { open: boolean; onClos
       if (alive) setLoading(false);
     });
     return () => { alive = false; };
-  }, [open, userId]);
+  }, [open, userId, reload]);
 
   const characterMap = useMemo(() => new Map(characters.map((character) => [character.id, character])), [characters]);
   const totalMoments = trail.filter((item) => item.kind === 'event').length + milestoneCount + memoryCount;
 
   return (
-    <Modal open={open} onClose={onClose} title="本周生命回顾" width="max-w-md">
+    <Modal open={open} onClose={onClose} title="本周生命回顾" width="max-w-md" canSnapshotOnExit={() => false}>
       <div className="max-h-[78vh] overflow-y-auto p-4 sm:p-5">
-        <section className="vg-weekly-review-hero relative overflow-hidden rounded-[26px] border border-line bg-panel px-5 py-5 shadow-[0_16px_42px_var(--vg-shadow)]">
+        <section className="vg-weekly-review-hero relative overflow-hidden rounded-[26px] border border-line bg-panel px-5 py-5 shadow-[0_16px_42px_var(--vg-shadow)]" style={{ background:'var(--vg-elev-2)', borderColor:'var(--vg-elev-edge)' }}>
           <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full border border-life-cyan/20" />
           <div className="absolute -bottom-12 left-8 h-32 w-32 rounded-full bg-gene-purple/30 blur-3xl" />
           <div className="relative">
             <p className="text-xs tracking-[0.26em] text-[color:var(--vg-cyan)]">WEEKLY LIFE REVIEW</p>
             <h2 className="mt-2 text-2xl font-bold tracking-tight text-ink">这一周，你的世界<br />留下了新的光。</h2>
-            <p className="mt-2 text-xs leading-relaxed text-sub">每段对话、每次记录与每个共同瞬间，都在让关系成为独一无二的轨迹。</p>
+            <p className="mt-2 text-sm leading-relaxed text-sub">每段对话、每次记录与每个共同瞬间，都在让关系成为独一无二的轨迹。</p>
           </div>
           <div className="relative mt-5 grid grid-cols-3 divide-x divide-line rounded-2xl border border-line bg-surface py-3">
-            <Metric value={activeCharacters} label="活跃角色" accent="text-ink" />
-            <Metric value={milestoneCount} label="关系进阶" accent="text-[color:var(--vg-cyan)]" />
-            <Metric value={memoryCount} label="新记忆" accent="text-[color:var(--vg-accent)]" />
+            <Metric value={loading || readFailed ? null : activeCharacters} label="活跃角色" accent="text-ink" />
+            <Metric value={loading || readFailed ? null : milestoneCount} label="关系进阶" accent="text-[color:var(--vg-cyan)]" />
+            <Metric value={loading || readFailed ? null : memoryCount} label="新记忆" accent="text-[color:var(--vg-accent)]" />
           </div>
         </section>
 
         {loading ? (
-          <div className="py-12 text-center text-sm text-sub">正在整理这一周的生命轨迹…</div>
+          <div className="vg-loading-skeleton mt-4" role="status" aria-label="正在整理这一周的生命轨迹">{[0,1].map(i=><div className="vg-skeleton-card" key={i} aria-hidden="true"><i /><span><i /><i /><i /></span></div>)}</div>
+        ) : readFailed ? (
+          <div className="mt-4 rounded-2xl border border-line p-4 text-center" role="alert"><Icon name="warning" size={24} className="mx-auto text-[color:var(--vg-warning)]" /><p className="my-3 text-sm text-sub">本周记录没有读取成功，重新读取后再查看。</p><button type="button" className="vg-button vg-button-secondary" onClick={()=>setReload(n=>n+1)}>重新读取</button></div>
         ) : (
           <div className="mt-4 space-y-4">
             <section className="rounded-2xl border border-line bg-panel/65 p-4">
@@ -168,7 +175,7 @@ export function WeeklyLifeReviewModal({ open, onClose }: { open: boolean; onClos
                             <span className="text-xs font-medium text-ink truncate">{character?.name ?? '你的世界'}</span>
                             <span className="text-xs text-sub shrink-0">{shortDate(item.createdAt)}</span>
                           </div>
-                          <p className="mt-0.5 text-xs leading-relaxed text-sub line-clamp-2"><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${color}`} />{item.title}</p>
+                          <p className="mt-1 text-sm leading-relaxed text-sub line-clamp-2"><span className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${color}`} />{item.title}</p>
                         </div>
                       </div>
                     );
@@ -183,6 +190,6 @@ export function WeeklyLifeReviewModal({ open, onClose }: { open: boolean; onClos
   );
 }
 
-function Metric({ value, label, accent }: { value: number; label: string; accent: string }) {
-  return <div className="px-2 text-center"><span className={`block text-base font-semibold tabular-nums ${accent}`}>{value}</span><span className="mt-0.5 block text-xs text-sub">{label}</span></div>;
+function Metric({ value, label, accent }: { value: number | null; label: string; accent: string }) {
+  return <div className="px-2 text-center"><span className={`block text-2xl font-semibold tabular-nums ${accent}`}>{value ?? '—'}</span><span className="mt-0.5 block text-xs text-sub">{label}</span></div>;
 }

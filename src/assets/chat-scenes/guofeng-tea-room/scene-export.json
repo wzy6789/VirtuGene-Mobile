@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "sceneId": "guofeng-tea-room",
+  "designWidth": 1440,
+  "designHeight": 3196.3895486935867,
+  "thumbnail": {
+    "file": "thumbnail.webp",
+    "width": 360,
+    "height": 799,
+    "bytes": 60056,
+    "sha256": "ba75410b0586bbd49e93c0bfe74beeb15137f4def79fe518e1fe9b081a56591b",
+    "decodedRgbaBytes": 1150560
+  },
+  "qualities": {
+    "842": {
+      "poster": {
+        "file": "poster-842.webp",
+        "width": 842,
+        "height": 1869,
+        "bytes": 407656,
+        "sha256": "ed7be08bebd720a65bcbe84378eb7d38439968f4b5e612ff1528569b7750c235",
+        "decodedRgbaBytes": 6294792
+      },
+      "cleanPlate": {
+        "file": "poster-842.webp",
+        "width": 842,
+        "height": 1869,
+        "bytes": 407656,
+        "sha256": "ed7be08bebd720a65bcbe84378eb7d38439968f4b5e612ff1528569b7750c235",
+        "decodedRgbaBytes": 6294792
+      },
+      "layers": [],
+      "windowMask": {
+        "rect": [
+          757.624703087886,
+          966.270783847981,
+          682.375296912114,
+          807.2209026128266
+        ],
+        "file": "window-mask-842.webp",
+        "width": 399,
+        "height": 472,
+        "bytes": 7458,
+        "sha256": "6bedd5ddbb67c6efc3967961d269d0aa36a47f6ed3692f6eea56246f4d94ed75",
+        "decodedRgbaBytes": 753312
+      },
+      "decodedBytesWithPoster": 7048104
+    }
+  },
+  "windowPolygon": [],
+  "lightRect": [
+    0,
+    1200,
+    600,
+    1200
+  ],
+  "provenance": "Built-in image generation, task-authorized original environment asset. Not a Blender render.",
+  "compositeStrategy": "One complete photographic artwork, no detached foreground layers; actual geometry supplies realtime depth and exported compatibility mask.",
+  "cupMouth": [
+    320,
+    2260
+  ]
+}

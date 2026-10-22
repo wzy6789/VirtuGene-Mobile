@@ -1,0 +1,10 @@
+import{chromium}from'playwright';import{mkdirSync,writeFileSync,renameSync}from'node:fs';
+const out='.tmp-preview/chat-lived-in-20261020/demo';mkdirSync(out,{recursive:true});
+const browser=await chromium.launch({channel:'chrome',headless:true}),context=await browser.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true,recordVideo:{dir:out,size:{width:390,height:844}}}),page=await context.newPage(),report={states:[],scope:'Unretouched actual ChatWindow pixels. Controlled isolated sample messages, not real model output or Android evidence. No microphone or audio.'};
+await page.goto('http://127.0.0.1:5323/?demo=guofeng-tea-room&theme=dark');
+await page.waitForFunction(()=>{const s=window.sceneTest?.inspect()[0];return s?.state==='ready'&&s.backend==='webgl2';});
+for(const id of ['guofeng-tea-room','urban-window-seat']){
+ await page.waitForFunction(()=>window.sceneTest);await page.evaluate(id=>window.sceneTest.scene(id,'auto',{renderer:'auto',parallaxEnabled:true}),id);await page.waitForFunction(()=>{const s=window.sceneTest.inspect()[0];return s?.state==='ready'&&s.backend==='webgl2'&&s.particles.frames>3;});await page.waitForTimeout(600);await page.screenshot({path:out+'/'+id+'-dark.png'});const start=await page.evaluate(()=>performance.now());await page.waitForTimeout(2500);await page.locator('.chat-room').dispatchEvent('pointermove',{pointerType:'mouse',clientX:365,clientY:680});await page.waitForTimeout(2500);report.states.push({id,at:start,inspect:await page.evaluate(()=>window.sceneTest.inspect()[0])});
+ await page.evaluate(()=>window.backgroundTest.theme('light'));await page.waitForTimeout(180);await page.screenshot({path:out+'/'+id+'-light.png'});await page.waitForTimeout(800);await page.evaluate(()=>window.backgroundTest.theme('dark'));
+}
+const raw=await page.video().path();await context.close();renameSync(raw,out+'/national-urban-live.webm');await browser.close();writeFileSync(out+'/capture.json',JSON.stringify(report,null,2));console.log(JSON.stringify({scenes:report.states.length,video:out+'/national-urban-live.webm'}));

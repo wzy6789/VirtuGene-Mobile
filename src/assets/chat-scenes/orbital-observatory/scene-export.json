@@ -1,0 +1,96 @@
+{
+  "schema": 1,
+  "sceneId": "orbital-observatory",
+  "designWidth": 1440,
+  "designHeight": 3201.9024970273485,
+  "thumbnail": {
+    "file": "thumbnail.webp",
+    "width": 360,
+    "height": 800,
+    "bytes": 75430,
+    "sha256": "b7431c23361ec3e5f8a7f4b1e9f6618527b201d329df502c21fced6a26db5e1d",
+    "decodedRgbaBytes": 1152000
+  },
+  "qualities": {
+    "841": {
+      "poster": {
+        "file": "poster-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 554610,
+        "sha256": "ce89ad2f8ec6061ebe029469d17bc1c633779746504eebe0ad7240f0d1189dce",
+        "decodedRgbaBytes": 6290680
+      },
+      "cleanPlate": {
+        "file": "poster-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 554610,
+        "sha256": "ce89ad2f8ec6061ebe029469d17bc1c633779746504eebe0ad7240f0d1189dce",
+        "decodedRgbaBytes": 6290680
+      },
+      "layers": [],
+      "windowMask": {
+        "rect": [
+          494.8394768133175,
+          0.0,
+          945.1605231866826,
+          2145.445897740785
+        ],
+        "file": "window-mask-841.webp",
+        "width": 552,
+        "height": 1253,
+        "bytes": 4612,
+        "sha256": "4209def2cf0945c4bd377e2dcea5a385801b5a569dcde2db7addcd2629267919",
+        "decodedRgbaBytes": 2766624
+      },
+      "decodedBytesWithPoster": 9057304
+    }
+  },
+  "windowPolygon": [
+    [
+      519.84,
+      291.3731272294887
+    ],
+    [
+      1512.0,
+      -176.10463733650417
+    ],
+    [
+      1512.0,
+      2174.09179548157
+    ],
+    [
+      663.84,
+      1940.352913198573
+    ],
+    [
+      531.36,
+      1809.0749108204518
+    ],
+    [
+      496.79999999999995,
+      1664.9892984542214
+    ],
+    [
+      496.79999999999995,
+      409.8435196195006
+    ]
+  ],
+  "lightRect": [
+    0.0,
+    1056.627824019025,
+    503.99999999999994,
+    896.5326991676577
+  ],
+  "glass": {
+    "strength": 0.8,
+    "frost": 0.0
+  },
+  "cupMouth": [
+    482.40000000000003,
+    2564.7239001189064
+  ],
+  "provenance": "Built-in image generation; original photographic-style environment artwork, not a Blender render.",
+  "compositeStrategy": "Native photographic-style art on independently authored volumetric depth; same camera and semantic window mask, no duplicated foreground."
+}

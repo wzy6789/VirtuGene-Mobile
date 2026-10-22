@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { ipc } from '../../lib/ipc-client';
 import { hashPassword, encryptApiKey } from '../../lib/crypto';
 import { persistApiKey } from '../../lib/api-key-storage';
@@ -6,6 +6,8 @@ import { userRepo } from '../../db/user-repo';
 import type { User } from '../../db/index';
 import { useAuthStore, DEFAULT_USER_AVATAR } from '../../store/auth-store';
 import { LegalNoticeModal, type LegalDocument } from '../compliance/LegalNoticeModal';
+import { GeneGlyph } from '../ui/GeneGlyph';
+import { AuthFeedback } from './AuthFeedback';
 
 interface Props {
   onSwitch: () => void;
@@ -21,11 +23,16 @@ export function RegisterCard({ onSwitch }: Props) {
   const [adultConfirmed, setAdultConfirmed] = useState(false);
   const [legalDocument, setLegalDocument] = useState<LegalDocument | null>(null);
   const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [step, setStep] = useState<'form' | 'validating' | 'creating'>('form');
+  const [step, setStep] = useState<'form' | 'checking' | 'validating' | 'creating'>('form');
+  const fieldId = useId();
+  const submitLock = useRef(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitLock.current) return;
+    setAttempt(value => value + 1);
     setError('');
 
     if (!username.trim() || !password || !confirmPassword) {
@@ -39,7 +46,7 @@ export function RegisterCard({ onSwitch }: Props) {
     }
 
     if (password.length < 6) {
-      setError('密码至少需要 6 位基因编码');
+      setError('密码至少需要 6 位');
       return;
     }
 
@@ -53,31 +60,27 @@ export function RegisterCard({ onSwitch }: Props) {
       return;
     }
 
-    const existing = await userRepo.findByUsername(username.trim());
-    if (existing) {
-      setError('该用户名已被注册，请选择其他基因标识');
-      return;
-    }
-
-    setStep('validating');
+    submitLock.current = true;
+    setStep('checking');
     setLoading(true);
+    let phase: 'read' | 'validate' | 'create' = 'read';
     try {
+      const existing = await userRepo.findByUsername(username.trim());
+      if (existing) {
+        setError('该用户名已被注册，请选择其他基因标识');
+        return;
+      }
+
+      phase = 'validate';
+      if (apiKey.trim()) setStep('validating');
       const result = apiKey.trim() ? await ipc.key.validate(apiKey.trim()) : { valid: true };
       if (!result.valid) {
         setError(result.error ?? '基因序列验证失败，请检查 API Key');
-        setStep('form');
-        setLoading(false);
         return;
       }
-    } catch {
-      setError('基因链接中断，请重试');
-      setStep('form');
-      setLoading(false);
-      return;
-    }
 
-    setStep('creating');
-    try {
+      phase = 'create';
+      setStep('creating');
       const { hash, salt } = await hashPassword(password);
       const saltBytes = Uint8Array.from(atob(salt), (c) => c.charCodeAt(0));
       const key = apiKey.trim();
@@ -100,111 +103,94 @@ export function RegisterCard({ onSwitch }: Props) {
       void persistApiKey(key);
       ipc.window.setSize(1200, 800);
     } catch {
-      setError('注册基因失败，请重试');
-      setStep('form');
+      setError(phase === 'read' ? '暂时无法读取账号信息，请重试' : phase === 'validate' ? '连接验证未完成，请重试' : '注册未完成，请重试');
     } finally {
+      submitLock.current = false;
       setLoading(false);
+      setStep('form');
     }
   };
 
   return (
     <>
-    <form onSubmit={handleSubmit} className="w-full space-y-4">
-      {/* Header */}
-      <div className="text-center space-y-2">
-        <div className="text-3xl">🌱</div>
-        <h2 className="text-lg font-semibold text-ink">注册你的基因</h2>
+    <form onSubmit={handleSubmit} className="w-full space-y-5" aria-busy={loading} aria-labelledby={`${fieldId}-title`}>
+      <div className="space-y-3">
+        <div className="flex items-center gap-3"><span className="vg-auth-brand flex h-11 w-11 items-center justify-center rounded-xl border text-[color:var(--vg-accent)]"><GeneGlyph size={28} /></span><span className="text-sm font-medium text-sub">VirtuGene</span></div>
+        <h1 id={`${fieldId}-title`} className="text-2xl font-semibold leading-tight text-ink">创建账号</h1>
+        <p className="text-sm leading-6 text-sub">创建账号，开始一段新的相处。</p>
       </div>
 
-      <label className="flex items-start gap-2.5 rounded-lg border border-line bg-surface/60 px-3 py-2.5 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={adultConfirmed}
-          onChange={(event) => setAdultConfirmed(event.target.checked)}
-          className="mt-0.5 accent-[#6C5CE7]"
-        />
-        <span className="text-[11px] leading-relaxed text-gray-400">
-          我已年满 18 周岁，并知悉角色回复由模型生成，必要的对话上下文会发送至云端模型处理。
-        </span>
-      </label>
-      <p className="text-center text-[10px] text-gray-500">
-        注册前请阅读{' '}
-        <button type="button" onClick={() => setLegalDocument('privacy')} className="text-life-cyan hover:underline">隐私说明</button>
-        {' '}和{' '}
-        <button type="button" onClick={() => setLegalDocument('terms')} className="text-life-cyan hover:underline">使用说明</button>
-      </p>
-
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-xs text-red-400">
-          {error}
-        </div>
-      )}
+      {error && <AuthFeedback message={error} attempt={attempt} />}
 
       {/* Reuse the same input surface as login and conversation search. */}
       <div className="space-y-3">
-        <input
+        <label htmlFor={`${fieldId}-username`} className="block space-y-2"><span className="block text-sm font-medium text-ink">用户名</span><input
+          id={`${fieldId}-username`} disabled={loading}
           type="text"
           value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="用户名"
+          onChange={(e) => { setUsername(e.target.value); setError(''); }}
+          placeholder="至少 2 个字符"
           autoComplete="username"
-          aria-label="用户名"
+          autoCapitalize="none" spellCheck={false}
           className="vg-text-field w-full px-3 py-3 text-base"
-        />
-        <input
+        /></label>
+        <label htmlFor={`${fieldId}-password`} className="block space-y-2"><span className="block text-sm font-medium text-ink">密码</span><input
+          id={`${fieldId}-password`} disabled={loading}
           type="password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => { setPassword(e.target.value); setError(''); }}
           placeholder="密码（至少 6 位）"
           autoComplete="new-password"
-          aria-label="密码"
           className="vg-text-field w-full px-3 py-3 text-base"
-        />
-        <input
+        /></label>
+        <label htmlFor={`${fieldId}-confirm`} className="block space-y-2"><span className="block text-sm font-medium text-ink">确认密码</span><input
+          id={`${fieldId}-confirm`} disabled={loading}
           type="password"
           value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          placeholder="确认密码"
+          onChange={(e) => { setConfirmPassword(e.target.value); setError(''); }}
+          placeholder="再次输入密码"
           autoComplete="new-password"
-          aria-label="确认密码"
           className="vg-text-field w-full px-3 py-3 text-base"
-        />
-        <div className="relative">
-          <input
+        /></label>
+        <details className="rounded-xl border border-line px-3"><summary className="min-h-11 cursor-pointer py-3 text-sm text-sub">已有 DeepSeek Key？<span className="ml-2 text-xs">可选配置</span></summary><div className="space-y-2 pb-3"><label htmlFor={`${fieldId}-key`} className="block text-sm font-medium text-ink">DeepSeek API Key <span className="font-normal text-xs text-sub">· 可选</span></label><div className="vg-auth-key-control relative">
+          <input id={`${fieldId}-key`} disabled={loading} data-sensitive
             type={showKey ? 'text' : 'password'}
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="DeepSeek API Key（可稍后配置）"
-            autoComplete="off"
-            className="w-full px-1 py-3 pr-10 bg-transparent border-b border-line-strong text-ink text-sm placeholder-gray-500 focus:outline-none focus:border-life-cyan transition-colors"
+            onChange={(e) => { setApiKey(e.target.value); setError(''); }}
+            placeholder="也可以进入后再配置"
+            autoComplete="off" autoCapitalize="none" spellCheck={false}
+            className="vg-text-field w-full px-3 py-3 pr-16 text-base"
           />
           <button
             type="button"
-            onClick={() => setShowKey(!showKey)}
-            className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-500 hover:text-sub text-xs"
+            disabled={loading} aria-pressed={showKey} aria-label={showKey ? '隐藏 API Key' : '显示 API Key'} onClick={() => setShowKey(!showKey)}
+            className="absolute right-1 top-1/2 -translate-y-1/2 vg-button vg-button-ghost !px-3"
           >
             {showKey ? '隐藏' : '显示'}
           </button>
-        </div>
-        <p className="text-xs leading-relaxed text-sub pt-2">可以先创建账号，进入「设置 → AI 连接」选择 OpenAI、Claude、Gemini 或其他服务商。</p>
+        </div><p className="text-xs leading-6 text-sub">可留空。进入「设置 → AI 连接」后，还可选择 OpenAI、Claude、Gemini 等服务商。</p></div></details>
       </div>
+
+      <label className="flex min-h-12 items-start gap-3 rounded-xl border border-line bg-surface/60 px-3 py-3 cursor-pointer"><input type="checkbox" disabled={loading} checked={adultConfirmed} onChange={(event) => { setAdultConfirmed(event.target.checked); setError(''); }} className="mt-0.5 h-5 w-5 shrink-0 accent-[var(--vg-action)]" /><span className="text-sm leading-6 text-sub">我已年满 18 周岁，并知悉角色回复由模型生成，必要的对话上下文会发送至云端模型处理。</span></label>
+      <div className="vg-auth-legal-actions"><button type="button" onClick={() => setLegalDocument('privacy')} className="vg-button vg-button-ghost">隐私说明</button><button type="button" onClick={() => setLegalDocument('terms')} className="vg-button vg-button-ghost">使用说明</button></div>
 
       <button
         type="submit"
         disabled={loading || !adultConfirmed}
-        className="w-full py-2.5 rounded-lg bg-life-cyan text-[#0F0F1A] text-sm font-semibold hover:bg-[#00B8B3] transition-colors disabled:opacity-50"
+        className="vg-button vg-button-primary w-full"
       >
-        {step === 'validating' && '正在验证基因序列...'}
-        {step === 'creating' && '正在注册基因...'}
+        {step === 'checking' && '正在检查账号…'}
+        {step === 'validating' && '正在验证连接…'}
+        {step === 'creating' && '正在创建账号…'}
         {step === 'form' && '注册'}
       </button>
 
-      <p className="text-center text-xs text-gray-500">
-        已有基因序列？{' '}
-        <button type="button" onClick={onSwitch} className="text-gene-purple hover:underline">
-          唤醒数字灵魂
+      <div className="border-t border-line pt-3 text-center">
+        <p className="text-xs leading-6 text-sub">已有账号？</p>
+        <button type="button" disabled={loading} onClick={onSwitch} className="vg-button vg-button-ghost w-full">
+          返回登录
         </button>
-      </p>
+      </div>
     </form>
     <LegalNoticeModal document={legalDocument} onClose={() => setLegalDocument(null)} />
     </>

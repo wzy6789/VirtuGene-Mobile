@@ -1,0 +1,45 @@
+{
+  "id": "night-train",
+  "prompt": "Use case: photorealistic-natural. Asset type: original complete interior background for a portrait mobile chat app, image only, no UI. Create an exceptionally convincing editorial interior photograph, tall portrait 9:20 composition. Natural seated eye-level camera, normal 35mm perspective and straight believable architecture, cinematic yet restrained exposure, rich fine texture at real human scale. Fill the portrait with a room, furniture and visible outdoor window, very little empty ceiling. Tactile real wood grain, uneven linen weave, used leather or fabric, fine window reflections, tiny lived-in imperfections and plausible contact shadows. No people, no letters, no branding, no watermark. Never illustration, clay, miniature, dollhouse, CGI, smooth toy objects, extreme wide angle, perfectly symmetrical showroom or glossy unreal materials. Keep window glass clear enough to identify an interior polygon for localized weather; mullions and indoor objects distinct. Night train private compartment: realistic intimate sleeper-train compartment photographed from seated eye level, muted dark teal woven upholstered bench across lower left, small fold-down wooden table lower foreground with ceramic cup, warm practical wall reading lamp. Large clear rectangular train window upper right through which dark countryside and a few subtle horizontal distant light streaks are seen. Metal window hardware, faint clean glass reflection, weathered wood veneer and upholstery seams at believable scale. Warm amber inside and deep cool night outside; restrained rain droplets on exterior glass. No people, no futuristic spaceship, no toy geometry.",
+  "toolPath": "C:\\Users\\34568\\.codex\\generated_images\\01a1614a-fd69-7361-8d20-268d477dc597\\exec-4ca22ebf-fefd-476b-b203-ce52b2af2b66.png",
+  "tool": "built-in image_gen",
+  "success": true,
+  "outputHint": "Generated images are saved to C:\\Users\\34568\\.codex\\generated_images\\01a1614a-fd69-7361-8d20-268d477dc597 as C:\\Users\\34568\\.codex\\generated_images\\01a1614a-fd69-7361-8d20-268d477dc597\\exec-4ca22ebf-fefd-476b-b203-ce52b2af2b66.png by default.\nIf you need to use a generated image at another path, copy it and leave the original in place unless the user explicitly asks you to delete it.\nThe generated image is already displayed to the user. There is no need to render it in the final response as a Markdown image or file link.",
+  "sourceWidth": 841,
+  "sourceHeight": 1870,
+  "sourceSha256": "45a8aa15beb9e718a16f4ee3258026e8f115b677463c5416863e097ef91c2ec2",
+  "sourceBytes": 2136838,
+  "productionPoster": {
+    "file": "poster-photo-20261022-841.webp",
+    "width": 841,
+    "height": 1870,
+    "bytes": 301046,
+    "sha256": "1ccb43878992b343eec13f3706d42c0dd4cffa26573822a31a315ab981c87131",
+    "decodedRgbaBytes": 6290680
+  },
+  "thumbnail": {
+    "file": "thumbnail-photo-20261022.webp",
+    "width": 360,
+    "height": 800,
+    "bytes": 53042,
+    "sha256": "7f46021bc034e8d4938e4e242cc897f1f4b0eb353c811d4d5cb4f112e6016393",
+    "decodedRgbaBytes": 1152000
+  },
+  "mask": {
+    "file": "window-mask-photo-20261022-841.webp",
+    "width": 357,
+    "height": 486,
+    "bytes": 54,
+    "sha256": "bf51498731541e2434366e977e8f5c301f387c5df24dcc02819a49357fbc179a",
+    "decodedRgbaBytes": 694008,
+    "rect": [
+      823.591,
+      756.8133,
+      611.2723,
+      832.1522
+    ],
+    "maskMode": "alpha"
+  },
+  "inspection": "Viewed built-in output: convincing wood/textile/glass texture, believable perspective; source is AI-generated photographic style, not documentary photography.",
+  "calls": 1
+}

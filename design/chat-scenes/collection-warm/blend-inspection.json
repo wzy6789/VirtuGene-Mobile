@@ -1,0 +1,35 @@
+{
+  "passed": true,
+  "scenes": [
+    {
+      "scene": "hearth-cabin",
+      "openedActualBlend": true,
+      "cameraMatchesDesignMetadata": true,
+      "designDimensions": [
+        1440,
+        3200
+      ],
+      "objectCount": 150,
+      "materials": 17,
+      "meshAndCurveCount": 145,
+      "externalImagePaths": [],
+      "externalLibraries": [],
+      "sha256": "98984dee7f65cd9fb0c7fc82a61b1ebc796172e9a0e32f7b7dcb493cfe04fb31"
+    },
+    {
+      "scene": "night-train",
+      "openedActualBlend": true,
+      "cameraMatchesDesignMetadata": true,
+      "designDimensions": [
+        1440,
+        3200
+      ],
+      "objectCount": 98,
+      "materials": 15,
+      "meshAndCurveCount": 93,
+      "externalImagePaths": [],
+      "externalLibraries": [],
+      "sha256": "ed6a32a4d690607e3eee898352475713146c2221fe933216bb2ee3ef0fdf39bf"
+    }
+  ]
+}

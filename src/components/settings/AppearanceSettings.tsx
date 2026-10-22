@@ -3,6 +3,8 @@ import { useThemeStore } from '../../store/theme-store';
 import { SettingsChoices, SettingsGroup, SettingsSwitch } from './SettingsUI';
 import { FontRuler } from '../ui/PhysicalInteractions';
 import { OrbColorPicker } from './OrbColorPicker';
+import { OrbMotionPicker } from './OrbMotionPicker';
+import { ChatAppearanceSettings } from '../chat/ChatAppearanceSettings';
 
 export function AppearanceSettings({includeOrbColor=true}:{includeOrbColor?:boolean}={}) {
   const { preference, setTheme } = useThemeStore();
@@ -12,11 +14,14 @@ export function AppearanceSettings({includeOrbColor=true}:{includeOrbColor?:bool
   const setReduceMotion = useSettingsStore(s => s.setReduceMotion);
   const hapticsEnabled = useSettingsStore(s => s.hapticsEnabled);
   const setHapticsEnabled = useSettingsStore(s => s.setHapticsEnabled);
+  const backgroundEnabled=useSettingsStore(s=>s.chatBackgroundEnabled);
+  const setBackgroundEnabled=useSettingsStore(s=>s.setChatBackgroundEnabled);
   return <>
-    <p className="vg-settings-intro">让屏幕与文字适合你的阅读习惯。修改后立即生效。</p>
-    <SettingsGroup title="页面主题"><SettingsChoices label="页面主题" value={preference} onChange={setTheme} options={[{ value: 'dark', title: '深色', detail: '安静的深色背景，柔和的紫色点缀' }, { value: 'light', title: '浅色', detail: '明亮的背景，清晰的阅读层次' }, {value:'system',title:'跟随系统',detail:'随设备的深浅色设置自动切换'}]} /></SettingsGroup>
+    <SettingsGroup title="页面主题"><SettingsChoices label="页面主题" value={preference} onChange={setTheme} options={[{ value: 'dark', title: '深色' }, { value: 'light', title: '浅色' }, {value:'system',title:'跟随系统'}]} /></SettingsGroup>
     <SettingsGroup title="聊天字号" scope="所有聊天"><div className="vg-font-preview" style={{fontSize:chatFontSize}}><div>今天的街角很安静，我们慢慢聊。</div><div>这个大小读起来很舒服。</div></div><div className="vg-settings-font-ruler"><FontRuler value={chatFontSize} onChange={setChatFontSize} /></div></SettingsGroup>
+    {includeOrbColor&&<SettingsGroup title="聊天背景" scope="全局默认"><SettingsSwitch title="启用聊天背景" checked={backgroundEnabled} onChange={setBackgroundEnabled}/><ChatAppearanceSettings/></SettingsGroup>}
     {includeOrbColor && <OrbColorPicker/>}
-    <SettingsGroup title="动态效果" scope="立即生效"><SettingsSwitch title="减少动态效果" detail="缩短页面与弹窗过渡，暂停背景动效。系统开启减少动态效果时也会自动生效。" checked={reduceMotion} onChange={setReduceMotion} /><SettingsSwitch title="触感反馈" detail="点按与滑动到位时的轻微震动。" checked={hapticsEnabled} onChange={setHapticsEnabled} /></SettingsGroup>
+    <OrbMotionPicker/>
+    <SettingsGroup title="动态效果" scope="立即生效"><SettingsSwitch title="减少动态效果" checked={reduceMotion} onChange={setReduceMotion} /><SettingsSwitch title="触感反馈" checked={hapticsEnabled} onChange={setHapticsEnabled} /></SettingsGroup>
   </>;
 }

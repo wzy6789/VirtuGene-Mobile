@@ -11,13 +11,14 @@ import { beginSoulHandoff, soulElement } from '../../lib/soul-handoff';
 import { SoulOrb, SoulOrbButton } from '../ui/SoulOrb';
 import { CharacterSoulOrb } from '../chat/CharacterSoulOrb';
 import { Avatar } from '../ui/Avatar';
+import { LoadingSkeleton } from '../ui/LoadingSkeleton';
 import { lazyFeature } from '../ui/lazyFeature';
 import { useActionDay } from '../../lib/action-cabin/useActionDay';
 import { UNPLANNED_DATE } from '../../lib/action-cabin/query';
-import { readSecretaryInbox, matchesSecretaryInbox, type SecretaryInboxFilter } from '../../lib/secretary/inbox';
+import { matchesSecretaryInbox, type SecretaryInboxFilter } from '../../lib/secretary/inbox';
+import { useSecretaryInboxFeed } from './useSecretaryInboxFeed';
 import { readConversationTodo, todoConversationContext, type SecretaryTodoContext } from '../../lib/secretary/workspace-todo';
 import type { TodoWithOccurrence } from '../../db/todo-repo';
-import type { SecretaryTask } from '../../lib/secretary/types';
 import { db } from '../../db';
 import { useOrbAttention } from '../../lib/use-orb-attention';
 import '../../styles/assistant-hub.css';
@@ -40,6 +41,7 @@ function Workspace({ userId }: { userId: string }) {
   const [successPulse, setSuccessPulse] = useState(false);
   const { character, loading, error, retry } = useSecretaryIdentity(userId);
   const tab = useUIStore(s => s.assistantTab);
+  const originTab = useUIStore(s => s.mobileTab);
   const { data } = useActionDay(userId);
   const selectedId = useChatStore(s => s.selectedCharacterId);
   const sessionId = useChatStore(s => s.currentSessionId);
@@ -47,6 +49,8 @@ function Workspace({ userId }: { userId: string }) {
   const [chatError, setChatError] = useState('');
   const [chatRevision, setChatRevision] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [replyWaiting, setReplyWaiting] = useState(false);
+  const [replyVisible, setReplyVisible] = useState(false);
   const [todayActivity, setTodayActivity] = useState({ busy: false, failed: false, reaction: 0 });
   const [inboxActivity, setInboxActivity] = useState({ busy: false, failed: false, reaction: 0 });
   const completionCue=todayActivity.reaction+inboxActivity.reaction;
@@ -61,9 +65,9 @@ function Workspace({ userId }: { userId: string }) {
   const [contextRow, setContextRow] = useState<TodoWithOccurrence>();
   const [contextError, setContextError] = useState('');
   const [pendingFilter, setPendingFilter] = useState<'unplanned' | SecretaryInboxFilter>('unplanned');
-  const [tasks, setTasks] = useState<SecretaryTask[]>([]);
-  const [tasksError, setTasksError] = useState(false);
   const [pendingVisited, setPendingVisited] = useState(tab === 'pending');
+  const inboxFeed = useSecretaryInboxFeed(userId, character?.id, pendingVisited && !!character);
+  const { tasks } = inboxFeed;
   const lastReaction = useRef(0);
   useEffect(() => {
     const next = todayActivity.reaction + inboxActivity.reaction;
@@ -94,6 +98,8 @@ function Workspace({ userId }: { userId: string }) {
   const active = character && character.secretaryStatus !== 'dismissed';
   const currentChat = character && selectedId === character.id && !!sessionId;
   const onBusy = useCallback((value: boolean) => setBusy(value), []);
+  const onWaiting = useCallback((value: boolean) => setReplyWaiting(value), []);
+  const onReplyVisible = useCallback((value: boolean) => setReplyVisible(value), []);
   const setTab = (next: 'today' | 'chat' | 'pending') => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     useUIStore.getState().setAssistantTab(next);
@@ -137,11 +143,6 @@ function Workspace({ userId }: { userId: string }) {
   }, [tab, character?.id, userId, currentChat, chatRevision]);
   useEffect(() => { if (tab === 'pending') setPendingVisited(true); }, [tab]);
   useEffect(() => {
-    if (!pendingVisited || !character) return;
-    const subscription = liveQuery(() => readSecretaryInbox(userId, character.id)).subscribe({ next: value => { setTasks(value); setTasksError(false); }, error: () => { setTasks([]); setTasksError(true); } });
-    return () => subscription.unsubscribe();
-  }, [pendingVisited, userId, character?.id, chatRevision]);
-  useEffect(() => {
     setContextRow(undefined); setContextError('');
     if (!context) return;
     const subscription = liveQuery(() => readConversationTodo(userId, context)).subscribe({ next: setContextRow, error: e => { setContextRow(undefined); setContextError(e instanceof Error ? e.message : '事项已变化，请重新选择。'); } });
@@ -150,28 +151,29 @@ function Workspace({ userId }: { userId: string }) {
 
   const back = () => {
     const key = `action-cabin:${userId}`;
-    beginSoulHandoff(key, soulElement(key, 'cabin'), 'list');
-    useUIStore.setState({ activeView: 'chat', mobileTab: 'chat', chatFromList: false, chatFromCharacters: false });
+    const destination = useUIStore.getState().mobileTab === 'world' ? 'world' : 'chat';
+    beginSoulHandoff(key, soulElement(key, 'cabin'), destination === 'world' ? 'world-entry' : 'list');
+    useUIStore.setState({ activeView: 'chat', mobileTab: destination, chatFromList: false, chatFromCharacters: false });
   };
-  const unplanned = data?.pending.filter(row => row.occurrence.dueDate === UNPLANNED_DATE).length ?? 0;
-  const pendingCategories: { id: 'unplanned' | SecretaryInboxFilter; label: string; count: number }[] = [
+  const unplanned = data?.pending.filter(row => row.occurrence.dueDate === UNPLANNED_DATE).length;
+  const pendingCategories: { id: 'unplanned' | SecretaryInboxFilter; label: string; count: number | undefined }[] = [
     { id: 'unplanned', label: '未安排', count: unplanned },
-    { id: 'input', label: '需你补充', count: tasks.filter(t => matchesSecretaryInbox(t, 'input')).length },
-    { id: 'review', label: '待确认草稿', count: tasks.filter(t => matchesSecretaryInbox(t, 'review')).length },
-    { id: 'failed', label: '未办成', count: tasks.filter(t => matchesSecretaryInbox(t, 'failed')).length },
-    { id: 'done', label: '办事记录', count: tasks.filter(t => matchesSecretaryInbox(t, 'done')).length },
+    { id: 'input', label: '需你补充', count: inboxFeed.loading || inboxFeed.error ? undefined : tasks.filter(t => matchesSecretaryInbox(t, 'input')).length },
+    { id: 'review', label: '待确认草稿', count: inboxFeed.loading || inboxFeed.error ? undefined : tasks.filter(t => matchesSecretaryInbox(t, 'review')).length },
+    { id: 'failed', label: '未办成', count: inboxFeed.loading || inboxFeed.error ? undefined : tasks.filter(t => matchesSecretaryInbox(t, 'failed')).length },
+    { id: 'done', label: '办事记录', count: inboxFeed.loading || inboxFeed.error ? undefined : tasks.filter(t => matchesSecretaryInbox(t, 'done')).length },
   ];
   return <section ref={hub} className="vg-assistant-hub" aria-label={character?.name ?? '聘用助理'}>
     <header className="vg-assistant-header">
-      <button type="button" className="vg-cabin-back" aria-label="返回消息" onClick={back}><Icon name="back" /></button>
+      <button type="button" className="vg-cabin-back" aria-label={originTab === 'world' ? '返回世界' : '返回消息'} onClick={back}><Icon name="back" /></button>
       {character && <Avatar avatar={character.avatar} size="sm" className="vg-assistant-avatar" />}
-      <div className="vg-assistant-identity"><h1 title={character?.name}>{character?.name ?? (loading ? '读取中…' : '聘用助理')}</h1><p role={busy ? 'status' : undefined}>{busy ? '正在为你处理' : active ? '把琐事理顺，把日子留下' : '记录保留，事情仍可手动安排'}</p></div>
-      {character ? <CharacterSoulOrb character={character} attention={orbAttention} cueId={completionCue||undefined} emotion={chatError || contextError || error || todayActivity.failed || inboxActivity.failed ? 'error' : busy || todayActivity.busy || inboxActivity.busy ? 'working' : successPulse ? 'success' : context && tab === 'chat' ? 'thinking' : data && !data.pending.length ? 'success' : 'idle'} soulKey={`action-cabin:${userId}`} soulRole="cabin" /> : <SoulOrbButton size={48} label="聘用助理" onActivate={manage} emotion="curious" />}
+      <div className="vg-assistant-identity"><h1 title={character?.name}>{character?.name ?? (loading ? '读取中…' : '聘用助理')}</h1><p role={replyWaiting ? 'status' : undefined}>{replyWaiting ? '正在回应' : active ? '把琐事理顺，把日子留下' : '记录保留，事情仍可手动安排'}</p></div>
+      {character ? <CharacterSoulOrb character={character} quiet={tab === 'chat' && busy && replyVisible} attention={orbAttention} cueId={completionCue||undefined} emotion={chatError || contextError || error || inboxFeed.error || todayActivity.failed || inboxActivity.failed ? 'error' : busy || todayActivity.busy || inboxActivity.busy ? 'working' : successPulse ? 'success' : context && tab === 'chat' ? 'thinking' : data && !data.pending.length ? 'success' : 'idle'} soulKey={`action-cabin:${userId}`} soulRole="cabin" /> : <SoulOrbButton size={48} label="聘用助理" onActivate={manage} emotion="curious" />}
       {character ? <MoreMenu name={character.name} onInbox={() => setTab('pending')} onManage={manage} onReview={() => { setTab('chat'); setShowReview(true); }} disabled={busy || !active} /> : <button type="button" disabled={loading || !!error} className="vg-assistant-hire" onClick={manage}>聘用</button>}
     </header>
     <nav className="vg-assistant-tabs" data-tab={tab} aria-label="助理页面">
       <span className="vg-assistant-tab-track" aria-hidden="true"><i /></span>
-      {([['today', '今日'], ['chat', '对话'], ['pending', '待处理']] as const).map(([id, label]) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} aria-controls={`assistant-${id}`} onClick={() => setTab(id)}>{label}{id === 'pending' && unplanned > 0 && <span>{unplanned} 未安排</span>}</button>)}
+      {([['today', '今日'], ['chat', '对话'], ['pending', '待处理']] as const).map(([id, label]) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} aria-controls={`assistant-${id}`} onClick={() => setTab(id)}>{label}{id === 'pending' && (unplanned ?? 0) > 0 && <span>{unplanned} 未安排</span>}</button>)}
     </nav>
     {error && <div role="alert" className="vg-assistant-status">{error}<button type="button" onClick={retry}>重试</button></div>}
     <div id="assistant-today" className="vg-assistant-panel" hidden={tab !== 'today'} inert={tab !== 'today'}>
@@ -181,15 +183,15 @@ function Workspace({ userId }: { userId: string }) {
       {context && <div ref={contextBanner} className="vg-assistant-context" role="status"><div><strong>{contextRow ? `正在讨论：${contextRow.todo.title}` : '当前事项已变化'}</strong><p>{contextError || `${contextRow?.occurrence.dueDate === UNPLANNED_DATE ? '未安排日期' : contextRow?.occurrence.dueDate ?? context.scheduledDate}${contextRow?.todo.recurrence.kind !== 'none' ? ' · 仅这一次，系列设置请在编辑器调整' : ''}`}</p></div><button type="button" aria-label="结束讨论这件事" disabled={busy} onClick={() => setContext(undefined)}><Icon name="close" size={18} /></button></div>}
       {chatError && <div role="alert" className="vg-assistant-status">{chatError}<button type="button" onClick={() => setChatRevision(n => n + 1)}>重试打开</button></div>}
       {!character && !loading && !error && <div className="vg-assistant-empty"><SoulOrb size={100} emotion="curious" /><p>给助理取个名字，再开始交代事情。</p><button type="button" className="vg-cabin-primary" onClick={manage}>聘用助理</button></div>}
-      {character && (!chatOpened || !currentChat) && !chatError && <p role="status" className="vg-assistant-status">正在打开对话…</p>}
-      {chatOpened && currentChat && <ChatWindow workspace={{ onInbox: () => setTab('pending'), onManage: manage, onReview: () => setShowReview(true), draft, onBusy, todoContext: context, onTodoHandled: todoHandled }} />}
+      {character && (!chatOpened || !currentChat) && !chatError && <LoadingSkeleton label="正在打开对话" rows={2} />}
+      {chatOpened && currentChat && <ChatWindow workspace={{ onInbox: () => setTab('pending'), onManage: manage, onReview: () => setShowReview(true), draft, onBusy, onWaiting, onReplyVisible, todoContext: context, onTodoHandled: todoHandled }} />}
     </div>
     <div id="assistant-pending" className="vg-assistant-panel vg-assistant-pending" hidden={tab !== 'pending'} inert={tab !== 'pending'}>
-      <div className="vg-assistant-categories" role="group" aria-label="待处理分类">{pendingCategories.map(item => <button type="button" key={item.id} aria-pressed={pendingFilter === item.id} onClick={() => setPendingFilter(item.id)}>{item.label}<span>{item.count}</span></button>)}</div>
+      <div className="vg-assistant-categories" role="group" aria-label="待处理分类">{pendingCategories.map(item => <button type="button" key={item.id} aria-pressed={pendingFilter === item.id} onClick={() => setPendingFilter(item.id)}>{item.label}<span>{item.count ?? '—'}</span></button>)}</div>
       <p className="vg-assistant-category-note">{pendingFilter === 'unplanned' ? '这里是还没排上日期的事项，安排后会进入日程。' : '这里是你交代给助理的请求；办理完成不代表对应待办已经做完。'}</p>
       <div className="vg-assistant-pending-content">
-        {pendingFilter === 'unplanned' ? <ActionCabinPage embedded page="inbox" onDiscuss={discuss} onActivity={onInboxActivity} /> : character && pendingVisited ? <Inbox character={character} open embedded category={pendingFilter} onClose={() => {}} onDraft={continueWithDraft} busy={busy} /> : <div className="vg-assistant-empty"><p>聘用助理后，办事请求会保留在这里。</p><button type="button" onClick={manage}>聘用助理</button></div>}
-        {tasksError && <div role="alert" className="vg-assistant-status">办事记录读取失败<button onClick={() => setChatRevision(n => n + 1)}>重试</button></div>}
+        {pendingFilter === 'unplanned' ? <ActionCabinPage embedded page="inbox" onDiscuss={discuss} onActivity={onInboxActivity} /> : character && pendingVisited ? <Inbox character={character} open embedded feed={inboxFeed} category={pendingFilter} onClose={() => {}} onDraft={continueWithDraft} busy={busy} /> : loading ? <LoadingSkeleton label="正在读取助理资料" rows={2} /> : <div className="vg-assistant-empty"><p>聘用助理后，办事请求会保留在这里。</p><button type="button" onClick={manage}>聘用助理</button></div>}
+        {pendingFilter === 'unplanned' && inboxFeed.error && <div role="alert" className="vg-assistant-status">{inboxFeed.error}<button type="button" onClick={inboxFeed.retry}>重新读取办事记录</button></div>}
       </div>
     </div>
     {showManagement && character && <Management key={character.id} character={character} open onClose={() => setShowManagement(false)} />}

@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "sceneId": "polar-refuge",
+  "file": "scene.glb",
+  "bytes": 116948,
+  "sha256": "db885675bcbd8d3c5956b8c89dde9a641cb84c67b1f8c68be84a3bccafe8913b",
+  "triangles": 2472,
+  "vertices": 1284,
+  "drawCalls": 2,
+  "geometryBoundsBlender": {
+    "min": [
+      -3.4128823280334473,
+      2.9100000858306885,
+      -7.588691711425781
+    ],
+    "max": [
+      3.4128823280334473,
+      10.600000381469727,
+      7.588691711425781
+    ]
+  },
+  "effectQuad": [
+    [
+      -0.652379,
+      -1.752316,
+      -10.05
+    ],
+    [
+      2.922657,
+      -1.752316,
+      -10.05
+    ],
+    [
+      2.922657,
+      4.932014,
+      -10.05
+    ],
+    [
+      -0.652379,
+      4.932014,
+      -10.05
+    ]
+  ],
+  "lightPoint": [
+    -1.24322,
+    0.771109,
+    -6.3
+  ],
+  "cup": [
+    -0.364449,
+    -0.927571,
+    -2.9
+  ],
+  "camera": {
+    "verticalFovDegrees": 60
+  },
+  "materialStrategy": "Generated native photographic-style art projected on original volumetric fixed-view depth geometry. Approximate window optics, not free-view PBR or ray-traced glass.",
+  "source": {
+    "file": "design/chat-scenes/immersive-20261021/polar-refuge-depth.blend",
+    "sha256": "f958c1a6e81af330cef5dedb81a9139b159cfbdc8ab032ec2c28532006ab3c04",
+    "art": {
+      "file": "design/chat-scenes/immersive-20261021/polar-refuge-source.png",
+      "width": 841,
+      "height": 1870,
+      "sha256": "a2804cc863f731ab4da9878987218c7b6468d07a117653400e548a911519d6eb",
+      "origin": "Built-in image generation; original photographic-style environment artwork, not a Blender render.",
+      "nativeResolution": true,
+      "upscaled": false,
+      "model": "未确认",
+      "reasoning": "未确认"
+    }
+  },
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认",
+  "ambientVolume": {
+    "origin": [
+      -1.194405,
+      -1.501111,
+      -5.0
+    ],
+    "across": [
+      2.38881,
+      0.0,
+      -0.0
+    ],
+    "up": [
+      0.0,
+      2.424871,
+      -0.0
+    ],
+    "depth": [
+      0,
+      0,
+      -2.0
+    ]
+  }
+}

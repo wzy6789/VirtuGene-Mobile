@@ -8,11 +8,12 @@ import { Icon } from '../ui/Icon';
  * - 灵感建议      ↔ 用户自己输入
  * 每一句自然语言都能做到面板里的事，面板只是让用户少打字。
  */
-import { useRef, useState } from 'react';
+import { useLayoutEffect,useRef, useState } from 'react';
 import type { Character, WorldScene } from '../../db/index';
 import { Avatar } from '../ui/Avatar';
 import { Modal } from '../ui/Modal';
 import { SettingsChoices, SettingsGroup, SettingsRow } from '../settings/SettingsUI';
+import { FeedbackNotice } from '../ui/FeedbackNotice';
 
 /* ------------------------------------------------------------------ *
  * 在场人物 chips（§19）
@@ -79,7 +80,7 @@ export function WorldSuggestions({ options, onPick, onDismiss }: {
         <button type="button" className="vg-suggestion-peek" onClick={() => setOpen(true)}>
           <span>灵感</span>
           <b>{options[0]}</b>
-          <i aria-hidden="true">⌃</i>
+          <Icon name="chevron" size={16}/>
         </button>
       </div>
     );
@@ -115,18 +116,23 @@ export type WorldControlAction =
 const TIME_SKIPS = ['过一会儿', '到晚上', '直接到第二天早上', '三天以后'];
 
 export function WorldControlSheet(params: {
+  surface?: 'light-paper';
   open: boolean;
   scene: WorldScene | null;
   onClose: () => void;
   onAction: (action: WorldControlAction) => void;
   busy: boolean;
+  recordMessage?: string;
+  recordFailed?: boolean;
+  canSnapshotOnExit?: () => boolean;
   entryMemoryMode: 'memory' | 'present' | 'amnesiac';
 }) {
   const [confirmFinish, setConfirmFinish] = useState(false);
   if (!params.open) return null;
   const act = (action: WorldControlAction) => { if (!params.busy) params.onAction(action); };
   return <>
-    <Modal open onClose={params.onClose} title="世界偏好" mobileFullHeight panelClassName="vg-settings-panel">
+    <Modal open onClose={params.onClose} canSnapshotOnExit={params.canSnapshotOnExit} title="世界偏好" mobileFullHeight panelClassName={`vg-settings-panel${params.surface==='light-paper'?' vg-light-paper vg-world-control-paper':''}`}
+      footer={params.recordMessage ? <FeedbackNotice tone={params.recordFailed ? 'error' : 'info'} message={params.recordMessage} /> : undefined}>
       <div className="vg-settings-design vg-sheet-content">
         <p className="vg-settings-intro">{params.scene?.place || '当前世界'} · 这些操作只影响当前这一段世界。</p>
         <SettingsGroup title="角色加入时" scope="当前这一段"><SettingsChoices label="角色加入方式" value={params.entryMemoryMode} disabled={params.busy} onChange={mode => act({ kind: 'entry_mode', mode })} options={[{ value: 'memory', title: '带上你们的记忆', detail: '沿用已有的共同经历与关系' }, { value: 'present', title: '从此刻开始参与', detail: '从当前场景开始加入' }, { value: 'amnesiac', title: '失忆设定', detail: '以失忆状态参与这一段世界' }]} /></SettingsGroup>
@@ -143,7 +149,7 @@ export function WorldControlSheet(params: {
         <SettingsGroup title="结束与结算"><div inert={params.busy}><SettingsRow title="结束这一段世界" detail="结算经历与关系变化，之后只可回看" danger icon="world" onClick={() => setConfirmFinish(true)} /></div></SettingsGroup>
       </div>
     </Modal>
-    <Modal presentation="dialog" open={confirmFinish} onClose={() => setConfirmFinish(false)} title="结束这一段世界？" panelClassName="vg-settings-panel"><div className="vg-settings-design"><p className="vg-settings-intro">经历、共同记忆与关系变化会按原有规则结算。这一段结束后只能回看；想稍后继续，请选择“暂时离开”。</p><div className="flex gap-3"><button type="button" className="flex-1 text-sub" onClick={() => setConfirmFinish(false)}>继续参与</button><button type="button" disabled={params.busy} className="flex-1 rounded-xl bg-red-500/15 text-red-400" onClick={() => { act({ kind: 'finish' }); setConfirmFinish(false); }}>确认结束</button></div></div></Modal>
+    <Modal presentation="dialog" open={confirmFinish} onClose={() => setConfirmFinish(false)} canSnapshotOnExit={params.canSnapshotOnExit} title="结束这一段世界？" panelClassName={`vg-settings-panel${params.surface==='light-paper'?' vg-light-paper vg-world-control-paper':''}`}><div className="vg-settings-design"><p className="vg-settings-intro">经历、共同记忆与关系变化会按原有规则结算。这一段结束后只能回看；想稍后继续，请选择“暂时离开”。</p><div className="flex gap-3"><button type="button" className="flex-1 text-sub" onClick={() => setConfirmFinish(false)}>继续参与</button><button type="button" disabled={params.busy} className="flex-1 rounded-xl bg-red-500/15 text-red-400" onClick={() => { act({ kind: 'finish' }); setConfirmFinish(false); }}>确认结束</button></div></div></Modal>
   </>;
 }
 
@@ -161,13 +167,19 @@ export function WorldComposer(params: {
   aiDetail: string | null;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const availability = useRef<HTMLDetailsElement>(null);
+  useLayoutEffect(()=>{
+    const input=ref.current;if(!input)return;
+    input.style.height='auto';
+    input.style.height=`${Math.max(44,Math.min(input.scrollHeight,160))}px`;
+  },[params.value]);
   const send = () => {
     if (params.busy) return;
     params.onSend();
   };
   return (
     <div className="vg-composer">
-      {params.aiDetail && <p className="vg-composer-warn">{params.aiDetail}</p>}
+      {params.aiDetail && <details ref={availability} className="vg-composer-availability"><summary>模型暂不可用<Icon name="chevron" size={16}/></summary><p className="vg-composer-warn">{params.aiDetail}</p></details>}
       <div className="vg-search-field vg-composer-row">
         <button type="button" className="vg-composer-control" onClick={params.onOpenControls} aria-label="世界控制">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
@@ -181,7 +193,7 @@ export function WorldComposer(params: {
           rows={1}
           aria-label="世界消息内容"
           value={params.value}
-          onFocus={params.onFocusInput}
+          onFocus={()=>{if(availability.current)availability.current.open=false;params.onFocusInput?.();}}
           onClick={params.onFocusInput}
           onChange={(e) => params.onChange(e.target.value)}
           onKeyDown={(e) => {
@@ -204,9 +216,7 @@ export function WorldComposer(params: {
           {params.busy ? (
             <span className="vg-composer-thinking" aria-hidden="true"><i /><i /><i /></span>
           ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M5 12h13M13 6l6 6-6 6" />
-            </svg>
+            <Icon name="send" size={20}/>
           )}
         </button>
       </div>

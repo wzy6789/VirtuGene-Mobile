@@ -1,0 +1,41 @@
+/* Local starfield material: the semantic nodes remain separate from the room art. */
+.vg-world-constellation .vg-starfield-tools{display:grid;gap:8px;margin-top:14px}
+.vg-starfield-search{display:flex;align-items:center;gap:10px;min-width:0;min-height:48px;padding:0 12px;border:1px solid var(--vg-glass-edge,var(--border));border-radius:16px;background:var(--vg-glass-content-bg,var(--bg-panel));box-shadow:inset 0 1px 0 var(--vg-glass-highlight,var(--vg-elev-highlight))}
+.vg-starfield-search>svg{flex:none;color:var(--text-secondary)}
+.vg-starfield-search input{flex:1;min-width:0;width:100%;border:0;outline:0;background:transparent;color:var(--text);font:inherit;font-size:max(14px,.875rem);line-height:1.5;padding:12px 0}
+.vg-starfield-search input::placeholder{color:var(--text-secondary);opacity:1}
+.vg-starfield-search input::-webkit-search-cancel-button{display:none}
+.vg-starfield-search:focus-within{outline:2px solid var(--vg-accent);outline-offset:2px}
+.vg-starfield-search>button{display:grid;place-items:center;flex:none;min-width:44px;min-height:44px;margin-right:-8px;border:0;border-radius:12px;background:transparent;color:var(--text-secondary)}
+.vg-starfield-tool-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.vg-starfield-tool-actions>button{min-height:44px;min-width:44px;padding:8px 12px;border:0;border-radius:12px;background:transparent;color:var(--text-secondary);font:inherit;font-size:max(13px,.8125rem);line-height:1.5}
+.vg-world-constellation .vg-starfield-filters{gap:6px;border:0;padding:6px 0 0}
+.vg-world-constellation .vg-starfield-filters>button{position:relative;isolation:isolate;min-height:44px;background:transparent;color:var(--text-secondary)}
+.vg-world-constellation .vg-starfield-filters>button::before{content:'';position:absolute;inset:3px 0;z-index:-1;border:1px solid transparent;border-radius:12px;background:transparent;transition:transform 140ms ease}
+.vg-world-constellation .vg-starfield-filters>button[aria-pressed=true]{background:transparent;color:var(--text)}
+.vg-world-constellation .vg-starfield-filters>button[aria-pressed=true]::before{border-color:var(--vg-glass-edge,var(--border));background:var(--vg-glass-control-bg,var(--bg-surface));box-shadow:inset 0 1px 0 var(--vg-glass-highlight,var(--vg-elev-highlight))}
+.vg-world-constellation .vg-starfield-map{height:clamp(200px,55vw,244px);margin-top:10px;border-color:var(--vg-glass-edge,var(--border));border-radius:22px;box-shadow:inset 0 1px 0 var(--vg-glass-highlight,#fff2),var(--vg-glass-shadow,0 12px 28px #0002)}
+.vg-world-constellation .vg-starfield-marker{width:min(92px,27%);min-height:64px;gap:8px}
+.vg-world-constellation .vg-starfield-marker-title{max-width:100%;font-size:max(14px,.875rem);line-height:1.5;letter-spacing:0;padding:5px 8px;border-color:var(--vg-glass-edge,#b6c9e24d);border-radius:11px;background:var(--vg-glass-content-bg,var(--bg-panel));color:var(--text);box-shadow:inset 0 1px 0 var(--vg-glass-highlight,#ffffff15),0 3px 10px #0003}
+.vg-world-constellation .vg-starfield-marker[aria-pressed=true] .vg-starfield-marker-title{border-color:color-mix(in srgb,var(--vg-accent) 60%,var(--border));background:var(--vg-action);color:var(--vg-on-action,#fff)}
+.vg-world-constellation .vg-starfield-caption{position:static;width:auto;height:auto;clip-path:none;white-space:normal;overflow:visible;margin:8px 2px 0;padding:0;font-size:max(12px,.75rem);line-height:1.6;color:var(--text-secondary)}
+.vg-starfield-map-empty{position:absolute;left:12px;right:12px;bottom:16px;z-index:3;display:block;width:fit-content;max-width:calc(100% - 24px);margin:0 auto;padding:8px 12px;border:1px solid var(--vg-glass-edge,#fff2);border-radius:12px;background:var(--vg-glass-content-bg,var(--bg-panel));color:var(--text);font-size:max(14px,.875rem);line-height:1.5}
+.vg-world-constellation :is(.vg-starfield-add,.vg-starfield-directory){position:relative;isolation:isolate;border-color:transparent;background:transparent;box-shadow:none}
+.vg-world-constellation :is(.vg-starfield-add,.vg-starfield-directory)::before{content:'';position:absolute;inset:0;z-index:-1;border:1px solid var(--vg-glass-edge,var(--border));border-radius:inherit;background:var(--vg-glass-control-bg,var(--bg-panel));box-shadow:inset 0 1px 0 var(--vg-glass-highlight,var(--vg-elev-highlight)),var(--vg-glass-shadow,var(--vg-elev-shadow-1));transition:transform 140ms ease}
+.vg-starfield-page .vg-world-constellation :is(.vg-starfield-add,.vg-starfield-directory):active:not(:disabled){transform:none}
+.vg-world-constellation :is(.vg-starfield-add,.vg-starfield-directory):active:not(:disabled)::before,.vg-world-constellation .vg-starfield-filters>button:active::before{transform:scale(.97)}
+.vg-world-constellation .vg-starfield-context .vg-world-resume{background:transparent;box-shadow:none;border:1px solid var(--vg-glass-edge,var(--border))}
+.vg-world-constellation .vg-starfield-context .vg-world-resume::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;background:linear-gradient(135deg,color-mix(in srgb,var(--vg-accent) 6%,transparent),transparent 68%),var(--vg-glass-content-bg,var(--bg-panel));box-shadow:inset 0 1px 0 var(--vg-glass-highlight,var(--vg-elev-highlight)),var(--vg-glass-shadow,var(--vg-elev-shadow-1))}
+.vg-world-constellation .vg-starfield-archives{margin-top:20px}
+.vg-world-constellation .vg-starfield-records{margin-top:18px}
+.vg-world-constellation .vg-starfield-records>summary{color:var(--text);font-size:max(15px,.9375rem)}
+.vg-starfield-records>summary>span{margin-left:auto;color:var(--text-secondary);font-size:max(13px,.8125rem);font-variant-numeric:tabular-nums}
+.vg-world-constellation .vg-starfield-scene{position:relative;isolation:isolate;border-radius:14px;padding-inline:8px;overflow:hidden}
+.vg-world-constellation .vg-starfield-scene[aria-pressed=true]{background:transparent}
+.vg-world-constellation .vg-starfield-scene[aria-pressed=true]::before{content:'';position:absolute;inset:4px 0;z-index:-1;border:1px solid var(--vg-glass-edge,var(--border));border-radius:14px;background:var(--vg-glass-control-bg,var(--bg-surface));box-shadow:inset 0 1px 0 var(--vg-glass-highlight,var(--vg-elev-highlight))}
+.vg-world-constellation :is(button,summary):focus-visible{outline:2px solid var(--vg-accent);outline-offset:3px}
+.vg-world-constellation .vg-starfield-marker:focus-visible{outline-color:#eff4ff}
+.vg-world-constellation .vg-starfield-empty{padding:18px 8px}
+@media(max-height:700px){.vg-world-constellation .vg-starfield-map{height:180px}.vg-world-constellation .vg-starfield-tools{margin-top:10px;gap:2px}}
+@media(prefers-reduced-motion:reduce){.vg-world-constellation :is(.vg-starfield-add,.vg-starfield-directory)::before,.vg-world-constellation .vg-starfield-filters>button::before{transition:none;transform:none!important}}
+html[data-vg-reduced-motion=true] .vg-world-constellation :is(.vg-starfield-add,.vg-starfield-directory)::before,html[data-vg-reduced-motion=true] .vg-world-constellation .vg-starfield-filters>button::before{transition:none;transform:none!important}

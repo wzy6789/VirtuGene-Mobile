@@ -1,3 +1,5 @@
+import type { CallInputMode } from './input';
+
 export type CallPhase = 'initializing' | 'connecting' | 'listening' | 'recognizing' | 'generating' | 'playing' | 'interrupting' | 'paused' | 'error' | 'ended';
 export interface CallTurn {
   id: string;
@@ -6,6 +8,9 @@ export interface CallTurn {
 }
 export interface SpokenSegment {
   playbackSampleRate?: number;
+  /** Cumulative native-track frame boundaries; end absent until synthesis has finished writing. */
+  playbackStartFrame?: number;
+  playbackEndFrame?: number;
   id: string;
   turnId: string;
   text: string;
@@ -18,7 +23,7 @@ export interface SpokenSegment {
 const transitions: Record<CallPhase, readonly CallPhase[]> = {
   initializing: ['connecting', 'error', 'ended'],
   connecting: ['listening', 'paused', 'error', 'ended'],
-  listening: ['recognizing', 'interrupting', 'paused', 'error', 'ended'],
+  listening: ['recognizing', 'generating', 'interrupting', 'paused', 'error', 'ended'],
   recognizing: ['generating', 'listening', 'interrupting', 'paused', 'error', 'ended'],
   generating: ['playing', 'listening', 'interrupting', 'paused', 'error', 'ended'],
   playing: ['generating', 'listening', 'interrupting', 'paused', 'error', 'ended'],
@@ -41,13 +46,13 @@ export class CallLifecycle {
     if (!transitions[this.phase].includes(phase)) throw new Error(`voice:transition:${this.phase}:${phase}`);
     this.phase = phase;
   }
-  beginTurn(): CallTurn {
+  beginTurn(inputMode: CallInputMode = 'voice'): CallTurn {
     if (!['listening', 'interrupting'].includes(this.phase)) throw new Error('voice:turn_not_ready');
     this.invalidate();
     this.controller = new AbortController();
     this.turn = { id: `${this.callId}:${this.generation}`, generation: this.generation, signal: this.controller.signal };
     this.transition(this.phase === 'interrupting' ? 'listening' : this.phase);
-    this.transition('recognizing');
+    this.transition(inputMode === 'text' ? 'generating' : 'recognizing');
     return this.turn;
   }
   isCurrent(turn: CallTurn): boolean {

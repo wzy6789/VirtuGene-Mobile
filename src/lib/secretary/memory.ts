@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 import { db, type MemoryItem, type Message } from '../../db';
 import { memoryRepo } from '../../db/memory-repo';
 import { memorySourceTombstoneId, memorySourceTombstoneRepo } from '../../db/memory-source-tombstone-repo';
@@ -25,6 +26,7 @@ export interface SecretaryMemoryReferences {
 }
 const normalize = (s: string) => s.normalize('NFKC').toLowerCase().replace(/[\s，。！？、:：,.!?]/gu, '');
 const correction = /其实|更正|纠正|改成|改为|不再|现在|以前|不是/u;
+const followupCorrection = /不是|不对|更正|纠正|改成|改为|更新为|应该是|说错|准确地说/u;
 
 async function owner(userId: string, characterId: string) {
   if (!userId || useAuthStore.getState().userId !== userId) throw new Error('账号已切换，请重新打开助理记忆。');
@@ -37,10 +39,15 @@ async function owner(userId: string, characterId: string) {
 /** The account's assistant workspace survives renaming, new sessions and re-hiring. */
 export async function readSecretaryMemories(userId: string, characterId: string): Promise<MemoryItem[]> {
   await owner(userId, characterId);
-  const sessions = await db.sessions.where('[characterId+userId]').equals([characterId, userId]).filter(s => s.type !== 'group').toArray();
-  const sessionIds = new Set(sessions.map(s => s.id));
   const rows = await db.memories.where('characterId').equals(characterId)
     .filter(m => m.userId === userId && (m.status ?? 'active') === 'active' && !m.importedFromMemoryId && m.type === 'auto').toArray();
+  return validateMemoryRows(userId, characterId, rows);
+}
+
+/** Both listing and final validation use fresh evidence; selected checks read only their IDs. */
+async function validateMemoryRows(userId: string, characterId: string, candidates: (MemoryItem | undefined)[]): Promise<MemoryItem[]> {
+  const rows = candidates.filter((row): row is MemoryItem => !!row && row.characterId === characterId && row.userId === userId
+    && (row.status ?? 'active') === 'active' && !row.importedFromMemoryId && row.type === 'auto');
   // Batch evidence reads: one shared source need not be read once per remembered fact.
   const ids = [...new Set(rows.flatMap(row => row.sourceMessageIds ?? []))];
   const [sourceRows, tombstones] = await Promise.all([
@@ -50,6 +57,8 @@ export async function readSecretaryMemories(userId: string, characterId: string)
     ]),
   ]);
   const sources = new Map(sourceRows.filter((m): m is Message => !!m).map(m => [m.id, m]));
+  const sessions = await db.sessions.bulkGet([...new Set([...rows.flatMap(row => row.sourceSessionId ? [row.sourceSessionId] : []), ...[...sources.values()].map(source => source.sessionId)])]);
+  const sessionIds = new Set(sessions.filter(s => s?.userId === userId && s.characterId === characterId && s.type !== 'group').map(s => s!.id));
   const revoked = new Map(tombstones.filter((row): row is NonNullable<typeof row> => !!row).map(row => [`${row.sourceType}:${row.sourceId}`, row]));
   const blocked = (kind: 'memory' | 'message', id: string, revision: number) => {
     const row = revoked.get(`${kind}:${id}`);
@@ -103,7 +112,7 @@ export function validateSecretaryMemories(raw: unknown, request: string): Secret
 
 export const SECRETARY_MEMORY_PROMPT = `你有用户私人助理工作区的连续记忆，跨会话及聘用保留。旧助理办过的事是工作区记录，不冒称当前助理亲历。
 当前用户要求优先；记忆只辅助理解，不能授权执行、自动提醒、发布或修改设置。办事习惯仍以用户已保存的设置为准，记忆中的格式偏好可用于写作但不能改变权限、时间或受众。
-按当前话题使用记忆，不每次复述同一件事、追问或催办；用户换题就跟随。历史消息的日期只说明当时说过，不把计划当作已完成，不把旧安排当作今天。
+按当前话题使用记忆，不每次复述同一件事、追问或催办；用户换题就跟随。历史消息的日期只说明当时说过，不把计划当作已完成，不把旧安排当作今天。previousUserMessages中的followsMessageId表示紧随原话的用户更正，按原对话理解是否修正同一事项，不能只采用被更正前的时间、地点或事实。
 character.message.send的currentState以dispatch-receipt开头时，只是原始代发办事回执的状态，不含角色私聊正文。draft/needs-model/paused都不能说已发送，queued/generating不能说已有回复。需要具体回复时引导用户查看原代发卡片，不能编造正文或用回执推断对方当前态度。
 responsePreferences是用户的表达要求，持续用于称呼和文风，不每次朗读或复述。按当前要求优先调整。旧交流与事实应结合当前问法理解；“你记得我在哪上班吗”可以使用已核验的工作事实，不要求用户复述地点。召回类别仅为查找线索，不能推断未说过的信息。retrieval中的数量与limited说明本次资料覆盖范围，没有命中只说明本次没找到，不能断言用户从未告诉过你。
 可以额外输出 memories:[{kind:"fact或preference",quote:"当前用户消息中逐字连续引用",replacesId:"明确纠正时才填写资料中旧记忆的真实ID"}]，没有可记内容时省略。
@@ -177,23 +186,31 @@ export async function assertSecretaryMemoryReferences(task: SecretaryTask, diary
   const refs = task.memoryReferences;
   if (!refs) return;
   if (refs.requiresDiaryUnlocked && !diaryUnlocked) throw new Error('日记已重新锁定，请解锁后再查询。');
-  const live = new Map((await readSecretaryMemories(task.userId, task.characterId)).map(row => [row.id, row]));
+  await owner(task.userId, task.characterId);
+  const live = new Map((await validateMemoryRows(task.userId, task.characterId, await db.memories.bulkGet(refs.memoryIds))).map(row => [row.id, row]));
   for (const id of refs.memoryIds) {
     const row = live.get(id);
     if (!row || refs.memoryVersions?.[id] !== (row.updatedAt ?? row.createdAt)) throw new Error('记忆已修改或忘记，请重新发送这次请求。');
   }
-  const suppressed = await memorySourceTombstoneRepo.suppressedMessages(task.userId, task.characterId);
-  const sessions = new Set((await db.sessions.where('[characterId+userId]').equals([task.characterId, task.userId]).filter(s => s.type !== 'group').primaryKeys()));
-  for (const id of refs.messageIds) {
-    const row = await db.messages.get(id);
-    if (!row || row.failed || !sessions.has(row.sessionId) || suppressed.has(id) || suppressed.has(id.replace(/^secretary-reply:/u, ''))
+  const [messages, tasks] = await Promise.all([db.messages.bulkGet(refs.messageIds), db.secretaryTasks.bulkGet(refs.taskIds)]);
+  const taskSources = await db.messages.bulkGet(tasks.map(row => row?.messageId ?? ''));
+  const sessionRows = await db.sessions.bulkGet([...new Set([...messages, ...taskSources].flatMap(row => row ? [row.sessionId] : []))]);
+  const sessions = new Set(sessionRows.filter(row => row?.userId === task.userId && row.characterId === task.characterId && row.type !== 'group').map(row => row!.id));
+  const selected = [...new Set([...refs.messageIds.flatMap(id => [id, id.replace(/^secretary-reply:/u, '')]), ...taskSources.flatMap(row => row ? [row.id] : [])])];
+  const [suppressed, blocked] = await Promise.all([
+    memorySourceTombstoneRepo.selectedSuppressedMessages(task.userId, task.characterId, selected),
+    memorySourceTombstoneRepo.blocksImports([...messages, ...taskSources].flatMap(row => row ? [{ userId: task.userId, sourceType: 'message' as const, sourceId: row.id, sourceRevision: row.revision ?? 1 }] : [])),
+  ]);
+  const blockedIds = new Set([...messages, ...taskSources].filter((row): row is Message => !!row).filter((_row, index) => blocked[index]).map(row => row.id));
+  for (let index = 0; index < refs.messageIds.length; index++) {
+    const id = refs.messageIds[index], row = messages[index];
+    if (!row || row.failed || !sessions.has(row.sessionId) || blockedIds.has(id) || suppressed.has(id) || suppressed.has(id.replace(/^secretary-reply:/u, ''))
       || refs.messageVersions?.[id] !== (row.revision ?? 1)) throw new Error('旧交流资料已变化，请重新发送这次请求。');
   }
-  for (const id of refs.taskIds) {
-    const row = await db.secretaryTasks.get(id);
-    const source = row ? await db.messages.get(row.messageId) : undefined;
+  for (let index = 0; index < refs.taskIds.length; index++) {
+    const id = refs.taskIds[index], row = tasks[index], source = taskSources[index];
     if (!row || row.userId !== task.userId || row.characterId !== task.characterId || row.updatedAt !== refs.taskVersions?.[id]
-      || !source || source.role !== 'user' || source.failed || source.content !== row.request || suppressed.has(source.id)
+      || !source || source.role !== 'user' || source.failed || source.content !== row.request || blockedIds.has(source.id) || suppressed.has(source.id) || !sessions.has(source.sessionId)
       || source.sessionId !== row.sessionId || refs.taskSourceVersions?.[id] !== (source.revision ?? 1)) throw new Error('任务进展已变化，请重新查询后继续。');
   }
   for (const ref of refs.recordVersions ?? []) {
@@ -202,6 +219,7 @@ export async function assertSecretaryMemoryReferences(task: SecretaryTask, diary
     if (ref.version === null && ref.kind === 'todoOccurrence' && !row) continue;
     if (!row || row.userId !== task.userId || row.updatedAt !== ref.version) throw new Error('办事记录已更新，请重新查询当前进度。');
   }
+  await owner(task.userId, task.characterId);
 }
 
 const relevance = secretaryRecallScore;
@@ -243,6 +261,27 @@ export async function buildSecretaryMemoryContext(task: SecretaryTask, recent: M
   await owner(task.userId, task.characterId);
   const all = await readSecretaryMemories(task.userId, task.characterId);
   const byId = new Map(all.map(m => [m.id, m]));
+  const retired = await db.memories.where('characterId').equals(task.characterId)
+    .filter(m => m.userId === task.userId && m.status === 'superseded').toArray();
+  // Preserve stored history, but do not reintroduce a corrected fact through raw recall.
+  // Only the exact original evidence segment at its recorded revision is hidden.
+  const retiredBySource = new Map<string, MemoryItem[]>();
+  for (const memory of retired) for (const id of memory.sourceMessageIds ?? []) {
+    const entries = retiredBySource.get(id) ?? []; entries.push(memory); retiredBySource.set(id, entries);
+  }
+  const withoutRetiredEvidence = (message: Message): Message => {
+    const spans = (retiredBySource.get(message.id) ?? []).flatMap(memory => {
+      const start = memory.sourceMessageOffsets?.[message.id];
+      const end = memory.sourceMessageEndOffsets?.[message.id] ?? (start === undefined ? undefined : start + memory.content.length);
+      return start !== undefined && end !== undefined && memory.sourceMessageRevisions?.[message.id] === (message.revision ?? 1)
+        && message.content.slice(start, end) === memory.content ? [{ start, end }] : [];
+    }).sort((a, b) => b.start - a.start);
+    let content = message.content, previousStart = Infinity;
+    for (const span of spans) if (span.end <= previousStart) {
+      content = content.slice(0, span.start) + '[这段旧信息已更正]' + content.slice(span.end); previousStart = span.start;
+    }
+    return content === message.content ? message : { ...message, content };
+  };
   const suppressed = await memorySourceTombstoneRepo.suppressedMessages(task.userId, task.characterId);
   const sessions = await db.sessions.where('[characterId+userId]').equals([task.characterId, task.userId]).filter(s => s.type !== 'group').toArray();
   const owned = new Set(sessions.map(s => s.id));
@@ -250,7 +289,7 @@ export async function buildSecretaryMemoryContext(task: SecretaryTask, recent: M
   const safeRecent = recent.filter(m => owned.has(m.sessionId) && m.id !== task.messageId && !m.failed && !suppressed.has(m.id)
     && m.createdAt <= cutoff && !suppressed.has(m.id.replace(/^secretary-reply:/u, ''))
     && !(m.role === 'user' && parseSecretaryMemoryCommand(m.content)?.kind === 'forget')
-    && !(m.contextTrace?.memoryIds ?? []).some(id => !byId.has(id) || (byId.get(id)!.updatedAt ?? 0) > m.contextTrace!.at));
+    && !(m.contextTrace?.memoryIds ?? []).some(id => !byId.has(id) || (byId.get(id)!.updatedAt ?? 0) > m.contextTrace!.at)).map(withoutRetiredEvidence);
   const recentTasks = (await db.secretaryTasks.bulkGet(recent.map(m => `secretary-task:${task.userId}:${m.id.replace(/^secretary-reply:/u, '')}`))).filter((t): t is SecretaryTask => !!t && t.userId === task.userId && t.characterId === task.characterId);
   const lockedTopics = new Set(diaryUnlocked ? [] : recentTasks.filter(diaryProtectedTask).map(t => t.messageId));
   const query = secretaryRecallQuery(task.request, [...safeRecent].reverse().find(m => m.role === 'user' && !lockedTopics.has(m.id))?.content);
@@ -269,7 +308,7 @@ export async function buildSecretaryMemoryContext(task: SecretaryTask, recent: M
   const messages = candidates.messages.filter(m => owned.has(m.sessionId) && m.role === 'user' && !m.failed && m.id !== task.messageId && m.createdAt <= cutoff
     && !recentIds.has(m.id) && !suppressed.has(m.id) && parseSecretaryMemoryCommand(m.content)?.kind !== 'forget');
   for (const message of messages) {
-    const content = remainingEvidence(message, all);
+    const content = remainingEvidence(withoutRetiredEvidence(message), all);
     if (relevance(content, query) > 0 && !await memorySourceTombstoneRepo.blocksImport({ userId: task.userId, sourceType: 'message', sourceId: message.id, sourceRevision: message.revision ?? 1 })) historic.push({ ...message, content });
   }
   historic.sort((a, b) => relevance(b.content, query) - relevance(a.content, query) || b.createdAt - a.createdAt);
@@ -346,7 +385,7 @@ export async function buildSecretaryMemoryContext(task: SecretaryTask, recent: M
   }
   // One bounded payload, with only complete selected entries referenced in the receipt.
   const refs: SecretaryMemoryReferences = { memoryIds: [], messageIds: [], taskIds: [], memoryVersions: {}, messageVersions: {}, taskVersions: {}, taskSourceVersions: {}, recordVersions: [] };
-  const data: { memories: { id: string; kind?: string; content: string }[]; responsePreferences: { id: string; content: string }[]; previousUserMessages: { id: string; date: string; content: string }[]; taskProgress: typeof receipts } = { memories: [], responsePreferences: [], previousUserMessages: [], taskProgress: [] };
+  const data: { memories: { id: string; kind?: string; content: string }[]; responsePreferences: { id: string; content: string }[]; previousUserMessages: { id: string; date: string; content: string; followsMessageId?: string }[]; taskProgress: typeof receipts } = { memories: [], responsePreferences: [], previousUserMessages: [], taskProgress: [] };
   let budget = 5000;
   const add = (value: unknown) => { const size = JSON.stringify(value).length; if (size > budget) return false; budget -= size; return true; };
   for (const row of memories) { const value = { id: row.id, kind: row.memoryKind, content: row.content }; if (add(value)) { data.memories.push(value); refs.memoryIds.push(row.id); refs.memoryVersions![row.id] = row.updatedAt ?? row.createdAt; } }
@@ -369,12 +408,33 @@ export async function buildSecretaryMemoryContext(task: SecretaryTask, recent: M
   // the task. Derived drafts and pending requests need the same lock as diaries.
   const diaryTaskIds = new Set([...tasks, ...recentTasks, ...historicTasks].filter(diaryProtectedTask).map(t => t.messageId));
   if (diaryUnlocked && safeRecent.some(m => diaryTaskIds.has(m.id.replace(/^secretary-reply:/u, '')))) refs.requiresDiaryUnlocked = true;
+  let historicGroups = 0;
   for (const row of historic) {
-    if (!diaryUnlocked && diaryTaskIds.has(row.id) || data.previousUserMessages.length >= 4) continue;
-    const value = { id: row.id, date: localDateKey(new Date(row.createdAt)), content: evidenceExcerpt(row.content, query) };
-    if (add(value)) {
-      data.previousUserMessages.push(value); refs.messageIds.push(row.id); refs.messageVersions![row.id] = row.revision ?? 1;
-      refs.requiresDiaryUnlocked ||= diaryTaskIds.has(row.id);
+    if (!diaryUnlocked && diaryTaskIds.has(row.id) || historicGroups >= 4 || refs.messageIds.includes(row.id)) continue;
+    historicGroups++;
+    // Corrections often omit the project name. Read only the three adjoining
+    // user turns of a selected hit, including equal timestamps via the ID cursor.
+    const adjoiningRows = await db.messages.where('[sessionId+createdAt+id]')
+      .between([row.sessionId, row.createdAt, row.id], [row.sessionId, cutoff, Dexie.maxKey], false, true)
+      .limit(12).toArray();
+    const adjoining = adjoiningRows.filter(m => m.role === 'user' && !m.failed).slice(0, 3);
+    const following = adjoining.filter(m => m.id !== task.messageId && !suppressed.has(m.id) && followupCorrection.test(m.content)
+      && !parseSecretaryMemoryCommand(m.content) && !refs.messageIds.includes(m.id));
+    const [followingTasks, blocked] = await Promise.all([
+      db.secretaryTasks.bulkGet(following.map(m => `secretary-task:${task.userId}:${m.id}`)),
+      memorySourceTombstoneRepo.blocksImports(following.map(m => ({ userId: task.userId, sourceType: 'message' as const, sourceId: m.id, sourceRevision: m.revision ?? 1 }))),
+    ]);
+    const safeFollowing = following.filter((_m, index) => !blocked[index] && (diaryUnlocked || !followingTasks[index] || !diaryProtectedTask(followingTasks[index]!)))
+      .map(m => ({ ...m, content: remainingEvidence(withoutRetiredEvidence(m), all) })).filter(m => !!m.content);
+    const group = [row, ...safeFollowing];
+    const values = group.map(m => ({ id: m.id, date: localDateKey(new Date(m.createdAt)), content: evidenceExcerpt(m.content, query),
+      ...(m.id === row.id ? {} : { followsMessageId: row.id }) }));
+    // Keep the original and its corrections together when the budget is tight.
+    if (!add(values)) continue;
+    data.previousUserMessages.push(...values);
+    for (const m of group) {
+      refs.messageIds.push(m.id); refs.messageVersions![m.id] = m.revision ?? 1;
+      refs.requiresDiaryUnlocked ||= diaryTaskIds.has(m.id) || !!followingTasks.find(t => t?.messageId === m.id && diaryProtectedTask(t));
     }
   }
   const visibleRecent = safeRecent.filter(m => diaryUnlocked || !diaryTaskIds.has(m.id.replace(/^secretary-reply:/u, '')));

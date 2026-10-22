@@ -4,6 +4,7 @@ import { memoryRepo } from '../../db/memory-repo';
 import { memoryKindLabel } from '../../lib/memory-engine';
 import { Icon } from '../ui/Icon';
 import { animateVisual } from '../../lib/ui-visual-motion';
+import { LoadingSkeleton } from '../ui/LoadingSkeleton';
 
 function pickFragments(pool:MemoryItem[],previous:MemoryItem[]=[]):MemoryItem[] {
   const shuffled=[...pool];
@@ -41,7 +42,7 @@ export function RoleMemoryPreview({character,userId,refresh,onArchive,onStory}:{
   };
   return <div className="vg-role-memory">
     <div className="vg-role-memory-heading"><h3>记忆碎片</h3><button className="vg-role-memory-refresh" onClick={changeBatch} disabled={pool.length<2||rows===null}><Icon name="refresh" size={16}/>换一批</button></div>
-    {failed ? <div className="vg-role-memory-empty" role="alert"><p>暂时没有读取到记忆。</p><button className="vg-button vg-button-ghost" onClick={()=>setAttempt(n=>n+1)}>重试</button></div> : rows===null ? <p className="vg-role-memory-empty" role="status">正在拾起记忆…</p> : rows.length ? <ul ref={listRef} className="vg-role-memory-list" aria-label="记忆碎片">{rows.map((row,index)=><li key={row.id} data-fragment={index} style={{'--fragment-offset':`${Math.round((layout[index]??0)*14)}px`,'--fragment-tilt':`${((layout[index]??0)-.5)*5}deg`} as CSSProperties}>
+    {failed ? <div className="vg-role-memory-empty" role="alert"><p>暂时没有读取到记忆。</p><button className="vg-button vg-button-ghost" onClick={()=>setAttempt(n=>n+1)}>重试</button></div> : rows===null ? <LoadingSkeleton label="正在拾起记忆" rows={3} /> : rows.length ? <ul ref={listRef} className="vg-role-memory-list" aria-label="记忆碎片">{rows.map((row,index)=><li key={row.id} data-fragment={index} style={{'--fragment-offset':`${Math.round((layout[index]??0)*14)}px`,'--fragment-tilt':`${((layout[index]??0)-.5)*5}deg`} as CSSProperties}>
       <svg className="vg-memory-glass" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">
         <defs><linearGradient id={`${glassId}-${index}`} x1="0" y1="0" x2="1" y2="1"><stop stopColor="var(--fragment-light)"/><stop offset=".42" stopColor="var(--bg-panel)"/><stop offset="1" stopColor="var(--fragment-depth)"/></linearGradient></defs>
         <polygon points={['8,1 84,5 99,28 92,81 69,99 5,91 1,34','1,21 29,1 91,9 99,73 78,99 14,92 4,60','14,1 95,17 99,58 84,99 3,88 1,33'][index]} fill={`url(#${glassId}-${index})`} stroke="var(--fragment-edge)" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
@@ -49,7 +50,7 @@ export function RoleMemoryPreview({character,userId,refresh,onArchive,onStory}:{
       </svg>
       <div><span>{row.pinned?'重点记忆':memoryKindLabel(row.memoryKind)}</span><time dateTime={new Date(row.createdAt).toISOString()}>{new Date(row.createdAt).toLocaleDateString('zh-CN',{month:'numeric',day:'numeric'})}</time></div><p>{row.content}</p><span className="vg-role-memory-fragment-number" aria-hidden="true">0{index+1}</span></li>)}</ul> : <p className="vg-role-memory-empty">还没有留下记忆。聊过的偏好、约定与经历，会慢慢留在这里。</p>}
     <div className="vg-role-memory-links">
-      <button onClick={onArchive}><Icon name="diary" size={18}/><span><strong>查看记忆档案</strong><small>完整记录、来源与管理</small></span><Icon name="chevron" size={16}/></button>
+      <button onClick={onArchive}><Icon name="diary" size={18}/><span><strong>查看记忆档案</strong><small>最近记录、来源与管理</small></span><Icon name="chevron" size={16}/></button>
       <button onClick={onStory}><Icon name="clock" size={18}/><span><strong>我们的故事</strong><small>沿时间回看相识与共同经历</small></span><Icon name="chevron" size={16}/></button>
     </div>
   </div>;

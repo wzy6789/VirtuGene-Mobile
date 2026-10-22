@@ -69,6 +69,11 @@ export function clearPersistedApiKey(): void {
 
 const SECRET_PREFIX = 'virtugene-secret-';
 
+/** Includes malformed records so callers can distinguish absence from corruption. */
+export function hasSecretRecord(name: string): boolean {
+  return localStorage.getItem(SECRET_PREFIX + name) !== null;
+}
+
 /** Configuration presence for UI gates; actual requests still decrypt and validate. */
 export function hasStoredSecret(name: string): boolean {
   try {

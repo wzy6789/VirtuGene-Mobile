@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "sceneId": "home-bedroom",
+  "designWidth": 1440,
+  "designHeight": 3200,
+  "camera": {
+    "location": [
+      0.07999999821186066,
+      -6.099999904632568,
+      2.5
+    ],
+    "rotation": [
+      1.4222477674484253,
+      8.671883766631083e-10,
+      0.01088392361998558
+    ],
+    "lens": 31,
+    "sensorFit": "VERTICAL",
+    "sensorHeight": 36
+  },
+  "windowPolygon": [
+    [
+      980.334,
+      1582.049
+    ],
+    [
+      1448.589,
+      1582.77
+    ],
+    [
+      1470.907,
+      1018.191
+    ],
+    [
+      988.294,
+      1018.509
+    ]
+  ],
+  "effectArea": "window",
+  "lightCenter": [
+    1121.11,
+    1598.619
+  ],
+  "layers": [
+    "base",
+    "casing",
+    "foreground",
+    "table"
+  ],
+  "provenance": "Original procedural Blender geometry and shaders, offline Cycles render, no imported stock or generated imagery.",
+  "lightRect": [
+    771,
+    1149,
+    700,
+    900
+  ]
+}

@@ -1,0 +1,33 @@
+import Dexie from 'dexie';
+import {db} from '../../src/db';
+import {memorySourceTombstoneRepo as repo} from '../../src/db/memory-source-tombstone-repo';
+Object.assign(window,{historyIndexChecks:async()=>{
+ const checks:string[]=[];const check=(ok:boolean,name:string)=>{if(!ok)throw Error(name);checks.push(name);};
+ await db.delete();
+ const legacy=new Dexie(db.name);
+ legacy.version(38).stores(Object.fromEntries(db.tables.map(t=>[t.name,t.name==='memorySourceTombstones'?'id,userId,sourceType,sourceId,[userId+sourceType+sourceId],updatedAt':[t.schema.primKey.src,...t.schema.indexes.map(i=>i.src)].join(',')])));
+ await legacy.open();
+ const rows=Array.from({length:8105},(_,i)=>({id:'old-'+i,userId:'u',sourceType:'message',sourceId:'m-'+i,sourceRevision:1,status:'deleted',updatedAt:1,suppressedMessageIds:['old-message-'+i],...(i<2?{characterId:'a'}:i===2?{characterId:'b'}:{})}));
+ rows.push({...rows[0],id:'other-account',userId:'v'});
+ await legacy.table('memorySourceTombstones').bulkPut(rows);
+ const before=await legacy.table('memorySourceTombstones').toArray();legacy.close();
+ await db.open();
+ check(JSON.stringify(before)===JSON.stringify(await db.memorySourceTombstones.toArray()),'v38 upgrade preserves all 8106 records');
+ let reads=0;const core=db.memorySourceTombstones.core;const query=core.query.bind(core);
+ core.query=async req=>{const result=await query(req);reads+=result.result.length;return result;};
+ const scoped=await repo.suppressedMessages('u','a');core.query=query;
+ check(scoped.size===2&&scoped.has('old-message-0')&&scoped.has('old-message-1'),'same-account role suppressions retained');
+ check(reads===2,'only two matching bodies read from 8106 records');
+ check((await repo.suppressedMessages('u','b')).size===1,'other role remains independently scoped');
+ check((await repo.suppressedMessages('v','a')).size===1,'other account isolated');
+ check((await repo.suppressedMessages('u','missing')).size===0,'missing role gets no unrelated suppression');
+ await db.memorySourceTombstones.update('old-0',{suppressedMessageIds:['edited']});
+ check((await repo.suppressedMessages('u','a')).has('edited'),'fresh edits reflected without cross-round cache');
+ await db.memorySourceTombstones.update('old-0',{characterId:'b'});
+ check(!(await repo.suppressedMessages('u','a')).has('edited')&&(await repo.suppressedMessages('u','b')).has('edited'),'role transfer updates native index');
+ await db.memorySourceTombstones.delete('old-1');
+ check((await repo.suppressedMessages('u','a')).size===0,'deletion immediately reflected');
+ try{await db.transaction('rw',db.memorySourceTombstones,async()=>{await db.memorySourceTombstones.update('old-0',{characterId:'a'});throw Error('rollback');});}catch{}
+ check((await repo.suppressedMessages('u','a')).size===0&&(await repo.suppressedMessages('u','b')).has('edited'),'rollback preserves scope and revocation');
+ await db.delete();return {complete:true,checks,matchingBodiesRead:reads,seedRows:8106};
+}});
