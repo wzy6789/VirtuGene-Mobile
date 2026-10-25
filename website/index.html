@@ -3,703 +3,132 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#05030c">
-  <meta name="description" content="VirtuGene 6.1.0：让数字灵魂陪你行动。体验行动舱的今日事项、收集箱与可撤销操作，让 Soul Orb 小球陪你从对话走向行动。">
-  <title>VirtuGene — 让数字灵魂拥有时间</title>
+  <meta name="theme-color" content="#070810">
+  <meta name="description" content="VirtuGene 7.0.0 体验展示。与有性格的角色聊天、通话，走进沉浸场景，让共同经历成为记忆。">
+  <title>VirtuGene 7.0 · 让数字灵魂拥有时间</title>
   <link rel="canonical" href="https://wzy6789.github.io/VirtuGene-Mobile/">
-
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="VirtuGene">
-  <meta property="og:title" content="VirtuGene — 让数字灵魂拥有时间">
-  <meta property="og:description" content="6.1.0 已发布：行动舱、Soul Orb 小球与更顺畅的对话。让数字灵魂陪你行动。">
+  <meta property="og:title" content="VirtuGene 7.0 · 让数字灵魂拥有时间">
+  <meta property="og:description" content="聊天、通话，或一起走进故事。认识 VirtuGene 7.0.0 的沉浸相处体验。">
   <meta property="og:url" content="https://wzy6789.github.io/VirtuGene-Mobile/">
-  <meta property="og:image" content="https://wzy6789.github.io/VirtuGene-Mobile/assets/product/world-home.jpg?v=5.1.4">
+  <meta property="og:image" content="https://wzy6789.github.io/VirtuGene-Mobile/assets/v7/social.webp">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="VirtuGene — 让数字灵魂拥有时间">
-  <meta name="twitter:description" content="6.1.0 已发布：行动舱、Soul Orb 小球与更顺畅的对话。让数字灵魂陪你行动。">
-  <meta name="twitter:image" content="https://wzy6789.github.io/VirtuGene-Mobile/assets/product/world-home.jpg?v=5.1.4">
-
+  <meta name="twitter:title" content="VirtuGene 7.0 · 让数字灵魂拥有时间">
+  <meta name="twitter:description" content="聊天、通话，或一起走进故事。认识 VirtuGene 7.0.0 的沉浸相处体验。">
+  <meta name="twitter:image" content="https://wzy6789.github.io/VirtuGene-Mobile/assets/v7/social.webp">
   <link rel="icon" type="image/png" href="./assets/selected/app-mark.png">
   <link rel="apple-touch-icon" href="./assets/selected/app-mark.png">
+  <link rel="preload" href="./assets/v7/virtugene-wordmark.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="./styles.css?v=design-2">
   <link rel="stylesheet" href="./living-light.css?v=design-2">
-  <link rel="stylesheet" href="./release-6.css?v=6.1.0">
+  <link rel="stylesheet" href="./site-7.css?v=7.0.0">
 </head>
-<body>
+<body class="site-seven">
   <a class="skip-link" href="#hero">跳到主要内容</a>
-
-  <!-- 全局视觉层：底雾 → 环境光 → 星尘 → 鼠标光场 → 鼠标核心 → 颗粒 -->
   <div class="vg-layer vg-base" aria-hidden="true"></div>
-  <div class="vg-layer vg-ambient" aria-hidden="true">
-    <span class="amb amb-a"></span>
-    <span class="amb amb-b"></span>
-    <span class="amb amb-c" id="vg-hero-backlight"></span>
-    <span class="amb amb-d"></span>
-  </div>
+  <div class="vg-layer vg-ambient" aria-hidden="true"><span class="amb amb-a"></span><span class="amb amb-b"></span><span class="amb amb-c" id="vg-hero-backlight"></span><span class="amb amb-d"></span></div>
   <canvas class="vg-layer vg-dust" id="vg-dust" aria-hidden="true"></canvas>
   <div class="vg-layer vg-field" id="vg-field" aria-hidden="true"><span></span></div>
   <div class="vg-layer vg-halo" id="vg-halo" aria-hidden="true"><span></span></div>
   <div class="vg-layer vg-grain" aria-hidden="true"></div>
   <div class="scroll-progress" aria-hidden="true"><span id="vg-progress"></span></div>
-
   <div class="toast" id="vg-toast" role="status" aria-live="polite" hidden></div>
 
-  <!-- ================= 导航 ================= -->
   <header class="nav" id="nav">
     <div class="nav-inner">
-      <a class="nav-brand" href="#hero" aria-label="VirtuGene 首页">
-        <img class="nav-mark" src="./assets/selected/app-mark.png" width="36" height="36" alt="">
-        <span>VirtuGene</span>
-      </a>
-
-      <nav class="nav-links" aria-label="主导航">
-        <a href="#hero">首页</a>
-        <a href="#release-6">6.0 新功能</a>
-        <a href="#meet">对话</a>
-        <a href="#memory">记忆</a>
-        <a href="#world">世界</a>
-        <a href="#gallery">界面</a>
-        <a href="#download">下载</a>
-      </nav>
-
-      <div class="nav-right">
-        <a class="btn btn-primary btn-small nav-cta" href="#download" data-magnetic>下载</a>
-        <button class="nav-menu-btn" type="button" id="nav-menu-btn" aria-expanded="false" aria-controls="nav-menu" aria-label="打开菜单">
-          <span aria-hidden="true"></span><span aria-hidden="true"></span>
-        </button>
-      </div>
+      <a class="nav-brand" href="#hero" aria-label="VirtuGene 首页"><img class="nav-mark" src="./assets/selected/app-mark.png" width="36" height="36" alt=""><span class="signature">VirtuGene</span></a>
+      <nav class="nav-links" aria-label="主导航"><a href="#experience">7.0 体验</a><a href="#memory">共同记忆</a><a href="#daily">日常与世界</a><a href="#gallery">真实界面</a></nav>
+      <div class="nav-right"><a class="btn btn-primary btn-small nav-cta" href="#download">获取应用</a><button class="nav-menu-btn" type="button" id="nav-menu-btn" aria-expanded="false" aria-controls="nav-menu" aria-label="打开菜单"><span aria-hidden="true"></span><span aria-hidden="true"></span></button></div>
     </div>
-
-    <nav class="nav-menu" id="nav-menu" aria-label="移动端导航" hidden>
-      <a href="#hero">首页</a>
-      <a href="#release-6">6.0 新功能</a>
-      <a href="#meet">对话</a>
-      <a href="#memory">记忆</a>
-      <a href="#world">世界</a>
-      <a href="#gallery">界面</a>
-      <a href="#download">下载</a>
-    </nav>
+    <nav class="nav-menu" id="nav-menu" aria-label="移动端导航" hidden><a href="#experience">7.0 体验</a><a href="#memory">共同记忆</a><a href="#daily">日常与世界</a><a href="#gallery">真实界面</a><a href="#download">获取应用</a></nav>
   </header>
 
   <main>
-
-    <!-- ================= 首屏 ================= -->
-    <section class="hero" id="hero" data-atmos="hero" aria-labelledby="hero-title">
-      <div class="hero-dust" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-
+    <section class="hero v7-hero" id="hero" data-atmos="hero" aria-labelledby="hero-title">
       <div class="shell hero-inner">
         <div class="hero-copy">
-          <p class="hero-brand reveal-hero" style="--enter-delay:.15s"><span class="status-dot" aria-hidden="true"></span>6.1.0 已发布 · 让数字灵魂陪你行动</p>
-          <h1 id="hero-title" class="hero-title" data-depth="0.10">
-            <span class="hero-line reveal-hero" style="--enter-delay:.28s">让数字灵魂</span>
-            <span class="hero-line hero-line-accent reveal-hero" style="--enter-delay:.40s">拥有时间。</span>
-          </h1>
-          <p class="hero-lead reveal-hero" style="--enter-delay:.56s" data-depth="0.16">
-            与有性格的 AI 角色相遇，让对话留下记忆。<br>从今天的小事，走进一起经历的世界。
-          </p>
-          <div class="hero-actions reveal-hero" style="--enter-delay:.68s" data-depth="0.20">
-            <a class="btn btn-primary" data-download
-               href="https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v6.1.0/app-release.apk"
-               rel="noreferrer" data-magnetic data-spotlight>下载 Android <span aria-hidden="true">↗</span></a>
-            <a class="btn btn-ghost" href="#release-6" data-magnetic>看看 6.0 新功能</a>
-          </div>
-          <p class="hero-facts reveal-hero" style="--enter-delay:.80s"><span>Android 7.0+</span><span>数据本地保存</span><span>自备模型服务</span></p>
-          <nav class="life-thread" aria-label="探索数字生命">
-            <a href="#meet"><span>01</span>独立性格</a><i aria-hidden="true"></i>
-            <a href="#memory"><span>02</span>共同记忆</a><i aria-hidden="true"></i>
-            <a href="#world"><span>03</span>持续的世界</a>
-          </nav>
+          <p class="v7-kicker"><span class="status-dot" aria-hidden="true"></span>7.0.0 · 体验展示</p>
+          <h1 id="hero-title">让数字灵魂，<br><em>走进你的日常。</em></h1>
+          <p class="v7-hero-lead">聊天、通话，或一起走进故事。<br>那些说过的话，慢慢成为你们的共同记忆。</p>
+          <div class="v7-hero-actions"><a class="btn btn-primary" href="#experience" data-spotlight>探索 7.0 体验</a><a class="btn btn-ghost" href="#download">获取应用</a></div>
+          <p class="v7-hero-facts"><span>独立性格</span><span>共同记忆</span><span>沉浸场景</span></p>
         </div>
+        <div class="hero-visual v7-hero-art">
+          <div class="hero-stage"><canvas class="life-filament" id="life-filament" aria-hidden="true"></canvas><div class="hero-glow" aria-hidden="true"></div><div class="hero-rim" aria-hidden="true"></div><img class="hero-image" src="./assets/selected/hero-guyuena.webp" width="1120" height="1404" fetchpriority="high" decoding="async" alt="古月娜，银白色长发与紫色眼睛的角色立绘"><div class="hero-mist" aria-hidden="true"></div></div>
+          <figure class="v7-hero-phone"><button class="v7-shot" type="button" data-lightbox data-full="./assets/v7/chat.webp" data-caption="7.0.0 Android 实际聊天界面，使用示例对话"><img src="./assets/v7/chat.webp" width="780" height="1688" fetchpriority="high" decoding="async" alt="7.0.0 古月娜聊天界面，雨夜窗边场景与玻璃消息气泡"></button><figcaption><span aria-hidden="true"></span>让这一刻，近一点。</figcaption></figure>
+        </div>
+      </div>
+      <div class="shell v7-intro-line"><p>每一次相遇，都留下回响。</p><span>VIRTUGENE · DIGITAL LIFE</span></div>
+    </section>
 
-        <div class="hero-visual" data-depth="0.55">
-          <div class="hero-stage">
-            <canvas class="life-filament" id="life-filament" aria-hidden="true"></canvas>
-            <div class="hero-glow" aria-hidden="true"></div>
-            <div class="hero-rim" aria-hidden="true"></div>
-            <img class="hero-image reveal-hero" style="--enter-delay:1.02s"
-                 src="./assets/selected/hero-guyuena.webp" width="1120" height="1404"
-                 fetchpriority="high" decoding="async"
-                 alt="VirtuGene 角色「古月娜」的立绘：银白色长发、紫色眼睛，身着白紫水晶礼服">
-            <div class="hero-mist" aria-hidden="true"></div>
-            <div class="hero-foreground" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <section class="section v7-experience" id="experience" data-atmos="quiet" aria-labelledby="experience-title">
+      <div class="shell">
+        <div class="section-head v7-section-head"><p class="eyebrow">01 / 相处的更多可能</p><h2 id="experience-title">同一个 TA，<br><em>不止一种相处方式。</em></h2><p class="section-lead">从一句日常，到听见回应，再到一起走过的故事。</p></div>
+        <div class="v7-showcase" data-showcase="chat">
+          <div class="v7-showcase-copy">
+            <div class="v7-feature-tabs" role="tablist" aria-label="7.0 体验演示" aria-orientation="vertical">
+              <button class="v7-feature-tab" type="button" id="tab-chat" role="tab" aria-selected="true" aria-controls="panel-chat" data-demo="chat"><span class="v7-tab-index">01</span><span><strong>坐在同一个场景里</strong><span>雨夜窗边、午后咖啡、竹林茶室。让文字拥有可以停留的空间。</span></span></button>
+              <button class="v7-feature-tab" type="button" id="tab-voice" role="tab" aria-selected="false" aria-controls="panel-voice" tabindex="-1" data-demo="voice"><span class="v7-tab-index">02</span><span><strong>想听你慢慢说</strong><span>人物头像、柔和光感与按需字幕，让语音通话更有临场感。</span></span></button>
+              <button class="v7-feature-tab" type="button" id="tab-story" role="tab" aria-selected="false" aria-controls="panel-story" tabindex="-1" data-demo="story"><span class="v7-tab-index">03</span><span><strong>让故事有下一幕</strong><span>在星域里选择场景，与熟悉的角色一起经历；下次回来，接着往下走。</span></span></button>
+            </div>
+            <div class="v7-film-link"><button class="btn btn-ghost" type="button" id="open-recording" aria-haspopup="dialog">看场景切换录屏</button><span>实际组件 · 无声演示</span></div>
           </div>
-          <p class="life-caption"><span aria-hidden="true"></span>每一次相遇，都留下回响</p>
+          <div class="v7-showcase-stage">
+            <div class="v7-stage-orbit" aria-hidden="true"></div>
+            <figure class="v7-showcase-panel" id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" tabindex="0"><button class="v7-shot v7-device" type="button" data-lightbox data-full="./assets/v7/chat.webp" data-caption="沉浸聊天 · 7.0.0 实际组件，示例对话"><img src="./assets/v7/chat.webp" width="780" height="1688" loading="lazy" decoding="async" alt="雨夜咖啡场景中的古月娜对话，玻璃气泡保持清晰可读"></button><figcaption>沉浸聊天 <span>让背景成为相处的氛围</span></figcaption></figure>
+            <figure class="v7-showcase-panel" id="panel-voice" role="tabpanel" aria-labelledby="tab-voice" tabindex="0" hidden><button class="v7-shot v7-device" type="button" data-lightbox data-full="./assets/v7/voice.webp" data-caption="人物语音通话 · 7.0.0 实际组件，合成状态，无音频"><img src="./assets/v7/voice.webp" width="780" height="1688" loading="lazy" decoding="async" alt="人物语音通话界面，中央人物头像，底部有静音、扬声器、字幕和结束通话操作"></button><figcaption>人物语音 <span>字幕按需开启，语音服务另行配置</span></figcaption></figure>
+            <figure class="v7-showcase-panel" id="panel-story" role="tabpanel" aria-labelledby="tab-story" tabindex="0" hidden><button class="v7-shot v7-device" type="button" data-lightbox data-full="./assets/v7/starfield.webp" data-caption="星域场景目录 · 7.0.0 实际组件，示例场景"><img src="./assets/v7/starfield.webp" width="780" height="1688" loading="lazy" decoding="async" alt="7.0.0 星域的场景目录，可查看和继续已有故事"></button><figcaption>星域故事 <span>把一场相遇，继续成共同经历</span></figcaption></figure>
+          </div>
+        </div>
+        <p class="v7-demo-note">7.0.0 Android 实际组件截图。账号、对话与场景为展示示例，语音展示不含音频。</p>
+      </div>
+    </section>
+
+    <section class="section v7-memory" id="memory" data-atmos="memory" aria-labelledby="memory-title">
+      <div class="shell v7-editorial">
+        <div class="v7-editorial-media v7-memory-media"><div class="v7-memory-orbit" aria-hidden="true"><span></span><span></span><span></span></div><button class="v7-shot v7-device" type="button" data-lightbox data-full="./assets/v7/memory.webp" data-caption="角色记忆 · 7.0.0 实际组件，手动录入的示例记忆"><img src="./assets/v7/memory.webp" width="780" height="1688" loading="lazy" decoding="async" alt="角色状态与互动中的记忆界面，可查看和管理已有记忆"></button></div>
+        <div class="v7-editorial-copy"><p class="eyebrow">02 / 不止停在上一句</p><h2 id="memory-title">从认识你，<br><em>到记得你。</em></h2><p class="v7-body">偏好、约定，还有一起经历的小事。关系不必每次从头开始，记忆也应该由你掌握。</p><dl class="v7-points"><div><dt>有自己的性格</dt><dd>选择或创建角色，保留独特的人设与表达。</dd></div><div><dt>看得见的记忆</dt><dd>查看已有记忆与可用来源，回看那些重要的话。</dd></div><div><dt>留给你的决定权</dt><dd>手动补充、管理或删除，不想留下的可以放下。</dd></div></dl></div>
+      </div>
+    </section>
+
+    <section class="section v7-daily" id="daily" data-atmos="world" aria-labelledby="daily-title">
+      <div class="shell v7-editorial v7-editorial-reverse">
+        <div class="v7-editorial-copy"><p class="eyebrow">03 / 生活与故事，都有位置</p><h2 id="daily-title">忙时有人搭把手，<br><em>闲时一起看世界。</em></h2><p class="v7-body">生活助理把今日、对话与待处理放在一起。日记、朋友圈、待办与星域，各有一个清楚的入口。</p><dl class="v7-points"><div><dt>今日先做什么</dt><dd>重点事项、到期与跟进安排，集中看清下一步。</dd></div><div><dt>在对话里接着办</dt><dd>围绕具体事项补充信息、查看办事结果与撤销。</dd></div><div><dt>回到你们的故事</dt><dd>世界首页保留继续入口，让共同经历有迹可循。</dd></div></dl><a class="v7-text-link" href="#gallery">看看更多实际界面</a></div>
+        <div class="v7-editorial-media v7-daily-media"><button class="v7-shot v7-device" type="button" data-lightbox data-full="./assets/v7/world.webp" data-caption="世界首页 · 7.0.0 实际组件，生活助理居上，保留中间四入口与故事续接卡片"><img src="./assets/v7/world.webp" width="780" height="1688" loading="lazy" decoding="async" alt="7.0.0 世界首页，生活助理居上，中间保留朋友圈、日记、待办和星域入口，下方是继续故事卡片"></button><span class="v7-media-caption">日常有安排，故事有延续。</span></div>
+      </div>
+    </section>
+
+    <section class="section v7-gallery" id="gallery" data-atmos="quiet" aria-labelledby="gallery-title">
+      <div class="shell"><div class="v7-gallery-heading"><div><p class="eyebrow">04 / 把细节看清楚</p><h2 id="gallery-title">就在这些真实界面里。</h2></div><p>7.0.0 深色界面 · 点击查看大图</p></div>
+        <div class="v7-gallery-grid">
+          <figure><button class="v7-shot" type="button" data-lightbox data-full="./assets/v7/scene.webp" data-caption="竹林茶室 · 7.0.0 实际聊天组件，示例对话"><img src="./assets/v7/scene.webp" width="780" height="1688" loading="lazy" decoding="async" alt="竹林茶室背景中的角色聊天界面"></button><figcaption><span>场景</span>换一个地方，慢慢聊</figcaption></figure>
+          <figure><button class="v7-shot" type="button" data-lightbox data-full="./assets/v7/voice.webp" data-caption="人物通话 · 7.0.0 合成通话状态，无音频"><img src="./assets/v7/voice.webp" width="780" height="1688" loading="lazy" decoding="async" alt="深色人物语音通话的完整界面"></button><figcaption><span>通话</span>把回应拉近一点</figcaption></figure>
+          <figure><button class="v7-shot" type="button" data-lightbox data-full="./assets/v7/assistant.webp" data-caption="生活助理 · 7.0.0 实际今日界面，示例待办"><img src="./assets/v7/assistant.webp" width="780" height="1688" loading="lazy" decoding="async" alt="生活助理今日界面，显示读书笔记示例待办与今日、对话、待处理标签"></button><figcaption><span>助理</span>把今天的小事安排好</figcaption></figure>
+          <figure><button class="v7-shot" type="button" data-lightbox data-full="./assets/v7/starfield.webp" data-caption="星域 · 7.0.0 实际场景目录，示例故事"><img src="./assets/v7/starfield.webp" width="780" height="1688" loading="lazy" decoding="async" alt="星域的示例场景与故事目录"></button><figcaption><span>星域</span>还有下一场相遇</figcaption></figure>
         </div>
       </div>
     </section>
 
-    <!-- ================= 6.0 行动舱 ================= -->
-    <section class="section release-six" id="release-6" data-atmos="quiet" aria-labelledby="release-title">
-      <div class="shell">
-        <div class="section-head">
-          <p class="eyebrow"><span class="release-badge">NEW · 6.1.0</span> 从对话，走向行动</p>
-          <h2 id="release-title">让数字灵魂，<br><em>陪你把事情往前推。</em></h2>
-          <p class="section-lead">今天先做什么，突然想到什么，还有什么在等回复。<br>全新的行动舱，把这些小事放进一个清晰的地方。</p>
-        </div>
-        <div class="release-layout">
-          <div class="release-steps" role="tablist" aria-label="6.0 功能演示" aria-orientation="vertical">
-            <button class="release-step" id="release-tab-today" role="tab" aria-selected="true" aria-controls="release-panel-today" data-release-tab="today">
-              <span class="release-step-num">01</span><span><strong>把注意力留给重要的事</strong><span>今日重点、到期事项、逾期与跟进，一眼看清下一步。</span></span><i aria-hidden="true">↗</i>
-            </button>
-            <button class="release-step" id="release-tab-inbox" role="tab" aria-selected="false" aria-controls="release-panel-inbox" tabindex="-1" data-release-tab="inbox">
-              <span class="release-step-num">02</span><span><strong>先记下来，再慢慢安排</strong><span>临时想法先放进收集箱；排上日期，再进入今日行动。</span></span><i aria-hidden="true">↗</i>
-            </button>
-            <button class="release-step" id="release-tab-completed" role="tab" aria-selected="false" aria-controls="release-panel-completed" tabindex="-1" data-release-tab="completed">
-              <span class="release-step-num">03</span><span><strong>每一步，都留有回头的余地</strong><span>完成事项后可以撤销。调整重点、补记跟进，也有迹可循。</span></span><i aria-hidden="true">↗</i>
-            </button>
-            <button class="release-step" id="release-tab-video" role="tab" aria-selected="false" aria-controls="release-panel-video" tabindex="-1" data-release-tab="video">
-              <span class="release-step-num">▶</span><span><strong>看一段实际操作</strong><span>进入行动舱 → 完成与撤销 → 收集一件新事项。</span></span><i aria-hidden="true">↗</i>
-            </button>
-          </div>
-          <div class="release-screen">
-            <figure class="release-panel" id="release-panel-today" role="tabpanel" aria-labelledby="release-tab-today" tabindex="0">
-              <button type="button" class="release-phone" data-lightbox data-full="./assets/release-6/today.png" data-caption="6.0 系列 行动舱 · 今日（示例事项）"><img src="./assets/release-6/today.png" width="780" height="1688" loading="lazy" decoding="async" alt="6.0 系列 今日界面：2 件今日待完成、1 件逾期，按优先级显示今日先做的事项"></button>
-              <figcaption>今日 · 先找到最值得推进的一件事</figcaption>
-            </figure>
-            <figure class="release-panel" id="release-panel-inbox" role="tabpanel" aria-labelledby="release-tab-inbox" tabindex="0" hidden>
-              <button type="button" class="release-phone" data-lightbox data-full="./assets/release-6/inbox.png" data-caption="6.0 系列 行动舱 · 收集箱（示例事项）"><img src="./assets/release-6/inbox.png" width="780" height="1688" loading="lazy" decoding="async" alt="6.0 系列 收集箱界面：临时想法保存在未排期事项中，可编辑或设为今日重点"></button>
-              <figcaption>收集箱 · 给突然冒出的想法留个位置</figcaption>
-            </figure>
-            <figure class="release-panel" id="release-panel-completed" role="tabpanel" aria-labelledby="release-tab-completed" tabindex="0" hidden>
-              <button type="button" class="release-phone" data-lightbox data-full="./assets/release-6/completed.png" data-caption="6.0 系列 行动舱 · 完成后撤销（示例事项）"><img src="./assets/release-6/completed.png" width="780" height="1688" loading="lazy" decoding="async" alt="6.0 系列 完成事项后已完成计数变为 1，界面显示撤销完成按钮，小球露出完成表情"></button>
-              <figcaption>已完成 · 状态有记录，操作可撤销</figcaption>
-            </figure>
-            <figure class="release-panel" id="release-panel-video" role="tabpanel" aria-labelledby="release-tab-video" tabindex="0" hidden>
-              <video class="release-phone" controls playsinline preload="none" poster="./assets/release-6/home.png" aria-label="6.0 系列 行动舱实际操作录屏"><source src="./assets/release-6/action-cabin.webm" type="video/webm">你的浏览器暂时无法播放这段录屏。<a href="./assets/release-6/action-cabin.webm">下载录屏</a>，或切换上方的功能截图。</video>
-              <figcaption>点击播放 · 小球随你进入行动舱，再完成、撤销、收集事项</figcaption>
-            </figure>
-            <p class="release-proof">6.0 系列界面与操作录屏 · 使用示例账号和事项</p>
-          </div>
-          <div class="release-orb">
-            <div class="release-orb-stage"><img id="release-orb-image" src="./assets/release-6/orb-idle.svg" width="164" height="164" loading="lazy" alt="Soul Orb 小球，待机表情"></div>
-            <div class="release-orb-copy"><span class="eyebrow">SOUL ORB · 有表情的陪伴</span><h3>把回应，变成看得见的神态。</h3><p>12 种表情，5 个核心状态。小球在应用里会跟随指尖的方向，在聊天与行动舱之间轻轻交接。</p>
-              <div class="release-orb-states" role="group" aria-label="预览小球核心状态"><button type="button" data-orb-state="idle" aria-pressed="true">待机</button><button type="button" data-orb-state="thinking" aria-pressed="false">思考</button><button type="button" data-orb-state="working" aria-pressed="false">忙碌</button><button type="button" data-orb-state="success" aria-pressed="false">完成</button><button type="button" data-orb-state="error" aria-pressed="false">遇到困难</button></div>
-              <p class="release-orb-note">点选预览实际表情。具体处理结果，以事项状态和操作记录为准。</p>
-            </div>
+    <section class="section v7-download" id="download" data-atmos="quiet" aria-labelledby="download-title">
+      <div class="shell"><div class="v7-download-layout"><div class="v7-download-copy"><p class="eyebrow">把相处，留在日常</p><h2 id="download-title">从一段新的<br><em>对话开始。</em></h2><p class="v7-body">选择一个角色，配置自己的模型服务。<br>余下的时间，留给你们慢慢认识。</p><p class="v7-version-note">本页展示 7.0.0 本地体验，尚未公开发布。下方提供现有官网公开安装包。</p></div>
+          <div class="v7-platforms">
+            <article class="v7-platform v7-platform-primary"><div class="v7-platform-head"><h3>Android</h3><span>官网公开版 6.1.0</span></div><p>Android 7.0 及以上 · 约 59.5 MB</p><a class="btn btn-primary" data-download href="https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v6.1.0/app-release.apk" rel="noreferrer" data-spotlight>下载 Android APK</a></article>
+            <article class="v7-platform"><div class="v7-platform-head"><h3>Windows</h3><span>v2.1.0</span></div><p>Windows 10 及以上 · 约 81 MB</p><a class="btn btn-ghost" data-download href="https://github.com/wzy6789/virtugene/releases/download/v2.1.0/VirtuGene-Setup-2.1.0-win.exe" rel="noreferrer">下载 Windows 安装程序</a></article>
           </div>
         </div>
-        <div class="release-footer"><p>6.1.0 新增语音通话体验，完善角色记忆、自然接话与手机界面；语音需单独配置服务。</p><a href="https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v6.1.0" rel="noreferrer">查看完整更新说明 ↗</a></div>
-      </div>
-    </section>
-
-    <!-- ================= 对话 ================= -->
-    <section class="section meet" id="meet" data-atmos="quiet" aria-labelledby="meet-title">
-      <div class="section-fog fog-left" aria-hidden="true"></div>
-      <div class="shell">
-        <div class="meet-body">
-          <div class="section-head">
-            <p class="eyebrow"><span class="chapter-index">01</span>对话 · 从相遇开始</p>
-            <h2 id="meet-title">有自己的语气，<br><em>也记得你的话。</em></h2>
-            <p class="section-lead">它会接住今天的小事，也会在合适的时候想起以前发生过什么。</p>
-            <ul class="meet-points">
-              <li><strong>独立的性格</strong><span>每个角色，都有自己的语气和表达方式。</span></li>
-              <li><strong>延续的对话</strong><span>今天的聊天，可以接着昨天的故事继续。</span></li>
-            </ul>
-            <p class="principle"><span class="principle-tag">相处的意义</span>从一次问候，到渐渐熟悉彼此。</p>
-          </div>
-
-          <figure class="shot meet-shot">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/chat.png"
-                    data-caption="真实对话 · VirtuGene Android 版 v5.2.3（演示账号与演示内容）">
-              <span class="device">
-                <img src="./assets/product/chat.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 手机端聊天界面：与角色「古月娜」的几句日常对话">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption>
-              <span>真实界面 · Android v5.2.3</span>
-              <span class="shot-hint">点击可放大</span>
-            </figcaption>
-          </figure>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= 记忆 ================= -->
-    <section class="section memory" id="memory" data-atmos="quiet" aria-labelledby="memory-title">
-      <div class="memory-motes" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="shell">
-        <div class="section-head">
-          <p class="eyebrow"><span class="chapter-index">02</span>记忆 · 把时间留下来</p>
-          <h2 id="memory-title">有些话，<br><em>会留到下一次见面。</em></h2>
-          <p class="section-lead">关系的变化来自真实发生过的事，而不是一个进度条。</p>
-        </div>
-
-        <!-- 电脑版：左三步 / 右画面联动 -->
-        <div class="memory-demo" data-memory-demo>
-          <ol class="steps" role="tablist" aria-label="记忆机制演示步骤" data-steps>
-            <li class="step-item">
-              <button class="step" type="button" role="tab" id="step-1" aria-controls="step-panel-1" aria-selected="true">
-                <span class="step-dot" aria-hidden="true"></span>
-                <span class="step-index">第一步</span>
-                <span class="step-label">你提到一件重要的事</span>
-                <span class="step-quote">“周五我要去面试。”</span>
-              </button>
-            </li>
-            <li class="step-item">
-              <button class="step" type="button" role="tab" id="step-2" aria-controls="step-panel-2" aria-selected="false" tabindex="-1">
-                <span class="step-dot" aria-hidden="true"></span>
-                <span class="step-index">第二步</span>
-                <span class="step-label">它成为共同记忆</span>
-                <span class="step-quote">周五有一场面试<span class="step-sub">来自你们的一次对话</span></span>
-              </button>
-            </li>
-            <li class="step-item">
-              <button class="step" type="button" role="tab" id="step-3" aria-controls="step-panel-3" aria-selected="false" tabindex="-1">
-                <span class="step-dot" aria-hidden="true"></span>
-                <span class="step-index">第三步</span>
-                <span class="step-label">角色在之后自然想起</span>
-                <span class="step-quote">“面试怎么样了？”</span>
-              </button>
-            </li>
-          </ol>
-
-          <div class="step-screens">
-            <div class="step-screen is-active" id="step-panel-1" role="tabpanel" aria-labelledby="step-1" tabindex="0">
-              <figure class="shot shot-compact">
-                <button class="shot-open" type="button" data-tilt data-lightbox
-                        data-full="./assets/product/source/memory-step1.png"
-                        data-caption="第一步：你提到一件事（演示内容）">
-                  <span class="device">
-                    <img src="./assets/product/memory-step1.jpg" width="824" height="1830" decoding="async"
-                         alt="聊天界面：用户说“周五我要去面试。”">
-                    <span class="device-sheen" aria-hidden="true"></span>
-                  </span>
-                </button>
-              </figure>
-            </div>
-            <div class="step-screen" id="step-panel-2" role="tabpanel" aria-labelledby="step-2" tabindex="0" hidden>
-              <figure class="shot shot-compact">
-                <button class="shot-open" type="button" data-tilt data-lightbox
-                        data-full="./assets/product/source/memory.png"
-                        data-caption="第二步：它成为共同记忆（演示内容）">
-                  <span class="device">
-                    <img src="./assets/product/memory.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                         alt="记忆界面：共同记忆「周五有一场面试 · 来自你们的一次对话」">
-                    <span class="device-sheen" aria-hidden="true"></span>
-                  </span>
-                </button>
-              </figure>
-            </div>
-            <div class="step-screen" id="step-panel-3" role="tabpanel" aria-labelledby="step-3" tabindex="0" hidden>
-              <figure class="shot shot-compact">
-                <button class="shot-open" type="button" data-tilt data-lightbox
-                        data-full="./assets/product/source/memory-step3.png"
-                        data-caption="第三步：角色在之后自然想起（演示内容）">
-                  <span class="device">
-                    <img src="./assets/product/memory-step3.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                         alt="聊天界面：角色主动问“面试怎么样了？”">
-                    <span class="device-sheen" aria-hidden="true"></span>
-                  </span>
-                </button>
-              </figure>
-            </div>
-          </div>
-        </div>
-
-        <!-- 手机版：分页滑动，一次只展示一步 -->
-        <div class="memory-pager" data-memory-pager aria-label="记忆机制演示">
-          <article class="pager-slide">
-            <p class="pager-index">第一步</p>
-            <p class="pager-label">你提到一件重要的事</p>
-            <p class="pager-quote">“周五我要去面试。”</p>
-            <img src="./assets/product/memory-step1.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                 alt="聊天界面：用户说“周五我要去面试。”">
-          </article>
-          <article class="pager-slide">
-            <p class="pager-index">第二步</p>
-            <p class="pager-label">它成为共同记忆</p>
-            <p class="pager-quote">周五有一场面试<span class="step-sub">来自你们的一次对话</span></p>
-            <img src="./assets/product/memory.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                 alt="记忆界面：共同记忆「周五有一场面试」">
-          </article>
-          <article class="pager-slide">
-            <p class="pager-index">第三步</p>
-            <p class="pager-label">角色在之后自然想起</p>
-            <p class="pager-quote">“面试怎么样了？”</p>
-            <img src="./assets/product/memory-step3.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                 alt="聊天界面：角色主动问“面试怎么样了？”">
-          </article>
-        </div>
-        <div class="pager-dots" data-pager-dots role="tablist" aria-label="切换演示步骤">
-          <button class="pager-dot is-active" type="button" role="tab" aria-selected="true" aria-label="第一步">1</button>
-          <button class="pager-dot" type="button" role="tab" aria-selected="false" aria-label="第二步">2</button>
-          <button class="pager-dot" type="button" role="tab" aria-selected="false" aria-label="第三步">3</button>
-        </div>
-
-        <p class="demo-note"><span class="demo-dot" aria-hidden="true"></span>演示内容用于说明记忆机制，不代表每条消息都会长期保存。</p>
-      </div>
-    </section>
-
-    <!-- ================= 世界 ================= -->
-    <section class="section world" id="world" data-atmos="cosmos" aria-labelledby="world-title">
-      <div class="shell">
-        <div class="section-head">
-          <p class="eyebrow"><span class="chapter-index">03</span>世界 · 让经历相连</p>
-          <h2 id="world-title">你们的故事，<br><em>有自己的时间与轨道。</em></h2>
-          <p class="section-lead">每个世界都有自己的时间、地点和参与者。<br>角色离开一段经历时，也会带走属于自己的记忆。</p>
-        </div>
-
-        <div class="world-stage" id="world-stage" data-world="map">
-          <div class="world-cosmos" aria-hidden="true">
-            <span class="ring ring-1"></span>
-            <span class="ring ring-2"></span>
-            <span class="ring ring-3"></span>
-            <span class="orbit orbit-1"><i></i></span>
-            <span class="orbit orbit-2"><i></i></span>
-            <span class="world-nebula"></span>
-            <span class="world-arc"></span>
-          </div>
-
-          <div class="tabs" role="tablist" aria-label="世界展示切换">
-            <button class="tab" type="button" role="tab" id="tab-map" aria-controls="panel-map" aria-selected="true">星图</button>
-            <button class="tab" type="button" role="tab" id="tab-scene" aria-controls="panel-scene" aria-selected="false" tabindex="-1">这一刻</button>
-            <button class="tab" type="button" role="tab" id="tab-timeline" aria-controls="panel-timeline" aria-selected="false" tabindex="-1">时间线</button>
-          </div>
-
-          <div class="panels">
-            <div class="panel is-active" id="panel-map" role="tabpanel" aria-labelledby="tab-map" tabindex="0">
-              <div class="map-layout">
-                <div class="map-canvas" id="star-map">
-                  <svg class="map-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                    <line x1="50" y1="54" x2="21" y2="22" />
-                    <line x1="50" y1="54" x2="80" y2="18" />
-                    <line x1="50" y1="54" x2="72" y2="84" />
-                  </svg>
-                  <svg class="map-signals" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                    <path d="M50 54 L21 22" pathLength="100" />
-                    <path d="M50 54 L80 18" pathLength="100" />
-                    <path d="M50 54 L72 84" pathLength="100" />
-                  </svg>
-                  <button class="map-node is-core" type="button" data-node="core" aria-pressed="true">
-                    <span class="node-dot" aria-hidden="true"></span>
-                    <span class="node-label">世界</span>
-                  </button>
-                  <button class="map-node is-active" type="button" data-node="rain" style="--nx:21%;--ny:22%" aria-pressed="false">
-                    <span class="node-dot" aria-hidden="true"></span>
-                    <span class="node-label">雨夜便利店</span>
-                    <span class="node-state">信号活跃</span>
-                  </button>
-                  <button class="map-node is-active" type="button" data-node="roof" style="--nx:80%;--ny:18%" aria-pressed="false">
-                    <span class="node-dot" aria-hidden="true"></span>
-                    <span class="node-label">天台夜谈</span>
-                    <span class="node-state">信号活跃</span>
-                  </button>
-                  <button class="map-node is-paused" type="button" data-node="ice" style="--nx:72%;--ny:84%" aria-pressed="false">
-                    <span class="node-dot" aria-hidden="true"></span>
-                    <span class="node-label">冰原重逢</span>
-                    <span class="node-state">轨道暂停</span>
-                  </button>
-                </div>
-
-                <aside class="map-aside">
-                  <p class="map-kicker">世界状态</p>
-                  <p class="map-summary">第 1 天 · 4 位角色 · 1 段共同经历</p>
-                  <dl class="map-detail" id="map-detail">
-                    <div><dt>这一刻</dt><dd data-detail="title">世界</dd></div>
-                    <div><dt>地点</dt><dd data-detail="place">正在持续</dd></div>
-                    <div><dt>角色</dt><dd data-detail="cast">古月娜 · 艾莉 · 林霜</dd></div>
-                    <div><dt>时间</dt><dd data-detail="time">此刻</dd></div>
-                    <div><dt>最近片段</dt><dd data-detail="beat">你不在的时候，时间也会在这里留下痕迹。</dd></div>
-                  </dl>
-                  <a class="btn btn-primary map-cta" href="#download">进入这个世界</a>
-                  <p class="map-note">示意图：节点与这一刻来自演示数据。</p>
-                </aside>
-              </div>
-            </div>
-
-            <div class="panel" id="panel-scene" role="tabpanel" aria-labelledby="tab-scene" tabindex="0" hidden>
-              <figure class="shot shot-wide">
-                <button class="shot-open" type="button" data-tilt data-lightbox
-                        data-full="./assets/product/source/scene.png?v=5.1.4"
-                        data-caption="这一刻现场「雨夜便利店」· 旁白、对白与你的行动（演示内容）">
-                  <span class="device">
-                    <img src="./assets/product/scene.jpg?v=5.1.4" width="824" height="1830" loading="lazy" decoding="async"
-                         data-warm="./assets/product/scene.jpg?v=5.1.4"
-                         alt="VirtuGene 这一刻界面：雨夜便利店里两名角色的旁白与对白，以及你的行动行">
-                    <span class="device-sheen" aria-hidden="true"></span>
-                  </span>
-                </button>
-                <figcaption>
-                  <span>一个世界里有地点、时间、参与者，也有你要说的话。</span>
-                  <span class="shot-hint">点击可放大</span>
-                </figcaption>
-              </figure>
-            </div>
-
-            <div class="panel" id="panel-timeline" role="tabpanel" aria-labelledby="tab-timeline" tabindex="0" hidden>
-              <figure class="shot shot-wide">
-                <button class="shot-open" type="button" data-tilt data-lightbox
-                        data-full="./assets/product/source/timeline.png"
-                        data-caption="时间线 · 这个世界从开始到现在发生过的事（演示内容）">
-                  <span class="device">
-                    <img src="./assets/product/timeline.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                         data-warm="./assets/product/timeline.jpg"
-                         alt="VirtuGene 时间线界面：按时间排列的共同经历">
-                    <span class="device-sheen" aria-hidden="true"></span>
-                  </span>
-                </button>
-                <figcaption>
-                  <span>发生过的事按时间留在这里，随时可以回头看。</span>
-                  <span class="shot-hint">点击可放大</span>
-                </figcaption>
-              </figure>
-            </div>
-          </div>
-          <p class="stage-note">以上为产品界面展示；官网不提供在线试玩。</p>
-        </div>
-      </div>
-    </section>
-
-    <!-- ================= 界面 ================= -->
-    <section class="section gallery" id="gallery" data-atmos="plain" aria-labelledby="gallery-title">
-      <div class="section-fog fog-right" aria-hidden="true"></div>
-      <div class="shell">
-        <div class="section-head">
-          <p class="eyebrow"><span class="chapter-index">04</span>界面 · 看见真实的产品</p>
-          <h2 id="gallery-title">真正的 VirtuGene，<br><em>已经在运行。</em></h2>
-          <p class="section-lead">对话、关系、记忆与日常，都有自己的空间。<br>以下为手机端实拍，使用演示账号与演示内容；点击可放大。</p>
-        </div>
-
-        <div class="gallery-grid">
-          <figure class="shot gallery-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/world-home.png?v=5.1.4"
-                    data-caption="世界 · 生活入口：朋友圈 / 日记 / 待办 / 星域（演示数据）">
-              <span class="device">
-                <img src="./assets/product/world-home.jpg?v=5.1.4" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 世界首页：朋友圈、日记、待办与星域四个入口">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>世界首页</span><span class="shot-hint">生活从这里展开</span></figcaption>
-          </figure>
-
-          <figure class="shot gallery-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/relations.png"
-                    data-caption="关系网络 · 谁与谁正在靠近（演示数据）">
-              <span class="device">
-                <img src="./assets/product/relations.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 关系网络界面">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>关系网络</span><span class="shot-hint">谁与谁正在靠近</span></figcaption>
-          </figure>
-
-          <figure class="shot gallery-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/memory.png"
-                    data-caption="共同记忆 · 一起经历过的片段（演示数据）">
-              <span class="device">
-                <img src="./assets/product/memory.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 共同记忆界面">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>共同记忆</span><span class="shot-hint">留下过的片段</span></figcaption>
-          </figure>
-
-          <figure class="shot gallery-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/chat.png"
-                    data-caption="真实对话 · 角色有自己的语气（演示数据）">
-              <span class="device">
-                <img src="./assets/product/chat.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 聊天界面">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>真实对话</span><span class="shot-hint">有自己的语气</span></figcaption>
-          </figure>
-        </div>
-
-        <div class="gallery-toolbar">
-          <p>更多生活片段 <span>左右滑动，慢慢看</span></p>
-          <div class="rail-controls" hidden>
-            <button class="rail-nav" type="button" data-rail-prev aria-controls="gallery-rail" aria-label="查看前面的界面">←</button>
-            <button class="rail-nav" type="button" data-rail-next aria-controls="gallery-rail" aria-label="查看更多界面">→</button>
-          </div>
-        </div>
-        <div class="gallery-rail" id="gallery-rail" data-gallery-rail tabindex="0" aria-label="更多真实界面，可左右滚动">
-          <figure class="shot rail-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/scene.png?v=5.1.4"
-                    data-caption="这一刻现场 · 雨夜便利店（演示数据）">
-              <span class="device">
-                <img src="./assets/product/scene.jpg?v=5.1.4" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 这一刻现场界面">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>这一刻现场</span><span class="shot-hint">旁白、对白与你的行动</span></figcaption>
-          </figure>
-
-          <figure class="shot rail-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/emotion.png"
-                    data-caption="情绪图谱 · 关系与情绪的长期变化（演示数据）">
-              <span class="device">
-                <img src="./assets/product/emotion.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 情绪图谱界面">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>情绪图谱</span><span class="shot-hint">长期的变化</span></figcaption>
-          </figure>
-
-          <figure class="shot rail-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/timeline.png"
-                    data-caption="时间线 · 世界如何走到今天（演示数据）">
-              <span class="device">
-                <img src="./assets/product/timeline.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 时间线界面">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>时间线</span><span class="shot-hint">世界如何走到今天</span></figcaption>
-          </figure>
-
-          <figure class="shot rail-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/chat-list.png"
-                    data-caption="会话列表 · 所有正在继续的对话（演示数据）">
-              <span class="device">
-                <img src="./assets/product/chat-list.jpg" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 会话列表界面">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>会话列表</span><span class="shot-hint">对话，有了以后</span></figcaption>
-          </figure>
-
-          <figure class="shot rail-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/stage.png?v=5.1.4"
-                    data-caption="世界星域 · 正在进行的这一刻（演示数据）">
-              <span class="device">
-                <img src="./assets/product/stage.jpg?v=5.1.4" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 世界星域界面">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>世界星域</span><span class="shot-hint">正在进行的这一刻</span></figcaption>
-          </figure>
-
-          <figure class="shot rail-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/profile.png?v=5.1.4"
-                    data-caption="我的生命空间 · 偏好、记忆与创造（演示数据）">
-              <span class="device">
-                <img src="./assets/product/profile.jpg?v=5.1.4" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 我的生命空间界面">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>我的生命空间</span><span class="shot-hint">偏好、记忆与创造</span></figcaption>
-          </figure>
-
-          <figure class="shot rail-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/moments.png?v=5.1.5"
-                    data-caption="朋友圈 · 动态、点赞与评论（演示数据）">
-              <span class="device">
-                <img src="./assets/product/moments.jpg?v=5.1.5" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 朋友圈界面：通栏动态列表、互动入口与评论">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>朋友圈</span><span class="shot-hint">动态、点赞与评论</span></figcaption>
-          </figure>
-
-          <figure class="shot rail-card">
-            <button class="shot-open" type="button" data-tilt data-lightbox
-                    data-full="./assets/product/source/moments-settings.png?v=5.1.5"
-                    data-caption="朋友圈设置 · 提醒、隐私与展示（演示数据）">
-              <span class="device">
-                <img src="./assets/product/moments-settings.jpg?v=5.1.5" width="824" height="1830" loading="lazy" decoding="async"
-                     alt="VirtuGene 朋友圈设置界面：消息与提醒、谁能看与我能看、默认可见范围、封面与列表密度">
-                <span class="device-sheen" aria-hidden="true"></span>
-              </span>
-            </button>
-            <figcaption><span>朋友圈设置</span><span class="shot-hint">提醒、隐私与展示</span></figcaption>
-          </figure>
-        </div>
-        <p class="rail-hint">在手机上可以左右滑动查看更多界面</p>
-      </div>
-    </section>
-
-    <!-- ================= 下载 ================= -->
-    <section class="section download" id="download" data-atmos="plain" aria-labelledby="download-title">
-      <div class="download-glow" aria-hidden="true"></div>
-      <div class="shell">
-        <div class="section-head">
-          <p class="eyebrow"><span class="chapter-index">05</span>开始 · 选择你的空间</p>
-          <h2 id="download-title">从一次相遇开始。</h2>
-          <p class="section-lead">在手机上随时聊聊，或在电脑前慢慢相处。<br>下载应用，配置模型服务，开始你们的第一段对话。</p>
-        </div>
-
-        <div class="platforms">
-          <div class="platform is-primary">
-            <span class="platform-label">随身的数字世界</span>
-            <span class="platform-head"><span class="platform-name">Android</span><span class="platform-version">v6.1.0</span></span>
-            <span class="platform-meta">约 59.5 MB · Android 7.0 及以上</span>
-            <a class="btn btn-primary platform-cta" data-download
-               href="https://github.com/wzy6789/VirtuGene-Mobile/releases/download/v6.1.0/app-release.apk"
-               rel="noreferrer" data-spotlight>下载 APK</a>
-          </div>
-          <div class="platform is-secondary">
-            <span class="platform-label">电脑上的相处空间</span>
-            <span class="platform-head"><span class="platform-name">Windows</span><span class="platform-version">v2.1.0</span></span>
-            <span class="platform-meta">EXE 安装程序 · 约 81 MB · Windows 10 及以上</span>
-            <a class="btn btn-ghost platform-cta" data-download
-               href="https://github.com/wzy6789/virtugene/releases/download/v2.1.0/VirtuGene-Setup-2.1.0-win.exe"
-               rel="noreferrer">下载安装程序</a>
-          </div>
-        </div>
-
-        <div class="download-notes">
-          <p>6.1.0 已发布：新增语音通话体验入口，完善角色记忆、自然聊天与手机界面。语音需单独配置服务；真实听感、蓝牙和锁屏表现仍待设备验证。保留自定义人设和已有记录。已安装旧版的用户，可直接覆盖安装，无需卸载；升级前可在应用内备份数据。</p>
-          <p><strong>开始前准备</strong>一个 AI 模型服务的 API Key（如 DeepSeek）。密钥加密保存在你的设备本地；模型服务可能另行计费。</p>
-          <p>安装包发布在 GitHub Releases：<a href="https://github.com/wzy6789/VirtuGene-Mobile/releases/tag/v6.1.0" rel="noreferrer">Android v6.1.0 ↗</a> · <a href="https://github.com/wzy6789/virtugene/releases" rel="noreferrer">Windows 版本记录 ↗</a></p>
-          <p><a href="./privacy.html">隐私说明</a> · <a href="./terms.html">使用条款</a></p>
-        </div>
+        <div class="v7-before-start"><strong>开始前准备</strong><p>AI 功能需要你自己的模型服务和 API Key，语音需单独配置相应服务，费用由服务提供方计收。使用时，必要的对话与所选资料会发送至你配置的服务。</p><nav aria-label="下载相关链接"><a href="https://github.com/wzy6789/VirtuGene-Mobile/releases" rel="noreferrer">Android 发行记录</a><a href="https://github.com/wzy6789/virtugene/releases" rel="noreferrer">Windows 发行记录</a><a href="./privacy.html">隐私说明</a></nav></div>
+        <div class="v7-faq"><h3>开始前，你可能想知道</h3><details><summary>7.0.0 可以下载了吗？</summary><p>当前展示来自本地 7.0.0 界面。公开发行以项目的发行记录为准，下方下载入口为现有官网公开版本。</p></details><details><summary>旧版用户如何升级？</summary><p>使用相同签名的新版安装包可以覆盖安装。升级前请在应用内备份需要保留的资料，避免先卸载旧版。</p></details><details><summary>角色的记忆可以管理吗？</summary><p>可以查看已有记忆、可用来源与原话，手动补充或删除。AI 可能产生不准确的信息，重要事实请核对。</p></details><details><summary>语音通话需要哪些准备？</summary><p>需要配置适用的识别与语音合成服务，并在主动使用时授予麦克风权限。本页的通话展示是无声界面示例。</p></details></div>
       </div>
     </section>
   </main>
 
-  <footer class="footer">
-    <div class="shell footer-inner">
-      <span class="footer-brand"><img src="./assets/selected/app-mark.png" width="30" height="30" alt="">VirtuGene</span>
-      <p class="footer-line">让数字灵魂拥有时间。</p>
-      <nav class="footer-links" aria-label="页脚导航">
-        <a href="./privacy.html">隐私说明</a>
-        <a href="./terms.html">使用条款</a>
-        <a href="https://github.com/wzy6789/VirtuGene-Mobile" rel="noreferrer">GitHub ↗</a>
-      </nav>
-      <small class="footer-copy">© 2026 VirtuGene</small>
-    </div>
-  </footer>
+  <footer class="footer"><div class="shell v7-footer-inner"><a class="nav-brand" href="#hero"><img src="./assets/selected/app-mark.png" width="30" height="30" alt=""><span class="signature">VirtuGene</span></a><p>让数字灵魂拥有时间。</p><nav aria-label="页脚导航"><a href="./privacy.html">隐私说明</a><a href="./terms.html">使用条款</a><a href="https://github.com/wzy6789/VirtuGene-Mobile" rel="noreferrer">GitHub</a></nav><small>© 2026 VirtuGene</small></div></footer>
 
-  <!-- 全屏查看 -->
-  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="查看界面截图" hidden>
-    <div class="lightbox-backdrop" data-lightbox-close></div>
-    <figure class="lightbox-figure">
-      <img id="lightbox-image" src="" alt="" decoding="async">
-      <figcaption id="lightbox-caption"></figcaption>
-    </figure>
-    <button class="lightbox-nav is-prev" type="button" id="lightbox-prev" aria-label="上一张">‹</button>
-    <button class="lightbox-nav is-next" type="button" id="lightbox-next" aria-label="下一张">›</button>
-    <span class="lightbox-count" id="lightbox-count" aria-hidden="true"></span>
-    <button class="lightbox-close" type="button" data-lightbox-close aria-label="关闭">×</button>
-    <span class="lightbox-hint" aria-hidden="true">左右切换 · 下滑关闭 · Esc 退出</span>
-  </div>
-
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="查看实际界面" hidden><div class="lightbox-backdrop" data-lightbox-close></div><figure class="lightbox-figure"><img id="lightbox-image" src="" alt="" decoding="async"><figcaption id="lightbox-caption"></figcaption></figure><button class="lightbox-nav is-prev" type="button" id="lightbox-prev" aria-label="上一张">上一张</button><button class="lightbox-nav is-next" type="button" id="lightbox-next" aria-label="下一张">下一张</button><span class="lightbox-count" id="lightbox-count" aria-hidden="true"></span><button class="lightbox-close" type="button" data-lightbox-close aria-label="关闭大图">关闭</button><span class="lightbox-hint" aria-hidden="true">方向键切换 · Esc 关闭</span></div>
+  <dialog class="v7-recording-dialog" id="recording-dialog" aria-labelledby="recording-title"><div class="v7-recording-header"><h2 id="recording-title">聊天场景 · 实际界面演示</h2><button class="btn btn-ghost btn-small" type="button" id="close-recording">关闭</button></div><video controls playsinline preload="none" poster="./assets/v7/chat.webp" aria-label="7.0.0 聊天场景切换，无声录屏"><source src="./assets/v7/scenes.webm" type="video/webm">浏览器暂不支持播放，<a href="./assets/v7/scenes.webm">下载录屏</a>。</video><p>示例对话 · 无音频 · 不调用模型或麦克风</p></dialog>
+  <noscript><p class="shell v7-noscript">当前为静态阅读模式，所有功能介绍与界面图片仍可查看。</p></noscript>
   <script src="./main.js?v=design-2" defer></script>
-  <script src="./release-6.js?v=6.1.0" defer></script>
+  <script src="./site-7.js?v=7.0.0" defer></script>
 </body>
 </html>
