@@ -1,50 +1,53 @@
 # VirtuGene 官网
 
-静态 HTML/CSS/JavaScript 官网，部署目录 `website/`。当前为 **7.0.0 Android 体验展示**，不表示已公开发行 7.0.0；公开下载 URL 与改版前一致：Android 6.1.0、Windows 2.1.0。下载区与常见问题明确版本差别。
+静态HTML/CSS/JavaScript官网，部署目录 website/。当前设计为“有角色的星海”，保留 **7.0.0 本地体验展示**事实标识。公开下载仍为Android 6.1.0、Windows 2.1.0。
 
-## 预览
+## 本地预览
+
+在项目根目录执行：
 
 ```powershell
 node scripts/website-preview.mjs
 ```
 
-打开 `http://127.0.0.1:4190/`。该服务仅提供官网静态文件，支持视频 Range 请求，禁用麦克风与摄像头。不读取真实用户资料、不调用模型。可用 `VG_WEBSITE_PORT` 设置端口。
+打开 http://127.0.0.1:4190/。需要本地静态服务，支持视频Range请求。只读取官网静态资源，不读取真实用户资料、不调用模型或原生接口，麦克风与摄像头被禁用。可用VG_WEBSITE_PORT设置端口。
 
-## 页面与实现
+## 实现
 
-| 文件/区域 | 责任 |
+| 文件 | 责任 |
 | --- | --- |
-| `index.html` | 首屏、三种体验、角色记忆、日常与世界、真实画廊、下载和折叠问题 |
-| `site-7.css` | 当前排版、花体品牌、手机与桌面布局、产品截图材质及可访问状态 |
-| `site-7.js` | 体验 tab 键盘控制、录屏弹窗及暂停、图片查看器焦点循环、旧锚点兼容 |
-| `styles.css` / `living-light.css` | 原有基础变量、全局环境光、粒子与生命光丝、导航及图片查看 |
-| `main.js` | 保留原有材质与动效基础，单一 Ticker，离屏/后台暂停和减少动态降级 |
-| `assets/v7/` | 七张真实新版组件截图、无声场景录屏、花体字体及许可证、分享图 |
-| `privacy.html` / `terms.html` | 静态隐私和条款，无装饰箭头 |
+| index.html | 六章节、示例事实标识、原图链接、静态降级、下载与帮助 |
+| site-7.css | 完整独立首页样式、环境材质、响应布局、静态模式及弹窗 |
+| main.js | 单一RAF与指针状态、粒子池、场景光色、表面反馈、菜单与图片查看 |
+| site-7.js | 原有体验tab状态及键盘控制、手动录屏、焦点循环、旧锚点兼容 |
+| assets/star-sea/ | 独立生成的干净环境底图，不含产品界面 |
+| assets/v7/ | 七张真实组件截图、无声场景录屏、原花体字体与许可证、分享图 |
+| privacy.html / terms.html | 原静态说明与条款 |
 
-详细视觉规则见 [DESIGN.md](./DESIGN.md)。所有资源保持相对路径，以支持 GitHub Pages 的 `/VirtuGene-Mobile/` 子路径。旧 `#release-6`、`#meet`、`#world` 链接继续对应新版相关章节。
+首页只加载site-7.css；styles.css、living-light.css及旧版资源继续留档，隐私/条款仍可使用原基础样式。新版不叠加旧引擎。所有素材使用相对地址，支持GitHub Pages子路径。旧#release-6、#meet、#world锚点保留兼容。
 
-历史 `assets/product/`、`assets/release-6/` 和 `release-6.css/js` 留档，本版首页不再加载它们。
+## 素材边界
 
-## 展示素材与边界
+App截图是实际组件配合独立虚构账号、对话、记忆与事项。通话为合成的无声状态，不代表真实识别、音质或时延已经验收。scenes.webm为原实际聊天组件的场景切换，手动播放。世界首页的生活助理、四入口、剧情卡片关系保持原样。
 
-- 截图由当前实际组件生成，使用独立来源的虚构账号、手动记忆和事项，包含聊天、茶室场景、人物通话、角色记忆、世界首页、助理今日和星域目录。
-- 对话为展示文本，不是真实模型采样；通话为无声合成状态，不代表真实识别、音质、延迟、蓝牙或锁屏已验收。
-- `scenes.webm` 是实际聊天组件切换场景的录屏，手动播放，不自动预取。关闭弹窗或切换到后台会暂停。
-- 世界首页截图保留生活助理在上、中间四入口、剧情续接卡片在下的当前关系；官网没有更改应用布局。
-- 字体来源于应用现有 Allura 子集，许可证 `assets/v7/OFL-Allura.txt`；未更换应用图标。
+本次内置图像生成共8次：六章节、手机首屏、干净背景。只使用背景作为新增生产图；不使用生成图重绘的Logo、人物或App界面。现有原人物、V标、Allura字体及OFL许可证继续保留。
 
-素材采集和验证：`scripts/verify/website-7-{fixture.tsx,capture.mjs,record.mjs,baseline.mjs,look.mjs}`。原始证据在 `.tmp-preview/website-7-20261025/`，包含来源哈希与模型/媒体隔离计数。可读实施记录在 Obsidian 手机版开发日志中。
+设计规则见 [DESIGN.md](./DESIGN.md)。当前概念、基线、截图、录屏和详细核验留在 .tmp-preview/website-star-20261026/；上轮产品截图来源证据仍在 .tmp-preview/website-7-20261025/。模型与推理强度无法从当前运行配置确认，不猜测。
 
 ## 验证
 
+先启动本地预览，再执行：
+
 ```powershell
-node scripts/verify/website-7.mjs
+node scripts/verify/website-star-regression.mjs
+node scripts/verify/website-star-fx.mjs
+node scripts/verify/website-star-delivery.mjs
+node --check website/main.js
 node --check website/site-7.js
 ```
 
-需先启动静态预览。验证覆盖六种宽度、实际截图、tab/菜单/图片查看/录屏键盘与焦点、减少动态、无脚本、图片失败降级、公开下载链接不变以及子路径资源。
+覆盖六种宽度、横屏、键盘与焦点、媒体手动播放、无脚本及图片失败、下载链接、动态生命周期、输入响应、真实浏览器帧耗时与独立合成慢帧降档。合成输入单独记录，不写成真实慢设备测量。不要用旧website-7.mjs覆盖前轮输出。
 
 ## 发布
 
-推送仅有 `website/**` 的改动，由 `.github/workflows/deploy-pages.yml` 部署。`scripts/deploy-site-github.mjs` 是 Git Data API 的现有发布通道；调用前必须检查远端与当前官网差异，不能带入应用并行修改。页面改版不授权发布 APK 或变更官网下载版本。
+仅同步website/**，由.github/workflows/deploy-pages.yml部署。使用Git Data API前核对当前远端及本轮源文件基线，保留远端其他路径，非强制推进并记录回滚父提交。大量并行App改动不能带入发布，不改本地HEAD或索引。页面改版不授权发布APK、修改应用或更新官网下载版本。
