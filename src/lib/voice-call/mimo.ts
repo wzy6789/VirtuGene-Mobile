@@ -1,18 +1,43 @@
 /** MiMo call transport. ASR uploads a bounded WAV utterance; only the response is SSE. */
-import { loadSecret } from '../api-key-storage';
+import { callFetch } from './transport';
+import { normalizedMimoKey, loadMimoKey } from './key';
 
 export const CALL_MODELS = { asr: 'mimo-v2.5-asr', dialogue: 'mimo-v2.6-flash', tts: 'mimo-v2.5-tts' } as const;
 export const CALL_VOICES = ['冰糖', '茉莉', '苏打', '白桦', 'Mia', 'Chloe', 'Milo', 'Dean'] as const;
 export type CallVoice = typeof CALL_VOICES[number];
 export const CALL_PCM_RATE = 24_000;
-export type CallApiErrorCode = 'key' | 'quota' | 'rate' | 'network' | 'timeout' | 'protocol' | 'limit';
+/** Public protocol boundary, not a provider latency or realtime service guarantee. */
+export const CALL_PROVIDER_CAPABILITIES = Object.freeze({
+  provider: 'mimo', models: Object.freeze({ ...CALL_MODELS }),
+  input: 'complete-wav-per-request', inputSampleRate: 16_000,
+  recognitionOutput: 'text-sse', dialogueOutput: 'text-sse',
+  synthesisOutput: 'pcm16-sse', synthesisSampleRate: CALL_PCM_RATE,
+  continuousAudioUpload: false, realtimeWebRtc: false,
+  maxAudioSegmentSeconds: 30, automaticRetries: 0,
+} as const);
+export type CallApiErrorCode = 'key' | 'key_format' | 'quota' | 'rate' | 'network' | 'timeout' | 'protocol' | 'limit' | 'transport_missing' | 'transport_limit' | 'transport_duplicate' | 'transport_url' | 'stream_closed' | 'dns' | 'tls' | 'forbidden' | 'service';
+function serviceErrorCode(status: number): CallApiErrorCode {
+  if (status === 401) return 'key';
+  if (status === 403) return 'forbidden';
+  if (status === 402) return 'quota';
+  if (status === 429) return 'rate';
+  if (status === 421) return 'limit';
+  if (status === 400 || status === 404) return 'protocol';
+  if (status >= 500 && status <= 599) return 'service';
+  return 'network';
+}
 export class CallApiError extends Error {
-  constructor(public readonly code: CallApiErrorCode) { super(`voice:${code}`); }
+  constructor(public readonly code: CallApiErrorCode, public readonly stage?: 'asr' | 'dialogue' | 'tts', public readonly httpStatus?: number) { super(`voice:${code}`); }
 }
 type Event = { error?: unknown; choices?: { delta?: { content?: string; audio?: { data?: string } }; finish_reason?: string | null }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } };
 export type CallApiUsage = { inputTokens: number; outputTokens: number };
 export type CallMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 type StreamOptions = { signal: AbortSignal; onRequest?: () => void; onUsage?: (usage: CallApiUsage) => void };
+
+/** Local consumers are not network failures; preserve their cancellation/source/audio authority. */
+class CallConsumerFailure extends Error {
+  constructor(readonly original: unknown) { super('voice:consumer_failure'); }
+}
 
 function abortError(): DOMException { return new DOMException('Aborted', 'AbortError'); }
 function checkAbort(signal: AbortSignal) { if (signal.aborted) throw abortError(); }
@@ -60,7 +85,14 @@ export async function readCallEvents(response: Response, signal: AbortSignal, on
         if (data === '[DONE]') { done = true; break; }
         let event: Event;
         try { event = JSON.parse(data); } catch { throw new CallApiError('protocol'); }
-        if (!event || typeof event !== 'object' || event.error) throw new CallApiError('protocol');
+        if (!event || typeof event !== 'object') throw new CallApiError('protocol');
+        if (event.error) {
+          const code = (event.error as { code?: unknown }).code;
+          // Numeric service errors are interpreted without exposing messages.
+          // A streamed code is not proof of the HTTP response status.
+          const numeric = typeof code === 'number' ? code : typeof code === 'string' && /^\d{3}$/.test(code) ? Number(code) : undefined;
+          throw new CallApiError(numeric !== undefined && numeric >= 400 && numeric <= 599 ? serviceErrorCode(numeric) : 'protocol');
+        }
         const finish = event.choices?.[0]?.finish_reason;
         if (finish === 'length' || finish === 'content_filter' || finish === 'repetition_truncation') throw new CallApiError('limit');
         if (finish != null && finish !== 'stop') throw new CallApiError('protocol');
@@ -84,18 +116,22 @@ export async function readCallEvents(response: Response, signal: AbortSignal, on
 
 /** No automatic retry: billing and transcript replay remain controlled by the call state machine. */
 export class MimoCallClient {
-  constructor(private readonly key: () => Promise<string | null> = () => loadSecret('mimo-key'), private readonly request: typeof fetch = fetch) {}
+  constructor(private readonly key: () => Promise<string | null> = loadMimoKey, private readonly request: typeof fetch = callFetch) {}
   private async stream(body: unknown, options: StreamOptions, consume: (event: Event) => void | Promise<void>): Promise<void> {
+    const model = (body as { model?: string }).model;
+    const stage = model === CALL_MODELS.asr ? 'asr' : model === CALL_MODELS.tts ? 'tts' : 'dialogue';
     checkAbort(options.signal);
-    const key = await this.key(); checkAbort(options.signal);
-    if (!key) throw new CallApiError('key');
+    const stored = await this.key(); checkAbort(options.signal);
+    if (!stored?.trim()) throw new CallApiError('key');
+    const key = normalizedMimoKey(stored);
+    if (!key) throw new CallApiError('key_format');
     const controller = new AbortController();
     const cancel = () => controller.abort();
     options.signal.addEventListener('abort', cancel, { once: true });
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, 45_000);
     try {
-      options.onRequest?.();
+      try { options.onRequest?.(); } catch (error) { throw new CallConsumerFailure(error); }
       const response = await this.request('https://api.xiaomimimo.com/v1/chat/completions', {
         method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body), signal: controller.signal,
@@ -103,17 +139,31 @@ export class MimoCallClient {
       checkAbort(controller.signal);
       if (!response.ok) {
         await response.body?.cancel().catch(() => {});
-        throw new CallApiError(response.status === 401 || response.status === 403 ? 'key' : response.status === 402 ? 'quota' : response.status === 429 ? 'rate' : response.status === 421 ? 'limit' : response.status === 400 || response.status === 404 ? 'protocol' : 'network');
+        throw new CallApiError(serviceErrorCode(response.status), stage, response.status);
       }
       await readCallEvents(response, controller.signal, async event => {
-        if (event.usage && Number.isFinite(event.usage.prompt_tokens) && Number.isFinite(event.usage.completion_tokens)) options.onUsage?.({ inputTokens: event.usage.prompt_tokens!, outputTokens: event.usage.completion_tokens! });
-        await consume(event);
+        try {
+          if (event.usage && Number.isFinite(event.usage.prompt_tokens) && Number.isFinite(event.usage.completion_tokens)) options.onUsage?.({ inputTokens: event.usage.prompt_tokens!, outputTokens: event.usage.completion_tokens! });
+          await consume(event);
+        } catch (error) { throw new CallConsumerFailure(error); }
       });
     } catch (error) {
       if (options.signal.aborted) throw abortError();
-      if (timedOut) throw new CallApiError('timeout');
-      if (error instanceof CallApiError) throw error;
-      throw new CallApiError('network');
+      if (timedOut) throw new CallApiError('timeout', stage);
+      if (error instanceof CallConsumerFailure) {
+        if (error.original instanceof CallApiError) throw new CallApiError(error.original.code, stage, error.original.httpStatus);
+        throw error.original;
+      }
+      if (error instanceof CallApiError) throw new CallApiError(error.code, stage, error.httpStatus);
+      const nativeCode = (error as { message?: unknown })?.message;
+      // Local bridge limits/closed streams are not HTTP failures or service
+      // quota. Preserve only our fixed codes, without copying native details.
+      if (nativeCode === 'voice:transport_missing' || nativeCode === 'voice:transport_limit'
+        || nativeCode === 'voice:transport_duplicate' || nativeCode === 'voice:transport_url' || nativeCode === 'voice:stream_closed'
+        || nativeCode === 'voice:dns' || nativeCode === 'voice:tls' || nativeCode === 'voice:timeout') {
+        throw new CallApiError(nativeCode.slice(6) as CallApiErrorCode, stage);
+      }
+      throw new CallApiError('network', stage);
     } finally { clearTimeout(timer); options.signal.removeEventListener('abort', cancel); }
   }
   async recognize(wav: Uint8Array, options: StreamOptions & { onText?: (text: string) => void }): Promise<string> {

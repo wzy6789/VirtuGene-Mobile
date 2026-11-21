@@ -422,6 +422,14 @@ Android 真机仍需检查首次授权、按住说话/上滑取消、真实麦�
 
 ### 助理连续记忆（secretary-memory.html）
 
+角色跨入口与长原话回归：`node scripts/verify/character-portability.mjs <新的证据路径.json>`。冻结源码位于 `.tmp-preview/character-portability-20261015/before-source.json`，缺少该文件时不可冒充改前对照；67项包含v39→当前v41原数据与索引保留、跨会话/改名/世界、私聊/群聊原话、同时间戳更正、通话发送前来源核验、大量无关记录读取对照，以及真实群聊store/朋友圈任务的私有记忆边界。实际组件预览：先构建renderer，运行 `node scripts/preview-character-memory.mjs`，访问 `http://127.0.0.1:5191/?virtugene-preview=mobile`；`--verify`使用随机临时端口并生成三宽截图后退出。仅合成账号/IndexedDB与确定性传输，外部请求及麦克风隔离，真实模型0调用，非Android实测。可读说明按约定归入 Obsidian 手机版开发日志2026-10-15。
+
+无历史快照时可运行 `node scripts/verify/character-portability.mjs --current <新的证据路径.json>`，仅验证当前67项，不声称存在改前对照。输出文件不得复用，以保留失败与修订证据。
+
+助理记忆专项当前120项，加4项窄屏检查：构建 `node scripts/verify/build-secretary.mjs --with-regressions --with-domain-regressions` 后运行 `node scripts/verify/run-secretary-regressions.cjs secretary-memory memory-unified memory-attention memory-final memory-continuity character-memory`。覆盖无主题名的相邻更正、同时间戳、锁定衍生资料、生成途中更正、来源转移/撤权，以及512条事实和8105条失效记录的按引用核验。证据中的查询对照是同资料的旧列表查询方式与新按键查询，不冒充旧版完整App；记录完整准备输入哈希，单次桌面耗时不等于模型或手机首显。
+
+完整助理 `node scripts/verify/run-secretary.cjs` 当前1237项数据＋159项界面检查，包含3项迟到列表/会话选择竞争；界面定位跟随当前创建流程与角色画廊，仍核对实际数据库及账号隔离。实际助理预览：`node scripts/preview-assistant-memory.mjs`，访问 `http://127.0.0.1:5192/?virtugene-preview=mobile`，需要本地服务；合成账号和独立IndexedDB，仅本地确定性模型替身，禁止外部fetch与麦克风。可直接查看聊天中的更正与“助理更多操作→助理记忆”；`--verify`检查实际组件并保存三宽截图后退出。角色记忆档案入口另用 `node scripts/verify/memory-entry-ui.mjs <新的证据目录>`，当前18项。
+
 2026-10-03 工作记忆继续优化：现有107项数据/请求/组件检查，加4项窄屏检查。新增常见问法、短句接话、英文简称、长原话/长请求/长近期相关片段、稀有关键词排名、索引版本回填、部分提炼后的剩余工作信息、表达要求持续应用、近期原话版本校验、跨会话工作概览、真实代发草稿状态召回及检索途中账号切换。范围、限制和复跑命令见 `docs/ASSISTANT-MEMORY-SERVICE-2026-10-03.md`。以下76项与60项为此前验收记录。
 
 2026-10-03 召回优化：本套件现有76项数据/请求/组件检查，加4项窄屏检查。新增无关事实过滤、冷却不从旧原话绕回、短句重新提起、表达偏好、否定式遗忘、重复任务回执去重、实际记录和日期实例生成期间变化、原请求撤回及日记重锁。复跑命令不变；说明见 `docs/ASSISTANT-MEMORY-OPTIMIZATION-2026-10-03.md`。以下60项为首轮记录。

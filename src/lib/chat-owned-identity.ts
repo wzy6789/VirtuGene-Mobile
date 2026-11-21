@@ -1,3 +1,5 @@
+import {GU_YUE_NA_PARTNER_DISAGREEMENT,GU_YUE_NA_VISITOR_RESPECT} from './gu-yue-na-relationship-guidance';
+
 /** Direct, speaker-owned choice of an authored story identity. No inference
  * from role replies, summaries, third-party reports or affection scores. */
 export function ownedIdentityChoice(message:string,names:readonly string[],addresses:readonly string[]=[]):boolean|undefined {
@@ -75,5 +77,5 @@ export function ownedPartnerContext(role:OwnedPartnerRole,current:string,history
   const context=ownedPartnerRecognition(role,current,history)
     ?`当前用户已在本群直接认领${name}，这是选择故事身份，不是现实认证；旧别名不阻止切换，不追究改名或考问真假。以你对爱人的熟悉、温柔和亲近回应；这只属于该用户，不套到其他成员。`
     :`当前用户未在本群认领${name}，对他极为冷漠、疏离、惜字；不回赠心意或邀他陪聊。其他成员各有身份，不因用户好感或私聊身份软化。`;
-  return [context,ownedIdentityTransition(role,current)].filter(Boolean).join('\n');
+  return [context,role==='guyuena'?(ownedPartnerRecognition(role,current,history)?GU_YUE_NA_PARTNER_DISAGREEMENT:GU_YUE_NA_VISITOR_RESPECT):'',ownedIdentityTransition(role,current)].filter(Boolean).join('\n');
 }

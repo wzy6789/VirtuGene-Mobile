@@ -1,0 +1,11 @@
+.vg-world-resume,.vg-chat-context-card{border:1px solid var(--vg-elev-edge);border-radius:20px;background:var(--vg-elev-1);color:var(--text);padding:18px;margin-top:16px}
+.vg-continuity-eyebrow{font-size:12px;line-height:1.6;color:var(--vg-cyan);margin:0 0 6px}
+.vg-world-resume h2{font-size:20px;line-height:1.4;margin:0 0 10px;overflow-wrap:anywhere}
+.vg-world-resume-place,.vg-world-resume-people{font-size:14px;line-height:1.6;overflow-wrap:anywhere;margin:6px 0}
+.vg-world-resume-place{display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--text-secondary)}
+.vg-world-resume ul{padding-left:20px;font-size:14px;line-height:1.7;margin:12px 0}
+.vg-world-resume-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.vg-world-resume-actions>button{min-height:48px;flex:1 1 120px;display:flex;align-items:center;justify-content:center;gap:8px}
+.vg-continuity-note{font-size:12px;line-height:1.6;color:var(--text-secondary);margin:10px 0 0}.vg-continuity-error{font-size:14px;line-height:1.6;color:var(--vg-danger)}
+.vg-chat-context-card{margin:0 16px 10px;padding:12px 14px;font-size:14px;line-height:1.6}.vg-chat-context-card summary{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;overflow-wrap:anywhere;color:var(--text)}.vg-chat-context-card summary>span{flex:1;min-width:0}.vg-chat-context-card p{margin:6px 0;overflow-wrap:anywhere}.vg-chat-context-card button,.vg-chat-context-card a{min-height:44px}.vg-chat-context-card button{color:var(--vg-cyan)}
+.vg-memory-receipt{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 16px;background:var(--bg-panel);border-top:1px solid var(--border);font-size:14px;line-height:1.5}.vg-memory-receipt>span{flex:1 1 90px}.vg-memory-receipt button{min-height:44px;min-width:44px;padding:8px;color:var(--vg-cyan)}.vg-memory-receipt button:disabled{opacity:.5}.vg-memory-receipt .vg-receipt-close{color:var(--text-secondary)}
+@media(prefers-reduced-motion:reduce){.vg-world-resume,.vg-chat-context-card,.vg-memory-receipt{animation:none;transition:none}}

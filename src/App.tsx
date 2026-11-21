@@ -2,19 +2,16 @@ import { lazyFeature } from './components/ui/lazyFeature';
 import { useCallback, useEffect, useRef, useState, lazy, Suspense } from 'react';
 import { useAuthStore } from './store/auth-store';
 import { ipc } from './lib/ipc-client';
-import { MainLayout } from './components/layout/MainLayout';
 import { SplashScreen } from './components/splash/SplashScreen';
-import { UpdateNotesModal } from './components/update/UpdateNotesModal';
-import { OnboardingGuide } from './components/onboarding/OnboardingGuide';
 import { useUIStore } from './store/ui-store';
 import { useSettingsStore } from './store/settings-store';
 import { IS_MOBILE } from './lib/platform';
 import { diaryRepo, todayStr } from './db/diary-repo';
-import { getChangelog, LAST_SEEN_VERSION_KEY } from './lib/changelog';
+import { LAST_SEEN_VERSION_KEY } from './lib/changelog-state';
 import { notifyLocal, requestNotificationPermission } from './lib/notify';
 import { loadPersistedApiKey } from './lib/api-key-storage';
-import { useGroupStore } from './store/group-store';
-import { hasAiGatewayAccess, isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from './lib/ai/gateway';
+import { loadForAccount } from './lib/load-for-account';
+import { hasAiGatewayAccess, isAiGatewayConfigured, refreshGatewaySession, setGatewayAccessToken } from './lib/ai/gateway-session';
 import { loadMomentsPreferences } from './lib/moments/preferences';
 import { UseTimeReminder } from './components/compliance/UseTimeReminder';
 import { useSlideOutCancel } from './components/ui/useSlideOutCancel';
@@ -26,6 +23,9 @@ import { useVoiceCallUIStore } from './store/voice-call-ui-store';
 const VoiceCallHost = lazyFeature(() => import('./components/chat/VoiceCallHost').then(m => ({ default: m.VoiceCallHost })));
 
 const AuthPage = lazyFeature(() => import('./pages/AuthPage').then(m => ({ default: m.AuthPage })));
+const MainLayout = lazyFeature(() => import('./components/layout/MainLayout').then(m => ({ default: m.MainLayout })));
+const OnboardingGuide = lazyFeature(() => import('./components/onboarding/OnboardingGuide').then(m => ({ default: m.OnboardingGuide })), '正在读取使用说明…', null, 'notice');
+const UpdateNotesModal = lazyFeature(() => import('./components/update/UpdateNotesModal').then(m => ({ default: m.UpdateNotesModal })), '正在读取更新说明…', null, 'notice');
 const ChatPage = lazyFeature(() => import('./pages/ChatPage').then(m => ({ default: m.ChatPage })));
 const MomentsPage = lazyFeature(() => import('./components/moments/MomentsPage').then(m => ({ default: m.MomentsPage })));
 
@@ -43,7 +43,10 @@ export default function App() {
 
   const activeView = useUIStore((s) => s.activeView);
   const didResize = useRef(false);
-  const [ready, setReady] = useState(false);
+  const entryScope = JSON.stringify([isLoggedIn, activeUserId]);
+  const [readyScope, setReadyScope] = useState<string>();
+  const ready = readyScope === entryScope;
+  const seedRequest = useRef<Promise<void> | undefined>(undefined);
   const [splashGone, setSplashGone] = useState(false);
   const finishSplash = useCallback(() => setSplashGone(true), []);
   const [updateNotes, setUpdateNotes] = useState<{ version: string; notes: string[] } | null>(null);
@@ -61,12 +64,18 @@ export default function App() {
   }, [activeUserId, isLoggedIn]);
 
   useEffect(() => {
-    // 预置角色包含头像与较长的人格基因，延后到应用壳加载后再拉取，避免把大段种子数据塞进首屏主包。
-    void import('./lib/seed-init')
-      .then(({ initSeedCharacters }) => initSeedCharacters())
-      .catch(() => undefined)
-      .finally(() => setReady(true));
-  }, []);
+    let alive = true;
+    // Authentication needs no preset bodies. Keep full initialization before the
+    // signed-in shell/onboarding, shared once per mounted app as before.
+    const seed = isLoggedIn
+      ? seedRequest.current ??= import('./lib/seed-init').then(({ initSeedCharacters }) => initSeedCharacters()).catch(() => undefined)
+      : Promise.resolve();
+    const destination = isLoggedIn ? MainLayout.preload() : AuthPage.preload();
+    void Promise.all([seed, destination]).finally(() => {
+      if (alive) setReadyScope(entryScope);
+    });
+    return () => { alive = false; };
+  }, [entryScope, isLoggedIn]);
 
   // 同一台手机「记住登录」：persist 恢复了登录态但 apiKey 在内存为 null，
   // 启动时从设备加密存储恢复 API Key（微信/QQ 式，无需重复登录）。
@@ -140,14 +149,18 @@ export default function App() {
   // Show the update announcement once per version change
   useEffect(() => {
     if (!ready) return;
-    ipc.app.getVersion().then((v) => {
-      if (!v) return;
+    let alive = true;
+    void ipc.app.getVersion().then(async (v) => {
+      if (!alive || !v || localStorage.getItem(LAST_SEEN_VERSION_KEY) === v) return;
+      const { getChangelog } = await import('./lib/changelog');
+      if (!alive) return;
       const entry = getChangelog(v);
       if (!entry) return;
       if (localStorage.getItem(LAST_SEEN_VERSION_KEY) !== v) {
         setUpdateNotes({ version: v, notes: entry.notes });
       }
-    });
+    }).catch(() => undefined);
+    return () => { alive = false; };
   }, [ready]);
 
   useEffect(() => {
@@ -199,11 +212,16 @@ export default function App() {
   // 群聊后台主动发言 + 群聊自运转（成员间私下闲聊）：离开群聊页后角色们也有"生活"
   // （主动发言 30 分钟冷却；自运转 4 小时冷却 + 每天最多 3 次——省 token）
   useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || !activeUserId) return;
+    let alive = true;
     const check = () => {
-      const g = useGroupStore.getState();
-      void g.proactiveBackground();
-      void g.backgroundGroupBanter();
+      if (!alive) return;
+      void loadForAccount(activeUserId, () => import('./store/group-store')).then(({ useGroupStore }) => {
+        if (!alive) return;
+        const g = useGroupStore.getState();
+        void g.proactiveBackground();
+        void g.backgroundGroupBanter();
+      }).catch(() => undefined);
     };
     const timer = setInterval(check, 10 * 60_000);
     // 回到前台立即检查一次
@@ -212,10 +230,11 @@ export default function App() {
     };
     document.addEventListener('visibilitychange', onVis);
     return () => {
+      alive = false;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [isLoggedIn]);
+  }, [isLoggedIn, activeUserId]);
 
   // 角色看动态、点赞和评论在应用前台持续推进；用户离开朋友圈也不会让任务停住。
   useEffect(() => {
@@ -332,6 +351,7 @@ export default function App() {
     {/* Prepare the actual destination under the splash; fading never reveals an
         empty app background. Covered controls cannot receive focus or input. */}
     <div className="h-full w-full bg-app text-ink" inert={!splashGone} aria-hidden={!splashGone || undefined}>
+      {!ready && splashGone && <div className="vg-loading" role="status" aria-busy="true">正在准备你的空间…</div>}
       {ready && (isLoggedIn ? (
         <MainLayout>
           <Suspense fallback={<div className="h-full w-full flex items-center justify-center text-sm text-gray-500">正在唤醒手账…</div>}>
@@ -341,15 +361,16 @@ export default function App() {
       ) : (
         <Suspense fallback={<div className="vg-loading" role="status" aria-busy="true" />}><AuthPage /></Suspense>
       ))}
-      <UpdateNotesModal
-        open={splashGone && !!updateNotes}
+      {splashGone && updateNotes && <UpdateNotesModal
+        open
+        onLoadDismiss={() => setUpdateNotes(null)}
         onClose={handleCloseUpdateNotes}
         version={updateNotes?.version ?? ''}
         notes={updateNotes?.notes ?? []}
-      />
+      />}
       {splashGone && isLoggedIn && <UseTimeReminder />}
       {/* 新手引导：手机端展示完整说明，桌面端继续提供锚点式指引 */}
-      {splashGone && isLoggedIn && <OnboardingGuide key={activeUserId} blocked={!!updateNotes} />}
+      {splashGone && ready && isLoggedIn && <OnboardingGuide key={activeUserId} blocked={!!updateNotes} />}
     </div>
     {!splashGone && <SplashScreen ready={ready} onComplete={finishSplash} />}
     {splashGone && <FeedbackHost />}

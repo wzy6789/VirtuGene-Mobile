@@ -313,7 +313,6 @@ export function CharacterList({ collapsed }: Props) {
           <p className="text-sm text-sub mb-2">
             角色与关联的对话、记忆和关系将被删除，无法恢复。
           </p>
-          <p className="text-xs text-gray-500 mb-6">确认删除此角色？</p>
           {deleting && <p role="status" className="mb-4 text-sm text-sub">正在清理聊天与关联记录，完成后会自动关闭。</p>}
           <div className="flex gap-3 justify-end">
             <button

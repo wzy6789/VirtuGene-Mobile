@@ -11,10 +11,10 @@ const GROUPS = [
 /** Read-only progress. A checked step has no date and is not a daily accomplishment. */
 export function SecretaryReviewProgress({ rows, date, onOpen }: { rows: DailyReviewTodoRow[]; date: string; onOpen: (row: DailyReviewTodoRow) => void }) {
   const [expanded, setExpanded] = useState<string[]>([]);
-  return <details className="rounded-2xl border border-line p-4">
+  return <details className="vg-copy-details rounded-2xl border border-line p-4">
     <summary className="min-h-11 cursor-pointer text-sm font-medium text-ink">查看办事进展与下一步</summary>
     <div aria-label="办事进展预览" className="mt-3 space-y-4">
-      <p className="text-xs leading-relaxed text-sub">{date === localDateKey() ? '步骤显示当前进度，不代表今天完成。整件待办是否完成，以实际待办状态为准。' : '历史整理按整件待办的实际完成日期归类，不引用当前步骤进度。'}</p>
+      <p className="text-xs leading-relaxed text-sub">{date === localDateKey() ? '当前步骤仅供参考，整件待办以实际完成状态为准。' : '历史记录按整件待办的完成日期归类。'}</p>
       {GROUPS.map(group => {
         const all = rows.filter(row => row.state === group.state);
         const shown = expanded.includes(group.state) ? all : all.slice(0, 8);
@@ -29,7 +29,7 @@ export function SecretaryReviewProgress({ rows, date, onOpen }: { rows: DailyRev
                 <p>当前步骤 {row.currentStepProgress.completed}/{row.currentStepProgress.total}</p>
                 {group.state !== 'completed-that-day' && (remaining.length ? <><p className="break-words text-ink">下一步可先做：{remaining[0].title}</p><p className="break-words">{remaining.slice(1, 3).map(step => step.title).join('、')}{row.currentStepProgress.total - row.currentStepProgress.completed > 3 ? ' · 其余步骤见待办' : ''}</p></> : <p>{row.currentStepProgress.completed === row.currentStepProgress.total ? '步骤已勾完，整件待办仍未标记完成。' : '其余步骤请打开待办查看。'}</p>)}
               </div>}
-              {row.recurring && <p className="mt-2 text-xs text-sub">按本次日期状态整理，不把整个系列的步骤当作当天完成。</p>}
+              {row.recurring && <p className="mt-2 text-xs text-sub">仅统计本次日期，不代表整个系列已完成。</p>}
             </div>;
           })}
           {all.length > 8 && <button type="button" onClick={() => setExpanded(value => value.includes(group.state) ? value.filter(state => state !== group.state) : [...value, group.state])} className="min-h-11 w-full text-xs text-gene-purple">{expanded.includes(group.state) ? '收起其余事项' : `查看其余${all.length - 8}项`}</button>}

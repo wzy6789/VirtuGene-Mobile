@@ -3,7 +3,10 @@ import { messageRepo, type MessagePageCursor } from '../db/message-repo';
 import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
 import Dexie from 'dexie';
 import { memorySpeaker } from '../../server/memory-source-policy.mjs';
-import { withMemorySourceSnapshot, inheritMemorySourceSnapshots, memorySourceSnapshotsStillLive } from './memory-source-snapshot';
+import { withMemorySourceSnapshot, inheritMemorySourceSnapshots, memorySourceSnapshotsStillLive,memorySourceSnapshotIds,memorySourceSnapshotsBatchStillLive } from './memory-source-snapshot';
+import { normalizeHistorySearchText } from '../db/message-history-index';
+import { searchIndexedHistorySession } from './chat-history-index';
+import { memoryExcerpt, spreadMemoryTerms } from './memory-excerpt';
 
 export interface HistoricalChatHit {
   messageId: string;
@@ -16,8 +19,22 @@ export interface HistoricalChatHit {
   userAuthored?:boolean;
 }
 
+/** Selected history authorization must survive the later model await too. */
+export async function historicalPrivateChatHitsStillLive(userId:string,characterId:string,hits:HistoricalChatHit[]):Promise<boolean>{
+  if(!hits.length)return true;
+  const ids=[...new Set(hits.flatMap(hit=>[hit.messageId,...memorySourceSnapshotIds(hit,'messages')]))];
+  const [rows,sessions,suppressed]=await Promise.all([
+    db.messages.bulkGet(ids),db.sessions.bulkGet([...new Set(hits.map(hit=>hit.sessionId))]),
+    memorySourceTombstoneRepo.selectedSuppressedMessages(userId,characterId,ids),
+  ]);
+  const blocked=await memorySourceTombstoneRepo.blocksImports(rows.filter((row):row is NonNullable<typeof row>=>!!row).map(row=>({userId,sourceType:'message' as const,sourceId:row.id,sourceRevision:row.revision??1})));
+  if(blocked.some(Boolean)||rows.some(row=>!row||row.failed||suppressed.has(row.id)||!sessions.some(session=>session?.id===row.sessionId&&session.userId===userId&&session.characterId===characterId&&session.type!=='group')))return false;
+  const live=await memorySourceSnapshotsBatchStillLive(hits);
+  return hits.every(hit=>live.get(hit)===true);
+}
+
 function normalize(value: string): string {
-  return value.normalize('NFKC').toLocaleLowerCase().replace(/[\s\u3000，。！？、,.!?;；:："“”‘’（）()【】[\]{}]/g, '');
+  return normalizeHistorySearchText(value);
 }
 
 function queryTerms(query: string): string[] {
@@ -30,7 +47,7 @@ function queryTerms(query: string): string[] {
       for (let index = 0; index + 2 <= part.length; index += 1) terms.add(part.slice(index, index + 2));
     }
   }
-  return [...terms].slice(0, 24);
+  return spreadMemoryTerms([...terms], 24);
 }
 
 /**
@@ -57,10 +74,22 @@ export async function recallHistoricalPrivateChat(params: {
   const now = Date.now();
   const recallLimit=Math.max(1,Math.floor(params.limit??3));
   const compare=(a:typeof scored[number],b:typeof scored[number])=>b.score-a.score||b.createdAt-a.createdAt;
+  const exactQuery = normalize(params.query);
   // This runs only for an explicit old-topic question. Page through every owned
   // one-to-one session; a fixed recent-session/message window silently loses
   // exactly the older detail the user is asking about.
   for (const session of sessions.sort((a, b) => b.updatedAt - a.updatedAt)) {
+    const indexed = await searchIndexedHistorySession({ sessionId: session.id, terms, exactQuery,
+      excluded, preferAssistant: /你.{0,6}(?:说过|讲过|答应)/u.test(params.query), now, limit: recallLimit });
+    if (indexed !== undefined) {
+      for (const {row: message, score} of indexed) scored.push(withMemorySourceSnapshot({
+        messageId: message.id, sessionId: message.sessionId, role: message.role as 'user' | 'assistant',
+        content: memoryExcerpt(message.content, terms, 320), createdAt: message.createdAt,
+        userAuthored: message.role === 'user' && message.secretaryDispatch?.bodyOrigin !== 'composed', score,
+      }, 'messages', message));
+      scored.sort(compare); scored.length = Math.min(scored.length, recallLimit);
+      continue;
+    }
     let beforeMessage: MessagePageCursor | undefined;
     while (true) {
       const messages = await messageRepo.getPage(session.id, { limit: 400, beforeMessage });
@@ -71,13 +100,13 @@ export async function recallHistoricalPrivateChat(params: {
       if (!content) continue;
       const matches = terms.reduce((count, term) => count + Number(content.includes(term)), 0);
       if (matches === 0) continue;
-      const exactPhrase = normalize(params.query).length >= 4 && content.includes(normalize(params.query));
+      const exactPhrase = exactQuery.length >= 4 && content.includes(exactQuery);
       const ageDays = Math.max(0, (now - message.createdAt) / 86_400_000);
       scored.push(withMemorySourceSnapshot({
         messageId: message.id,
         sessionId: message.sessionId,
         role: message.role,
-        content: message.content.trim().slice(0, 320),
+        content: memoryExcerpt(message.content, terms, 320),
         createdAt: message.createdAt,
         userAuthored:message.role==='user'&&message.secretaryDispatch?.bodyOrigin!=='composed',
         score: (exactPhrase ? 20 : 0) + matches * 2 + Math.max(0, 1 - ageDays / 365)
@@ -111,8 +140,8 @@ export async function recallHistoricalPrivateChat(params: {
     // A correction may omit the original noun (“不是周五，是周四”). Keep
     // adjacent user corrections as separately sourced originals, not a merged
     // or interpreted fact, and stop at the next unrelated user turn.
-    const next=await db.messages.where('[sessionId+createdAt]')
-      .between([hit.sessionId,hit.createdAt],[hit.sessionId,Dexie.maxKey],false,true)
+    const next=await db.messages.where('[sessionId+createdAt+id]')
+      .between([hit.sessionId,hit.createdAt,hit.messageId],[hit.sessionId,Dexie.maxKey,Dexie.maxKey],false,true)
       .filter(m=>m.role==='user'&&!m.failed&&!excluded.has(m.id)).limit(3).toArray();
     for(const row of next) {
       if(row.secretaryDispatch?.bodyOrigin==='composed'||!/^(?:不是|不对|等等|刚才说错|我(?:刚才)?(?:说错|看错)|更正|改成|改到)/u.test(row.content.trim()))break;

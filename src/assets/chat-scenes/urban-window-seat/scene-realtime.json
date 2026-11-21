@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "sceneId": "urban-window-seat",
+  "file": "scene.glb",
+  "bytes": 25920,
+  "sha256": "176f5f0eb4e5ea1d09a96909c708371f5e0b63d7b5cf959fbc43c5c8bc43d2d0",
+  "triangles": 496,
+  "vertices": 288,
+  "drawCalls": 2,
+  "geometryBoundsBlender": {
+    "min": [
+      -3.171612501144409,
+      2.9800000190734863,
+      -7.052217960357666
+    ],
+    "max": [
+      3.171612501144409,
+      10.529999732971191,
+      7.052217960357666
+    ]
+  },
+  "effectQuad": [
+    [
+      -0.238829,
+      -2.879454,
+      -10.22
+    ],
+    [
+      2.733266,
+      -2.879454,
+      -10.22
+    ],
+    [
+      2.733266,
+      3.552113,
+      -10.22
+    ],
+    [
+      -0.238829,
+      3.552113,
+      -10.22
+    ]
+  ],
+  "lightPoint": [
+    -1.485217,
+    0.487861,
+    -6.5
+  ],
+  "cup": [
+    -0.481345,
+    -1.070292,
+    -2.99
+  ],
+  "camera": {
+    "verticalFovDegrees": 60
+  },
+  "materialStrategy": "Generated photographic art projected on independently authored volumetric depth geometry; fixed-view bounded parallax. Not original Cycles baking or a freely navigable PBR room.",
+  "source": {
+    "file": "design/chat-scenes/lived-in-20261020/urban-window-seat-depth.blend",
+    "sha256": "75d0e13113bd5a39fa6003159d824f8198c67b3fec826766d08794987ecb8446",
+    "art": {
+      "file": "design/chat-scenes/lived-in-20261020/urban-window-seat-source.png",
+      "width": 841,
+      "height": 1870,
+      "sha256": "c3abc8c9609d8cb70cebcd62ffda19effca2c183ec166cad67b512da39503c32",
+      "origin": "Built-in image generation, task-authorized original environment asset. Not a Blender render.",
+      "nativeResolution": true,
+      "upscaled": false,
+      "model": "未确认",
+      "reasoning": "未确认"
+    }
+  },
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认",
+  "ambientVolume": {
+    "origin": [
+      -1.194405,
+      -1.443376,
+      -5.0
+    ],
+    "across": [
+      2.38881,
+      0.0,
+      -0.0
+    ],
+    "up": [
+      0.0,
+      2.367136,
+      -0.0
+    ],
+    "depth": [
+      0,
+      0,
+      -2.0
+    ]
+  }
+}

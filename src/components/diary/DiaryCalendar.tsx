@@ -14,8 +14,14 @@ const WEEKDAYS = ['一', '二', '三', '四', '五', '六', '日'];
 
 export function DiaryCalendar({ diaries, selectedDate, onSelectDate }: Props) {
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth()); // 0-11
+  const currentYear = now.getFullYear();
+  const [year, setYear] = useState(() => selectedDate ? Number(selectedDate.slice(0, 4)) : currentYear);
+  const [month, setMonth] = useState(() => selectedDate ? Number(selectedDate.slice(5, 7)) - 1 : now.getMonth()); // 0-11
+  const years = useMemo(() => [...new Set([
+    year,
+    ...Array.from({ length: 8 }, (_, i) => currentYear - 3 + i),
+    ...diaries.map(d => Number(d.date.slice(0, 4))),
+  ])].sort((a, b) => a - b), [currentYear, diaries, year]);
 
   const byDate = useMemo(() => {
     const map: Record<string, Diary[]> = {};
@@ -45,21 +51,22 @@ export function DiaryCalendar({ diaries, selectedDate, onSelectDate }: Props) {
   };
 
   return (
-    <div className="rounded-xl border border-line bg-panel/60 p-4">
+    <div className="vg-diary-card rounded-xl border border-line p-4">
       {/* 头部 */}
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <button onClick={prevMonth} className="w-7 h-7 rounded-lg text-gray-400 hover:bg-surface hover:text-ink transition-colors">‹</button>
-          <span className="text-sm font-semibold text-ink w-24 sm:w-28 text-center">{year}年{month + 1}月</span>
-          <button onClick={nextMonth} className="w-7 h-7 rounded-lg text-gray-400 hover:bg-surface hover:text-ink transition-colors">›</button>
+        <div className="flex w-full items-center gap-2">
+          <button aria-label="上个月" onClick={prevMonth} className="vg-diary-icon rounded-lg text-sm text-sub hover:bg-surface hover:text-ink transition-colors flex items-center justify-center">上月</button>
+          <span className="min-w-0 flex-1 text-base font-semibold text-ink text-center">{year}年{month + 1}月</span>
+          <button aria-label="下个月" onClick={nextMonth} className="vg-diary-icon rounded-lg text-sm text-sub hover:bg-surface hover:text-ink transition-colors flex items-center justify-center">下月</button>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex w-full items-center justify-between gap-2 flex-wrap">
           <FilterSelect
+            className="vg-diary-filter"
             value={String(year)}
             onChange={(v) => setYear(Number(v))}
-            options={Array.from({ length: 8 }, (_, i) => now.getFullYear() - 3 + i).map((y) => ({ value: String(y), label: `${y}年` }))}
+            options={years.map((y) => ({ value: String(y), label: `${y}年` }))}
           />
-          <button onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); }} className="px-2 py-1 rounded-lg text-xs text-life-cyan hover:bg-life-cyan/10 transition-colors">
+          <button onClick={() => { setYear(now.getFullYear()); setMonth(now.getMonth()); }} className="px-2 py-1 rounded-lg text-xs text-[color:var(--vg-cyan)] hover:bg-life-cyan/10 transition-colors">
             回到本月
           </button>
         </div>
@@ -68,7 +75,7 @@ export function DiaryCalendar({ diaries, selectedDate, onSelectDate }: Props) {
       {/* 星期头 */}
       <div className="grid grid-cols-7 mb-1">
         {WEEKDAYS.map((w) => (
-          <div key={w} className="text-center text-[10px] text-gray-500 py-1">{w}</div>
+          <div key={w} className="text-center text-xs text-sub py-1">{w}</div>
         ))}
       </div>
 
@@ -87,11 +94,13 @@ export function DiaryCalendar({ diaries, selectedDate, onSelectDate }: Props) {
           return (
             <button
               key={date}
+              aria-label={`${date}，${has?.length ?? 0}篇日记，${totalLen}字`}
+              aria-pressed={isSelected}
               onClick={() => onSelectDate(isSelected ? null : date)}
               className={`relative aspect-square rounded-lg flex flex-col items-center justify-center text-sm transition-all ${
                 isSelected ? 'ring-1 ring-gene-purple/50 shadow-[0_0_10px_rgba(108,92,231,0.2)]' : 'hover:bg-surface'
-              } ${isToday ? 'text-gene-purple font-bold' : 'text-ink'}`}
-              style={{ backgroundColor: heat > 0 ? `rgba(108,92,231,${heat})` : undefined }}
+              } ${isToday ? 'text-[color:var(--vg-accent)] font-bold' : 'text-ink'}`}
+              style={{ color: isToday ? 'color-mix(in srgb,var(--vg-accent) 70%,var(--text))' : undefined, backgroundColor: heat > 0 ? `color-mix(in srgb,var(--vg-action) ${heat > 0.38 ? 80 + heat * 20 : heat * 100}%,var(--bg-panel))` : undefined }}
             >
               <span className={heat > 0.38 ? 'text-white' : undefined}>{day}</span>
               {mood != null && (
@@ -106,22 +115,25 @@ export function DiaryCalendar({ diaries, selectedDate, onSelectDate }: Props) {
       </div>
 
       {/* 图例 */}
-      <div className="flex items-center gap-3 flex-wrap mt-3 pt-2 border-t border-line">
-        <span className="text-[10px] text-gray-500">心情图例</span>
+      <details className="mt-3 border-t border-line">
+        <summary className="flex min-h-[44px] cursor-pointer list-none items-center text-xs text-sub [&::-webkit-details-marker]:hidden">月历图例</summary>
+        <div className="flex items-center gap-3 flex-wrap pt-2">
+        <span className="text-xs text-sub">心情图例</span>
         {[1, 2, 3, 4, 5].map((m) => (
-          <span key={m} className="flex items-center gap-1 text-[10px] text-gray-500">
+          <span key={m} className="flex items-center gap-1 text-xs text-sub">
             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: moodColor(m) }} />{['很差', '低落', '一般', '开心', '很棒'][m - 1]}
           </span>
         ))}
         <span className="w-px h-4 bg-line mx-1" />
-        <span className="flex items-center gap-1 text-[10px] text-gray-500">
+        <span className="flex items-center gap-1 text-xs text-sub">
           <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'rgba(108,92,231,0.25)' }} />少
         </span>
-        <span className="flex items-center gap-1 text-[10px] text-gray-500">
+        <span className="flex items-center gap-1 text-xs text-sub">
           <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'rgba(108,92,231,0.85)' }} />多
         </span>
-        <span className="text-[10px] text-gray-400 ml-1">底色深浅 = 当天写了多少字</span>
-      </div>
+        <span className="text-xs text-sub ml-1">底色表示当天字数</span>
+        </div>
+      </details>
     </div>
   );
 }

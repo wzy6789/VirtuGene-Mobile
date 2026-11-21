@@ -1,8 +1,8 @@
 ﻿import { useCallback, useEffect, useRef } from 'react';
 import { IS_MOBILE } from '../../lib/platform';
-import { prefersReducedMotion, restoreSnapshotScroll, settleFrames, settleProgress, subscribeReducedMotion, visualSnapshot } from '../../lib/mobile-motion';
+import { prefersReducedMotion, restoreSnapshotScroll, settleFrames, subscribeReducedMotion, visualSnapshot } from '../../lib/mobile-motion';
 
-interface Handoff { left: number; opacity: number; panelOpacity: number; dialogScale?: number }
+interface Handoff { left: number; opacity: number; panelOpacity: number; dialogY?: number }
 interface ClosingFrame {
   depth: number;
   remove: () => void;
@@ -14,12 +14,10 @@ const closingFrames = new Map<HTMLElement, ClosingFrame>();
 // Track committed refs so that a replacement is not mistaken for a nested page.
 const liveOverlays = new Set<HTMLElement>();
 const translateX = (style: CSSStyleDeclaration) => style.transform === 'none' ? 0 : new DOMMatrixReadOnly(style.transform).m41;
-const scaleOf = (style: CSSStyleDeclaration) => style.transform === 'none' ? 1 : new DOMMatrixReadOnly(style.transform).m11;
-// Centered dialogs breathe into place; never travel from a screen edge.
-const dialogFrames = (from: number, to: number, opacityFrom: number, opacityTo: number): Keyframe[] =>
-  settleProgress(3).map(({ offset, progress }) => ({ offset,
-    transform: `scale(${from + (to - from) * progress})`,
-    opacity: opacityFrom + (opacityTo - opacityFrom) * progress }));
+const translateY = (style: CSSStyleDeclaration) => style.transform === 'none' ? 0 : new DOMMatrixReadOnly(style.transform).m42;
+// Text stays rigid: the whole panel only translates; material controls may deform.
+const dialogFrames = (from:number,to:number,opacityFrom:number,opacityTo:number):Keyframe[] =>
+  settleFrames(from,to,opacityFrom,opacityTo,'y',3);
 
 /** A closing frame can finish even when the caller immediately unmounts the Modal. */
 export function useModalMotion(canSnapshotOnExit?: () => boolean) {
@@ -50,7 +48,7 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
       const panelX = translateX(panelStyle);
       const panelLeft = panel.getBoundingClientRect().left;
       const page = panel.classList.contains('vg-mobile-page');
-      const panelScale = scaleOf(panelStyle);
+      const panelY = translateY(panelStyle);
       const backgroundColor = rootStyle.backgroundColor;
       const depth = live.depth;
       const snapshot = visualSnapshot(live.node);
@@ -60,11 +58,18 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
       snapshot.style.backgroundColor = backgroundColor;
       snapshot.style.opacity = String(rootOpacity);
       const frozenPanel = snapshot.querySelector<HTMLElement>(':scope > .vg-modal-panel')!;
-      frozenPanel.style.transform = page ? `translate3d(${panelX}px,0,0)` : `scale(${panelScale})`;
+      frozenPanel.style.transform = page ? `translate3d(${panelX}px,0,0)` : `translate3d(0,${panelY}px,0)`;
       frozenPanel.style.opacity = String(panelOpacity);
       frozenPanel.style.willChange = 'transform,opacity';
-      document.body.append(snapshot);
-      restoreSnapshotScroll(snapshot);
+      // React is still removing the focused live panel. Attaching its copy now
+      // makes that removal lay out both trees. Retain the full frame after the
+      // commit, before the next paint; a same-commit replacement can adopt it.
+      queueMicrotask(() => {
+        if (released) return;
+        if (!allowed()) { remove(); return; }
+        if (!snapshot.isConnected) document.body.append(snapshot);
+        restoreSnapshotScroll(snapshot);
+      });
       let released = false;
       let leave: Animation | undefined;
       let shade: Animation | undefined;
@@ -91,27 +96,30 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
       // allocation/cancellation. Hold the captured pose until that decision is known.
       startFrame = requestAnimationFrame(() => {
         if (!allowed()) { remove(); return; }
-        leave = frozenPanel.animate(page ? settleFrames(panelX, panelX + 48, panelOpacity, .74, 'x', 3) : dialogFrames(panelScale, .985, panelOpacity, 0), { duration: 180, easing: 'linear' });
+        leave = frozenPanel.animate(page ? settleFrames(panelX, panelX + 48, panelOpacity, .74, 'x', 3) : dialogFrames(panelY, 3, panelOpacity, 0), { duration: 180, easing: 'linear' });
         shade = snapshot.animate([{ opacity: rootOpacity }, { opacity: 0 }], { duration: 180, easing: 'cubic-bezier(.4,0,1,1)' });
         shade.onfinish = remove;
       });
       deadline = window.setTimeout(remove, 240);
       closingFrames.set(snapshot, { depth, remove, attachTo: overlay => {
         if (released || !allowed()) { remove(); return; }
-        const opacity = Number(getComputedStyle(snapshot).opacity);
-        const style = getComputedStyle(frozenPanel);
-        const x = translateX(style);
-        const ownOpacity = Number(style.opacity);
-        const scale = scaleOf(style);
+        // An incoming ref can adopt the captured frame before the insertion
+        // microtask. Detached elements have no computed pose; use the capture.
+        const connected = snapshot.isConnected;
+        const opacity = connected ? Number(getComputedStyle(snapshot).opacity) : rootOpacity;
+        const style = connected ? getComputedStyle(frozenPanel) : undefined;
+        const x = style ? translateX(style) : panelX;
+        const ownOpacity = style ? Number(style.opacity) : panelOpacity;
+        const y = style ? translateY(style) : panelY;
         const left = panelLeft + x - panelX;
         cancelAnimationFrame(startFrame); leave?.cancel(); shade?.cancel();
         // The incoming overlay owns one continuous scrim. Its predecessor is an
         // inert visual under the new panel, including when replacing a nested page.
         snapshot.style.backgroundColor = 'transparent'; snapshot.style.opacity = '1'; snapshot.style.zIndex = '0';
         overlay.prepend(snapshot);
-        leave = frozenPanel.animate(page ? settleFrames(x, x - 8, ownOpacity, 0, 'x', 3) : dialogFrames(scale, .985, ownOpacity, 0), { duration: 140, easing: 'linear' });
+        leave = frozenPanel.animate(page ? settleFrames(x, x - 8, ownOpacity, 0, 'x', 3) : dialogFrames(y, 3, ownOpacity, 0), { duration: 140, easing: 'linear' });
         leave.onfinish = remove;
-        return { left, opacity, panelOpacity: ownOpacity, dialogScale: page ? undefined : scale };
+        return { left, opacity, panelOpacity: ownOpacity, dialogY: page ? undefined : y };
       } });
       const unsubscribe = subscribeReducedMotion(remove);
       document.addEventListener('visibilitychange', hidden);
@@ -140,7 +148,7 @@ export function useModalMotion(canSnapshotOnExit?: () => boolean) {
       panel.style.willChange = 'transform,opacity';
       const enter = panel.animate(page
         ? settleFrames(distance, 0, source ? Math.min(.94, source.panelOpacity) : .92, 1, 'x', 3)
-        : dialogFrames(source?.dialogScale ?? .975, 1, source ? Math.min(.94, source.panelOpacity) : 0, 1),
+        : dialogFrames(source?.dialogY ?? 4, 0, source ? Math.min(.94, source.panelOpacity) : 0, 1),
         { duration: page ? source ? 220 : 240 : 200, easing: 'linear' });
       enter.onfinish = () => { panel.style.willChange = ''; };
       animations.push(enter);

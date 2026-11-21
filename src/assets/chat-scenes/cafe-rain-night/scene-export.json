@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "sceneId": "cafe-rain-night",
+  "designWidth": 1440,
+  "designHeight": 3201.9024970273485,
+  "thumbnail": {
+    "file": "thumbnail.webp",
+    "width": 360,
+    "height": 800,
+    "bytes": 86942,
+    "sha256": "0a9868b3f307d3df224b41c417da9d0aab52ce7b28dec97d6aab1362b43a2c20",
+    "decodedRgbaBytes": 1152000
+  },
+  "qualities": {
+    "841": {
+      "poster": {
+        "file": "poster-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 466912,
+        "sha256": "473dcaf6f7acbdea878dac569d2baec1039a704b5f65f2ca436c39d7778f5ecd",
+        "decodedRgbaBytes": 6290680
+      },
+      "cleanPlate": {
+        "file": "poster-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 466912,
+        "sha256": "473dcaf6f7acbdea878dac569d2baec1039a704b5f65f2ca436c39d7778f5ecd",
+        "decodedRgbaBytes": 6290680
+      },
+      "layers": [],
+      "windowMask": {
+        "rect": [
+          337.3127229488704,
+          0.0,
+          1102.6872770511295,
+          2106.064209274673
+        ],
+        "file": "window-mask-841.webp",
+        "width": 644,
+        "height": 1230,
+        "bytes": 6284,
+        "sha256": "d651dd2d50d2e5376421e2a2c9cca7258a474c990b4d7361825f4084398a4b5c",
+        "decodedRgbaBytes": 3168480
+      },
+      "decodedBytesWithPoster": 9459160
+    }
+  },
+  "windowPolygon": [
+    [
+      331.2,
+      -160.09512485136744
+    ],
+    [
+      1512.0,
+      -160.09512485136744
+    ],
+    [
+      1512.0,
+      2186.899405469679
+    ],
+    [
+      331.2,
+      1914.7376932223544
+    ]
+  ],
+  "lightRect": [
+    0,
+    544.3234244946493,
+    360.0,
+    896.5326991676577
+  ],
+  "glass": {
+    "strength": 0.6,
+    "frost": 0
+  },
+  "cupMouth": [
+    367.2,
+    2420.6382877526753
+  ],
+  "provenance": "Built-in image generation; original photographic-style environment artwork, not a Blender render.",
+  "compositeStrategy": "Native photographic-style art on independently authored volumetric depth; same camera and semantic window mask, no duplicated foreground."
+}

@@ -56,14 +56,23 @@ export const webApi: VirtuGeneAPI = {
           usageEvents:r.usageEvents,
         };
       } catch (err) {
+        // Evidence invalidation is not a provider outage. Keep the signal so
+        // the sender cannot restore an earlier draft after a rejected retry.
+        if(err instanceof Error&&err.message.startsWith('chat:'))return {error:err.message,usageEvents};
         return { error: toError(err),usageEvents };
       }
     },
   },
 
   character: {
-    generate: async (params, onProgress) => {
+    supportsCancellation: true,
+    generate: async (params, onProgress, options) => {
+      const controller = new AbortController();
+      const cancel = () => controller.abort(options?.signal?.reason ?? new DOMException('Cancelled', 'AbortError'));
+      if (options?.signal?.aborted) cancel(); else options?.signal?.addEventListener('abort', cancel, { once:true });
+      const check = () => { if (controller.signal.aborted) throw controller.signal.reason; };
       const send = (step: string, message: string, progress: number) => {
+        if (controller.signal.aborted) return;
         try {
           onProgress?.(step, message, progress);
         } catch {
@@ -72,25 +81,31 @@ export const webApi: VirtuGeneAPI = {
       };
       const count = Math.max(1, Math.min(3, params.count ?? 1));
       try {
+        check();
         let webContext: string | undefined;
         if (params.enableWebSearch) {
-          send('search', '正在扫描基因库检索相关资料...', 0.08);
-          webContext = await (await import('./ai/web-search')).duckDuckGoSearch(params.characterName);
+          send('search', '正在查找参考资料…', 0.08);
+          const search = await import('./ai/web-search');
+          check();
+          webContext = await search.duckDuckGoSearch(params.characterName, controller.signal);
         }
+        check();
         const base = params.enableWebSearch ? 0.16 : 0.05;
         if (count === 1) {
-          send('generate', '正在合成数字灵魂序列...', base);
+          send('generate', '正在塑造人物设定…', base);
           const result = await (await import('./ai/character-generator')).generateCharacterPrompt({
             apiKey: params.apiKey,
             characterName: params.characterName,
             fields: params.fields,
             webContext,
             documentContext: params.documentContext,
+            signal: controller.signal,
           });
-          send('generate', '基因序列合成完成', 1);
+          check();
+          send('generate', '人物设定已生成', 1);
           return { candidates: [result] };
         }
-        send('generate', `正在合成候选基因序列 (0/${count})...`, base);
+        send('generate', `正在塑造候选（0/${count}）…`, base);
         let done = 0;
         const candidates = await Promise.all(
           Array.from({ length: count }, async () => {
@@ -100,15 +115,23 @@ export const webApi: VirtuGeneAPI = {
               fields: params.fields,
               webContext,
               documentContext: params.documentContext,
+              signal: controller.signal,
             });
+            check();
             done += 1;
-            send('generate', `已合成候选基因序列 (${done}/${count})...`, base + (1 - base) * (done / count));
+            send('generate', `已生成候选（${done}/${count}）`, base + (1 - base) * (done / count));
             return result;
           }),
         );
+        check();
         return { candidates };
       } catch (err) {
+        // Failure of one candidate must not leave its siblings running.
+        controller.abort();
+        if (options?.signal?.aborted) return { cancelled: true };
         return { error: toError(err) };
+      } finally {
+        options?.signal?.removeEventListener('abort', cancel);
       }
     },
   },

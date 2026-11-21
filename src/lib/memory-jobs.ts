@@ -1,205 +1,121 @@
-import { db, type Message } from '../db';
-import { memoryLedgerRepo } from '../db/memory-ledger-repo';
-import { invalidateUnpinnedMemoriesForMessages, memoryRepo } from '../db/memory-repo';
-import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
-import { extractMemories } from './ai/memory-consolidator';
-import { canUseAi } from './ai/availability';
-import { prepareMemoryMetadata } from './memory-engine';
+import {db,type MemoryJob,type MemoryItem} from '../db';
+import {memoryLedgerRepo} from '../db/memory-ledger-repo';
+import {memoryRepo} from '../db/memory-repo';
+import {inspectMemoryJobSources,type MemoryJobSlice,type MemoryJobSessionSnapshot} from '../db/memory-job-sources';
+import {ownsMemoryJobLease} from '../db/memory-job-lease';
+import {extractMemories,type ConsolidateResult} from './ai/memory-consolidator';
+import {canUseAi} from './ai/availability';
+import {prepareMemoryMetadata} from './memory-engine';
+import {useAuthStore} from '../store/auth-store';
 
-const runningUsers = new Set<string>();
+const runningUsers=new Set<string>();
+const sourceTables=[db.memoryJobs,db.messages,db.characters,db.sessions,db.memorySourceTombstones];
+class WorkerContextChanged extends Error {}
 
-async function jobSourcesAreCurrent(userId: string, job: import('../db').MemoryJob): Promise<boolean> {
-  const currentJob = await db.memoryJobs.get(job.id);
-  if (currentJob?.status !== 'running') return false;
-  if ((await db.characters.bulkGet(job.characterIds)).some(c => c?.agentProfile === 'secretary')) return false;
-  const suppressed = await Promise.all(job.characterIds.map(id => memorySourceTombstoneRepo.suppressedMessages(userId, id)));
-  for (const sourceId of job.sourceIds) {
-    const source = await db.messages.get(sourceId);
-    const expectedRevision = job.sourceRevisions?.[sourceId] ?? 1;
-    const session = source ? await db.sessions.get(source.sessionId) : undefined;
-    if (suppressed.some(ids => ids.has(sourceId)) || !source || !session || session.userId !== userId || source.sessionId !== job.sessionId || source.role !== 'user'
-      || source.failed || (source.revision ?? 1) !== expectedRevision
-      || (job.sourceType === 'group' && !job.characterIds.every((id) => source.witnessedBy?.includes(id)))
-      || await memorySourceTombstoneRepo.blocksImport({ userId, sourceType: 'message', sourceId, sourceRevision: expectedRevision })) return false;
-  }
-  return true;
+function extractionSources(slices:MemoryJobSlice[]){
+  const counts=new Map<string,number>();for(const slice of slices)counts.set(slice.sourceId,(counts.get(slice.sourceId)??0)+1);
+  const reserved=new Set(slices.map(slice=>slice.sourceId)),byLabel=new Map<string,MemoryJobSlice>();let sequence=0;
+  const history=slices.map(slice=>{
+    let label=slice.sourceId;
+    if((counts.get(slice.sourceId)??0)>1){do{label='@segment:'+sequence++;}while(reserved.has(label));reserved.add(label);}
+    byLabel.set(label,slice);return {role:'user',content:slice.text,sourceId:label};
+  });
+  return {history,byLabel};
 }
-
-/**
- * Durable, account-scoped extraction worker. User-authored messages are the
- * only extraction evidence; group audiences are the witness snapshot stored
- * with the source message, never the current group membership.
- */
-export async function processMemoryJobs(userId: string, apiKey: string | null, maxBatches = 2,
-  options?: { extract: typeof extractMemories; scope: { sessionId: string; sourcePrefix: string; characterId?: string }; signal: AbortSignal; maxJobs?: number }): Promise<number> {
-  if (!userId || (!options && !canUseAi()) || runningUsers.has(userId) || options?.signal.aborted) return 0;
-  runningUsers.add(userId);
-  let completed = 0;
-  try {
-    for (let batchIndex = 0; batchIndex < Math.max(1, maxBatches); batchIndex += 1) {
-      if (options?.signal.aborted) break;
-      const jobs = await memoryLedgerRepo.leaseNextBatch(userId, Math.max(1, Math.min(8, options?.maxJobs ?? 8)), Date.now(), 90_000, options?.scope);
-      if (!jobs.length) break;
-      const activeJobs = jobs.filter((job) => job.task === 'extract' && (job.sourceType === 'chat' || job.sourceType === 'group'));
-      const invalidJobs = jobs.filter((job) => !activeJobs.includes(job));
-      for (const job of invalidJobs) await memoryLedgerRepo.finishJob(job.id, { skipped: true, reason: 'unsupported-task' });
-      if (!activeJobs.length) continue;
-
-      try {
-        const sourceIds = [...new Set(activeJobs.flatMap((job) => job.sourceIds))];
-        const messages = (await db.messages.bulkGet(sourceIds))
-          .filter((message): message is Message => Boolean(message) && message?.secretaryDispatch?.bodyOrigin !== 'composed')
-          .sort((a, b) => a.createdAt - b.createdAt);
-        const messageById = new Map(messages.map((message) => [message.id, message]));
-        const slices: { sourceId: string; revision: number; text: string; at: number; start: number; end: number }[] = [];
-        const validJobIds = new Set<string>();
-
-        for (const job of activeJobs) {
-          if ((await db.characters.bulkGet(job.characterIds)).some(c => c?.agentProfile === 'secretary')) {
-            await memoryLedgerRepo.cancelJob(job.id, { reason: 'assistant-workspace-is-not-role-memory' });
-            continue;
-          }
-          let jobValid = true;
-          const jobSlices: typeof slices = [];
-          const suppressed = await Promise.all(job.characterIds.map(id => memorySourceTombstoneRepo.suppressedMessages(userId, id)));
-          for (const sourceId of job.sourceIds) {
-            const message = messageById.get(sourceId);
-            const expectedRevision = job.sourceRevisions?.[sourceId] ?? 1;
-            const start = job.sourceOffsets?.[sourceId] ?? 0;
-            const end = job.sourceEndOffsets?.[sourceId] ?? message?.content.length ?? 0;
-            const session = message ? await db.sessions.get(message.sessionId) : undefined;
-            if (!message || !session || session.userId !== userId || message.sessionId !== job.sessionId || message.role !== 'user' || (message.revision ?? 1) !== expectedRevision) {
-              jobValid = false;
-              continue;
-            }
-            if (message.failed) {
-              jobValid = false;
-              continue;
-            }
-            if (job.sourceType === 'group' && !job.characterIds.every((id) => message.witnessedBy?.includes(id))) {
-              jobValid = false;
-              continue;
-            }
-            const blocked = await memorySourceTombstoneRepo.blocksImport({
-              userId,
-              sourceType: 'message',
-              sourceId,
-              sourceRevision: expectedRevision,
-            });
-            if (blocked || suppressed.some(ids => ids.has(sourceId))) {
-              jobValid = false;
-              continue;
-            }
-            const text = message.content.slice(Math.max(0, start), Math.max(start, end)).trim();
-            if (text) jobSlices.push({ sourceId, revision: expectedRevision, text, at: message.createdAt, start, end });
-            else jobValid = false;
-          }
-          if (jobValid) { validJobIds.add(job.id); slices.push(...jobSlices); }
-          else await memoryLedgerRepo.cancelJob(job.id, { reason: 'source-unavailable-edited-deleted-or-revoked' });
-        }
-
-        const validJobs = activeJobs.filter((job) => validJobIds.has(job.id));
-        if (!slices.length || !validJobs.length) {
-          for (const job of validJobs) {
-            const current = await db.memoryJobs.get(job.id);
-            if (current?.status === 'running') await memoryLedgerRepo.cancelJob(job.id, { reason: 'source-unavailable-or-revoked' });
-          }
-          continue;
-        }
-
-        // Include only the exact user-authored source segments. This avoids
-        // attributing a character's generated guess or private audience data
-        // to the user as if it were a confirmed fact.
-        const result = await (options?.extract ?? extractMemories)({
-          apiKey: apiKey ?? '',
-          history: slices.map((slice) => ({ role: 'user', content: slice.text, sourceId: slice.sourceId })),
-        });
-        if (result.error) throw new Error(result.error);
-        if (options?.signal.aborted) throw new Error('memory:cancelled');
-
-        // Discard model output if a source changed during inference. Since the
-        // extractor returns one batch of claims, it cannot safely separate
-        // facts from a stale slice and a current slice after the fact.
-        const validBeforeWrite = await Promise.all(validJobs.map((job) => jobSourcesAreCurrent(userId, job)));
-        if (validBeforeWrite.some((valid) => !valid)) {
-          for (let index = 0; index < validJobs.length; index += 1) {
-            const job = validJobs[index];
-            if (validBeforeWrite[index]) {
-              await db.memoryJobs.update(job.id, { status: 'queued', availableAt: Date.now(), leaseUntil: undefined, updatedAt: Date.now() });
-            } else if ((await db.memoryJobs.get(job.id))?.status === 'running') {
-              await memoryLedgerRepo.cancelJob(job.id, { reason: 'source-changed-during-extraction' });
-            }
-          }
-          continue;
-        }
-
-        const evidenceIds = [...new Set(slices.map((slice) => slice.sourceId))];
-        const evidenceRevisions = Object.fromEntries(slices.map((slice) => [slice.sourceId, slice.revision]));
-        const evidenceOffsets = Object.fromEntries(slices.map((slice) => [slice.sourceId, slice.start]));
-        const evidenceEndOffsets = Object.fromEntries(slices.map((slice) => [slice.sourceId, slice.end]));
-        const now = Date.now();
-        const extracted = [...new Set((result.memories ?? []).map((value) => value.trim()).filter(Boolean))].slice(0, 20);
-        for (const characterId of activeJobs[0].characterIds) {
-          const character = await db.characters.get(characterId);
-          if (!character || character.createdBy !== userId || character.agentProfile === 'secretary') continue;
-          // Repeated genuine evidence must be merged, rather than silently discarded.
-          const fresh = extracted;
-          if (!fresh.length) continue;
-          if (options?.signal.aborted) throw new Error('memory:cancelled');
-          const rows = fresh.map((content, index) => {
-            const ids = result.evidence?.find(item => item.content === content)?.sourceIds ?? evidenceIds;
-            const subset = (record: Record<string, number>) => Object.fromEntries(Object.entries(record).filter(([id]) => ids.includes(id)));
-            return ({
-            id: crypto.randomUUID(),
-            characterId,
-            userId,
-            content,
-            type: 'auto' as const,
-            ...prepareMemoryMetadata(content, { confidence: evidenceIds.length ? 0.9 : 0.6 }),
-            createdAt: now + index,
-            sourceSessionId: activeJobs[0].sessionId,
-            sourceMessageIds: ids,
-            sourceEvidenceMode: ids.length === 1 ? 'independent' as const : 'dependent' as const,
-            sourceMessageRevisions: subset(evidenceRevisions),
-            sourceMessageOffsets: subset(evidenceOffsets),
-            sourceMessageEndOffsets: subset(evidenceEndOffsets),
-            confidence: evidenceIds.length ? 0.9 : 0.6,
-            updatedAt: now + index,
-          }); });
-          if (options) {
-            await db.transaction('rw', db.tables, async () => {
-              if (options.signal.aborted) throw new Error('memory:cancelled');
-              await memoryRepo.createMany(rows);
-              if (options.signal.aborted) throw new Error('memory:cancelled');
-            });
-          } else await memoryRepo.createMany(rows);
-        }
-
-        // Close the final race between validation and persistence. If a source
-        // changed during the write, remove derived unpinned summaries; the
-        // source tombstone also blocks any stale ledger provenance.
-        const validAfterWrite = await Promise.all(validJobs.map((job) => jobSourcesAreCurrent(userId, job)));
-        if (validAfterWrite.some((valid) => !valid)) await invalidateUnpinnedMemoriesForMessages(userId, evidenceIds);
-        for (let index = 0; index < validJobs.length; index += 1) {
-          const job = validJobs[index];
-          if (!validAfterWrite[index]) {
-            const current = await db.memoryJobs.get(job.id);
-            if (current?.status === 'running') await memoryLedgerRepo.cancelJob(job.id, { reason: 'source-changed-during-persistence' });
-            continue;
-          }
-          await memoryLedgerRepo.finishJob(job.id, { memoryCount: extracted.length, evidenceIds, evidenceRevisions });
-          completed += 1;
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'memory-extraction-failed';
-        for (const job of activeJobs) {
-          const current = await db.memoryJobs.get(job.id);
-          if (current?.status === 'running') await memoryLedgerRepo.retryJob(job.id, message);
-        }
+function memoryRows(result:ConsolidateResult,labels:Map<string,MemoryJobSlice>,userId:string,characterId:string,sessionId:string|undefined):MemoryItem[]{
+  const values=[...new Set((result.memories??[]).filter(value=>typeof value==='string').map(value=>value.trim()).filter(Boolean))].slice(0,20);
+  const now=Date.now(),rows:MemoryItem[]=[];
+  for(const content of values){
+    const ids=result.evidence?.find(item=>item.content===content)?.sourceIds;
+    if(!ids?.length||ids.some(id=>!labels.has(id)))continue;
+    const support=ids.map(id=>labels.get(id)!),sourceIds=[...new Set(support.map(slice=>slice.sourceId))];
+    const revisions:Record<string,number>={},starts:Record<string,number>={},ends:Record<string,number>={};
+    for(const sourceId of sourceIds){
+      const pieces=support.filter(slice=>slice.sourceId===sourceId).sort((a,b)=>a.start-b.start);
+      revisions[sourceId]=pieces[0].revision;starts[sourceId]=pieces[0].start;ends[sourceId]=pieces[0].end;
+      // Current provenance stores one interval per message. Reject a gap rather
+      // than silently claiming unseen text between two referenced fragments.
+      for(const piece of pieces.slice(1)){
+        if(piece.start>ends[sourceId])throw Error('memory:noncontiguous_evidence');
+        ends[sourceId]=Math.max(ends[sourceId],piece.end);
       }
     }
-  } finally {
-    runningUsers.delete(userId);
+    rows.push({id:crypto.randomUUID(),characterId,userId,content,type:'auto',...prepareMemoryMetadata(content,{confidence:.9}),createdAt:now+rows.length,updatedAt:now+rows.length,
+      sourceSessionId:sessionId,sourceMessageIds:sourceIds,sourceMessageRevisions:revisions,sourceMessageOffsets:starts,sourceMessageEndOffsets:ends,
+      sourceEvidenceMode:sourceIds.length===1?'independent':'dependent',confidence:.9});
   }
+  if(values.length&&!rows.length)throw Error('memory:unsupported_evidence');
+  return rows;
+}
+
+/** Durable extraction: lease/source validation, derived memories and completion
+ * share a native transaction. A stale writer never cleans up another lease's work. */
+export async function processMemoryJobs(userId:string,apiKey:string|null,maxBatches=2,
+  options?:{extract:typeof extractMemories;scope:{sessionId:string;sourcePrefix:string;characterId?:string};signal:AbortSignal;maxJobs?:number}):Promise<number>{
+  let accountChanged=false;
+  const accountCurrent=()=>!accountChanged&&useAuthStore.getState().userId===userId;
+  const mayWork=()=>accountCurrent()&&!options?.signal.aborted;
+  if(!userId||!mayWork()||(!options&&!canUseAi())||runningUsers.has(userId))return 0;
+  // Returning to A after switching A -> B -> A does not revive A's old work.
+  const unsubscribe=useAuthStore.subscribe((state,previous)=>{if(state.userId!==previous.userId)accountChanged=true;});
+  runningUsers.add(userId);let completed=0;
+  const inspect=(jobs:MemoryJob[],expected?:MemoryJobSessionSnapshot[])=>db.transaction('r',sourceTables,()=>inspectMemoryJobSources(userId,jobs,expected));
+  const cancelInvalid=async(jobs:MemoryJob[])=>db.transaction('rw',sourceTables,async()=>{
+    if(!accountCurrent())return;
+    const current=await inspectMemoryJobSources(userId,jobs);
+    for(const item of current.results)if(item.reason&&item.reason!=='lease-lost')await memoryLedgerRepo.cancelJob(item.job.id,{reason:item.reason},item.job);
+    if(!accountCurrent())throw new WorkerContextChanged();
+  });
+  try{
+    for(let batch=0;batch<Math.max(1,maxBatches)&&mayWork();batch++){
+      const jobs=await memoryLedgerRepo.leaseNextBatch(userId,Math.max(1,Math.min(8,options?.maxJobs??8)),Date.now(),90000,options?.scope);
+      if(!jobs.length)break;
+      try{
+        const prepared=await inspect(jobs);
+        await cancelInvalid(jobs);
+        const validJobs=prepared.results.filter(item=>!item.reason).map(item=>item.job);
+        if(!validJobs.length||!mayWork())continue;
+        const sources=extractionSources(prepared.slices);
+        const beforeRequest=async()=>{
+          if(!mayWork())throw Error('memory:context_changed');
+          const live=await inspect(validJobs,prepared.snapshots);
+          if(live.results.some(item=>item.reason)||!mayWork())throw Error('memory:context_changed');
+        };
+        await beforeRequest();
+        const result=await(options?.extract??extractMemories)({apiKey:apiKey??'',history:sources.history,beforeRequest});
+        if(result.error)throw Error(result.error);
+        const rows=validJobs[0].characterIds.flatMap(characterId=>memoryRows(result,sources.byLabel,userId,characterId,validJobs[0].sessionId));
+        const committed=await db.transaction('rw',db.tables,async()=>{
+          if(!mayWork())throw new WorkerContextChanged();
+          const live=await inspectMemoryJobSources(userId,validJobs,prepared.snapshots);
+          if(live.results.some(item=>item.reason))throw new WorkerContextChanged();
+          await memoryRepo.createMany(rows);
+          if(!mayWork())throw new WorkerContextChanged();
+          const after=await inspectMemoryJobSources(userId,validJobs,prepared.snapshots);
+          if(after.results.some(item=>item.reason))throw new WorkerContextChanged();
+          for(const job of validJobs)if(!await memoryLedgerRepo.finishJob(job.id,{memoryCount:rows.filter(row=>row.characterId===validJobs[0].characterIds[0]).length,evidenceIds:job.sourceIds,evidenceRevisions:job.sourceRevisions},job))throw new WorkerContextChanged();
+          if(!mayWork())throw new WorkerContextChanged();
+          return validJobs.length;
+        });
+        completed+=committed;
+      }catch(error){
+        if(!accountCurrent())break;
+        const reason=error instanceof Error?error.message:'memory-extraction-failed';
+        await db.transaction('rw',sourceTables,async()=>{
+          if(!accountCurrent())return;
+          const current=await inspectMemoryJobSources(userId,jobs);
+          for(const item of current.results){
+            if(!ownsMemoryJobLease(await db.memoryJobs.get(item.job.id),item.job))continue;
+            if(item.reason&&item.reason!=='lease-lost')await memoryLedgerRepo.cancelJob(item.job.id,{reason:item.reason},item.job);
+            else await memoryLedgerRepo.retryJob(item.job.id,reason,item.job);
+          }
+          if(!accountCurrent())throw new WorkerContextChanged();
+        });
+        // Source/lease conflicts never buy another generation in this invocation.
+        break;
+      }
+    }
+  }catch(error){if(!(error instanceof WorkerContextChanged))throw error;}
+  finally{unsubscribe();runningUsers.delete(userId);}
   return completed;
 }

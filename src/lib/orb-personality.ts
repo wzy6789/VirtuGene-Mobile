@@ -6,8 +6,8 @@ export interface OrbLife {
 export const createOrbLife=():OrbLife=>({lift:0,sway:0,tilt:0,stretch:0,faceX:0,faceY:0,eye:0,mouth:0});
 const rhythms:Record<OrbPersonality,readonly [number,number,number]>={
   idle:[1,1,1],curious:[.7,.8,1.3],listening:[.4,.7,.45],thinking:[.48,.65,.55],
-  working:[.25,.5,.3],happy:[.7,1.1,1.1],surprised:[.3,.8,.4],shy:[.32,.75,.35],
-  sleepy:[.2,.45,.3],sad:[.16,.6,.2],error:[.15,.65,.2],success:[.65,1,.8],
+  working:[.25,.5,.3],happy:[.55,1.1,1.1],surprised:[.3,.8,.4],shy:[.32,.75,.35],
+  sleepy:[.2,.45,.3],sad:[.16,.6,.2],error:[.15,.65,.2],success:[.55,1,.8],
 };
 // Smooth pulses have stationary endpoints, with stillness between gestures.
 const pulse=(time:number,start:number,duration:number)=>{
@@ -34,7 +34,8 @@ export function sampleOrbLife(mood:OrbPersonality,time:number,phase:number,ampli
   const cycle=(period:number)=>((gestureClock%period)+period)%period;
   if(mood==='curious'){
     const peek=pulse(cycle(6400),900,1800);
-    p.tilt-=4*peek;p.faceY-=1.8*peek;p.eye=.1*peek;p.sway+=1.5*peek;
+    // Quiet the idle rocking so the deliberate head tilt stays within its envelope.
+    p.tilt*=.72;p.tilt-=6.2*peek;p.faceY-=2.6*peek;p.eye=.16*peek;p.sway+=3.2*peek;
   }else if(mood==='listening'){
     const t=cycle(4900),nod=pulse(t,750,520)+.55*pulse(t,1370,440);
     p.lift+=4*nod;p.tilt+=2.4*nod;p.faceY-=1.4*nod;p.eye=-.05*nod;
@@ -50,14 +51,17 @@ export function sampleOrbLife(mood:OrbPersonality,time:number,phase:number,ampli
     const t=cycle(mood==='happy'?5300:6200);
     const hop=pulse(t,1000,560),echo=.5*pulse(t,1690,440);
     const takeoff=pulse(t,850,150),landing=pulse(t,1570,120);
-    p.lift-=8*(hop+echo);p.stretch+=.018*(takeoff+landing)-.018*(hop+echo);
-    p.tilt+=3*hop-2*echo;p.faceY-=.7*hop;p.mouth=1.2*hop;
+    // A small crouch gives the hop weight; the softer echo settles it back down.
+    p.lift+=2.4*takeoff+1.6*landing-14*(hop+echo);
+    p.stretch+=.038*(takeoff+landing)-.032*(hop+echo);
+    p.tilt+=5*hop-3*echo;p.faceY-=1.4*hop;p.mouth=1.8*hop;
   }else if(mood==='surprised'){
     const recover=pulse(cycle(5700),1100,1600);
     p.tilt-=1.5*recover;p.eye=.04*recover;p.faceY-=.8*recover;
   }else if(mood==='shy'){
     const tuck=pulse(cycle(6800),1000,2200);
-    p.faceX=-1.2*tuck;p.faceY=1.8*tuck;p.tilt+=2*tuck;p.eye=-.05*tuck;
+    p.faceX=-2.3*tuck;p.faceY=2.8*tuck;p.tilt+=4*tuck;p.eye=-.09*tuck;
+    p.lift+=2.2*tuck;p.stretch+=.022*tuck;p.sway-=1.2*tuck;
   }else if(mood==='sleepy'){
     const doze=pulse(cycle(7600),1000,3200);
     p.lift+=3*doze;p.tilt-=2.5*doze;p.faceY=1.5*doze;p.mouth=3*pulse(cycle(7600),1900,1500);

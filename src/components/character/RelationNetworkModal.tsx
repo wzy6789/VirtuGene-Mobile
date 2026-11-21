@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { avatarImageSrc } from '../../lib/avatar';
 import type { Character, CharacterState, RelationshipEvent, RelationshipState, SharedStoryEvent } from '../../db/index';
 import { stateRepo } from '../../db/state-repo';
@@ -12,8 +12,10 @@ import { getRelationLevel } from '../../lib/affinity';
 import { Modal } from '../ui/Modal';
 import { SharedStoryEventsModal } from './SharedStoryEventsModal';
 import { DEFAULT_USER_AVATAR, useAuthStore } from '../../store/auth-store';
-import { portraitLayout, portraitRoute } from '../../lib/relationship-layout';
+import { RELATION_CANVAS, portraitLayout } from '../../lib/relationship-layout';
+import { portraitNetworkRoutes } from './portrait-network-routes';
 import { isStoryCharacter } from '../../lib/character-domain';
+import '../../styles/relationship-network.css';
 
 interface RelationNetworkModalProps {
   open: boolean;
@@ -102,20 +104,34 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
   const [recentMemory, setRecentMemory] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [focusedRef, setFocusedRef] = useState<string | null>(null);
+  const [selectedPortraitRef, setSelectedPortraitRef] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLElement>(null);
+  const [canvasWidth, setCanvasWidth] = useState(360);
   const [eventsByPair, setEventsByPair] = useState<Record<string, SharedStoryEvent[]>>({});
   const [detailPair, setDetailPair] = useState<{ a: Character; b: Character } | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [reload, setReload] = useState(0);
   const [neighborPage, setNeighborPage] = useState(0);
+  const haloId = useId().replace(/:/g, '');
   const userAvatar = useAuthStore((state) => state.avatar) ?? DEFAULT_USER_AVATAR;
 
   useEffect(() => {
     if (open) {
       setSelectedKey(null);
       setFocusedRef(null);
+      setSelectedPortraitRef(null);
       setNeighborPage(0);
     }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !canvasRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width > 0) setCanvasWidth(entry.contentRect.width);
+    });
+    observer.observe(canvasRef.current);
+    return () => observer.disconnect();
   }, [open]);
 
   useEffect(() => {
@@ -294,6 +310,19 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
         recorded: true,
       });
     }
+    // A surviving change record still belongs on the map when no current state row exists.
+    // Its history explains the edge; it must not be accumulated into an invented current state.
+    for (const pairEvents of worldEventsByPair.values()) {
+      const first = pairEvents[0];
+      if (!first) continue;
+      const left = first.subjectA, right = first.subjectB;
+      if (typeof left !== 'string' || typeof right !== 'string' || !left.startsWith('c:') || !right.startsWith('c:') || left === right
+        || !byCharacterId.has(left.slice(2)) || !byCharacterId.has(right.slice(2))) continue;
+      const key = linkKey(left, right);
+      if (merged.has(key)) continue;
+      add({left, right, label:'关系变化记录', kind:'world', reasons:pairEvents,
+        sharedEvents:eventsByPair[pairKey(left.slice(2), right.slice(2))], recorded:true});
+    }
     // A real shared experience is also evidence of a connection, even without
     // a manually assigned relation or a numerical relationship-state row.
     for(const events of Object.values(eventsByPair)) {
@@ -314,11 +343,13 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
   const activeFocusRef = focusedRef?.startsWith('c:') && byCharacterId.has(focusedRef.slice(2)) ? focusedRef : originRef;
   const focusLinks = useMemo(() => links
     .filter((link) => link.left === activeFocusRef || link.right === activeFocusRef)
-    .sort((a, b) => linkScore(b) - linkScore(a) || a.label.localeCompare(b.label)), [activeFocusRef, links]);
-  useEffect(()=>{setNeighborPage(page=>Math.min(page,Math.max(0,Math.ceil(focusLinks.length/MAX_NEIGHBORS)-1)));},[focusLinks.length]);
+    .sort((a, b) => linkScore(b) - linkScore(a) || a.label.localeCompare(b.label) || a.key.localeCompare(b.key)), [activeFocusRef, links]);
+  const pageCount = Math.max(1, Math.ceil(focusLinks.length / MAX_NEIGHBORS));
+  const activePage = Math.min(neighborPage, pageCount - 1);
+  useEffect(()=>{setNeighborPage(page=>Math.min(page,pageCount-1));},[pageCount]);
   const displayLinks = useMemo(() => {
-    return focusLinks.slice(neighborPage * MAX_NEIGHBORS, (neighborPage + 1) * MAX_NEIGHBORS);
-  }, [focusLinks, neighborPage]);
+    return focusLinks.slice(activePage * MAX_NEIGHBORS, (activePage + 1) * MAX_NEIGHBORS);
+  }, [focusLinks, activePage]);
 
   const nodes = useMemo<GraphNode[]>(() => {
     const focusNode = activeFocusRef === originRef ? null : visible.find((character) => characterRef(character.id) === activeFocusRef);
@@ -328,7 +359,7 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
       ...(neighborSet.has(originRef) ? [originRef] : []),
       ...[...neighborSet].filter((ref) => ref !== originRef),
     ];
-    const positions = new Map(portraitLayout(activeFocusRef, neighborRefs, links).map(point => [point.ref, point]));
+    const positions = new Map(portraitLayout(activeFocusRef, neighborRefs, links.filter(link => link.recorded)).map(point => [point.ref, point]));
     const neighborNodes = neighborRefs.map((ref) => {
       const position = positions.get(ref)!;
       if (ref === originRef) return { id: ref, ref, name: '你', avatar: userAvatar, x: position.x, y: position.y, user: true } satisfies GraphNode;
@@ -337,73 +368,83 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
     });
     return [
       focusNode
-        ? { id: focusNode.id, ref: activeFocusRef, name: focusNode.name, avatar: focusNode.avatar, x: 180, y: 200 }
-        : { id: originRef, ref: originRef, name: '你', avatar: userAvatar, x: 180, y: 200, user: true },
+        ? { id: focusNode.id, ref: activeFocusRef, name: focusNode.name, avatar: focusNode.avatar, x: RELATION_CANVAS.x, y: RELATION_CANVAS.y }
+        : { id: originRef, ref: originRef, name: '你', avatar: userAvatar, x: RELATION_CANVAS.x, y: RELATION_CANVAS.y, user: true },
       ...neighborNodes,
     ];
   }, [activeFocusRef, byCharacterId, displayLinks, originRef, userAvatar, visible, links]);
 
   const nodesByRef = useMemo(() => new Map(nodes.map((node) => [node.ref, node])), [nodes]);
-  const secondaryLinks = links.filter(link => link.recorded && link.left !== activeFocusRef && link.right !== activeFocusRef
-    && nodesByRef.has(link.left) && nodesByRef.has(link.right)).sort((a,b)=>linkScore(b)-linkScore(a)).slice(0,5);
-  const renderedLinks = [...secondaryLinks, ...displayLinks];
+  // Pagination limits portraits, never the number of real edges between the portraits in view.
+  const secondaryLinks = useMemo(() => links.filter(link => link.recorded && link.left !== activeFocusRef && link.right !== activeFocusRef
+    && nodesByRef.has(link.left) && nodesByRef.has(link.right)).sort((a,b)=>linkScore(b)-linkScore(a) || a.key.localeCompare(b.key)), [links, activeFocusRef, nodesByRef]);
+  // Unrecorded user candidates remain reachable as portraits without a fabricated connection.
+  const renderedLinks = useMemo(() => [...secondaryLinks, ...displayLinks.filter(link => link.recorded)], [secondaryLinks, displayLinks]);
+  const portraitRadius = Math.max(44, Math.min(canvasWidth * .14, 52)) / 2 * RELATION_CANVAS.width / canvasWidth;
+  const routes = useMemo(() => portraitNetworkRoutes(activeFocusRef, nodes, renderedLinks, portraitRadius), [activeFocusRef, nodes, renderedLinks, portraitRadius]);
 
   const selected = renderedLinks.find((link) => link.key === selectedKey) ?? null;
-  const selectedRefs = useMemo(() => new Set(selectedKey?.split('|') ?? []), [selectedKey]);
+  const selectedRefs = new Set(selected ? [selected.left, selected.right] : []);
+  const highlightedRef = !selected && selectedPortraitRef && nodesByRef.has(selectedPortraitRef) ? selectedPortraitRef : null;
+  const isRelated = (link: GraphLink) => link === selected || !!highlightedRef && (link.left === highlightedRef || link.right === highlightedRef);
+  const orderedLinks = [...renderedLinks.filter(link => !isRelated(link)), ...renderedLinks.filter(isRelated)];
   const selectedNodes = selected ? [nodesByRef.get(selected.left), nodesByRef.get(selected.right)].filter((node): node is GraphNode => Boolean(node)) : [];
   const selectedCharacter = selectedNodes.find((node) => !node.user);
   const selectedReasons = selected ? recentReasons(selected.reasons, 3) : [];
 
   return (
-    <Modal open={open} onClose={onClose} title="关系星图" width="max-w-xl">
-      <div className="px-4 pb-5 pt-3 sm:px-5">
+    <Modal open={open} onClose={onClose} title="关系星图" width="max-w-xl" panelClassName="vg-relationship-network">
+      <div className="vg-relationship-network-body px-4 pb-5 pt-3 sm:px-5">
         {loadError && <div role="alert" className="mb-3 flex items-center justify-between rounded-xl border border-rose-400/20 p-3 text-sm text-sub">关系暂未读取<button type="button" onClick={()=>setReload(value=>value+1)} className="text-life-cyan">重试</button></div>}
-        <section className="vg-portrait-constellation relative isolate w-full overflow-hidden rounded-[26px] border border-line bg-panel" style={{aspectRatio:'360 / 400',containerType:'inline-size'}} aria-label="角色关系星图">
-          <div className="pointer-events-none absolute inset-0" style={{background:'radial-gradient(ellipse at 50% 50%,rgba(96,85,185,.23),transparent 48%),radial-gradient(ellipse at 85% 15%,rgba(33,119,135,.13),transparent 42%)'}} />
-          {BACKDROP_STARS.map(star=><span key={`${star.x}-${star.y}`} className="pointer-events-none absolute rounded-full bg-gene-purple/40" style={{left:`${star.x}%`,top:`${star.y}%`,width:star.s,height:star.s}} />)}
-          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 360 400" aria-label="人物关系连线">
-            <defs><radialGradient id="relation-halo"><stop stopColor="#a99bf3" stopOpacity=".16" /><stop offset="1" stopColor="#a99bf3" stopOpacity="0" /></radialGradient></defs>
-            <circle cx="180" cy="200" r="65" fill="url(#relation-halo)" />
-            {renderedLinks.map(link=>{
+        <section ref={canvasRef} className="vg-portrait-constellation relative isolate w-full overflow-hidden rounded-[26px] border border-line bg-panel" style={{aspectRatio:`${RELATION_CANVAS.width} / ${RELATION_CANVAS.height}`,containerType:'inline-size'}} aria-label="角色关系星图" data-edge-selected={!!selected || !!highlightedRef || undefined}>
+          <div className="pointer-events-none absolute inset-0" aria-hidden="true" style={{background:'radial-gradient(ellipse at 50% 50%,rgba(96,85,185,.23),transparent 48%),radial-gradient(ellipse at 85% 15%,rgba(33,119,135,.13),transparent 42%)'}} />
+          {BACKDROP_STARS.map(star=><span key={`${star.x}-${star.y}`} aria-hidden="true" className="pointer-events-none absolute rounded-full bg-gene-purple/40" style={{left:`${star.x}%`,top:`${star.y}%`,width:star.s,height:star.s}} />)}
+          <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${RELATION_CANVAS.width} ${RELATION_CANVAS.height}`} role="group" aria-label="人物关系连线">
+            <defs><radialGradient id={haloId}><stop stopColor="#a99bf3" stopOpacity=".16" /><stop offset="1" stopColor="#a99bf3" stopOpacity="0" /></radialGradient></defs>
+            <circle cx={RELATION_CANVAS.x} cy={RELATION_CANVAS.y} r="65" fill={`url(#${haloId})`} />
+            {orderedLinks.map(link=>{
               const a=nodesByRef.get(link.left),b=nodesByRef.get(link.right);if(!a||!b)return null;
-              const active=link.key===selectedKey,secondary=secondaryLinks.includes(link),color=relationColor(link,active);
-              const path=portraitRoute(a,b,nodes,secondary);
-              return <g key={link.key} role="button" tabIndex={0} aria-label={`查看${a.name}与${b.name}的关系`}
-                onClick={()=>setSelectedKey(link.key)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setSelectedKey(link.key);}}}
-                className="cursor-pointer outline-none focus:opacity-100" opacity={selectedKey&&!active ? .28 : secondary&&!active ? .5 : 1}>
-                <path d={path} fill="none" stroke="transparent" strokeWidth="18" />
-                {active&&<path d={path} fill="none" stroke={color.glow} strokeWidth="7" opacity=".5" />}
-                <path d={path} fill="none" stroke={color.line} strokeWidth={active?2.2:secondary?1:1.4} strokeDasharray={color.dash} strokeLinecap="round" />
+              const active=link.key===selectedKey,related=isRelated(link),secondary=secondaryLinks.includes(link),color=relationColor(link,related);
+              const path=routes.get(link.key);if(!path)return null;
+              return <g key={link.key} role="button" tabIndex={0} aria-label={`查看${a.name}与${b.name}的关系`} aria-pressed={active}
+                data-relation-key={link.key} data-secondary={secondary||undefined} data-selected={active||undefined} data-related={related||undefined}
+                onClick={()=>{setSelectedPortraitRef(null);setSelectedKey(link.key);}} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setSelectedPortraitRef(null);setSelectedKey(link.key);}}}
+                className="vg-portrait-link">
+                <path className="vg-portrait-link-hit" d={path} fill="none" stroke="transparent" strokeWidth="18" />
+                {active&&<path className="vg-portrait-link-glow" d={path} fill="none" stroke={color.glow} strokeWidth="7" opacity=".5" />}
+                <path className="vg-portrait-link-line" d={path} fill="none" stroke={color.line} strokeDasharray={color.dash} strokeLinecap="round" />
               </g>;
             })}
           </svg>
           {nodes.map(node=>{
-            const center=node.ref===activeFocusRef,active=selectedRefs.has(node.ref);
-            return <button key={node.ref} type="button" data-portrait-ref={node.ref} data-centered={center||undefined}
+            const center=node.ref===activeFocusRef,active=selectedRefs.has(node.ref)||node.ref===highlightedRef;
+            const related=active||!!highlightedRef&&renderedLinks.some(link=>isRelated(link)&&(link.left===node.ref||link.right===node.ref));
+            return <button key={node.ref} type="button" data-portrait-ref={node.ref} data-centered={center||undefined} data-muted={(!!selected||!!highlightedRef)&&!related||undefined}
               aria-label={node.user?'以你的视角查看关系':`以${node.name}为中心查看关系`} aria-pressed={center}
-              onClick={()=>{setFocusedRef(node.user?null:node.ref);setSelectedKey(null);setNeighborPage(0);}}
+              onClick={()=>{setFocusedRef(node.user?null:node.ref);setSelectedPortraitRef(value=>value===node.ref?null:node.ref);setSelectedKey(null);setNeighborPage(0);}}
               className={`absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-panel p-[3px] outline-none transition-[border-color,box-shadow] duration-300 motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-white ${center?'border-life-cyan/80 shadow-[0_0_24px_rgba(91,200,210,.28)]':active?'border-white/80 shadow-[0_0_15px_rgba(180,160,255,.3)]':'border-[#8274ba]/50'}`}
-              style={{left:`${node.x/360*100}%`,top:`${node.y/400*100}%`,width:'clamp(40px, 14cqw, 52px)',height:'clamp(40px, 14cqw, 52px)'}}>
+              style={{left:`${node.x/RELATION_CANVAS.width*100}%`,top:`${node.y/RELATION_CANVAS.height*100}%`,width:'clamp(44px, 14cqw, 52px)',height:'clamp(44px, 14cqw, 52px)'}}>
               <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full text-2xl">{renderAvatar(node.avatar,'✦','h-full w-full')}</span>
             </button>;
           })}
           {loading&&<span className="absolute bottom-3 left-1/2 h-1.5 w-1.5 -translate-x-1/2 animate-pulse rounded-full bg-life-cyan" role="status" aria-label="正在同步星图" />}
         </section>
-        <div className="mt-3 flex items-center justify-between gap-2">
-          {activeFocusRef!==originRef?<button type="button" onClick={()=>{setFocusedRef(null);setSelectedKey(null);setNeighborPage(0);}} className="rounded-full border border-line px-4 py-2 text-xs text-sub">回到我的视角</button>:<span />}
-          {focusLinks.length>MAX_NEIGHBORS&&<div className="flex items-center gap-2">
-            <button type="button" aria-label="上一组头像" disabled={neighborPage===0} onClick={()=>{setNeighborPage(p=>p-1);setSelectedKey(null);}} className="h-9 w-9 rounded-full border border-line text-sub disabled:opacity-25">‹</button>
-            <span className="text-xs tabular-nums text-sub">{neighborPage+1}/{Math.ceil(focusLinks.length/MAX_NEIGHBORS)}</span>
-            <button type="button" aria-label="下一组头像" disabled={(neighborPage+1)*MAX_NEIGHBORS>=focusLinks.length} onClick={()=>{setNeighborPage(p=>p+1);setSelectedKey(null);}} className="h-9 w-9 rounded-full border border-line text-sub disabled:opacity-25">›</button>
+        <div className="vg-relationship-network-controls mt-3 flex items-center justify-between gap-2">
+          {activeFocusRef!==originRef?<button type="button" onClick={()=>{setFocusedRef(null);setSelectedPortraitRef(null);setSelectedKey(null);setNeighborPage(0);}} className="rounded-full border border-line px-4 py-2 text-xs text-sub">回到我的视角</button>:<span />}
+          {pageCount>1&&<div className="vg-relationship-network-pages flex items-center gap-2" aria-label="头像分页">
+            <button type="button" aria-label="上一组头像" disabled={activePage===0} onClick={()=>{setNeighborPage(Math.max(0,activePage-1));setSelectedKey(null);}} className="rounded-full border border-line px-3 text-sub disabled:opacity-25">上一组</button>
+            <span className="text-xs tabular-nums text-sub" role="status">{activePage+1}/{pageCount}</span>
+            <button type="button" aria-label="下一组头像" disabled={activePage+1>=pageCount} onClick={()=>{setNeighborPage(Math.min(pageCount-1,activePage+1));setSelectedKey(null);}} className="rounded-full border border-line px-3 text-sub disabled:opacity-25">下一组</button>
           </div>}
         </div>
+        {!loading&&!loadError&&renderedLinks.length===0&&<p className="vg-relationship-network-empty">{visible.length?'这组头像之间还没有关系记录。':'还没有角色。'}</p>}
         {selected && (
           <section className="mt-4 rounded-[24px] border border-life-cyan/20 bg-gradient-to-br from-life-cyan/[0.08] to-gene-purple/[0.08] px-4 py-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-3" aria-label="所选关系的两个人物">{selectedNodes.map(node=><span key={node.ref} className="h-9 w-9 overflow-hidden rounded-full bg-surface text-xl">{renderAvatar(node.avatar,'✦','h-full w-full')}</span>)}</div>
               </div>
-              <button type="button" onClick={() => { setSelectedKey(null); setFocusedRef(null); }} className="shrink-0 rounded-full border border-line px-2 py-1 text-xs text-gray-500">收起</button>
+              <button type="button" onClick={() => { setSelectedKey(null); setFocusedRef(null); setNeighborPage(0); }} className="shrink-0 rounded-full border border-line px-2 py-1 text-xs text-gray-500">收起</button>
             </div>
 
              {selected.description && selected.kind !== 'user' && <p className="mt-3 text-xs leading-5 text-gray-500">{selected.description}</p>}
@@ -415,8 +456,11 @@ export function RelationNetworkModal({ open, onClose, characters, userId }: Rela
             )}
 
             {selected.sharedEvents.length > 0 && selectedNodes.length === 2 && !selectedNodes.some((node) => node.user) && (
-              <button type="button" onClick={() => setDetailPair({ a: byCharacterId.get(selectedNodes[0].id)!, b: byCharacterId.get(selectedNodes[1].id)! })} className="mt-3 w-full rounded-xl border border-life-cyan/25 bg-life-cyan/10 px-3 py-2 text-left text-xs text-life-cyan">
-                查看 {selected.sharedEvents.length} 段共同经历 <span className="float-right">›</span>
+              <button type="button" onClick={() => {
+                const [a,b]=selectedNodes.map(node=>byCharacterId.get(node.ref.slice(2)));
+                if(a&&b)setDetailPair({a,b});
+              }} className="mt-3 w-full rounded-xl border border-life-cyan/25 bg-life-cyan/10 px-3 py-2 text-left text-xs text-life-cyan">
+                查看 {selected.sharedEvents.length} 段共同经历
               </button>
             )}
             {recentMemory && selectedCharacter && <p className="mt-3 border-t border-line/70 pt-3 text-xs leading-5 text-gray-500"><span className="text-gene-purple">最近记忆</span> · {recentMemory}</p>}

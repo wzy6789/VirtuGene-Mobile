@@ -12,7 +12,7 @@ export function GreetingReview({ character, onAdopt, disabled }: { character: Ch
   const issues = auditGreeting(character.greeting);
   return <section aria-label="开场白审查" className="space-y-2 text-sm">
     {issues.map(issue => <p key={issue} className="text-sub">{issue}</p>)}
-    <p className="text-xs text-sub">开场白会影响后续语气。可以生成一版普通聊天建议，先预览再决定。</p>
+    <p className="text-xs text-sub">发送人物资料给当前模型生成建议，产生模型用量；预览后采用。</p>
     <button type="button" disabled={disabled || busy || owner !== character.createdBy} className="min-h-11 text-gene-purple" onClick={async () => {
       const controller = new AbortController(); request.current = controller; setBusy(true); setError('');
       try { const text = await suggestGreeting(character, apiKey ?? '', controller.signal); if (!controller.signal.aborted && useAuthStore.getState().userId === owner) setPreview(text); }

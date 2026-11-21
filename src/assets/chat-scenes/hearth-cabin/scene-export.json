@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "sceneId": "hearth-cabin",
+  "designWidth": 1440,
+  "designHeight": 3201.902497027348,
+  "qualities": {
+    "841": {
+      "width": 841,
+      "height": 1870,
+      "poster": {
+        "file": "poster-photo-20261022-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 515460,
+        "sha256": "590b2200dee2a56414e26a756c567e715dd3feffa4235ba58d2c28bc8e377c74",
+        "decodedRgbaBytes": 6290680
+      },
+      "cleanPlate": {
+        "file": "poster-photo-20261022-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 515460,
+        "sha256": "590b2200dee2a56414e26a756c567e715dd3feffa4235ba58d2c28bc8e377c74",
+        "decodedRgbaBytes": 6290680
+      },
+      "layers": [],
+      "windowMask": {
+        "file": "window-mask-photo-20261022-841.webp",
+        "width": 206,
+        "height": 206,
+        "bytes": 272,
+        "sha256": "6cf2761553ed38457c67ee8a1f92e676f317614f029fcb112ceccfdf3e9317de",
+        "decodedRgbaBytes": 169744,
+        "rect": [
+          1083.8526,
+          1354.3876,
+          352.7229,
+          352.7229
+        ],
+        "maskMode": "alpha"
+      },
+      "decodedBytesWithPoster": 6460424,
+      "decodedBytesAfterPosterRelease": 6460424
+    }
+  },
+  "thumbnail": {
+    "file": "thumbnail-photo-20261022.webp",
+    "width": 360,
+    "height": 800,
+    "bytes": 96560,
+    "sha256": "9f90fa10a36de0ed56f14564cce7e05ea64b7ee1c3ebc2df9ab497c36a65f480",
+    "decodedRgbaBytes": 1152000
+  },
+  "windowPolygon": [],
+  "lightRect": [
+    916.0523,
+    1112.9608,
+    523.9477,
+    993.1034
+  ],
+  "cupMouth": [
+    1047.8954,
+    2225.9215
+  ],
+  "effectArea": "firebox",
+  "provenance": "Original task-authorized built-in image_gen photographic artwork; not a camera photograph or Blender render. Production WebP encodes original native dimensions without upscaling.",
+  "compositeStrategy": "One complete photographic-style artwork reused as poster and cleanPlate; layers empty. No detached foreground/parallax claim. Old realtime geometry disabled for this replacement.",
+  "sourceFiles": [
+    {
+      "file": "design/ui-upgrade-20261022/hearth-cabin/source.png",
+      "sha256": "b5b36b0ff288ba6c7cfbf5538c3101f56993e3c742cfd4566dc7562db4c29d20"
+    }
+  ],
+  "motion": {
+    "baseMaxDesignPixels": 0,
+    "effectOpeningStatic": true,
+    "note": "Static complete artwork with pane-restricted local weather/fire effects only; no old geometry foreground."
+  },
+  "maskCalibration": {
+    "coordinateSpace": "source pixels",
+    "sourceWidth": 841,
+    "sourceHeight": 1870,
+    "polygons": [
+      [
+        [
+          633,
+          791
+        ],
+        [
+          839,
+          791
+        ],
+        [
+          839,
+          997
+        ],
+        [
+          633,
+          992
+        ]
+      ]
+    ],
+    "note": "Conservative inspected glass panes exclude frames/indoor foreground. Firebox only for hearth. Train uses safe interior rectangle."
+  }
+}

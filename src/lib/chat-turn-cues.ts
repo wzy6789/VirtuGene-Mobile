@@ -163,6 +163,7 @@ export function isTopicClarification(message: string): boolean {
   // Contrast and correction preserve an antecedent. This is a rhythm hint,
   // not a claim that we know which field or fact the user corrected.
   return correctsConversationIntent(text)||isSelfViewRevision(text)
+    || /^(?:其实|我的意思)?(?:就|只)?是[^。！？!?，,；;]{1,60}[，,]\s*(?:并不是|不是|而不是)[^。！？!?]{1,60}[。！!]?$/u.test(text)
     || /^(?:我(?:刚才)?|刚才(?:我)?)(?:说错|看错|记错)了[，,。：:]\s*(?:其实|应该是|准确地说|是)/u.test(text)
     || /^(?:不是.{1,32}[，,]\s*(?:是|而是|改成|改到)|是.{1,32}[，,]\s*(?:不是|而不是)|(?:我(?:刚才)?(?:说错|看错)了|更正一下|不对)[，,：:]\s*(?:是|应该是|改成|改到)|(?:改成|改到).{1,24})/u.test(text);
 }
@@ -173,18 +174,57 @@ export function isPersonalExperienceQuestion(message: string): boolean {
     /^(?:那|所以|对了|想问问)?\s*你.{0,10}(?:小时候|童年|以前|从前|曾经|过去|刚才|刚刚|最近).{0,24}(?:吗|么|没|过|什么|哪|谁|怎么)/u.test(clause.trim()));
 }
 
-/** A declared pause of a named subject, not a question, report or quoted line.
- * This only limits conversation focus; it never changes records or identity. */
-export function setsAsideNamedTopic(message:string):boolean {
-  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
-  if(/^(?:他|她|他们|她们|朋友|同事|如果|假如|假设|比如|例如|翻译|解释|帮我写|写一句|写一段)/u.test(text))return false;
-  return text.split(/[。！!\n]|(?<=[？?])/u).some(sentence=>{
-    if(/^(?:他|她|朋友|同事|如果|假如|假设|比如|例如|我(?:刚|刚才)?听(?:说|到|他|她)|翻译|解释|帮我写|写一句|写一段)/u.test(sentence.trim()))return false;
-    return sentence.split(/[，,；;]/u).some(clause=>{
-      const match=clause.trim().match(/^(?:我|我们|咱们)?(?:今天|现在|这次|暂时)?(?:先|就)?(?:不再|不)(?:聊|说|提)([^。！？!?，,；;\n]{1,24}?)(?:了|吧)?$/u);
-      return !!match&&!/^(?:了|吧|啊|呀|呢)$|^(?:也|就|都)(?:行|可以|好|没关系|罢)|(?:什么|怎么|谁|哪里|哪儿|是否|是不是|为什么|何时|多久)/u.test(match[1]);
-    });
+/** A direct request to reconcile the actor's own claim. This requests a
+ * source check; it neither proves the claim nor declares it fabricated. */
+export function questionsCharacterClaim(message:string):boolean {
+  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,quoted=>' '.repeat(quoted.length));
+  return [...text.matchAll(/([^。！？!?；;\n]+)([。！？!?；;\n]|$)/gu)].some(match=>{
+    const part=match[1].trim();
+    if(/^(?:朋友|同事|他|她|他们|她们|如果|假如|假设|比如|例如|翻译|解释|改写|帮我写|替我写|给我写|写一句|写一段)/u.test(part))return false;
+    if(/^(?:(?:请|麻烦)(?:你)?(?:帮我)?(?:翻译|解释|改写)|我(?:刚才|刚|又)?(?:听说|听到|听见|看到|看见|转述|引用))/u.test(part))return false;
+    const addressed=/(?:你(?:刚才|刚刚|上一条|前面|之前)?(?:说|讲|提)|你(?:刚才|刚刚|上一条|前面|之前)(?:那句|的话))/u.test(part);
+    const provenance=/(?:真的|真实|编的|编出来|想象的|来源|依据)/u.test(part);
+    const inquiry=/[？?]/u.test(match[2])||/(?:吗|么|是不是|是否|还是|直说|说清楚|告诉我|坦白|哪里|哪儿)/u.test(part);
+    if(addressed&&provenance&&inquiry)return true;
+    // A deictic object can carry the subject: "那件事如果只是你想象的，就直说".
+    // It must still address the actor and ask for clarification, rather than
+    // treating every mention of imagination as a real-life source dispute.
+    return /(?:这|那)[^，,]{1,32}(?:如果|要是)?(?:只|仅仅)?是你(?:自己)?(?:编的|编出来的|想象的|虚构的)/u.test(part)
+      &&/(?:直说|说清楚|告诉我|坦白|承认)/u.test(part);
   });
+}
+
+/** Source spans for speaker-owned focus controls. They are not event outcomes:
+ * “不聊” says nothing about whether the underlying event was completed. */
+function setAsideTopicClauses(message:string):Array<{start:number;end:number}>{
+  const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,quoted=>' '.repeat(quoted.length));
+  const spans:Array<{start:number;end:number}>=[];
+  for(const sentence of text.matchAll(/([^。！？!?\n]+)([。！？!?\n]|$)/gu)){
+    const leading=sentence[1].trim();
+    if(/^(?:他|她|他们|她们|朋友|同事|如果|假如|假设|比如|例如|我(?:刚|刚才)?听(?:说|到|他|她)|翻译|解释|帮我写|给我写|替我写|请(?:你)?写|写一句|写一段)/u.test(leading)
+      ||/^[^，,：:]{1,16}(?:说|表示|提到|问)[，,：:]/u.test(leading))continue;
+    for(const clause of sentence[1].matchAll(/([^，,；;]+)([，,；;]|$)/gu)){
+      if(!clause[2]&&/[？?]/u.test(sentence[2]))continue;
+      const match=clause[1].trim().match(/^(?:我|我们|咱们)?(?:今天|现在|这次|暂时)?(?:先|就)?(?:(?:不再|不|不想(?:再)?)(?:聊|说|提)|(?:别|不要)(?:再)?(?:聊|说|提))([^。！？!?，,；;\n]{1,24}?)(?:了|吧)?$/u);
+      if(match&&!/^(?:了|吧|啊|呀|呢)$|^(?:也|就|都)(?:行|可以|好|没关系|罢)|(?:什么|怎么|谁|哪里|哪儿|是否|是不是|为什么|何时|多久)/u.test(match[1])){
+        const start=sentence.index!+clause.index!;spans.push({start,end:start+clause[1].length});
+      }
+    }
+  }
+  return spans;
+}
+
+/** Mask only the declined clause for relevance. Original history remains
+ * untouched, and later affirmative mentions of the same word still count. */
+export function withoutSetAsideTopicClauses(message:string):string{
+  let result=message;
+  for(const span of setAsideTopicClauses(message).reverse())result=result.slice(0,span.start)+' '.repeat(span.end-span.start)+result.slice(span.end);
+  return result;
+}
+
+/** This changes conversational focus only, never records or identity. */
+export function setsAsideNamedTopic(message:string):boolean {
+  return setAsideTopicClauses(message).length>0;
 }
 
 export function hasExplicitTopicShift(message:string):boolean {
@@ -199,7 +239,9 @@ export function hasExplicitTopicShift(message:string):boolean {
 
 /** Only a whole turn closing this conversation. A departure inside a question,
  * report or task does not imply that the user has finished talking. */
-export function conversationDeparture(message:string):{topicDeferred:boolean}|undefined {
+const CHAT_END=/^(?:今天|今晚)?(?:就|先)?聊?到这(?:里)?(?:吧|了|啦)?$/u;
+const NO_WAIT=/^(?:你)?(?:不用|不必|不要|别)(?:再|一直|专门)?等我(?:回消息|回复|回来)?(?:了|啦)?$/u;
+export function conversationDeparture(message:string):{topicDeferred:boolean;waitDeclined?:true}|undefined {
   if(/[?？]/u.test(message))return undefined;
   // Quoted, reported and hypothetical departures are not the speaker leaving.
   if (/[“「『"]/u.test(message) || /^(?:他|她|他们|她们|朋友|同事|如果|假如|假设|比如|例如|翻译|解释|帮我写|写一段)/u.test(message.trim())) return undefined;
@@ -212,14 +254,26 @@ export function conversationDeparture(message:string):{topicDeferred:boolean}|un
   const exchangeFeeling=/^(?:(?:听见|听到|听|听你|听见你|听到你)(?:你)?说[^？?]{0,30}[，,]?)?我(?:也|还|真的|很|挺|有点)?(?:开心|高兴|欢喜|放心|舍不得)(?:的|了|呀|啊)?$/u;
   const exchangeContent=/^(?:听见|听到|听)你说(?:自己的)?(?:心意|想法|看法)$/u;
   const deferred=/^(?:那|这个|这|刚才那个)?(?:话题|话|问题)(?:先)?(?:留着|放一放|放着|不展开)(?:吧|了)?$/u;
-  const leaving=/^(?:(?:我(?:现在)?|现在)(?:先|得|要)?|先)(?:去[^“”「」『』"\s]{1,18}|出门|下线|忙)(?:了|啦)?$/u;
-  const isLeaving=(part:string)=>leaving.test(part)&&!/(?:吗|么|怎么|如何|哪[个里儿]|还是|要不要|该不该|能不能|是不是)/u.test(part);
+  const leaving=/^(?:(?:我(?:现在)?|现在)(?:先|得|要)?|先)(去[^“”「」『』"\s]{1,18}|出门|下线|忙)(?:了|啦)?$/u;
+  const isLeaving=(part:string)=>{
+    const match=leaving.exec(part);
+    // A departure must be affirmative and contain only the speaker's activity.
+    // An unpunctuated instruction to the addressee keeps the turn open.
+    return !!match&&!/^去(?:不|没|未)/u.test(match[1])
+      &&!/(?:吗|么|怎么|如何|哪[个里儿]|还是|要不要|该不该|能不能|是不是|(?:帮|替)我|你(?:先|再|还|也|要|得|帮|替|给|记|写|查|说))/u.test(part);
+  };
   // A return marker already places the conversation later; an extra 再 is
   // optional. Whole-clause matching keeps a future question or task open.
   const returning=/^(?:(?:我)?(?:回来|回头|结束|忙完|下次|明天|改天)(?:后)?(?:再|接着)?(?:来|聊|说|找你|聊这个)|(?:回头|下次|明天|改天)见|(?:我)?(?:先|就)聊到这(?:里)?)(?:吧|了|啦)?$/u;
-  if(!clauses.some(isLeaving)||!returning.test(clauses[clauses.length-1]))return undefined;
-  if(!clauses.every(part=>acknowledgement.test(part)||understood.test(part)||exchangeFeeling.test(part)||exchangeContent.test(part)||deferred.test(part)||isLeaving(part)||returning.test(part)))return undefined;
-  return {topicDeferred:clauses.some(part=>deferred.test(part))};
+  const isReturning=(part:string)=>returning.test(part)||CHAT_END.test(part);
+  // A no-wait boundary can follow the goodbye; it does not reopen the topic.
+  // Alone it is not a goodbye, and substantive clauses must still all match.
+  const tail=[...clauses];while(tail.length&&NO_WAIT.test(tail[tail.length-1]))tail.pop();
+  const releasedWait=tail.length<clauses.length,last=tail[tail.length-1]??'';
+  if(!clauses.some(part=>isLeaving(part)||CHAT_END.test(part))
+    ||!isReturning(last)&&!(releasedWait&&isLeaving(last)))return undefined;
+  if(!clauses.every(part=>acknowledgement.test(part)||understood.test(part)||exchangeFeeling.test(part)||exchangeContent.test(part)||deferred.test(part)||isLeaving(part)||isReturning(part)||NO_WAIT.test(part)))return undefined;
+  return {topicDeferred:clauses.some(part=>deferred.test(part)),...(releasedWait?{waitDeclined:true as const}:{})};
 }
 
 export function isStandaloneClosing(message:string):boolean {
@@ -228,9 +282,10 @@ export function isStandaloneClosing(message:string):boolean {
   // Other facts, questions, quoted ends and requests keep their own intent.
   const clauses=message.trim().split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).filter(Boolean);
   const end=clauses[clauses.length-1]??'';
-  if(!/[?？]/u.test(message)&&/^(?:今天|今晚)?(?:(?:就|先)?聊到这(?:里)?|(?:就|先)这样)(?:吧|了|啦)?$/u.test(end)
+  if(!/[?？]/u.test(message)&&(CHAT_END.test(end)||/^(?:今天|今晚)?(?:就|先)这样(?:吧|了|啦)?$/u.test(end))
     &&clauses.slice(0,-1).every(part=>/^(?:嗯+|好(?:的|吧|呀|啦)?|行|谢谢(?:你)?(?:听我说|陪我聊(?:天)?)?|今天聊得(?:挺|很)?(?:开心|舒服)|我(?:就|也|挺|很)?喜欢听你说(?:自己的)?(?:想法|看法))$/u.test(part)))return true;
   const text=message.trim().replace(/^(?:行|好(?:的)?|嗯)[，,\s]+/u,'')
+    .replace(/^(?:先不聊了|先不说了|不聊了)[，,。！!\s]+/u,'')
     .replace(/^(?:今(?:天|晚))?(?:就这样|先这样|先聊到这(?:里)?|聊到这(?:里)?)[，,。！!\s]+/u,'')
     .replace(/^(?:明天|改天|下次)(?:再|接着)(?:聊|说|弄|做|处理)(?:吧|了)?[，,。！!\s]+/u,'');
   return /^(?:嗯+|好(?:的|吧|呀|啦)?|行|算了|先这样|晚安|拜拜|明天见|回见|我先下了|我先睡了)(?:[呀啦哦嗯喽吧。！!，,～~\s])*$/u.test(text);

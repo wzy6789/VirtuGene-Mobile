@@ -1,0 +1,24 @@
+/* The existing portrait modal keeps its data and avatar-only presentation. */
+.vg-modal-panel:has(.vg-portrait-constellation) .vg-portrait-constellation + div button{min-width:44px;min-height:44px;touch-action:manipulation}
+.vg-modal-panel:has(.vg-portrait-constellation) [data-portrait-ref]{min-width:44px;min-height:44px}
+.vg-modal-panel:has(.vg-portrait-constellation) .vg-portrait-constellation ~ section button{min-height:44px}
+
+.vg-evidence-constellation{min-width:0;padding:12px;border-color:var(--border);background:transparent;color:var(--text)}
+.vg-evidence-constellation[data-compact]{border:0;border-radius:0}
+.vg-evidence-constellation .vg-relationship-constellation-head h2{margin:0;font-size:20px;letter-spacing:0;color:var(--text)}
+.vg-evidence-constellation .vg-relationship-constellation-head p{font-size:13px}
+.vg-evidence-constellation .vg-relationship-constellation-map{margin:8px 0 0;aspect-ratio:360/320;overflow:visible}
+.vg-evidence-avatar{position:absolute;z-index:2;display:grid;place-items:center;width:44px;height:44px;min-width:44px;min-height:44px;padding:3px;transform:translate(-50%,-50%);border:1px solid var(--border);border-radius:50%;background:var(--bg-panel);color:var(--text);font-size:24px;touch-action:manipulation}
+.vg-evidence-avatar[data-centered]{width:48px;height:48px;border:2px solid var(--vg-accent);box-shadow:0 0 18px color-mix(in srgb,var(--vg-accent) 18%,transparent)}
+.vg-evidence-avatar img{width:100%;height:100%;min-height:0;border-radius:50%;object-fit:cover}
+.vg-evidence-map-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px}
+.vg-evidence-map-controls button,.vg-evidence-constellation .vg-relationship-insight-title>button{display:grid;place-items:center;min-width:44px;min-height:44px;border:1px solid var(--border);border-radius:12px;padding:8px;color:var(--text-secondary);font-size:13px}
+.vg-evidence-map-pages{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;font-variant-numeric:tabular-nums}
+.vg-evidence-map-pages button{font-size:13px;line-height:1.5;white-space:nowrap}
+.vg-evidence-map-pages button:disabled{opacity:.35}
+.vg-evidence-map-note{margin:8px 0;color:var(--text-secondary);font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.vg-evidence-constellation .vg-relationship-insight-title h3{color:var(--text);font-size:16px;overflow-wrap:anywhere}
+.vg-evidence-constellation button:focus-visible{outline:2px solid var(--vg-accent);outline-offset:3px}
+.vg-evidence-constellation g[role=button]:focus-visible{outline:none}
+.vg-evidence-constellation .vg-relationship-edge:focus-visible .vg-constellation-line{stroke:var(--text);stroke-width:3px;opacity:1}
+@media(prefers-reduced-motion:reduce){.vg-evidence-constellation .vg-relationship-edge{transition:none}}

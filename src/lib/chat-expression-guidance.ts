@@ -37,6 +37,36 @@ function statesDirectFeeling(text:string):boolean {
   return ownFeelingSentences(text).some(sentence=>sentence.split(/[，,；;]/u).some(clause=>DIRECT_FEELING.test(clause.trim())));
 }
 
+const NEGATIVE_AFFECT=/开心不起来|高兴不起来|笑不出来|不开心|精疲力尽|没精神|没力气|难过|难受|委屈|生气|焦虑|害怕|紧张|担心|烦躁|烦|孤单|失望|失落|沮丧|崩溃|想哭|哭了|失恋|去世|疲惫|撑不住|扫兴|累/gu;
+const CURRENT_RECOVERY=/^(?:(?:但是|不过|可是|但)\s*)?(?:我\s*)?(?:现在|今天|已经)(?:我)?(?:已经|真的|都|完全)?(?:心情|情绪|状态)?(?:(好了|好多了|没事了|缓过来了|恢复了)|不(难过|累|疲惫|生气|担心|紧张|焦虑|委屈|失落|沮丧)了)(?:[啊呀啦呢了\s]*)$/u;
+const BARE_IMPROVEMENT=/^(?:(?:但是|不过|可是|但)\s*)?(?:我\s*)?(?:心情|情绪|状态)?好多了(?:[啊呀啦呢\s]*)$/u;
+const PHYSICAL_AFFECT=/^(?:累|疲惫|精疲力尽|没精神|没力气|撑不住)$/u;
+const affectScope=(value:string)=>/^(?:累|疲惫|精疲力尽)$/u.test(value)?'fatigue':value;
+function datedPastFeeling(clause:string):boolean{
+  return /^(?:(?:但是|不过|可是|但)\s*)?(?:我)?(?:昨天|昨晚|昨夜|前天|前晚|之前|以前|刚才|前几天|上周)/u.test(clause)
+    &&!/(?:现在|今天|此刻|这会儿|至今|到现在|仍然|依然|一直)|的事.{0,12}还/u.test(clause);
+}
+/** Recovery changes only the named feeling; it is never a business outcome.
+ * A backwards fold keeps later renewed feelings and independent joy/fatigue.
+ * These are temporary classification strings; the user's originals stay intact. */
+function currentAffectClauses(clauses:string[]):string[]{
+  let generalRecovery=false,moodRecovery=false,hasRecovery=false;
+  const recovered=new Set<string>(),selected:Array<{original:string;text:string}>=[];
+  for(let index=clauses.length-1;index>=0;index--){
+    const clause=clauses[index],match=CURRENT_RECOVERY.exec(clause);
+    if(match||BARE_IMPROVEMENT.test(clause)){
+      hasRecovery=true;
+      if(match?.[2])recovered.add(affectScope(match[2]));
+      else if(/心情|情绪/u.test(clause))moodRecovery=true;
+      else generalRecovery=true;
+      continue;
+    }
+    const text=generalRecovery||moodRecovery||recovered.size?clause.replace(NEGATIVE_AFFECT,value=>generalRecovery||(moodRecovery&&!PHYSICAL_AFFECT.test(value))||recovered.has(affectScope(value))?'':value):clause;
+    selected.push({original:clause,text});
+  }
+  return selected.reverse().filter(row=>!hasRecovery||!datedPastFeeling(row.original)).map(row=>row.text.trim()).filter(Boolean);
+}
+
 export function assessChatSituation(userText: string): ChatSituation {
   // These messages discuss an imagined feeling or ask for written material.
   // The model still reads the original; do not label them as lived emotions.
@@ -45,13 +75,8 @@ export function assessChatSituation(userText: string): ChatSituation {
     .replace(/[“「『"][^”」』"]*[”」』"]/gu, '')
     .split(/[。！!，,；;\n]|(?<=[？?])|(?=(?:但|不过|可是)(?:我)?(?:现在|今天|已经|还是))/u)
     .map(s => s.trim())
-    .filter(s => !/^(?:(?:但是|不过|可是|但)\s*)?(?:如果|假如|假设|比如|例如|怎么安慰|如何安慰|解释|什么是|帮我写|写一段|写一个|他|她|他们|她们|朋友|同事|主角)/u.test(s));
-  // Explicit recovery is the user's update, not an inference that an old
-  // feeling disappeared. Keep later clauses: "好了，但还是累" stays tired.
-  const recovery = /^(?:(?:但是|不过|可是|但)\s*)?(?:我\s*)?(?:现在|今天|已经)(?:我)?(?:已经|真的|都|完全)?(?:好了|没事了|缓过来了|恢复了|不难过了|不累了|不生气了|不担心了|不紧张了|不焦虑了|不委屈了|不失落了|不沮丧了)(?:[啊呀啦呢了\s]*)$/u;
-  let recoveredAt=-1;
-  clauses.forEach((clause,index)=>{if(recovery.test(clause))recoveredAt=index;});
-  if(recoveredAt>=0)clauses=clauses.slice(recoveredAt+1);
+    .filter(s => !!s&&!/^(?:(?:但是|不过|可是|但)\s*)?(?:如果|假如|假设|比如|例如|怎么安慰|如何安慰|解释|什么是|帮我写|写一段|写一个|他|她|他们|她们|朋友|同事|主角)/u.test(s));
+  clauses=currentAffectClauses(clauses);
   // A stated present feeling supersedes a separately dated past feeling.
   // Undated feelings remain, so simultaneous joy and fatigue are not erased.
   const presentEmotion=clauses.findIndex(clause=>/^(?:(?:但是|不过|可是|但)\s*)?(?:我)?(?:现在|今天)/u.test(clause)&&/(?:开心|高兴|兴奋|难过|委屈|生气|焦虑|担心|失落|沮丧|疲惫|累|没精神)/u.test(clause));
@@ -59,7 +84,8 @@ export function assessChatSituation(userText: string): ChatSituation {
   const current = clauses.join(' ').replace(/(?:并没有|没有|并不|不是)(?:不开心|不高兴)/gu, '');
   const unhappy = /不开心|开心不起来|高兴不起来|笑不出来/u.test(current);
   const expressed = current.replace(/(?:并不|不是|不再|不怎么|不太|不那么|不很|不|没有)(?:难过|难受|委屈|生气|焦虑|害怕|紧张|担心|烦|孤单|失望|崩溃|开心|高兴|兴奋|得意|累|疲惫)/gu, '');
-  const distress = unhappy || /难过|难受|委屈|生气|焦虑|害怕|紧张|担心|烦|孤单|失望|崩溃|想哭|哭了|失恋|去世/u.test(expressed) || clauses.some(statesSetbackFeeling);
+  // The courtesy/obstacle word 麻烦 does not report an annoyed feeling.
+  const distress = unhappy || /难过|难受|委屈|生气|焦虑|害怕|紧张|担心|(?<!麻)烦|孤单|失望|崩溃|想哭|哭了|失恋|去世/u.test(expressed) || clauses.some(statesSetbackFeeling);
   const tired = /累(?:了|死|坏|得|到|啊|呀|哦|$)|(?:很|好|太|真|有点|特别|挺|已经|觉得)累|疲惫|没精神|没力气|精疲力尽|撑不住/u.test(expressed);
   const joy = /开心|高兴|兴奋|好耶|太棒了|终于.{0,16}(?:做完|搞定|通过|考过|交上|交了|完成)/u.test(expressed.replace(/不开心|开心不起来|高兴不起来/gu, ''))
     || clauses.some(clause=>/^(?:但|不过)?(?:我)?(?:还|也|现在|今天)?(?:挺|很|有点|有一点|有些|有一些|真|特别)(?:小小的?|小)?得意(?:的|了|啊|呀|呢)?$/u.test(clause));
@@ -79,6 +105,10 @@ export interface ExpressionSignals {
   hypothetical: boolean;
 }
 
+// Courtesy and manner words do not change a direct request into casual chat.
+// The existing quotation, hypothetical and negation gates still run first.
+const COURTEOUS_REQUEST_START=/^(?:请(?:你|您)?|麻烦(?:你|您)?)(?:先|再)?(?:帮我|帮忙)?(?:详细|具体|仔细|认真)?(?:解释|分析|整理|介绍|说明|讲|说|看|写|教|推荐|设计|制定|查|改)/u;
+
 /** Multiple independent clues, never an authorization decision or user diagnosis. */
 export function assessExpressionSignals(userText: string): ExpressionSignals {
   const text = userText.slice(0, 4000).trim();
@@ -86,7 +116,7 @@ export function assessExpressionSignals(userText: string): ExpressionSignals {
   const unquoted = text.replace(/[“「『"][^”」』"]*[”」』"]/gu, '');
   const hypothetical = /^(?:如果|假如|假设|比如|例如)/u.test(unquoted);
   const affirmative = unquoted.split(/[。！？!?，,；;\n]/u).filter(c => !/(?:不用|不要|别|无需|不需要).{0,8}(?:帮|替我|给我|请你|教我|告诉我|分析|解释|整理|写|推荐|想|设计|制定)/u.test(c));
-  const request = !hypothetical && affirmative.some(c => /(?:帮我|请你|请帮|能帮|替我|给我)(?:.{0,12})(?:看|写|整理|分析|解释|推荐|想|设计|制定|读|查|改|说)|^(?:帮我|请你|请帮|能帮|给我|替我|写一个|写段|整理|解释|分析|教我|告诉我|推荐|设计|制定)/u.test(c.trim()));
+  const request = !hypothetical && affirmative.some(c => /(?:帮我|请你|请帮|能帮|替我|给我)(?:.{0,12})(?:看|写|整理|分析|解释|推荐|想|设计|制定|读|查|改|说)|^(?:帮我|请你|请帮|能帮|给我|替我|写一个|写段|整理|解释|分析|教我|告诉我|推荐|设计|制定)/u.test(c.trim())||COURTEOUS_REQUEST_START.test(c.trim()));
   const situation = assessChatSituation(text);
   const ownText=ownFeelingSentences(unquoted).join('。');
   const self = /我(?:今天|现在|最近|真的|已经|好|很|有点|特别|挺|感觉|觉得|太|不|没|失恋)|今天|现在|终于|累死|好累|好开心|好难过|好委屈/u.test(ownText)

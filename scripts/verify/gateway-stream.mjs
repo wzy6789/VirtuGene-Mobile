@@ -17,7 +17,7 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -133,8 +133,12 @@ if (ready) {
   await gw('/v1/chat', { message: 'Return JSON', structuredOutput: true });
   check('非流式结构化调用 Flash，关闭思考并启用 JSON', upstreamBodies.at(-1).model === 'deepseek-flash' && upstreamBodies.at(-1).thinking.type === 'disabled' && upstreamBodies.at(-1).response_format.type === 'json_object');
   check('结构化操作规划不混入私聊分条协议', !upstreamBodies.at(-1).messages[0].content.includes('[手机私聊表达契约]'));
+  const beforeInvalidSummary=upstreamBodies.length;
+  const invalidSummary=await gw('/v1/aux',{operation:'context-summary',payload:{text:'fixture'}});
+  check('摘要缺少完整历史批次时拒绝且不调用上游',invalidSummary.status===400&&upstreamBodies.length===beforeInvalidSummary);
   for (const operation of ['memory', 'emotion', 'context-settle', 'context-summary', 'diary']) {
-    const result = await gw('/v1/aux', { operation, payload: { text: 'fixture' } });
+    const payload=operation==='context-summary'?{history:[{role:'user',content:'fixture'}]}:{text:'fixture'};
+    const result = await gw('/v1/aux', { operation, payload });
     const body = upstreamBodies.at(-1);
     check(`${operation} 辅助链路 Flash + 非思考 JSON`, result.ok && (await result.json()).text === '辅助' && body.model === 'deepseek-flash' && body.thinking.type === 'disabled' && body.response_format.type === 'json_object');
   }
@@ -182,7 +186,11 @@ if (ready) {
 } finally {
   gateway.kill();
   upstream.close();
-  rmSync(dataDir, { recursive: true, force: true });
+  const cleanupTarget = resolve(dataDir);
+  if (dirname(cleanupTarget) !== resolve(tmpdir()) || !basename(cleanupTarget).startsWith('virtugene-gw-')) {
+    throw new Error('Refusing to remove a directory outside the owned gateway test fixture');
+  }
+  rmSync(cleanupTarget, { recursive: true, force: true });
 }
 console.log(failures === 0 ? `ALL PASS gateway stream assertions` : `${failures} FAILED`);
 process.exitCode = failures === 0 ? 0 : 1;

@@ -160,7 +160,7 @@ export function Sidebar() {
       <Modal presentation="dialog" open={showLogoutConfirm} onClose={() => setShowLogoutConfirm(false)} width="max-w-sm" closeOnBackdrop={false}>
         <div className="p-6">
           <p className="text-sm text-sub mb-2">断开灵魂链接？</p>
-          <p className="text-xs text-gray-500 mb-6">断开后将返回登录页，本地数据（角色、对话、记忆）都会保留，下次登录继续。</p>
+          <p className="text-xs text-gray-500 mb-6">退出登录后，本机角色、对话与记忆保留。</p>
           <div className="flex gap-3 justify-end">
             <button
               onClick={() => setShowLogoutConfirm(false)}

@@ -33,14 +33,14 @@ export function VoiceSamplesEditor({ character, value, onChange, disabled }: {
   };
   return <section className="rounded-xl border border-line p-4 space-y-3" aria-label="角色声音样本">
     <p className="text-sm font-medium text-ink">声音样本</p>
-    <p className="text-xs text-sub">补充称呼、看事情的方式和对话示例。先预览再采用，原人物设定保持原样。</p>
+    <p className="text-xs text-sub">发送人物资料给当前模型生成样本，产生模型用量；预览后采用。</p>
     <button type="button" disabled={disabled || busy || !character.systemPrompt.trim() || ownerId !== character.createdBy} onClick={() => void generate()} className="min-h-11 rounded-xl border border-gene-purple/30 px-4 text-sm text-gene-purple disabled:opacity-40">{busy ? '正在补全声音样本…' : '补全声音样本'}</button>
     {preview && <div className="space-y-2">
       <pre aria-label="声音样本预览" className="whitespace-pre-wrap break-words rounded-xl bg-surface p-3 text-sm font-sans text-ink">{voiceSampleBlock({ ...character, voiceSamples: preview })}</pre>
       <button type="button" disabled={disabled} onClick={() => { if (validVoiceSamples({ ...character, voiceSamples: preview })) { onChange(preview); setPreview(undefined); } }} className="min-h-11 rounded-xl bg-gene-purple px-4 text-sm text-white">采用声音样本</button>
       <button type="button" onClick={() => setPreview(undefined)} className="min-h-11 px-3 text-sm text-sub">放弃这版</button>
     </div>}
-    {cached && <div><p role="status" className="text-xs text-sub">已采用这版声音样本，点击“保存角色”后生效。</p><details className="text-sm text-sub"><summary className="min-h-11 flex items-center cursor-pointer">查看采用的声音样本</summary><pre className="whitespace-pre-wrap break-words font-sans">{cached.lines.join('\n')}</pre></details><button type="button" disabled={disabled} onClick={() => onChange(undefined)} className="min-h-11 text-sm text-sub">移除补全样本</button></div>}
+    {cached && <div><p role="status" className="text-xs text-sub">保存角色后生效。</p><details className="text-sm text-sub"><summary className="min-h-11 flex items-center cursor-pointer">查看采用的声音样本</summary><pre className="whitespace-pre-wrap break-words font-sans">{cached.lines.join('\n')}</pre></details><button type="button" disabled={disabled} onClick={() => onChange(undefined)} className="min-h-11 text-sm text-sub">移除补全样本</button></div>}
     {error && <p role="alert" className="text-sm text-red-400 break-words">{error}</p>}
   </section>;
 }

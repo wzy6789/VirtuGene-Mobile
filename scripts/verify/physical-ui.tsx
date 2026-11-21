@@ -1,6 +1,6 @@
 import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { MultiFilterChips, TagInput, PERSONALITY_TAGS, PressLightCard } from '../../src/components/ui/PhysicalInteractions';
+import { MultiFilterChips, TagInput, PERSONALITY_TAGS, PressLightCard, FontRuler } from '../../src/components/ui/PhysicalInteractions';
 import { ChatInput } from '../../src/components/chat/ChatInput';
 import { MessageBubble } from '../../src/components/chat/MessageBubble';
 import { useSettingsStore } from '../../src/store/settings-store';
@@ -9,6 +9,11 @@ import type { Message } from '../../src/db/index';
 declare global { interface Window { physicalResults: { messages: string[]; voices: unknown[]; images: number }; voiceMock: { permissionDelay: number; startDelay: number; granted: boolean; starts: number; cancels: number; stops: number }; } }
 window.physicalResults = { messages: [], voices: [], images: 0 };
 window.voiceMock = { permissionDelay: 0, startDelay: 0, granted: true, starts: 0, cancels: 0, stops: 0 };
+// A stable fixture starting point; production's default font is independently configurable.
+if(!sessionStorage.getItem('physical-fixture-seeded')){
+  useSettingsStore.setState({chatFontSize:14});
+  sessionStorage.setItem('physical-fixture-seeded','1');
+}
 function Fixture() {
   const [filters,setFilters] = useState<string[]>([]);
   const [tags,setTags] = useState(['温柔','细心','可靠','幽默','坦率','冷静']);
@@ -29,6 +34,8 @@ function Fixture() {
     <output id="card-clicks">{clicked}</output>
     <MessageBubble avatar="🧬" message={{id:'ui-test',sessionId:'test',role:'assistant',content:'我刚好也想和你说这件事。',createdAt:Date.now(),isProactive:false} as Message} />
     <output id="font-size">{size}</output>
+    {/* Font controls now live in appearance settings rather than in ChatInput. */}
+    <FontRuler value={size} onChange={next=>useSettingsStore.getState().setChatFontSize(next)}/>
     <ChatInput key={composerKey} onSend={t=>window.physicalResults.messages.push(t)} onSendVoice={v=>window.physicalResults.voices.push(v)} onSendImage={()=>window.physicalResults.images++} />
     <button id="remount-composer" style={{display:'none'}} onClick={()=>setComposerKey(v=>v+1)}>Remount</button>
   </main>;

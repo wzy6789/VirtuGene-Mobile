@@ -64,9 +64,23 @@ async function main() {
     await db.worldEvents.put({ id, userId: owner.userId, worldId, type: 'stage', title: '一起观星', summary, visibility: 'selected', visibleTo: [character.id], timestamp: Date.now(), createdAt: Date.now(), memoryIds: [] } as any);
     await knowledgeRepo.upsert({ userId: owner.userId, worldId, characterId: character.id, eventId: id });
   }
+  await db.worldEvents.bulkPut([
+    { id: 'parallel-private', userId: owner.userId, worldId: 'parallel-world', type: 'stage', title: '一起观星', summary: '观星OTHER_ROLE', visibility: 'selected', visibleTo: ['other-role'], timestamp: Date.now(), createdAt: Date.now(), memoryIds: [] },
+    { id: 'parallel-unknown', userId: owner.userId, worldId: 'parallel-world', type: 'stage', title: '一起观星', summary: '观星UNKNOWN_EVENT', visibility: 'selected', visibleTo: [character.id], timestamp: Date.now(), createdAt: Date.now(), memoryIds: [] },
+  ] as any);
+  await knowledgeRepo.upsert({ userId: owner.userId, worldId: 'parallel-world', characterId: character.id, eventId: 'parallel-private' });
   const worldRecall = (await buildCallContext(owner, '还记得我们一起观星吗', [], new AbortController().signal)).map(row => row.content).join('\n');
   check(worldRecall.includes('观星D11'), 'default-world authorized events enter real call memory context');
-  check(!worldRecall.includes('观星P77'), 'another world does not cross into the default call');
+  // MEMORY-SYSTEM.md: scene.worldId describes the current scene. A role's
+  // authorized memories can follow them across worlds, with explicit framing.
+  check(worldRecall.includes('观星P77') && worldRecall.includes('不是本场现场'), 'authorized cross-world memory enters call as past experience, never the current scene');
+  check(!/OTHER_ROLE|UNKNOWN_EVENT/.test(worldRecall), 'cross-world recall still requires current visibility and actual knowledge');
+  const crossWorldPrepared = await prepareCallContext(owner, '还记得我们一起观星吗', [], new AbortController().signal);
+  const parallelKnowledge = (await knowledgeRepo.getScopedForEvents(owner.userId, 'parallel-world', character.id, ['parallel-stargazing']))[0];
+  await db.characterKnowledge.update(parallelKnowledge.id, { canMention: false });
+  try { await crossWorldPrepared.assertCurrent!(); throw new Error('cross-world revoked source accepted'); } catch (error) { check((error as Error).message === 'voice:context_changed', 'cross-world knowledge withdrawal rejects already prepared speech'); }
+  check(!(await buildCallContext(owner, '还记得我们一起观星吗', [], new AbortController().signal)).some(message => message.content.includes('观星P77')), 'next call context excludes withdrawn cross-world memory');
+  await db.characterKnowledge.put(parallelKnowledge);
   const originalEvent = (await db.worldEvents.get('default-stargazing'))!;
   const originalKnowledge = (await knowledgeRepo.listKnownBy(character.id, defaultWorld.id, { minLevel: 'full', userId: owner.userId })).find(row => row.eventId === originalEvent.id)!;
   for (const mutation of ['mention-revoked', 'partial-knowledge', 'event-private', 'event-edited', 'event-deleted'] as const) {

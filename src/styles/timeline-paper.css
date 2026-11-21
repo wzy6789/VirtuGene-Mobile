@@ -1,0 +1,17 @@
+/* S06-B: one day group, quiet records, shared source-checked reader. */
+.vg-timeline-page{padding:0 16px 24px;background:var(--bg);color:var(--text)}
+.vg-timeline-header{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:8px;min-height:56px}
+.vg-timeline-header h1{min-width:0;text-align:center;font-size:max(18px,1.125rem);line-height:1.5;font-weight:500}
+.vg-timeline-header button{display:grid;place-items:center;width:44px;height:44px;border-radius:12px;color:var(--text)}
+.vg-timeline-intro,.vg-timeline-note{margin:16px 0 24px;color:var(--text-secondary);font-size:max(13px,.8125rem);line-height:1.55;overflow-wrap:anywhere}
+.vg-timeline-day{display:flex;align-items:center;gap:12px;margin:24px 0 12px;font-size:max(13px,.8125rem);line-height:1.55;font-weight:500;color:var(--text-secondary)}
+.vg-timeline-day:after{content:'';height:1px;background:var(--border);flex:1}
+.vg-timeline-item{position:relative;margin:0 0 12px;padding:16px;border:1px solid var(--border);border-radius:16px;background:var(--bg-panel);overflow-wrap:anywhere}
+.vg-timeline-kind{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;font-size:max(13px,.8125rem);line-height:1.55;color:var(--vg-accent)}
+.vg-timeline-kind time{color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.vg-timeline-title{margin-top:8px;font-size:max(18px,1.125rem);font-weight:500;line-height:1.5;color:var(--text)}
+.vg-timeline-detail{margin-top:8px;font-size:max(16px,1rem);line-height:1.75;color:var(--text-secondary);white-space:pre-wrap}
+.vg-timeline-item-readable .vg-timeline-detail{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.vg-timeline-names{margin-top:12px;font-size:max(13px,.8125rem);line-height:1.55;color:var(--text-secondary)}
+.vg-timeline-item .vg-button{min-height:48px;gap:8px;padding:8px 0;color:var(--vg-accent);font-size:max(14px,.875rem);line-height:1.5;white-space:normal;justify-content:flex-start;background:transparent}
+.vg-timeline-note{margin-bottom:0}

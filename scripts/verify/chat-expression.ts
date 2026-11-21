@@ -6,7 +6,7 @@ import { buildCharacterVoiceCard, buildHumanConversationSections, buildHumanConv
 import { compileChatContext } from '../../src/lib/chat-context-compiler';
 import {buildMessageModeContext} from '../../src/lib/chat-message-mode';
 import { planCharacterIntent } from '../../src/lib/character-intent';
-import { buildChatConversationStateContext, emptyChatConversationState, detectChatIntent, detectTopicMove, updateChatConversationState, inferReplyAction } from '../../src/lib/chat-conversation-state';
+import { buildChatConversationStateContext, emptyChatConversationState, detectChatIntent, detectTopicMove, updateChatConversationState, inferReplyAction,adviceForCurrentTopic } from '../../src/lib/chat-conversation-state';
 import { assessChatSituation, collectRecentReplyTurns, recentRhythmDirection, recentQuestionDirection, replyContainsSubstantiveQuestion } from '../../src/lib/chat-expression-guidance';
 import { sendMessage,hasUserImageEvidence } from '../../src/lib/ai/deepseek';
 import { generateCharacterPrompt } from '../../src/lib/ai/character-generator';
@@ -784,6 +784,15 @@ async function run() {
   }
   for(const text of ['朋友说你不必跟我选一样的。','如果你不必跟我选一样的呢？','“你不必跟我选一样的”是什么意思？','你必须跟我选一样的。'])ok(!isViewExchange(text),'only current explicit permission invites difference: '+text);
   const luFamilyCharacter={id:'preset-luxueqi',isPreset:true,systemPrompt:LU_XUE_QI_PRESET.systemPrompt};
+  const coldComplaint='对话样本：用户说今天解释了半天，他们还是没听进去 → 你说一直没说通，确实磨人。';
+  const partnerComplaint=luXueQiRelationshipForTurn(luFamilyCharacter,'解释了好几遍，对方还是没听懂。',['我是小凡']);
+  ok(!partnerComplaint.character.systemPrompt.includes(coldComplaint),'recognized Lu partner receives the personal care example instead of the unchanged event-only verdict');
+  for(const [message,history] of [['解释了好几遍，对方还是没听懂。',[]],['我不是小凡。', ['我是小凡']]] as Array<[string,string[]]>) {
+    const distant=luXueQiRelationshipForTurn(luFamilyCharacter,message,history);
+    ok(distant.character.systemPrompt.includes(coldComplaint)&&!distant.context.includes('我有点心疼你'),'Lu visitor or identity exit does not inherit the partner-only care example');
+  }
+  const editedComplaint={...luFamilyCharacter,systemPrompt:luFamilyCharacter.systemPrompt+'\n用户自定表达。'};
+  ok(luXueQiRelationshipForTurn(editedComplaint,'我是小凡。').character===editedComplaint,'the gentle example does not rewrite a user-edited Lu persona');
   const luCompactRelation=luXueQiRelationshipForTurn(luFamilyCharacter,'聊聊你自己的想法',['我是小凡']);
   ok(luCompactRelation.context.includes('可以自然聊家庭与日常')&&luCompactRelation.context.includes('也有自己的主见'),'recognized Lu relation permits family and everyday subjects with her own perspective');
   ok(luCompactRelation.context.includes('具体经历仍需独立来源')&&luCompactRelation.context.includes('你的丈夫张小凡')&&luCompactRelation.character.systemPrompt.includes('张小鼎（小鼎）是你们的儿子'),'compact relation and body preserve source integrity and actual family roles');
@@ -1522,6 +1531,35 @@ async function run() {
   ok(identityWithSamples.includes('今天好累')&&voiceIdentityWithoutExamples(renderedIdentity)===renderedIdentity,'voice rendering neither rewrites the stored source nor duplicates transformations');
   ok(voiceIdentityWithoutExamples('对话样本：用户说你好 → 你说来啦。')==='对话样本：用户说你好 → 你说来啦。','legacy sample-only custom prompt remains intact instead of becoming empty');
   const ordinarySections=buildHumanConversationSections('刚看到一家奇怪的小店',[]);
+  const listeningStart='雪琪，我是张小凡。今天只是有点委屈，别急着给建议，听我说两句就好。';
+  for(const text of ['其实就是最后一口少了点香味，不是嫌这顿饭不好。','我的意思是颜色淡一点，不是不要颜色。','只是最后一页有点糊，不是整本都看不清。']) {
+    ok(isTopicClarification(text),'a plain-language contrast keeps the current subject: '+text);
+    ok(chooseConversationAction(text,[{role:'user',content:'这件东西总体我挺喜欢'}])==='respond-clarification','the actual reply direction acknowledges the corrected meaning: '+text);
+  }
+  for(const text of ['如果只是最后一页有点糊，不是整本都看不清呢？','“只是最后一页有点糊，不是整本都看不清”是什么意思？','我的意思是颜色淡一点，不是不要颜色。帮我改这个示例。'])ok(chooseConversationAction(text,[])!=='respond-clarification','question, quotation and actual task keep priority over contrast: '+text);
+  const listeningFollowup='不是想求办法。我更在意解释了好几遍，对方还是没听懂。';
+  const listeningHistory=[{role:'user',content:listeningStart},{role:'assistant',content:'你说，我听着。'}];
+  ok(adviceForCurrentTopic(listeningStart)==='listen'&&adviceForCurrentTopic(listeningFollowup)==='listen','the actual colloquial no-advice request and clarification retain listening intent');
+  const spokenListening=updateChatConversationState(undefined,listeningStart);
+  ok(spokenListening.topicAdvice==='listen'&&updateChatConversationState(spokenListening,listeningFollowup,'',undefined,Date.now(),listeningStart).topicAdvice==='listen','listening persists through the exact recorded second turn');
+  ok(chooseConversationAction(listeningFollowup,listeningHistory)==='stay-present','an explicit no-solution clarification outranks inferred topic distance');
+  ok(!buildHumanConversationContext(listeningFollowup,listeningHistory).includes('不因为前面聊过情绪就继续安慰'),'continued listening is not given a contradictory instruction to drop the preceding feeling');
+  for(const text of ['朋友说别急着给建议。','如果我不是想求办法呢？','“别急着给建议”是什么意思？'])ok(!adviceForCurrentTopic(text),'reported or hypothetical no-advice text is not the user request: '+text);
+  ok(chooseConversationAction('别急着给建议。现在帮我改这段代码。',listeningHistory)==='finish-request','the actual subsequent task still wins over a listening clause');
+  const mirroredMeal='我吃面也这样，最后一口没葱，心里会轻轻可惜一下。';
+  for(const separator of ['；',';']){
+    const sourced='我吃面也这样'+separator+'先喝汤。';
+    ok(!findSelfReportRisk(sourced,'',[sourced]),'independent semicolon source passes inspection');
+    ok(omitUnsupportedSelfReportEpisodes(sourced,'',[sourced])===sourced,'supported semicolon routine is preserved by excerpting: '+separator);
+    ok(!!findSelfReportRisk(sourced),'semicolon does not excuse an unsupported routine');
+  }
+  ok(findSelfReportRisk(mirroredMeal)?.kind==='habit','implicit same-action comparison is a recurring physical self-report even without a frequency word');
+  ok(inspectChatOutput(mirroredMeal,{mode:'private',userMessage:'最后一口没吃到葱。'}).check.issue==='self-report-risk','the shared inspector catches the actual unsupported meal comparison');
+  ok(omitUnsupportedSelfReportEpisodes('最后一口少了点香味。\n---\n'+mirroredMeal)==='最后一口少了点香味。','existing safe excerpt retains the independent reaction without the unsupported routine');
+  for(const text of ['我吃面也喜欢葱。','我也会觉得可惜。','我想也是这样。','如果我吃面也这样，会怎样？','我吃面也这样吗？','他说，我吃面也这样。','“我吃面也这样”是什么意思？'])
+    ok(!findSelfReportRisk(text),'present preference, feeling, hypothetical, question or report is not a mirrored physical routine: '+text);
+  ok(!findSelfReportRisk(mirroredMeal,'',[mirroredMeal]),'independent complete routine source remains valid');
+  ok(!!findSelfReportRisk(mirroredMeal,'对话样本：用户说你好 → 你说'+mirroredMeal),'voice examples cannot authorize the mirrored routine');
   ok(ordinarySections[0].text.includes('普通分享不是让你检查生活是否正确'),'ordinary anecdote pacing favors a personal reaction over automatic troubleshooting');
   ok(ordinarySections[0].text.includes('你真正在意的细节')&&ordinarySections[0].text.includes('好奇时问你确实想知道的一点'),'ordinary sharing invites participation and real curiosity without compulsory questioning');
   for(const [name,persona] of [['古月娜',GU_YUE_NA_CARE],['陆雪琪',LU_XUE_QI_PRESET.systemPrompt]]){
@@ -1637,6 +1675,20 @@ async function run() {
   ok(!emotionalExpressionGuidance('换个话题，突然想吃火锅了',clarifiedHistory).includes('接住用户此刻说的歉意或解释'),'repair instructions do not carry into a new ordinary topic');
   ok(emotionalExpressionGuidance('你选书店更在意什么？',questionHistory).includes('真正缺少信息或有具体好奇时仍可问'),'shared actor expression guidance preserves necessary questions and does not enforce a question ban');
   for(const turns of [[['？？'],['啊？？']],[['他说“什么书？”'],['你怎么看？']],[['什么书？']],[['什么书？'],['我更在意选书。']]])ok(!recentQuestionDirection(turns),'punctuation, quoted questions, one turn or mixed endings do not force a rhythm correction');
+  for(const text of ['好啦，我先去忙，今天就到这里，不用再等我回消息。','我现在先去忙了，今晚就聊到这，不必等我回复。','今天就到这里，不用等我。','好，我先去忙，不用再等我回消息。']){
+    ok(!!conversationDeparture(text)&&chooseConversationAction(text,[])==='short-close'&&detectChatIntent(text)==='closing','a terminal goodbye with a no-wait boundary takes the closing route: '+text);
+    const sections=buildHumanConversationSections(text,[],{name:'古月娜',tags:['温柔'],systemPrompt:'只说自己的话。'});
+    ok(sections.some(section=>section.text.includes('用户正在收尾'))&&!sections.some(section=>section.text.includes('这次写你现在想对他说的话')),'no-wait goodbye uses terminal guidance without a new topic invitation: '+text);
+  }
+  for(const text of ['不用等我回复。','我先去忙了，先帮我写完邮件，不用等我回消息。','朋友说我先去忙，今天就到这里，不用等我回复。','如果我先去忙，今天就到这里，不用等我回复。','今天就到这里吗？不用等我。','今天就到这里，不过先告诉我结果，不用等我回复。'])
+    ok(!conversationDeparture(text)&&detectChatIntent(text)!=='closing','no-wait wording cannot swallow a task, question, report or standalone boundary: '+text);
+  for(const text of ['我去开会你先帮我写个待办，不用等我回复。','我去开会帮我写个待办，不用等我回复。','我去不了，不用等我回复。']) {
+    ok(!conversationDeparture(text)&&detectChatIntent(text)!=='closing'&&chooseConversationAction(text,[])!=='short-close','an embedded request or inability to leave is not a no-wait departure: '+text);
+  }
+  for(const text of ['好啦，我先去忙，今天就到这里，不用再等我回消息。','我先去忙，不必等我回复。'])
+    ok(conversationDeparture(text)?.waitDeclined===true,'a verified no-wait farewell retains the user boundary for expression: '+text);
+  for(const text of ['我先去忙，回头聊。','不用等我回复。','她说不用等我回复。','我先去忙，帮我写封邮件，不用等我回复。'])
+    ok(!conversationDeparture(text)?.waitDeclined,'ordinary goodbyes, reported boundaries and tasks do not inherit an unverified no-wait flag: '+text);
   ok(chooseConversationAction('行，今晚就这样。晚安啦',[])==='short-close'&&detectChatIntent('行，今晚就这样。晚安啦')==='closing','multi-clause genuine goodbye shares closing intent and rhythm');
   ok(buildHumanConversationContext('晚安',[]).includes('不用根据当前时钟纠正一句晚安'),'goodbye follows user rhythm rather than arguing with the local clock');
   const historyRows=Array.from({length:8},(_,turn)=>[
@@ -1668,8 +1720,8 @@ async function run() {
   for(const substantive of ['明天三点开会，晚安','明天再弄之前帮我看看开头','改天再聊，你先告诉我怎么处理'])ok(detectChatIntent(substantive)!=='closing',`deferral pattern retains a substantive request or new fact: ${substantive}`);
   for(const message of ['不要给我建议','先别给建议，陪我聊两句','不用分析，先听我说','别再给我建议','不要再给我建议','我不想听建议','别给我讲怎么处理，我就是想吐槽一下']) {
     const state=updateChatConversationState(undefined,message);
-    ok(state.preferences.adviceStyle==='listen',`negated advice request persists listening preference: ${message}`);
-    ok(buildChatConversationStateContext(state).includes('未经请求不要立刻给解决方案'),'actual attention prompt carries persisted listening preference');
+    ok(state.topicAdvice==='listen'&&state.preferences.adviceStyle==='mixed',`current no-advice request remains subject-scoped: ${message}`);
+    ok(buildChatConversationStateContext(state).includes('不等于不想聊这件事'),'actual attention prompt carries the subject listening scope');
   }
   for(const message of ['她说“别问我”','朋友说别问我','如果我说别问我，你会怎样？','帮我写一句“不要给我建议”','不用展开说','不要给我建议？不是，我现在要你给我建议']) {
     const state=updateChatConversationState(undefined,message);
@@ -1678,7 +1730,7 @@ async function run() {
   }
   const corrections=updateChatConversationState(undefined,'短一点，不对，这里展开说。别问我，等等，你可以问。');
   ok(corrections.preferences.brevity==='detailed'&&corrections.preferences.questionTolerance==='normal','ordered clause corrections update independent preferences to last explicit directive');
-  const listenState=updateChatConversationState(undefined,'不要给我建议，少问一点');
+  const listenState=updateChatConversationState(undefined,'以后聊天不要给我建议，少问一点');
   for (const message of ['不是要建议，吐槽一下而已。', '我只是吐槽，不想要建议。', '我只想吐槽一下']) {
     const local = updateChatConversationState(undefined, message);
     ok(local.topicAdvice === 'listen' && local.preferences.adviceStyle === 'mixed', `explicit venting is scoped to this subject: ${message}`);
@@ -2078,9 +2130,10 @@ async function run() {
   const spokenActions='我翻了个白眼，打了个哈欠，又松了口气。';
   ok(stripRoleplayActions(spokenActions)===spokenActions,'expanded action cleanup never removes ordinary text outside brackets');
   for (const mode of ['private','proactive','group'] as const) {
-    ok(inspectChatOutput('（翻了个白眼，松了口气）随便你',{mode}).content==='随便你',`expanded action cleanup reaches shared ${mode} quality entry`);
+    const inspected=inspectChatOutput('（翻了个白眼，松了口气）随便你',{mode});
+    ok(!inspected.check.ok&&inspected.check.issue==='uninvited-staging'&&inspected.content==='',`raw stage violation is rejected before shared ${mode} display cleanup`);
   }
-  ok(inspectChatOutput('（打了个哈欠）',{mode:'proactive'}).check.issue==='empty','action-only proactive draft cannot become a sent empty message');
+  ok(inspectChatOutput('（打了个哈欠）',{mode:'proactive'}).check.issue==='uninvited-staging','action-only proactive draft is rejected before display cleanup');
   for (const [raw, expected] of [['今天路过那家店\n想起你说过想吃','今天路过那家店想起你说过想吃'],['hello\nworld','hello world'],['你好。\n明天见','你好。明天见'],['今天 API\n很好用','今天 API很好用']]) {
     ok(splitReplyParts(raw).join('') === expected && polishChatResponse(raw) === expected, `shared line boundary: ${raw}`);
   }

@@ -38,7 +38,7 @@ export function LivingWorldHero({
         <div className="vg-world-hero-copy relative z-10">
           <div className="flex items-center gap-2 text-[12px] tracking-[0.18em] text-[color:var(--vg-cyan)]"><span className="h-1.5 w-1.5 rounded-full bg-life-cyan shadow-[0_0_8px_#00CEC9]" />VIRTUGENE / LIVING WORLD</div>
           <h2 className="mt-3 text-[28px] font-semibold leading-[1.45] tracking-[0.04em] text-ink">让数字灵魂<br /><span className="bg-gradient-to-r from-[var(--vg-accent)] to-[var(--vg-cyan)] bg-clip-text text-transparent">拥有时间。</span></h2>
-          <p className="mt-3 text-[12px] leading-relaxed text-sub">{latest?.state?.lifeFocus || (characters.length ? '从一次对话开始，角色会记住、改变，也会彼此相遇。' : '创造第一个数字角色，让你的世界从这里开始。')}</p>
+          {latest?.state?.lifeFocus && <p className="mt-3 text-[12px] leading-relaxed text-sub">{latest.state.lifeFocus}</p>}
         </div>
 
         <div className="relative z-10 mt-5 flex flex-wrap items-center gap-2">

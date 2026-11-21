@@ -164,7 +164,19 @@ async function restoreSavedTurns(rows:Array<{input:string;replies:string[];conve
   useChatStore.setState({messages});
   return messages.length;
 }
+/** Reload diagnostic: preserve this synthetic database and restore only the
+ * fixture's own account/session. Never used by product startup or real data. */
+async function resume(){
+  await db.open();
+  const [character,session]=await Promise.all([db.characters.get('isolated-live-role'),db.sessions.get(sessionId)]);
+  if(!character||character.createdBy!==owner||!session||session.userId!==owner||session.characterId!==character.id)throw Error('Synthetic reload ownership mismatch');
+  useAuthStore.getState().login(owner,'隔离测试',LIVE_TOKEN,'');
+  useSettingsStore.setState({aiVoiceMode:false,ttsEnabled:false,defaultModel:{provider:'deepseek',model:'deepseek-flash'}});
+  replayCharacterName=character.name;replayPersona=character;
+  useChatStore.setState({characters:[character],currentSessionId:sessionId,selectedCharacterId:character.id,messages:(await db.messages.where('sessionId').equals(sessionId).sortBy('createdAt')).slice(-200),hasMoreMessages:false});
+  return session.conversation;
+}
 function presets(revised=true) {
   return PRESET_CHARACTERS.filter(c=>['preset-linshuang','preset-aili','preset-socrates','preset-guqinghan','preset-xiawanxing','preset-guyuena','preset-luxueqi'].includes(c.id)).map(c=>({name:c.name,tags:c.tags,sourcePresetId:c.id,...(c.id==='preset-luxueqi'?{proactivity:c.proactivity}:{}),...(revised?reviseOriginalPresetCard(c,c.id):{signature:c.signature,greeting:c.greeting}),isPreset:true,isCustom:false,systemPrompt:revised?(c.id==='preset-guyuena'?withDouluoRelations(reviseGuYueNaPresetPrompt(c.systemPrompt),c.id):reviseOriginalPresetVoice(c.systemPrompt,c.id)):c.systemPrompt}));
 }
-(window as any).liveExpression={setup,turn,presets,restoreSavedTurns,enableHistoryProvenance:(enabled:boolean)=>{historyProvenanceDiagnostic=enabled===true;},enableHistoryQuarantine:(snapshot?:HistoryReviewSnapshot)=>{historyQuarantineDiagnostic=snapshot;},trajectoryInputs:(id:string)=>getDialogueTrajectory(id).turns.map(turn=>turn.input)};
+(window as any).liveExpression={setup,turn,presets,resume,restoreSavedTurns,enableHistoryProvenance:(enabled:boolean)=>{historyProvenanceDiagnostic=enabled===true;},enableHistoryQuarantine:(snapshot?:HistoryReviewSnapshot)=>{historyQuarantineDiagnostic=snapshot;},trajectoryInputs:(id:string)=>getDialogueTrajectory(id).turns.map(turn=>turn.input)};

@@ -1,0 +1,90 @@
+/* One sampled glass shell; the inset field shares its light without another blur. */
+.mobile-layout .chat-room.vg-chat-paper .chat-composer {
+  --vg-composer-fill:rgba(249,245,253,.68);
+  --vg-composer-field:rgba(255,255,255,.44);
+  --vg-composer-edge:rgba(255,255,255,.58);
+  --vg-composer-send-fill:#6a4b78;
+  container:chat-composer / inline-size;
+  margin:8px 12px max(10px,var(--vg-safe-bottom,env(safe-area-inset-bottom,0px)));
+  padding:8px;
+  border:1px solid var(--vg-glass-edge);
+  border-radius:34px;
+  background:var(--vg-glass-control-sheen),var(--vg-composer-fill);
+  box-shadow:inset 0 1px 0 var(--vg-composer-edge),inset 0 -1px 1px var(--vg-glass-contact),0 6px 20px -10px var(--vg-glass-contact);
+  backdrop-filter:var(--vg-glass-sample);
+  -webkit-backdrop-filter:var(--vg-glass-sample);
+}
+:root.dark .mobile-layout .chat-room.vg-chat-paper .chat-composer {
+  --vg-composer-fill:rgba(37,33,48,.72);
+  --vg-composer-field:rgba(235,226,255,.075);
+  --vg-composer-edge:rgba(240,230,255,.24);
+}
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-inner { align-items:flex-end;gap:8px; }
+.vg-voice-field-standalone { display:contents; }
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-tools.has-input {
+  display:flex;align-items:flex-end;gap:6px;flex:1 1 0;min-width:0;height:auto;
+  border:0;border-radius:0;background:none;box-shadow:none;overflow:visible;touch-action:manipulation;
+}
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-tools.has-input>button {
+  flex:none;width:44px;min-width:44px;height:50px;border-radius:50%;color:var(--text);
+}
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-field {
+  display:flex;align-items:flex-end;flex:1;min-width:0;min-height:50px;
+  border:1px solid var(--vg-glass-edge);border-radius:26px;
+  background:var(--vg-composer-field);
+  box-shadow:inset 0 1px 0 var(--vg-composer-edge),inset 0 -1px 2px var(--vg-glass-contact);
+  transition:border-color 180ms var(--vg-ease);
+}
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-field:focus-within { border-color:color-mix(in srgb,var(--vg-accent) 65%,var(--vg-glass-edge)); }
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-field:has(:focus-visible) { outline:none;box-shadow:inset 0 -2px 0 var(--vg-accent),inset 0 1px 0 var(--vg-composer-edge); }
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-input {
+  border:1px solid var(--vg-glass-edge);border-radius:26px;
+  background:var(--vg-composer-field);box-shadow:inset 0 1px 0 var(--vg-composer-edge);
+  padding:12px 14px;min-height:50px;line-height:1.5;
+}
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-field>.chat-composer-input {
+  align-self:stretch;border:0;border-radius:inherit;background:none;box-shadow:none;
+  padding:12px 2px 12px 14px;min-height:48px;
+}
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-input:is(:focus,:focus-visible) { outline:none;box-shadow:none; }
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-inner>.chat-composer-input:focus-visible { outline:2px solid var(--vg-accent);outline-offset:2px; }
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-field>button { flex:none;width:44px;min-width:44px;height:48px;border-radius:50%;color:var(--text); }
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-field>button>svg { width:23px;height:23px; }
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send {
+  isolation:isolate;flex:none;align-self:flex-end;border:0;border-radius:50%;
+  width:max(50px,2.25rem);min-width:max(50px,2.25rem);height:max(50px,2.25rem);min-height:max(50px,2.25rem);
+  background:none;box-shadow:none;color:#fff;
+}
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send::before {
+  content:'';position:absolute;inset:0;border-radius:inherit;z-index:-1;pointer-events:none;
+  background:linear-gradient(145deg,rgba(255,255,255,.14),transparent 65%),var(--vg-composer-send-fill);
+  box-shadow:inset 0 1px 0 var(--vg-composer-edge),inset 0 -2px 3px var(--vg-glass-contact),0 3px 10px var(--vg-glass-contact);
+  transition:transform var(--vg-touch-settle,260ms) var(--vg-touch-release,var(--vg-ease));
+}
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send:active:not(:disabled)::before { transform:scale(.96,.94); }
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send:active:not(:disabled)>.vg-composer-icon { transform:none; }
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send .vg-composer-icon { color:inherit; }
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send:disabled { background:none;color:color-mix(in srgb,var(--text) 58%,transparent);opacity:1;box-shadow:none; }
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send:disabled::before { background:var(--vg-composer-field);box-shadow:inset 0 1px 0 var(--vg-glass-edge); }
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-tools.has-input.is-recording .vg-voice-field { border-color:var(--vg-accent); }
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-tools.has-input.is-cancelling .vg-voice-field { border-color:var(--vg-danger);background:color-mix(in srgb,var(--vg-danger) 10%,var(--vg-composer-field)); }
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-field .vg-voice-live { min-height:48px;gap:8px; }
+.mobile-layout .chat-room.vg-chat-paper .vg-voice-field .vg-voice-live>span:last-child { white-space:normal;font-size:max(12px,.75rem);line-height:1.4; }
+.mobile-layout .chat-room.vg-chat-paper .chat-composer>p { margin:8px 12px 2px; }
+
+/* With enlarged interface text, write across the full row and keep tools below. */
+@container chat-composer (max-width:16em) {
+  .mobile-layout .chat-room.vg-chat-paper .chat-composer-inner:not(.is-voice-active) { display:grid;grid-template-columns:minmax(0,1fr) auto; }
+  .mobile-layout .chat-room.vg-chat-paper .chat-composer-inner:not(.is-voice-active) .vg-voice-tools.has-input { display:contents; }
+  .mobile-layout .chat-room.vg-chat-paper .chat-composer-inner:not(.is-voice-active) .vg-voice-field,
+  .mobile-layout .chat-room.vg-chat-paper .chat-composer-inner:not(.is-voice-active)>.chat-composer-input { grid-column:1/-1;grid-row:1;width:100%; }
+  .mobile-layout .chat-room.vg-chat-paper .chat-composer-inner:not(.is-voice-active) .vg-voice-tools.has-input>button { grid-column:1;grid-row:2; }
+  .mobile-layout .chat-room.vg-chat-paper .chat-composer-inner:not(.is-voice-active)>.chat-composer-send { grid-column:2;grid-row:2; }
+}
+:root[data-vg-transparency=solid] .mobile-layout .chat-room.vg-chat-paper .chat-composer { --vg-composer-fill:var(--bg-panel);--vg-composer-field:var(--bg-surface);--vg-composer-edge:var(--border); }
+html[data-vg-reduced-motion=true] .vg-voice-field { transition:none; }
+@media(prefers-reduced-motion:reduce) { .vg-voice-field { transition:none; } }
+@media(forced-colors:active) {
+  .mobile-layout .chat-room.vg-chat-paper :is(.chat-composer,.vg-voice-field,.chat-composer-send) { border:1px solid ButtonText; }
+  .mobile-layout .chat-room.vg-chat-paper .vg-voice-field:focus-within { outline:2px solid Highlight; }
+}

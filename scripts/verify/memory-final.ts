@@ -105,7 +105,8 @@ async function run() {
     { source: 'world', id: 'related', text: '桂花糕 桂花糕 桂花糕', at: now },
     { source: 'world', id: 'related', text: '同一条正文另一种包装', at: now },
   ], '桂花糕', 600);
-  check('user-pinned memory outranks keyword repetition', packed.references[0].id === 'pinned');
+  check('explicitly relevant history outranks an unrelated pinned item', packed.references[0].id === 'related');
+  check('unrelated pinned item remains available when budget permits', packed.references.some(row => row.id === 'pinned'));
   check('same source id cannot occupy two prompt slots', packed.references.filter(row => row.id === 'related').length === 1);
   check('foreign account cannot read the character memory', !(await buildCharacterMemoryContext({ userId: 'other-user', characterId: A, topic: '桂花糕' })).text);
   await report('/result?suite=memory-final', { method: 'POST', body: `${lines.join('\n')}\nPASS ${passed} memory checks\nALL PASS` });

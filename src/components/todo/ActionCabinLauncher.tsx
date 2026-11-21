@@ -18,5 +18,5 @@ export function ActionCabinLauncher({ from = 'list', compact=false, emotion='idl
     onClick={e => {
     if(e.detail!==0&&gesture.current?.blocked||useAuthStore.getState().userId!==userId)return;
     openAssistantWorkspace('today', from);
-  }}><SoulOrb size={48} interactive emotion={emotion} soulKey={key} soulRole={from} />{!compact&&<><span><strong>{name}</strong><small>今日 · 对话 · 待处理</small></span><span aria-hidden="true">↗</span></>}</button>;
+  }}><SoulOrb size={48} interactive emotion={emotion} soulKey={key} soulRole={from} />{!compact&&<><span><strong>{name}</strong></span></>}</button>;
 }

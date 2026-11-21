@@ -52,11 +52,16 @@ function pickApkUrl(release: {
 }
 
 /** 检查更新：请求 GitHub API（走代理时由外部配置决定；这里直接 fetch） */
-export async function checkUpdate(): Promise<UpdateInfo | null> {
+export async function checkUpdate(signal?: AbortSignal): Promise<UpdateInfo | null> {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (signal?.aborted) return null;
+  signal?.addEventListener('abort', cancel, { once: true });
+  const timeout = window.setTimeout(cancel, 10_000);
   try {
     const res = await fetch(GITHUB_API, {
       headers: { Accept: 'application/vnd.github+json' },
-      signal: AbortSignal.timeout(10_000),
+      signal: controller.signal,
     });
     if (!res.ok) return null;
     const release = await res.json();
@@ -71,6 +76,9 @@ export async function checkUpdate(): Promise<UpdateInfo | null> {
     };
   } catch {
     return null;
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener('abort', cancel);
   }
 }
 
@@ -80,13 +88,19 @@ export async function checkUpdate(): Promise<UpdateInfo | null> {
  * - 5 秒总超时：超时未选出就用官方地址兜底
  * - 返回实际采用的下载地址（便于提示用户）
  */
-export async function openApkDownload(apkUrl: string): Promise<string | null> {
+export async function openApkDownload(apkUrl: string, signal?: AbortSignal): Promise<string | null> {
+  if (signal?.aborted) return null;
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  signal?.addEventListener('abort', cancel, { once: true });
+  const timeout = window.setTimeout(cancel, 5000);
+  try {
   const candidates = DOWNLOAD_MIRRORS.map((fn) => fn(apkUrl));
   const results = await Promise.all(
     candidates.map(async (url) => {
       const start = Date.now();
       try {
-        const probe = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
+        const probe = await fetch(url, { method: 'HEAD', signal: controller.signal });
         const ok = probe.ok || probe.status === 200;
         return { url, ok, ms: Date.now() - start };
       } catch {
@@ -97,7 +111,12 @@ export async function openApkDownload(apkUrl: string): Promise<string | null> {
   // 选最快可用的；若无可用（可能全部超时），退回官方地址
   const fastest = results.filter((r) => r.ok).sort((a, b) => a.ms - b.ms)[0];
   const chosen = fastest?.url ?? apkUrl;
+  if (signal?.aborted) return null;
   // 交给系统下载器（WebView 打开会触发 Android 下载）
   window.open(chosen, '_system');
   return chosen;
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener('abort', cancel);
+  }
 }

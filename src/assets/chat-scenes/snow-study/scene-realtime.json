@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "sceneId": "snow-study",
+  "file": "scene.glb",
+  "bytes": 917928,
+  "sha256": "f9f98c3ec09380baf46f4a399973471b3e1393a514272bc8b6190972340bc764",
+  "triangles": 44009,
+  "vertices": 27150,
+  "drawCalls": 2,
+  "geometryBoundsBlender": {
+    "min": [
+      -35.0,
+      -6.5,
+      -0.13938549160957336
+    ],
+    "max": [
+      35.0,
+      41.0,
+      6.291123390197754
+    ]
+  },
+  "camera": {
+    "position": [
+      0.12,
+      2.55,
+      7.7
+    ],
+    "rotationQuaternion": [
+      0.7471115589141846,
+      0.6646048426628113,
+      0.00742482440546155,
+      0.008346574380993843
+    ],
+    "verticalFovDegrees": 60.28277110415069
+  },
+  "effectQuad": [
+    [
+      -1.52,
+      0.9,
+      -3.57
+    ],
+    [
+      2.62,
+      0.9,
+      -3.57
+    ],
+    [
+      2.62,
+      3.3,
+      -3.57
+    ],
+    [
+      -1.52,
+      3.3,
+      -3.57
+    ]
+  ],
+  "lightPoint": [
+    -1.2,
+    1.49,
+    2.4
+  ],
+  "cup": [
+    -0.74,
+    1.036,
+    2.78
+  ],
+  "source": {
+    "file": "design/chat-scenes/collection-cool/snow-study/VirtuGene-snow-study-Original.blend",
+    "sha256": "b1d30d70a6460ca6d58b18db949f1eb2c4cc59d456259b5da4d721a665ee8610",
+    "originalObjects": 833,
+    "originalTriangles": 306520
+  },
+  "apertureCutForRealtime": false,
+  "distantBackgroundDepthWrite": false,
+  "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认"
+}

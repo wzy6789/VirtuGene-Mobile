@@ -9,6 +9,7 @@ import { LU_XUE_QI_V9_PROMPT } from '../../src/lib/lu-xue-qi-preset-v9';
 import { LU_XUE_QI_V10_PROMPT } from '../../src/lib/lu-xue-qi-preset-v10';
 import { LU_XUE_QI_V11_PROMPT } from '../../src/lib/lu-xue-qi-preset-v11';
 import { voicePromptRevision } from '../../src/lib/character-voice';
+import { avatarImageSrc } from '../../src/lib/avatar';
 import { luXueQiIdentityChoice, luXueQiRelationshipForTurn, luXueQiFamilyRisk, omitLuXueQiFamilyRisk } from '../../src/lib/lu-xue-qi-runtime';
 import {luXueQiBookContext,LU_XUE_QI_BOOK_SOURCES} from '../../src/lib/lu-xue-qi-lore';
 
@@ -25,6 +26,16 @@ async function run() {
   ok(preset?.isPreset && preset.name === '陆雪琪' && !preset.published, 'startup exposes Lu Xueqi as a local library preset');
   ok((await db.characters.toArray()).filter(c => c.id === preset.id).length === 1, 'one stable source id');
   ok(PRESET_CHARACTERS.length === new Set(PRESET_CHARACTERS.map(c => c.id)).size, 'all source ids remain unique');
+  const portraitSource=avatarImageSrc(preset.avatar);
+  ok(preset.avatar==='preset-avatar:preset-luxueqi' && !!portraitSource && !/^https?:/.test(portraitSource), 'stable portrait identity resolves to a bundled local asset');
+  const portrait=new Image();portrait.src=portraitSource!;await portrait.decode();
+  ok(portrait.naturalWidth>0,'bundled portrait decodes without remote image service');
+  const avatarCopy = { ...preset, id: 'luxueqi-avatar-old', createdBy: 'luxueqi-test-owner', isPreset: false, sourcePresetId: preset.id, avatar: '🗡️', systemPrompt: preset.systemPrompt + '\n用户自定义' };
+  await db.characters.bulkAdd([avatarCopy, { ...avatarCopy, id: 'luxueqi-avatar-custom', avatar: 'custom-avatar' }, { ...avatarCopy, id: 'luxueqi-avatar-public', published: true }]);
+  await initSeedCharacters();
+  const avatarUpdated = (await db.characters.get(avatarCopy.id))!;
+  ok(avatarUpdated.avatar === preset.avatar && avatarUpdated.systemPrompt === avatarCopy.systemPrompt, 'default owned avatar upgrades independently while custom persona is preserved');
+  ok((await db.characters.get('luxueqi-avatar-custom'))?.avatar === 'custom-avatar' && (await db.characters.get('luxueqi-avatar-public'))?.avatar === '🗡️', 'custom avatar and published copies are not overwritten');
   useAuthStore.setState({ userId: 'luxueqi-test-owner' });
   const { id: sourceId, createdAt: sourceCreatedAt, ...copyFields } = preset;
   const created = await useChatStore.getState().createCharacter({

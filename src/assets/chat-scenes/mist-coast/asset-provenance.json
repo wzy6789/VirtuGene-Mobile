@@ -1,0 +1,130 @@
+{
+  "author": "VirtuGene original procedural geometry and materials",
+  "tool": "Blender 4.5.3 Cycles/OptiX; offline Pillow export",
+  "license": "Project-owned original, no third-party stock",
+  "externalAssetImports": [],
+  "remoteGenerationCalls": 0,
+  "modelAndReasoning": "未确认",
+  "sourceCamera": "design/chat-scenes/collection-cool/mist-coast/camera-export.json",
+  "authoredSource": {
+    "file": "source-mist-coast-2160.png",
+    "width": 2160,
+    "height": 4800,
+    "decodedRgbaBytes": 41472000,
+    "bytes": 5227593,
+    "sha256": "fdfaa648386e11ed89dbc967230a2469848974e8ae0f31cb051c6ff82dfc2c02",
+    "path": "design/chat-scenes/collection-cool/mist-coast/source-mist-coast-2160.png",
+    "method": "Native Cycles 2160x4800 render; not upscaled"
+  },
+  "blendSource": {
+    "path": "design/chat-scenes/collection-cool/mist-coast/VirtuGene-mist-coast-Original.blend",
+    "sha256": "2a3e94109bd10b3a23fd73dcba6d3c2c074517c0842c62706417cc07f773729c",
+    "bytes": 1475578
+  },
+  "exports": [
+    {
+      "file": "clean-plate-1080.webp",
+      "width": 1080,
+      "height": 2400,
+      "decodedRgbaBytes": 10368000,
+      "bytes": 59090,
+      "sha256": "fbfaa9be996cd3940103dbf6f884ee95a8d7afd7e5aa868b03a4be39f42bce3d"
+    },
+    {
+      "file": "clean-plate-1440.webp",
+      "width": 1440,
+      "height": 3200,
+      "decodedRgbaBytes": 18432000,
+      "bytes": 90428,
+      "sha256": "3cab52bb604d1be65212bce4f04a8529ba4817a26ff0d80a8418c6c7fe1402d0"
+    },
+    {
+      "file": "foreground-casing-1080.webp",
+      "width": 1066,
+      "height": 506,
+      "decodedRgbaBytes": 2157584,
+      "bytes": 38618,
+      "sha256": "4224b3c3a1ccac8c5b86ddfb5bebd2aa28587972b796301b9343b261afda13b9"
+    },
+    {
+      "file": "foreground-casing-1440.webp",
+      "width": 1421,
+      "height": 675,
+      "decodedRgbaBytes": 3836700,
+      "bytes": 34076,
+      "sha256": "038a3aae9bd3010f03c481f8e32ada1521334af25b6a7cb1368e1a6bb5d9b06a"
+    },
+    {
+      "file": "foreground-foreground-1080.webp",
+      "width": 376,
+      "height": 277,
+      "decodedRgbaBytes": 416608,
+      "bytes": 18370,
+      "sha256": "11bca519ac598f9ccee1688c421d20076b8d0bff23c9ad6b9cbf89dd6f804500"
+    },
+    {
+      "file": "foreground-foreground-1440.webp",
+      "width": 502,
+      "height": 369,
+      "decodedRgbaBytes": 740952,
+      "bytes": 20278,
+      "sha256": "3bf3ab3f99f27cb6707dd974b971d8a6801de6aabb42aab8dd23e08e50749d08"
+    },
+    {
+      "file": "foreground-table-1080.webp",
+      "width": 519,
+      "height": 694,
+      "decodedRgbaBytes": 1440744,
+      "bytes": 47690,
+      "sha256": "8f62c5ae0c93c6377d954016a9fa4d11d1f430e00234d3f46a2d05becc244c75"
+    },
+    {
+      "file": "foreground-table-1440.webp",
+      "width": 692,
+      "height": 926,
+      "decodedRgbaBytes": 2563168,
+      "bytes": 48720,
+      "sha256": "7063a12db9b7e9d22e8b125f7b1c0200586e7b07e860edb55e0fa1c3fb3194f8"
+    },
+    {
+      "file": "poster-1080.webp",
+      "width": 1080,
+      "height": 2400,
+      "decodedRgbaBytes": 10368000,
+      "bytes": 79058,
+      "sha256": "8b6a4913913a45728575f98c9f4c0e4e62eccbe89ff4a45969532e77c955c231"
+    },
+    {
+      "file": "poster-1440.webp",
+      "width": 1440,
+      "height": 3200,
+      "decodedRgbaBytes": 18432000,
+      "bytes": 120448,
+      "sha256": "a1d9f0b1c73ddcef84ba782948ae0af1a8b21c4850b3903bc52437c96811ac8b"
+    },
+    {
+      "file": "thumbnail.webp",
+      "width": 360,
+      "height": 800,
+      "decodedRgbaBytes": 1152000,
+      "bytes": 9452,
+      "sha256": "fc19299bb4d324bd1fc1e42c5659caffe68da50636124e6236e5809356c1be7b"
+    },
+    {
+      "file": "window-mask-1080.webp",
+      "width": 1012,
+      "height": 436,
+      "decodedRgbaBytes": 1764928,
+      "bytes": 10842,
+      "sha256": "09373a46dcabf5607c9a3971a06b5d0a7cebe9b994c4f7febf8aae2ee2a2c84f"
+    },
+    {
+      "file": "window-mask-1440.webp",
+      "width": 1350,
+      "height": 581,
+      "decodedRgbaBytes": 3137400,
+      "bytes": 3728,
+      "sha256": "739aff6c50db1062ca2ef6cf66ef5991bdaf920c2c881a39c4033e5f4f24d906"
+    }
+  ]
+}

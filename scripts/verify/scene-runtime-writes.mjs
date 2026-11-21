@@ -1,0 +1,53 @@
+import {build} from 'esbuild';
+import {createServer} from 'node:http';
+import {createRequire} from 'node:module';
+import {dirname,join,resolve} from 'node:path';
+import {mkdirSync,writeFileSync} from 'node:fs';
+const {chromium}=createRequire(join(dirname(process.execPath),'package.json'))('playwright');
+const out=resolve(process.env.VG_SCENE_RUNTIME_EVIDENCE||'.tmp-preview/scene-runtime-writes-20261023');mkdirSync(out,{recursive:true});
+const built=await build({stdin:{resolveDir:process.cwd(),loader:'ts',contents:`
+import {createSceneRuntime,inspectSceneRuntimeResources} from './src/lib/chat-scene/scene-runtime';
+const host=document.querySelector('#host') as HTMLElement,room=document.querySelector('.chat-room') as HTMLElement;
+const changes:any[]=[];const runtime=createSceneRuntime(host,{id:'quiet-room',quality:'auto',motionEnabled:true,parallaxEnabled:false,renderer:'layered'},'balanced',s=>changes.push(s));
+(window as any).probe={runtime,resources:inspectSceneRuntimeResources,changes,room};
+`},bundle:true,write:false,format:'iife',platform:'browser',define:{'import.meta.env':'{}'}});
+const html='<!doctype html><html><head><style>.chat-room{position:fixed;inset:0}#host{width:100px;height:100px}.vg-modal-overlay{position:fixed;inset:0;z-index:20}</style></head><body><div class="chat-room"><div id="host"></div></div><script src="/fixture.js"></script></body></html>';
+const server=createServer((req,res)=>{res.setHeader('Content-Type',req.url==='/fixture.js'?'text/javascript':'text/html');res.end(req.url==='/fixture.js'?built.outputFiles[0].contents:html)});
+await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const browser=await chromium.launch({channel:'chrome',headless:true});const page=await browser.newPage();
+let report;
+try{
+ await page.goto(`http://127.0.0.1:${server.address().port}/`);await page.waitForFunction(()=>window.probe?.runtime.inspect().signals.visible);
+ report=await page.evaluate(async()=>{
+  const {runtime,room,resources,changes}=window.probe;const checks=[];const check=(name,ok,detail)=>checks.push({name,ok,detail});
+  const nextFrame=()=>new Promise(resolve=>requestAnimationFrame(resolve));
+  await new Promise(r=>setTimeout(r,50));
+  const writes=[];const observer=new MutationObserver(rows=>writes.push(...rows.map(r=>r.attributeName)));observer.observe(room,{attributes:true,attributeFilter:['data-chat-ambient','data-chat-avatar','data-chat-particles']});
+  const initial=JSON.stringify(runtime.inspect());const callbacks=changes.length;
+  for(let i=0;i<20;i++)runtime.sync();await Promise.resolve();
+  check('unchanged signals preserve the exact motion policy',JSON.stringify(runtime.inspect())===initial);
+  check('unchanged signals do not republish the policy',changes.length===callbacks);
+  check('unchanged signals do not invalidate the three DOM attributes',writes.length===0,{writes:writes.length});
+  writes.length=0;const modal=document.createElement('div');modal.className='vg-modal-overlay';document.body.append(modal);await Promise.resolve();await nextFrame();
+  check('covering modal immediately pauses the room',runtime.inspect().signals.modalOpen&&room.dataset.chatAmbient==='off');
+  writes.length=0;for(let i=0;i<20;i++)runtime.sync();await Promise.resolve();
+  check('covered stable room does not rewrite motion attributes',writes.length===0,{writes:writes.length});
+  modal.remove();await Promise.resolve();await nextFrame();
+  check('closing the modal restores the exact initial policy',JSON.stringify(runtime.inspect())===initial,{before:JSON.parse(initial),after:runtime.inspect()});
+  const input=document.createElement('textarea');room.append(input);input.focus();await Promise.resolve();await nextFrame();
+  check('keyboard focus still reaches the runtime',runtime.inspect().signals.inputFocused);
+  input.blur();input.remove();await Promise.resolve();await nextFrame();
+  room.setAttribute('data-chat-resting','');await Promise.resolve();await nextFrame();
+  check('scroll pause still reaches the runtime',runtime.inspect().signals.scrolling&&runtime.inspect().policy.mode==='paused');
+  room.removeAttribute('data-chat-resting');await Promise.resolve();await nextFrame();
+  check('scroll completion restores the original policy',JSON.stringify(runtime.inspect())===initial);
+  const live=resources();runtime.dispose();const disposed=resources();
+  check('disposing releases the runtime and subscriptions',live.runtimes===1&&disposed.runtimes===0&&disposed.subscriptions===0);
+  writes.length=0;room.setAttribute('data-chat-phase','streaming');await Promise.resolve();
+  check('disposed runtime no longer mutates decoration',writes.length===0);
+  observer.disconnect();return {checks,networkCalls:0,modelCalls:0};
+ });
+}finally{await browser.close();server.close();}
+writeFileSync(join(out,'result.json'),JSON.stringify(report,null,2));
+for(const row of report.checks)console.log(`${row.ok?'PASS':'FAIL'} ${row.name}${row.detail?' '+JSON.stringify(row.detail):''}`);
+if(report.checks.some(row=>!row.ok))process.exitCode=1;

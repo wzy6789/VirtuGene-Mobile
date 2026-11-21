@@ -13,6 +13,9 @@ const config: CapacitorConfig = {
   appName: 'VirtuGene',
   webDir: 'dist/renderer',
   android: {
+    // Capacitor's bridge otherwise logs native arguments in debug builds;
+    // voice requests include credentials and private audio/text payloads.
+    loggingBehavior: 'none',
     allowMixedContent: true,
     // Edge-TTS 语音接口按 User-Agent 校验：只认桌面 Chrome/Edge UA（手机 UA 返回 403）。
     // 浏览器 WebSocket 无法自定义请求头，故全局覆写为桌面 UA —— 实测任意 Origin 均可直连，
@@ -31,7 +34,8 @@ const config: CapacitorConfig = {
     SystemBars: {
       // 状态栏/导航栏固定深色样式（白色图标），配合 app 品牌深色，避免顶部白色
       style: 'DARK',
-      // insetsHandling: 'css' 让 WebView 全屏沉浸，由 CSS safe-area 变量接管状态栏区域
+      // 新 WebView 用 CSS 变量报告剩余安全区；旧 WebView 可由原生先避让并报告0。
+      // 页面读取 --safe-area-inset-*，不要再叠加固定状态栏高度。
       insetsHandling: 'css',
     },
   },

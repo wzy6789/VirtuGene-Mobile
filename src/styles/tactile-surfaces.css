@@ -1,0 +1,76 @@
+/* One tactile skin: the optical substrate responds; type, icons and hit areas stay rigid. */
+:root{--vg-touch-release:cubic-bezier(.18,1.16,.28,1);--vg-touch-settle:240ms}
+.mobile-layout:has(.vg-home-stage-page:not(.vg-motion-snapshot,.vg-motion-snapshot *)){--vg-environment-cool:164 198 240;--vg-environment-warm:239 199 148}
+.mobile-layout:has(.vg-world-page:not(.vg-motion-snapshot,.vg-motion-snapshot *)){--vg-environment-cool:155 191 239;--vg-environment-warm:203 203 236}
+.mobile-layout:has([data-primary-scene=mountain-lake]:not(.vg-motion-snapshot,.vg-motion-snapshot *)){--vg-environment-cool:160 205 203;--vg-environment-warm:225 217 188}
+.mobile-layout:has([data-primary-scene=night-coast]:not(.vg-motion-snapshot,.vg-motion-snapshot *)){--vg-environment-cool:158 185 226;--vg-environment-warm:238 198 147}
+.mobile-layout{--vg-glass-control-sheen:radial-gradient(ellipse at 10% 0%,rgb(var(--vg-environment-cool)/.13),transparent 58%),linear-gradient(145deg,var(--vg-glass-reflection),transparent 38%,transparent 72%,var(--vg-glass-refraction))}
+:root.dark .mobile-layout{--vg-glass-scene-bloom:rgb(var(--vg-environment-cool)/.055);--vg-glass-scene-glaze:rgb(var(--vg-environment-warm)/.025)}
+
+/* Navigation, search and composer share a lens, rather than stacking independent cards. */
+.mobile-layout :is(.vg-elastic-tabs,.vg-search-field){background-image:var(--vg-glass-control-sheen);background-clip:padding-box;box-shadow:inset 0 1px 0 var(--vg-glass-highlight),inset 0 -1px 0 var(--vg-glass-contact),var(--vg-glass-shadow)}
+.mobile-layout :is(.vg-home-stage-page,.vg-destination-page,.vg-world-page) .vg-search-field{background-color:var(--vg-glass-control-bg);backdrop-filter:var(--vg-glass-sample);-webkit-backdrop-filter:var(--vg-glass-sample)}
+.vg-elastic-material{box-shadow:inset 0 1px 0 var(--vg-glass-highlight),inset 0 -1px 0 var(--vg-glass-contact),0 3px 10px var(--vg-glass-contact)}
+:root.dark .mobile-layout :is(.vg-elastic-tabs,.vg-search-field){background-image:radial-gradient(ellipse at 8% 0%,rgb(var(--vg-environment-cool)/.075),transparent 54%),linear-gradient(145deg,var(--vg-glass-reflection),transparent 34%,transparent 76%,var(--vg-glass-refraction))}
+:root.dark .vg-elastic-material{background:radial-gradient(ellipse at 18% 0%,rgb(var(--vg-environment-cool)/.17),transparent 72%),linear-gradient(155deg,var(--vg-glass-selection-light),transparent 45%),var(--vg-glass-selection-bg)}
+
+/* The capsule carries its light as it flexes, above one stable backdrop sample.
+   Highlight opacity may change, while the gradient and blur remain unchanged. */
+.vg-elastic-material::before{
+ content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+ background:radial-gradient(ellipse at 24% 0%,var(--vg-glass-touch-light),transparent 66%),radial-gradient(ellipse at 88% 100%,rgb(var(--vg-environment-warm)/.14),transparent 58%);
+ opacity:.28;transition:opacity 180ms ease;
+}
+.vg-elastic-material::after{
+ content:'';position:absolute;inset:0;padding:1px;border-radius:inherit;pointer-events:none;background:var(--vg-glass-rim);
+ -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;
+}
+.vg-elastic-tabs:is([data-elastic-phase=tracking],[data-elastic-phase=dragging]) .vg-elastic-material::before{opacity:1;transition-duration:65ms}
+.vg-elastic-tabs[data-elastic-phase=settling] .vg-elastic-material::before{opacity:.65}
+
+/* Bounded material compression is shared by short actions and the gene entries. */
+.vg-button:is(.vg-button-primary,.vg-button-secondary),.mobile-layout .vg-destination-page .vg-gene-entrance.vg-scene-glass{position:relative;isolation:isolate;background:transparent;box-shadow:none;border-color:transparent}
+.vg-button.vg-button-primary{--vg-touch-fill:var(--vg-action)}
+.vg-button.vg-button-primary,.mobile-layout .chat-room.vg-chat-paper .chat-composer-send{--vg-glass-touch-light:rgba(255,255,255,.14)}
+.vg-button.vg-button-secondary{--vg-touch-fill:var(--vg-glass-content-bg)}
+.vg-button:is(.vg-button-primary,.vg-button-secondary):active:not(:disabled){transform:none;opacity:1}
+.vg-gene-entrance{--vg-touch-fill:var(--vg-optic-fill)}
+.vg-button:is(.vg-button-primary,.vg-button-secondary)::before,.mobile-layout .vg-destination-page .vg-gene-entrance.vg-scene-glass::before{
+ content:'';position:absolute;inset:0;z-index:-1;padding:0;pointer-events:none;border-radius:inherit;border:1px solid var(--vg-glass-edge);
+ background:var(--vg-glass-control-sheen),var(--vg-touch-fill);box-shadow:inset 0 1px 0 var(--vg-glass-highlight),inset 0 -1px 0 var(--vg-glass-contact),var(--vg-glass-shadow);
+ mask:none;-webkit-mask:none;transform:translate3d(0,0,0) scale(1);transition:transform var(--vg-touch-settle) var(--vg-touch-release);
+}
+.vg-button:is(.vg-button-primary,.vg-button-secondary)[data-touch-pressed]::before,.mobile-layout .vg-destination-page .vg-gene-entrance.vg-scene-glass[data-touch-pressed]::before,
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send[data-touch-pressed]::before{
+ transform:translate3d(var(--vg-touch-shift-x,0px),var(--vg-touch-shift-y,0px),0) scale(var(--vg-touch-scale-x,.97),var(--vg-touch-scale-y,.96));transition-duration:65ms;transition-timing-function:cubic-bezier(.2,.8,.2,1);
+}
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send::before{transition:transform var(--vg-touch-settle) var(--vg-touch-release)}
+.mobile-layout .vg-destination-page .vg-gene-entrance.vg-scene-glass::after{background:radial-gradient(ellipse 180px 120px at var(--vg-touch-x,50%) var(--vg-touch-y,50%),rgb(var(--vg-environment-cool)/.20),transparent 80%);opacity:0;transition:opacity 240ms ease;z-index:0}
+.mobile-layout .vg-destination-page .vg-gene-entrance.vg-scene-glass[data-touch-pressed]::after{opacity:1;transition-duration:65ms}
+
+/* Touch light has a separate optical layer, so the existing fill, caption and
+   hit rectangle never need to move or be repainted with a different color. */
+.vg-button:is(.vg-button-primary,.vg-button-secondary)::after,
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send::after{
+ content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;border-radius:inherit;
+ background:radial-gradient(ellipse 80px 54px at var(--vg-touch-x,50%) var(--vg-touch-y,50%),var(--vg-glass-touch-light),transparent 80%);
+ opacity:0;transition:opacity 240ms ease;
+}
+.vg-button:is(.vg-button-primary,.vg-button-secondary)[data-touch-pressed]::after,
+.mobile-layout .chat-room.vg-chat-paper .chat-composer-send[data-touch-pressed]::after{opacity:1;transition-duration:65ms}
+
+/* Small dialogs get a soft optical cap; long-form and full-page reading keep their substrate. */
+.vg-modal-panel.vg-mobile-dialog:not([data-vg-surface-mode=long-form]){background:var(--vg-glass-control-sheen),var(--vg-glass-reading-bg);border-color:var(--vg-glass-edge);box-shadow:inset 0 1px 0 var(--vg-glass-highlight),0 24px 70px -16px rgba(0,5,15,.46)}
+:root[data-vg-transparency=solid]{--vg-glass-control-sheen:none}
+:root[data-vg-transparency=solid] .mobile-layout{--vg-glass-control-sheen:none}
+:root.dark[data-vg-transparency=solid] .vg-elastic-material{background:var(--bg-surface)}
+:root[data-vg-transparency=solid] .vg-button.vg-button-secondary{--vg-touch-fill:var(--bg-panel)}
+:root[data-vg-transparency=solid] .vg-gene-entrance{--vg-touch-fill:var(--bg-panel)}
+:root[data-vg-transparency=solid] .vg-gene-entrance::after{display:none}
+:root[data-vg-transparency=solid] :is(.vg-elastic-material,.vg-button,.chat-composer-send)::after,
+:root[data-vg-transparency=solid] .vg-elastic-material::before{content:none}
+html:is([data-vg-reduced-motion=true],[data-vg-background]) :is(.vg-button,.vg-gene-entrance,.chat-composer-send)::before{transition:none!important;transform:none!important}
+@media(prefers-reduced-motion:reduce){:is(.vg-button,.vg-gene-entrance,.chat-composer-send)::before{transition:none!important;transform:none!important}}
+html:is([data-vg-reduced-motion=true],[data-vg-background]) :is(.vg-elastic-material,.vg-button,.chat-composer-send)::after,
+html:is([data-vg-reduced-motion=true],[data-vg-background]) .vg-elastic-material::before{transition:none!important}
+@media(prefers-reduced-motion:reduce){:is(.vg-elastic-material,.vg-button,.chat-composer-send)::after,.vg-elastic-material::before{transition:none!important}}

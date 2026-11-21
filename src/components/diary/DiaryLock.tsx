@@ -3,6 +3,7 @@ import { resonate } from '../../lib/haptics';
 import { useAuthStore } from '../../store/auth-store';
 import { Modal } from '../ui/Modal';
 import { useSettingsStore, sha256 } from '../../store/settings-store';
+import { Icon } from '../ui/Icon';
 
 /** 手账隐私锁门：输入 PIN 解锁（本会话内保持解锁） */
 export function DiaryLockScreen({ onUnlock }: { onUnlock: () => void }) {
@@ -38,15 +39,16 @@ export function DiaryLockScreen({ onUnlock }: { onUnlock: () => void }) {
   return (
     <div className="h-full flex flex-col items-center justify-center gap-5 bg-app">
       <div className="w-16 h-16 rounded-2xl bg-gene-purple/15 flex items-center justify-center text-3xl shadow-[0_0_24px_rgba(108,92,231,0.35)]">
-        🔒
+        <Icon name="lock" size={30} />
       </div>
       <div className="text-center">
         <p className="text-base font-semibold text-ink">我的手账已上锁</p>
-        <p className="text-xs text-gray-500 mt-1">输入隐私密码解锁这段基因序列</p>
+        <p className="text-xs text-sub mt-1">输入隐私密码</p>
       </div>
       <input
         ref={inputRef}
         type="password"
+        aria-label="手账隐私密码"
         value={pin}
         onChange={(e) => { revision.current++; setPin(e.target.value); setError(null); }}
         onKeyDown={(e) => { if (e.key === 'Enter') void submit(); }}
@@ -54,10 +56,10 @@ export function DiaryLockScreen({ onUnlock }: { onUnlock: () => void }) {
         maxLength={32}
         className="w-56 px-4 py-2.5 rounded-xl bg-surface border border-line-strong text-sm text-ink text-center outline-none focus:border-gene-purple focus:shadow-[0_0_0_3px_rgba(108,92,231,0.12)] transition-all"
       />
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p role="alert" className="text-xs text-[color:var(--vg-danger)]">{error}</p>}
       <button
         onClick={() => void submit()}
-        className="px-8 py-2.5 rounded-xl bg-gene-purple hover:bg-[#5B4BD4] text-sm font-medium text-white shadow-[0_2px_12px_rgba(108,92,231,0.35)] transition-all"
+        className="vg-button vg-button-primary"
       >
         解锁
       </button>
@@ -99,7 +101,7 @@ export function PinSettingsModal({ open, onClose, currentPin, onSave }: {
   return (
     <Modal presentation="dialog" canSnapshotOnExit={() => false} panelClassName="vg-settings-panel" open={open} onClose={onClose} title={currentPin ? '管理手账密码' : '给手账上锁'} width="max-w-sm" closeOnBackdrop={false}>
       <div className="vg-settings-design space-y-3">
-        <p className="text-xs text-gray-500">设置后，每次打开「我的手账」都需要输入密码。密码只存在本机（SHA-256 摘要），忘记后无法找回。</p>
+        <p className="text-xs text-gray-500">密码仅存本机，忘记后无法找回。</p>
         {currentPin && (
           <input
             type="password"
@@ -127,10 +129,10 @@ export function PinSettingsModal({ open, onClose, currentPin, onSave }: {
         )}
         {error && <p className="text-xs text-red-400">{error}</p>}
         <div className="flex gap-3 justify-end pt-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">取消</button>
+          <button onClick={onClose} className="vg-button vg-button-ghost">取消</button>
           <button
             onClick={() => void submit()}
-            className="px-4 py-2 rounded-lg text-sm bg-gene-purple hover:bg-[#5B4BD4] text-white transition-all"
+            className="vg-button vg-button-primary"
           >
             {currentPin ? '保存' : '上锁'}
           </button>

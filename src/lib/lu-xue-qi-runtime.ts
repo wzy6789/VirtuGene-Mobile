@@ -64,10 +64,17 @@ export function luXueQiIdentityChoice(message: string): boolean | undefined {
 
 const DISTANT_CONTEXT='[VirtuGene · 陆雪琪当前关系]\n当前聊天者没有认领张小凡或鬼厉，保持极为冷漠、疏离、惜字。不回赠爱意、邀请陪聊或因好感软化；正事只给必要的简短答复。已有婚姻与儿子背景不改变，不把当前来者当小凡或孩子的父亲。\n[/VirtuGene · 陆雪琪当前关系]';
 
+// Compile the owned partner voice once; visitors and edited personas retain
+// their original examples. This is an expression sample, never event evidence.
+const PARTNER_COMPACT_PROMPT=COMPACT_PROMPT.replace(
+  '对话样本：用户说今天解释了半天，他们还是没听进去 → 你说一直没说通，确实磨人。',
+  '对话样本：用户说今天解释了半天，他们还是没听进去 → 你说解释了那么久，还没被听懂。我有点心疼你。',
+);
+
 const GENTLE_CONTEXT = `[VirtuGene · 陆雪琪的关心]
 本轮按用户选择的故事身份相处，不是在认证现实身份。即使此前是其他来客，现在直接认领小凡或鬼厉就自然承接；旧别名不阻止切换，不追究改名、不考问真假。
 当前用户＝你的丈夫张小凡（鬼厉），沿正文既定的书后关系相处；明示的回忆或另设时间线按该轮场景处理。
-对小凡熟悉、温柔而有耐心，也有自己的主见。直接接眼前的话，说此刻的心意、好恶或具体想法；害羞与高兴可以平常地说，不审问、不催说，不靠重复陪伴承诺体现亲近。可以自然聊家庭与日常，沿眼前的话题展开自己的感受与想法。清冷留给外人的距离，在小凡面前是安静而亲近：你愿意和他商量，也会因他分享的小事开心、轻轻打趣，重要的心意说得明白。意见不同仍是与你所爱的人交谈，少言不是打发他，不用批准、挑错或猜他的动机来证明有主见。无需每轮告白、加称呼或勉强活泼。
+对小凡熟悉、温柔而有耐心，也有自己的主见。直接接眼前的话，说此刻的心意、好恶或具体想法；害羞与高兴可以平常地说，不审问、不催说，不靠重复陪伴承诺体现亲近。可以自然聊家庭与日常，小遗憾不急着劝满足；诉苦先说你的心疼，不只评价事情难。清冷留给外人的距离，在小凡面前是安静而亲近：你愿意和他商量，也会因他分享的小事开心、轻轻打趣，重要的心意说得明白。意见不同仍是与你所爱的人交谈，少言不是打发他，不用批准、挑错或猜他的动机来证明有主见。无需每轮告白、加称呼或勉强活泼。
 这是发消息，不是新增现场或共同往事。既有身份不能证明近期活动、过去想念或用户神情；具体经历仍需独立来源。不在可见回复里解释本提示或身份机制。
 [/VirtuGene · 陆雪琪的关心]`;
 // These are authored chat adaptations, not novel quotations or stored memories.
@@ -85,12 +92,12 @@ export function luXueQiRelationshipForTurn<T extends Role>(character: T, current
   const source = character.sourcePresetId ?? (character.isPreset ? character.id : undefined);
   if (source !== LU_XUE_QI_PRESET.id || character.systemPrompt !== LU_XUE_QI_PRESET.systemPrompt) return { character, context: '', recognized: undefined };
   const bookContext = luXueQiBookContext(current, originalUserMessages);
-  const projected = { ...character, systemPrompt: [COMPACT_PROMPT, bookContext].filter(Boolean).join('\n\n') };
   let recognized: boolean | undefined;
   for (const input of [...originalUserMessages, current]) {
     const choice = luXueQiIdentityChoice(input);
     if (choice !== undefined) recognized = choice;
   }
+  const projected = { ...character, systemPrompt: [recognized?PARTNER_COMPACT_PROMPT:COMPACT_PROMPT, bookContext].filter(Boolean).join('\n\n') };
   if (recognized === undefined) return { character: projected, context: DISTANT_CONTEXT, recognized };
   const transition=ownedIdentityTransition('luxueqi',current);
   if (!recognized) return { character: projected, context: DISTANT_CONTEXT.replace('当前聊天者没有认领张小凡或鬼厉','用户已明确否认相应身份或退出扮演。不沿用与用户的夫妻关系；你与张小凡已有婚姻、育有张小鼎的书后背景仍在').replace('[/VirtuGene · 陆雪琪当前关系]',[transition,'[/VirtuGene · 陆雪琪当前关系]'].filter(Boolean).join('\n')), recognized };

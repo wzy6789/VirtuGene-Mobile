@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { Capacitor } from '@capacitor/core';
 import { useAuthStore } from './auth-store';
 import { useChatStore } from './chat-store';
-import { loadSecret } from '../lib/api-key-storage';
+import { normalizedMimoKey, loadMimoKey } from '../lib/voice-call/key';
 import { VoiceCallController, type CallView, type CallAudioPort } from '../lib/voice-call/controller';
 import type { MimoCallClient } from '../lib/voice-call/mimo';
 import { assertCallContextOwner, prepareCallContext, type CallContextOwner } from '../lib/voice-call/context';
@@ -13,14 +13,16 @@ import { summarizeVoiceCall } from '../lib/voice-call/summary';
 import { extractVoiceCallMemory } from '../lib/voice-call/memory';
 import { withChatSessionLock } from '../lib/chat/request-coordinator';
 import type { VoiceCallRecord } from '../lib/voice-call/record';
+import type { CallInputMode } from '../lib/voice-call/input';
 
 type Adapters = { audio: CallAudioPort; api: Pick<MimoCallClient, 'recognize' | 'dialogue' | 'synthesize'> };
 interface State {
   owner?: CallContextOwner; view?: CallView; busy: boolean; saving: boolean; finishing?: 'saving' | 'summary' | 'memory'; error?: string; record?: VoiceCallRecord;
-  start(owner: CallContextOwner, adapters?: Adapters): Promise<void>;
+  start(owner: CallContextOwner, adapters?: Adapters, inputMode?: CallInputMode): Promise<void>;
+  setInputMode(mode: CallInputMode): Promise<void>; sendText(text: string): Promise<boolean>;
   end(): Promise<void>;
   mute(): Promise<void>; interrupt(): Promise<void>; resume(): Promise<void>;
-  routes(bluetooth?: boolean): Promise<void>; route(id: number): Promise<void>;
+  routes(bluetooth?: boolean): Promise<void>; route(id: number): Promise<void>; cancelRouteWait(): Promise<void>;
   summarize(): Promise<void>;
 }
 let controller: VoiceCallController | undefined;
@@ -35,15 +37,27 @@ const initial: CallView = { phase: 'initializing', userText: '', generatedText: 
 
 export const useVoiceCallStore = create<State>((set, get) => ({
   busy: false, saving: false,
-  async start(owner, adapters) {
-    if (get().busy || get().saving) throw new Error('voice:busy');
+  async start(owner, adapters, inputMode = 'voice') {
+    if (inputMode !== 'voice' && inputMode !== 'text') throw new Error('voice:input_mode_unavailable');
+    if (get().busy || get().saving || stopping) throw new Error('voice:busy');
     if (!adapters && (Capacitor.getPlatform() !== 'android' || !Capacitor.isPluginAvailable('VoiceCallAudio'))) throw new Error('voice:android_required');
+    if (!adapters && !Capacitor.isPluginAvailable('MimoStream')) throw new Error('voice:transport_missing');
     if (useAuthStore.getState().userId !== owner.userId) throw new Error('voice:account_changed');
     const token = ++generation;
-    set({ owner, view: { ...initial }, busy: true, saving: false, finishing: undefined, record: undefined, error: undefined });
+    let ownReleaseSession: (() => void) | undefined;
+    const releaseOwnSession = () => {
+      const release = ownReleaseSession;
+      ownReleaseSession = undefined;
+      if (!release) return;
+      if (releaseSession === release) releaseSession = undefined;
+      release();
+    };
+    set({ owner, view: { ...initial, inputMode }, busy: true, saving: false, finishing: undefined, record: undefined, error: undefined });
     const live = () => token === generation && get().busy && useAuthStore.getState().userId === owner.userId;
     try {
-      if (!await loadSecret('mimo-key')) throw new Error('voice:key');
+      const storedKey = await loadMimoKey();
+      if (!storedKey?.trim()) throw new Error('voice:key');
+      if (!normalizedMimoKey(storedKey)) throw new Error('voice:key_format');
       await assertCallContextOwner(owner);
       if (!live()) return;
       const profile = await voiceProfileRepo.getOrCreate(owner.characterId, owner.userId);
@@ -53,13 +67,13 @@ export const useVoiceCallStore = create<State>((set, get) => ({
       const acquired = new Promise<void>(resolve => { ready = resolve; });
       const hold = withChatSessionLock(owner.sessionId, async () => {
         if (!live()) { ready(); return; }
-        await new Promise<void>(resolve => { releaseSession = resolve; ready(); });
+        await new Promise<void>(resolve => { ownReleaseSession = resolve; releaseSession = resolve; ready(); });
       });
       void hold.catch(() => {});
       await acquired;
-      if (!live()) { releaseSession?.(); releaseSession = undefined; return; }
+      if (!live()) { releaseOwnSession(); return; }
       await assertCallContextOwner(owner);
-      if (!live()) { releaseSession?.(); releaseSession = undefined; return; }
+      if (!live()) { releaseOwnSession(); return; }
       startedAt = Date.now();
       usage = [];
       const callUsage = usage;
@@ -69,8 +83,9 @@ export const useVoiceCallStore = create<State>((set, get) => ({
       const completed: VoiceCallRecord['exchanges'] = [];
       checkpoint = Promise.resolve();
       controller = new VoiceCallController(callId, {
-        audio: adapters?.audio, api: adapters?.api,
-        voice: profile.voice, style: callDeliveryStyle(profile), context: (text, exchanges, signal) => prepareCallContext({ ...owner, callId }, text, exchanges, signal),
+        audio: adapters?.audio, api: adapters?.api, inputMode,
+          prepareContextDuringEndpoint: true,
+          voice: profile.voice, style: callDeliveryStyle(profile), context: (text, exchanges, signal, turnInputMode, trigger, preparation) => prepareCallContext({ ...owner, callId }, text, exchanges, signal, turnInputMode, trigger, preparation),
         onExchange: exchange => {
           completed.push(exchange);
           const snapshot = { ...base, endedAt: Date.now(), exchanges: [...completed], usage: callUsage.map(row => ({ ...row })) };
@@ -82,9 +97,12 @@ export const useVoiceCallStore = create<State>((set, get) => ({
             } catch { if (token === generation) set({ error: 'voice:checkpoint_failed' }); }
           });
         },
-        onRequest: (stage, audioSeconds) => { callUsage.push({ stage, requestedAt: Date.now(), ...(audioSeconds !== undefined ? { audioSeconds } : {}) }); },
-        onUsage: (stage, receipt) => {
-          const attempt = [...callUsage].reverse().find(row => row.stage === stage);
+        onRequest: (stage, audioSeconds, requestId) => { callUsage.push({ stage, requestedAt: Date.now(), ...(requestId !== undefined ? { requestId } : {}), ...(audioSeconds !== undefined ? { audioSeconds } : {}) }); },
+        onUsage: (stage, receipt, requestId) => {
+          // Prefetched TTS requests overlap. A late receipt belongs to its own
+          // attempt, never whichever request of this stage happened most recently.
+          // Legacy callbacks may update legacy rows only; an unknown ID stays unknown.
+          const attempt = [...callUsage].reverse().find(row => row.stage === stage && row.requestId === requestId);
           if (attempt) Object.assign(attempt, receipt);
         },
         onView: view => {
@@ -97,8 +115,8 @@ export const useVoiceCallStore = create<State>((set, get) => ({
       set({ record: base });
       await controller.start();
     } catch (error) {
+      releaseOwnSession();
       if (token === generation) {
-        releaseSession?.(); releaseSession = undefined;
         set({ busy: false, error: error instanceof Error ? error.message : 'voice:unknown', view: undefined });
       }
     }
@@ -106,6 +124,11 @@ export const useVoiceCallStore = create<State>((set, get) => ({
   end() {
     if (stopping) return stopping;
     const active = controller, owner = get().owner, record = get().record;
+    const heldSession = releaseSession;
+    const releaseHeldSession = () => {
+      if (releaseSession === heldSession) releaseSession = undefined;
+      heldSession?.();
+    };
     const endedAt = Date.now();
     ++generation; controller = undefined;
     set({ busy: false, saving: !!active, finishing: active ? 'saving' : undefined,
@@ -123,10 +146,17 @@ export const useVoiceCallStore = create<State>((set, get) => ({
           const saved = await voiceCallRepo.save({ ...record, status: 'ended', endedAt, exchanges, usage: usage.map(row => ({ ...row })) });
           set({ record: saved });
           // Release before summary/network work so ordinary chatting is immediately available.
-          releaseSession?.(); releaseSession = undefined;
-          if (useChatStore.getState().currentSessionId === owner.sessionId) {
-            const messages = await import('../db/message-repo').then(m => m.messageRepo.getPage(owner.sessionId));
-            if (useAuthStore.getState().userId === owner.userId && useChatStore.getState().currentSessionId === owner.sessionId) useChatStore.setState({ messages });
+          releaseHeldSession();
+          const refreshWindow = useChatStore.getState();
+          if (refreshWindow.currentSessionId === owner.sessionId) {
+            const { messageRepo } = await import('../db/message-repo');
+            const [messages, total] = await Promise.all([messageRepo.getPage(owner.sessionId), messageRepo.countBySession(owner.sessionId)]);
+            const current = useChatStore.getState();
+            // Sending or loading history may change this same session while the
+            // reads are pending. Its newer visible window owns the pagination.
+            if (useAuthStore.getState().userId === owner.userId && current.currentSessionId === owner.sessionId
+              && current.selectedCharacterId === refreshWindow.selectedCharacterId && current.messages === refreshWindow.messages
+              && current.hasMoreMessages === refreshWindow.hasMoreMessages) useChatStore.setState({ messages, hasMoreMessages: total > messages.length });
           }
           if (exchanges.some(exchange => exchange.userText)) {
             const signal = new AbortController();
@@ -148,15 +178,36 @@ export const useVoiceCallStore = create<State>((set, get) => ({
           }
         }
       } catch { set({ error: get().finishing === 'memory' ? 'voice:memory_failed' : get().record?.status === 'ended' ? 'voice:postprocess_failed' : 'voice:save_failed' }); }
-      finally { releaseSession?.(); releaseSession = undefined; set({ saving: false, finishing: undefined }); }
+      finally { releaseHeldSession(); set({ saving: false, finishing: undefined }); }
     }).finally(() => { stopping = undefined; });
     return stopping;
+  },
+  async setInputMode(mode) {
+    const active = controller, owner = get().owner, token = generation;
+    const live = () => active === controller && token === generation && get().busy && !get().saving && !!owner && useAuthStore.getState().userId === owner.userId;
+    if (!active || !owner || !live()) return;
+    await assertCallContextOwner(owner);
+    if (live()) await active.setInputMode(mode);
+  },
+  async sendText(text) {
+    const active = controller, owner = get().owner, token = generation;
+    const live = () => active === controller && token === generation && get().busy && !get().saving && !!owner && useAuthStore.getState().userId === owner.userId;
+    if (!active || !owner || !live()) return false;
+    await assertCallContextOwner(owner);
+    if (!live()) return false;
+    const accepted = await active.sendText(text);
+    return accepted && live();
   },
   async mute() { await controller?.mute(!get().view?.muted); },
   async interrupt() { await controller?.interrupt(); },
   async resume() { await controller?.resume(); },
   async routes(bluetooth) { await controller?.refreshRoutes(bluetooth); },
   async route(id) { await controller?.selectRoute(id); },
+  async cancelRouteWait() {
+    const active = controller;
+    if (!active || typeof active.cancelRouteWait !== 'function') throw new Error('voice:route_cancel_unavailable');
+    await active.cancelRouteWait();
+  },
   async summarize() {
     const { record, owner, busy, saving } = get();
     if (!record || !owner || busy || saving || useAuthStore.getState().userId !== owner.userId) return;

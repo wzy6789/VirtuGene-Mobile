@@ -1,0 +1,130 @@
+{
+  "author": "VirtuGene original procedural geometry and materials",
+  "tool": "Blender 4.5.3 Cycles/OptiX; offline Pillow export",
+  "license": "Project-owned original, no third-party stock",
+  "externalAssetImports": [],
+  "remoteGenerationCalls": 0,
+  "modelAndReasoning": "未确认",
+  "sourceCamera": "design/chat-scenes/collection-cool/snow-study/camera-export.json",
+  "authoredSource": {
+    "file": "source-snow-study-2160.png",
+    "width": 2160,
+    "height": 4800,
+    "decodedRgbaBytes": 41472000,
+    "bytes": 5580406,
+    "sha256": "da3073a6f518256be83133722ee4446c2f7448944dc766ccbd9d1a304a435422",
+    "path": "design/chat-scenes/collection-cool/snow-study/source-snow-study-2160.png",
+    "method": "Native Cycles 2160x4800 render; not upscaled"
+  },
+  "blendSource": {
+    "path": "design/chat-scenes/collection-cool/snow-study/VirtuGene-snow-study-Original.blend",
+    "sha256": "b1d30d70a6460ca6d58b18db949f1eb2c4cc59d456259b5da4d721a665ee8610",
+    "bytes": 3919582
+  },
+  "exports": [
+    {
+      "file": "clean-plate-1080.webp",
+      "width": 1080,
+      "height": 2400,
+      "decodedRgbaBytes": 10368000,
+      "bytes": 91724,
+      "sha256": "25c7970314f0cfd0db6c238b33947f9e25c919af08a651449e74052731284a9e"
+    },
+    {
+      "file": "clean-plate-1440.webp",
+      "width": 1440,
+      "height": 3200,
+      "decodedRgbaBytes": 18432000,
+      "bytes": 134962,
+      "sha256": "8fa3be7bffeaef0fdec2f1b728b91f6dc2a3dc7532eef9edb473f3c038803d35"
+    },
+    {
+      "file": "foreground-casing-1080.webp",
+      "width": 854,
+      "height": 530,
+      "decodedRgbaBytes": 1810480,
+      "bytes": 28744,
+      "sha256": "6fa3df19f52f953cb4d0ddfabae46532acdf698ef689e216851efcca5deea861"
+    },
+    {
+      "file": "foreground-casing-1440.webp",
+      "width": 1139,
+      "height": 706,
+      "decodedRgbaBytes": 3216536,
+      "bytes": 31396,
+      "sha256": "a9a2fb7e13028170e02ad36fc90eb41717c7c0bc4527f76952a21ce7cfbb3cd1"
+    },
+    {
+      "file": "foreground-foreground-1080.webp",
+      "width": 259,
+      "height": 77,
+      "decodedRgbaBytes": 79772,
+      "bytes": 5506,
+      "sha256": "ea1aa9245999e649bec3209d9949afd04884e3f791f3a1cdafe0833e1679523a"
+    },
+    {
+      "file": "foreground-foreground-1440.webp",
+      "width": 345,
+      "height": 103,
+      "decodedRgbaBytes": 142140,
+      "bytes": 4646,
+      "sha256": "c40190370386f6149cf7255f2f1f1687b0de527d70e63f8f2acc985c89685845"
+    },
+    {
+      "file": "foreground-table-1080.webp",
+      "width": 1080,
+      "height": 778,
+      "decodedRgbaBytes": 3360960,
+      "bytes": 46138,
+      "sha256": "d6cb019067173c3e08e5fb95b3a06e068abe68592cbb11baac1c204242fdea2c"
+    },
+    {
+      "file": "foreground-table-1440.webp",
+      "width": 1440,
+      "height": 1037,
+      "decodedRgbaBytes": 5973120,
+      "bytes": 58174,
+      "sha256": "b578f81a7c9f36ae5b9664d8188710b08056f1213606530369697b2310b42519"
+    },
+    {
+      "file": "poster-1080.webp",
+      "width": 1080,
+      "height": 2400,
+      "decodedRgbaBytes": 10368000,
+      "bytes": 107746,
+      "sha256": "b98a99068e99e2db538e6d25e81552e5182a6fac5eceaf3a7b616e7df66f05bb"
+    },
+    {
+      "file": "poster-1440.webp",
+      "width": 1440,
+      "height": 3200,
+      "decodedRgbaBytes": 18432000,
+      "bytes": 162460,
+      "sha256": "cf874ef66248372252272d374082cd4a4c907b1e2219feb6760af4861742b1f5"
+    },
+    {
+      "file": "thumbnail.webp",
+      "width": 360,
+      "height": 800,
+      "decodedRgbaBytes": 1152000,
+      "bytes": 13454,
+      "sha256": "a6b5d057a95d7c416724236fb69b37b0f26c0e1aeedf1edee865e8e8ea59c7b9"
+    },
+    {
+      "file": "window-mask-1080.webp",
+      "width": 766,
+      "height": 435,
+      "decodedRgbaBytes": 1332840,
+      "bytes": 10412,
+      "sha256": "a61f752da756fc4f57982544b92b0d35d13df8c84ff2d2f9d06a2fac50da16f1"
+    },
+    {
+      "file": "window-mask-1440.webp",
+      "width": 1021,
+      "height": 580,
+      "decodedRgbaBytes": 2368720,
+      "bytes": 3834,
+      "sha256": "5f4fec70dea2f9b16d2f974f2f9924db19df229cb2639f88de6ae192dbedf314"
+    }
+  ]
+}

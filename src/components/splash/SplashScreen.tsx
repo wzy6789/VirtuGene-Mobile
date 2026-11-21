@@ -43,7 +43,6 @@ export function SplashScreen({ ready = false, onComplete }: SplashScreenProps) {
     onAnimationEnd={event => { if (event.target === event.currentTarget && event.animationName === 'vg-boot-exit') complete(); }}>
     <div className="vg-boot-space" aria-hidden="true"><div className="vg-boot-grid" /><div className="vg-boot-stars" /></div>
     <div className="vg-boot-frame" aria-hidden="true"><i /><i /><i /><i /></div>
-    <p className="vg-boot-eyebrow" aria-hidden="true"><span />DIGITAL SOUL<span /></p>
     <div className="vg-boot-stage">
       <div className="vg-boot-core" aria-hidden="true">
         <svg className="vg-boot-foundation" viewBox="0 0 320 320" fill="none">
@@ -76,8 +75,8 @@ export function SplashScreen({ ready = false, onComplete }: SplashScreenProps) {
         </svg></div>
         <span className="vg-boot-core-label">GENE · SOUL · TIME</span>
       </div>
-      <div className="vg-boot-brand"><h1>VIRTUGENE</h1><p>让数字灵魂拥有时间</p></div>
+      <div className="vg-boot-brand"><h1>VIRTUGENE</h1></div>
     </div>
-    <div className="vg-boot-status" role="status" aria-live="polite" aria-label="正在启动 VirtuGene"><span className="vg-boot-signal" aria-hidden="true"><i /></span><p>正在唤醒你的数字世界</p></div>
+    <div className="vg-boot-status" role="status" aria-live="polite" aria-label="正在启动 VirtuGene"><span className="vg-boot-signal" aria-hidden="true"><i /></span><p>正在启动…</p></div>
   </div>;
 }

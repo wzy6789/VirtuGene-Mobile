@@ -1,6 +1,8 @@
 /** Delivery guidance, never permission for application operations. */
 import {requestsRepetition,isDirectTimeAnswer,isTopicClarification,isSelfViewRevision,hasExplicitTopicShift,conversationDeparture,declinesThirdPartyAnalysis,requestsCharacterChoice} from './chat-turn-cues';
 import {requestsBriefReply,requestsSingleSentenceReply} from './chat-reply-size';
+import {assessExpressionSignals} from './chat-expression-guidance';
+const INDIRECT_CLAUSE=/^(?:朋友|同事|他|她|他们|她们|主角|如果|假如|假设|比如|例如|翻译|解释|改写|帮我写|替我写|给我写|写一句|写一段|我.{0,8}(?:听说|听(?:到|见)?(?:朋友|他|她)|转述|引用))/u;
 const DIFFERENCE_PERMISSION=/^你(?:不用|不必|不需要)(?:跟|和)我(?:选|选择)(?:得)?(?:一样|相同)(?:的)?[呀啊啦吧呢\s]*$/u;
 export function isOpinionInvitation(message:string):boolean {
   const unquoted=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
@@ -44,6 +46,26 @@ function hasSmallTalkSubjectInvitation(text:string):boolean {
       /^(?:那|对了)?你(?:自己)?(?:先|来)?(?:选|挑)(?:件|一件|个|一个)(?:(?:有意思|有趣|想聊)的)?(?:小事|事情|事|话题)(?:来)?(?:聊聊|聊|说说)(?:吧|呀|啊|呢|呗)?$/u.test(part.trim()));
 }
 
+/** An open invitation to hear from the interlocutor, not a request for a
+ * factual report. Other questions, tasks and current distress keep priority. */
+function hasOpenWordsInvitation(text:string):boolean {
+  const sentences=[...text.matchAll(/([^。！？!?\n]+)([。！？!?\n]|$)/gu)]
+    .filter(match=>!/^(?:朋友|同事|他|她|我听(?:说|见|到)?|如果|假如|假设|比如|例如)/u.test(match[1].trim()));
+  const invitation=/^(?:(?:那|对了)?你(?:自己)?(?:现在|此刻|今天|这会儿)?(?:还)?|(?:那|对了))?(?:有没有(?:什么|啥)?|有(?:什么|啥))(?:话|心里话|事(?:情)?)?(?:想|愿意)(?:(?:跟|和|对)我(?:说|聊)|告诉我)(?:的(?:话|事(?:情)?)?)?(?:吗|么|呢|呀|啊)?$/u;
+  const invites=(sentence:string)=>{
+    if(/^(?:关于|对于|至于|说到)[^，,：:]{1,60}[，,：:]|^(?:这|那)(?:件事|个问题|个安排|个方案)[，,：:]/u.test(sentence.trim()))return false;
+    let indirect=false;
+    return sentence.split(/[，,；;]/u).some(part=>{
+      const clause=part.trim();if(INDIRECT_CLAUSE.test(clause))indirect=true;
+      return !indirect&&invitation.test(clause);
+    });
+  };
+  if(!sentences.some(match=>invites(match[1])))return false;
+  if(sentences.some(match=>/[?？]/u.test(match[2])&&!invites(match[1])&&!/^(?:那)?你呢$/u.test(match[1].trim())))return false;
+  const signals=assessExpressionSignals(text);
+  return !signals.request&&!['distress','tired','mixed'].includes(signals.situation);
+}
+
 export function isTopicInvitation(message:string):boolean {
   const text=message.slice(0,4000).replace(/[“「『"][^”」』"]*[”」』"]/gu,'');
   if(/(?:翻译|改写|解释|什么意思|怎么说|怎么回复|帮我写|替我写)/u.test(text))return false;
@@ -55,7 +77,8 @@ export function isTopicInvitation(message:string):boolean {
       .filter(sentence=>!/^(?:朋友|同事|他|她|我听(?:说|见|到)?|如果|假如|假设|比如|例如)/u.test(sentence))
       .flatMap(sentence=>sentence.split(/[，,；;]/u)).some(part=>
         /^(?:(?:我(?:今天|现在)?|今天|现在)?(?:就|只是|只|就是)?想(?:和你|跟你))(?:(?:说|聊)(?:些|点|几句)?(?:平常话|闲话|家常)|说(?:会儿|一会儿|一会)话|聊(?:会儿|一会儿|一会)(?:天)?)[呀啊吧呢啦\s]*(?:就好|就行)?[呀啊吧呢啦\s]*$/u.test(part.trim()));
-  return ordinaryTalk||hasListeningInvitation(text)||hasCurrentIdeaInvitation(text)||hasSmallTalkSubjectInvitation(text)||text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
+  const delegatedSubject=/(?:聊|话题)/u.test(text)&&text.split(/[。！？!?，,；;\n]/u).some(part=>/^(?:那|就)?你(?:来)?(?:选|挑)(?:一个|个)?(?:吧|啊)?$/u.test(part.trim()));
+  return delegatedSubject||ordinaryTalk||hasListeningInvitation(text)||hasCurrentIdeaInvitation(text)||hasSmallTalkSubjectInvitation(text)||hasOpenWordsInvitation(text)||text.split(/[。！？!?，,；;\n]/u).map(part=>part.trim()).some(part=>
     /^(?:那|所以|对了)?\s*(?:你(?:自己)?(?:现在|这会儿|今天)?(?:最|更)?想(?:聊|谈)(?:点)?什么(?:话题)?|你(?:自己)?(?:来|先)?(?:选|挑)(?:个|一个)?(?:小)?话题|(?:说|聊)(?:个|一个)你(?:自己)?想聊的话题)[呀啊吧呢\s]*$/u.test(part)
     || /^(?:(?:那|嗯|好|所以)\s*)?(?:(?:我们|咱们)(?:就|先)?|我(?:现在|今天)?(?:就|只是|只)?想(?:和你|跟你))?(?:随便|随意)(?:说|聊)(?:两句|几句|一会儿|一会|说话|聊)[呀啊吧呢啦\s]*(?:就好|就行|也好)?[呀啊吧呢啦\s]*$/u.test(part));
 }
@@ -112,25 +135,38 @@ const DIRECT_FEELING=new RegExp(`^(?:(?:只是|就是|就)?(?:我(?:${FEELING_TI
 // “最想的还是你”. Match the whole clause, not “你” inside a liked object,
 // and retain the same source/quotation and question guards as direct order.
 const FOCUSED_FEELING=/^(?:其实|说到底)?(?:我(?:今天|现在|这会儿)?(?:也|还是|最|更|一直)?|(?:最|更|一直)?)(?:想(?:见)?|惦记|喜欢|爱)(?:着)?的(?:人)?(?:还是|就是|是)你[～~\s]*(?:呀|啊|呢|啦|嘛)?[～~\s]*$/u;
-function isAddressedFeelingClause(clause:string):boolean{return DIRECT_FEELING.test(clause)||FOCUSED_FEELING.test(clause);}
+function isAddressedFeelingClause(clause:string):boolean {
+  if(DIRECT_FEELING.test(clause)||FOCUSED_FEELING.test(clause))return true;
+  // A temporal adjunct can precede the same addressed feeling. It supplies
+  // context, not permission to infer a new habit or off-screen event.
+  const situated=clause.match(/^(?:我)?(?:刚刚?|一)([^，,。！？!?]{1,24})就(.+)$/u);
+  return !!situated&&!/如果|假如|假设|听说|听到|听见|转述|引用|说/u.test(situated[1])
+    &&DIRECT_FEELING.test(situated[2]);
+}
+function addressedFeelingSources(message:string):string[] {
+  const masked=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,quote=>' '.repeat(quote.length));
+  if(/^(?:如果|假如|假设|比如|例如|帮我写|写一段|写一个|他|她|朋友|同事|主角)/u.test(masked.trim()))return [];
+  const sources:string[]=[];
+  for(const sentence of masked.matchAll(/([^。！？!?\n]+)([。！？!?\n]|$)/gu)){
+    let indirect=false;
+    for(const clause of sentence[1].matchAll(/([^，,；;]+)([，,；;]|$)/gu)){
+      const plain=clause[1].trim();if(INDIRECT_CLAUSE.test(plain))indirect=true;
+      if(indirect||/[?？]/u.test(clause[2]||sentence[2])||!isAddressedFeelingClause(plain))continue;
+      const start=sentence.index!+clause.index!,original=message.slice(start,start+clause[1].length).trim();
+      if(original===plain)sources.push(original);
+    }
+  }
+  return sources;
+}
 export function isDirectAffection(message: string): boolean {
-  const text=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,'').trim();
-  if(/^(?:如果|假如|假设|比如|例如|帮我写|写一段|写一个|他|她|朋友|同事|主角)/u.test(text))return false;
-  return [...text.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)]
-    .some(match=>!/[?？]/u.test(match[2])&&isAddressedFeelingClause(match[1].trim()));
+  return addressedFeelingSources(message).length>0;
 }
 
 /** Quote an exact, plain current-user clause addressed to the interlocutor.
  * Preserve the existing intent classifier; never turn quoted dialogue or an
  * object's appeal into an addressed feeling through string cleanup. */
 export function directAffectionSources(message:string):string[] {
-  if(message.length>4000||!isDirectAffection(message))return [];
-  const masked=message.replace(/[“「『"][^”」』"]*[”」』"]/gu,quote=>' '.repeat(quote.length));
-  return [...masked.matchAll(/([^。！？!?，,；;\n]+)([。！？!?，,；;\n]|$)/gu)].flatMap(match=>{
-    const plain=match[1].trim();
-    const original=message.slice(match.index,match.index+match[1].length).trim();
-    return !/[?？]/u.test(match[2])&&plain===original&&isAddressedFeelingClause(plain)?[original]:[];
-  });
+  return message.length>4000?[]:addressedFeelingSources(message);
 }
 
 /** A direct question about the interlocutor's feelings, rather than a request
@@ -146,6 +182,8 @@ export function isAffectionQuestion(message:string):boolean {
 export const AFFECTION_QUESTION_DIRECTION='用户在问你自己的心意。直接说你此刻的态度，亲密程度以人物与实际关系为准，可以亲近，也可以坦率说明界限。愿意回应本身就能表达在意，让这一句自然说清；无需先让对方交代日程、证明关系或解释为什么问。';
 
 export function allowsDramaticReply(message: string, recentUserMessages: string[] = []): boolean {
+  // Fact-domain permission only. Ordinary chat still uses dialogue-only output;
+  // inspectDialogueSegment applies that independent surface contract.
   // Only user requests establish this mode; assistant prose and ambient location
   // cards do not turn a messaging conversation into physical co-presence.
   const turns=[...recentUserMessages.slice(-6), message].reverse();
@@ -241,7 +279,7 @@ export function independentPreference(message:string,adjacentChoiceQuestion=''):
 }
 
 export function directChatGuidance(userMessage:string, recentUserMessages:string[], recentReplies:string[],options:{includeAffection?:boolean;includeTopicInvitation?:boolean}={}):string {
-  if (allowsDramaticReply(userMessage,recentUserMessages)) return '本轮用户明确选择了创作或扮演，按其要求接续；不要把虚构场景当成现实经历。';
+  if (allowsDramaticReply(userMessage,recentUserMessages)) return '本轮用户明确选择了创作或扮演，按其设定接续对白；普通聊天仍只输出人物说的话，不写动作、旁白或神态。不要把虚构场景当成现实经历。';
   const lines:string[]=[];
   if(declinesThirdPartyAnalysis(userMessage))lines.push('用户这轮不想分析第三人的心思。接已说出的事件与本人感受，可以表达你自己的心疼、失望或在意；少一句回应也不必解读成对方故意冷落、看不起或不重视。真正明确的言行可以谈，但未知原因留白，不替用户决定要不要理那个人，也不擅自转成劝断交。关心的重点是眼前与你说话的人；他说出的感受已经足够接话，不需要让他再精确拆分、证明或深入分析心情，确有新内容想了解再自然问。');
   if(conversationDeparture(userMessage)?.topicDeferred)lines.push('用户把话题暂时留到回来再聊：现在自然道别即可。保留的是讨论，不是已经约定共同活动；对方说回来聊天，也没有因此答应你之前提出的出游、见面或其他安排。后续具体约定仍以实际说清的内容为准。');

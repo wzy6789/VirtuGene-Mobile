@@ -1,0 +1,24 @@
+/* This short sheet reuses Modal's portal and focus owner. Its shell only translates. */
+.vg-modal-overlay:has(>.vg-attachment-sheet){position:fixed;inset:0;display:flex;justify-content:center;align-items:flex-end;padding:12px 12px calc(12px + var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)));background:var(--vg-scrim,rgba(17,27,39,.3));overscroll-behavior:contain}
+.vg-modal-overlay>.vg-modal-panel.vg-attachment-sheet{position:relative;display:flex;flex-direction:column;flex:none;width:100%;max-width:440px;height:auto;min-height:0;max-height:calc(90dvh - var(--vg-safe-top,0px));margin:0;padding:0;border:0;border-radius:28px;box-shadow:none;background:transparent;overflow:visible;animation:none}
+.vg-modal-overlay>.vg-modal-panel.vg-attachment-sheet>.vg-modal-header{display:none}
+.vg-modal-overlay>.vg-modal-panel.vg-attachment-sheet>[data-modal-scroll]{position:relative;flex:none;max-height:none;padding:0;overflow:visible;scrollbar-gutter:auto}
+.vg-attachment-content{position:relative;isolation:isolate;color:var(--text);border-radius:28px}
+.vg-attachment-material{position:absolute;inset:0;z-index:-1;border:1px solid var(--vg-glass-edge);border-radius:inherit;background:linear-gradient(145deg,var(--vg-glass-reflection),transparent 52%),var(--vg-glass-content-bg);box-shadow:var(--vg-glass-shadow);pointer-events:none;transform-origin:50% 0}
+.vg-attachment-material:after{content:'';position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 1px 0 var(--vg-glass-highlight);pointer-events:none}
+.vg-attachment-drag-region{position:relative;padding:12px 24px 18px;text-align:center;touch-action:pan-x;user-select:none;cursor:grab}
+.vg-attachment-grip{display:block;width:34px;height:4px;margin:0 auto 16px;border-radius:99px;background:var(--text-secondary);opacity:.35}
+.vg-attachment-drag-region h3{margin:0;color:var(--text);font-size:17px;font-weight:600;line-height:1.5}
+.vg-attachment-drag-region p{margin:5px 0 0;font-size:12px;line-height:1.5;color:var(--text-secondary)}
+.vg-attachment-actions{position:relative;display:grid;gap:10px;padding:0 16px 16px}
+.vg-attachment-actions>button{position:relative;isolation:isolate;display:flex;align-items:center;gap:16px;width:100%;min-height:64px;margin:0;border:0;padding:14px 18px;border-radius:18px;background:transparent;color:var(--text);font:inherit;text-align:left;touch-action:manipulation}
+.vg-attachment-action-material{position:absolute;inset:0;z-index:-1;border:1px solid var(--vg-glass-edge);border-radius:inherit;background:var(--vg-glass-control-bg);box-shadow:inset 0 1px 0 var(--vg-glass-highlight);pointer-events:none;transition:transform 240ms cubic-bezier(.16,1,.3,1)}
+.vg-attachment-actions>button:active>.vg-attachment-action-material,.vg-attachment-actions>button[data-touch-pressed]>.vg-attachment-action-material{transform:scale(.98);transition-duration:90ms}
+.vg-attachment-image>svg{flex:none;color:var(--vg-accent)}
+.vg-attachment-image strong{display:block;font-size:15px;font-weight:600;line-height:1.5}
+.vg-attachment-image small{display:block;margin-top:3px;font-size:12px;line-height:1.5;color:var(--text-secondary)}
+.vg-attachment-actions>.vg-attachment-cancel{justify-content:center;min-height:48px;padding:12px;font-size:14px;color:var(--text-secondary)}
+.vg-attachment-actions>button:focus-visible{outline:2px solid var(--vg-accent);outline-offset:2px}
+@supports(backdrop-filter:blur(1px)){.vg-attachment-material{backdrop-filter:var(--vg-glass-sample,blur(var(--vg-glass-blur)));-webkit-backdrop-filter:var(--vg-glass-sample,blur(var(--vg-glass-blur)))}}
+@media(prefers-reduced-motion:reduce){.vg-attachment-action-material{transition:none}}
+html[data-vg-reduced-motion=true] .vg-attachment-action-material{transition:none}

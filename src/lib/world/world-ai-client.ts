@@ -16,6 +16,7 @@
 import { llmChat, llmChatStream, resolveModel, getProviderKey, type LLMChatParams, type LLMChatResult, type ProviderId } from '../ai/llm';
 import { gatewayChat, gatewayChatStream, hasAiGatewayAccess } from '../ai/gateway';
 import { getProviderConfig, providerRequiresKey } from '../ai/provider-config';
+import {assertWorldSourcesLive,hasWorldSourceGuards} from './world-source-guard';
 
 /** 可注入的 LLM 边界（验收用；生产走 llmChat / gatewayChat） */
 export type WorldLlmCaller = typeof llmChat;
@@ -84,6 +85,8 @@ export async function worldAiAvailability(): Promise<WorldAiAvailability> {
 }
 
 export interface WorldChatParams {
+  /** Opaque transient evidence key; never sent to providers. */
+  sourceContext?:object;
   /** OpenAI 形态的消息列表（system 可以有多条，Adapter 会自行合并） */
   messages: Array<{ role: string; content: unknown }>;
   temperature?: number;
@@ -115,6 +118,19 @@ export interface WorldChatResult extends LLMChatResult {
  * 调用方可以注入 `call` 用于验收（生产不传）。
  */
 export async function worldChat(params: WorldChatParams, call?: WorldLlmCaller): Promise<WorldChatResult> {
+  await assertWorldSourcesLive(params.sourceContext);
+  // Only turns carrying retrieved source evidence hold partials until the
+  // post-generation source check. Ordinary source-free world streaming stays
+  // unchanged; no unverified prefix is briefly exposed and then removed.
+  let latestText:string|undefined;
+  const guarded=hasWorldSourceGuards(params.sourceContext);
+  const result=await worldChatUnchecked(guarded&&params.onDelta?{...params,onDelta:accumulated=>{latestText=accumulated;}}:params,call);
+  await assertWorldSourcesLive(params.sourceContext);
+  if(latestText!==undefined)params.onDelta?.(latestText,latestText);
+  return result;
+}
+
+async function worldChatUnchecked(params: WorldChatParams, call?: WorldLlmCaller): Promise<WorldChatResult> {
   const model = params.model ?? resolveModel();
   callCount += 1;
 
@@ -165,6 +181,7 @@ export async function worldChat(params: WorldChatParams, call?: WorldLlmCaller):
         if (gotDelta || /^(auth:|billing:|rate:)/.test(message)) throw error;
       }
     }
+    await assertWorldSourcesLive(params.sourceContext);
     const res = await llmChat(llmParams);
     return { ...res, route: 'byok' };
   }
@@ -210,6 +227,7 @@ export async function worldChat(params: WorldChatParams, call?: WorldLlmCaller):
         if (gotDelta || /^(auth:|billing:|rate:)/.test(message)) throw error;
       }
     }
+    await assertWorldSourcesLive(params.sourceContext);
     const res = await gatewayChat(gatewayParams);
     return { content: res.content ?? '', route: 'gateway' };
   }

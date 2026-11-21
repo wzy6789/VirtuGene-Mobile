@@ -8,16 +8,30 @@ import { useUIStore } from '../../src/store/ui-store';
 import { webApi } from '../../src/lib/web-api';
 import { fakeCharacter, typeInto, pressEnter } from './world-harness';
 import { ChatReplyStream, streamedReplyParts } from '../../src/lib/chat-stream';
-import { computeMessageDelays, followUpDelay, MAX_TOTAL_DELAY } from '../../src/lib/chat-pacing';
+import { computeMessageDelays, MAX_TOTAL_DELAY } from '../../src/lib/chat-pacing';
 import { sendMessage } from '../../src/lib/ai/deepseek';
 import { readSseResponse } from '../../src/lib/ai/llm';
 import { gatewayChatStream } from '../../src/lib/ai/gateway';
 import { sendRoleChatReply } from '../../src/lib/chat/send-service';
+import { messageRepo } from '../../src/db/message-repo';
+import { VoiceCallHost } from '../../src/components/chat/VoiceCallHost';
+import { useVoiceCallUIStore } from '../../src/store/voice-call-ui-store';
+import { clearChatComposerDrafts } from '../../src/lib/chat-composer-drafts';
+
+let holdUserWrite = false, failUserWrite = false, releaseUserWrite: (() => void) | undefined;
+const createMessage = messageRepo.create.bind(messageRepo);
+messageRepo.create = async (message) => {
+  if (message.role === 'user') {
+    if (holdUserWrite) { holdUserWrite = false; await new Promise<void>(resolve => { releaseUserWrite = resolve; }); }
+    if (failUserWrite) { failUserWrite = false; throw new Error('controlled local write failure'); }
+  }
+  return createMessage(message);
+};
 
 const encoder = new TextEncoder();
 const realFetch = window.fetch.bind(window);
 const uid = 'stream-test-user';
-const requests: { init: RequestInit; controller: ReadableStreamDefaultController<Uint8Array>; raw: string; aborted: boolean }[] = [];
+const requests: { init: RequestInit; controller: ReadableStreamDefaultController<Uint8Array>; raw: string; aborted: boolean;abortReason?:string;abortStack?:string }[] = [];
 let root: Root | undefined;
 let id = 0;
 let extraNetwork = 0;
@@ -28,6 +42,11 @@ let completeRequests: unknown[] = [];
 useChatStore.subscribe(() => { storeChanges++; });
 const frame = (text: string) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\r\n\r\n`;
 window.fetch = (async (url, init) => {
+  // Opted-in scene fixture only: local immutable GLBs are assets, never model transport.
+  if((window as Window & {sceneModelAssetsAllowed?:boolean}).sceneModelAssetsAllowed){
+    const asset=new URL(String(url),location.href);
+    if(asset.origin===location.origin&&/^\/chat-scenes\/(?:cafe-afternoon|cafe-rain-night|snow-study|mist-coast|hearth-cabin|night-train|home-bedroom|home-living|guofeng-tea-room|urban-window-seat|polar-refuge|orbital-observatory|moonlit-bedroom)\/scene-[a-f0-9]{12}\.glb$/.test(asset.pathname))return realFetch(url,init);
+  }
   if (!String(url).includes('/chat/completions')) { extraNetwork++; throw new Error('unexpected network'); }
   const payload = JSON.parse(String(init?.body));
   if (payload.stream===true && completeResponses) {
@@ -42,10 +61,10 @@ window.fetch = (async (url, init) => {
     if (!String(payload.messages?.[0]?.content).includes('记忆提取系统')) throw new Error('unexpected non-stream task');
     return new Response(JSON.stringify({ choices: [{ message: { content: '[]' }, finish_reason: 'stop' }] }), { headers: { 'Content-Type': 'application/json' } });
   }
-  const item = { init: init!, controller: undefined as unknown as ReadableStreamDefaultController<Uint8Array>, raw: '', aborted: false };
+  const item = { init: init!, controller: undefined as unknown as ReadableStreamDefaultController<Uint8Array>, raw: '', aborted: false,abortReason:undefined as string|undefined,abortStack:undefined as string|undefined };
   const body = new ReadableStream<Uint8Array>({ start(controller) {
     item.controller = controller;
-    const abort = () => { item.aborted = true; try { controller.error(new DOMException('Stopped', 'AbortError')); } catch { /* Already done. */ } };
+    const abort = () => { item.aborted = true;item.abortReason=String(init?.signal?.reason);item.abortStack=new Error('Synthetic stream abort trace').stack; try { controller.error(new DOMException('Stopped', 'AbortError')); } catch { /* Already done. */ } };
     if (init?.signal?.aborted) abort(); else init?.signal?.addEventListener('abort', abort, { once: true });
   } });
   requests.push(item);
@@ -58,6 +77,8 @@ webApi.memory.extract = async () => ({ memories: [] });
 
 async function setup(history = 0) {
   root?.unmount(); root = undefined;
+  clearChatComposerDrafts(); // A fresh isolated database is not a reopened chat.
+  useVoiceCallUIStore.getState().close();
   await db.delete(); await db.open();
   requests.length = 0; extraNetwork = 0; nextStatus = 200;
   completeResponses=undefined; completeRequests=[];
@@ -72,7 +93,7 @@ async function setup(history = 0) {
   if (history) await db.messages.bulkAdd(Array.from({ length: history }, (_, index): Message => ({ id: `history-${index}`, sessionId: 'a', role: 'assistant', content: `过去的消息${index}。` + '这是一段已经保存的聊天内容。'.repeat(12), createdAt: now - (history - index) * 1000, isProactive: false })));
   useChatStore.setState({ characters: chars, currentSessionId: 'a', selectedCharacterId: 'a', messages: await db.messages.where('sessionId').equals('a').sortBy('createdAt'), hasMoreMessages: false });
   const host = document.getElementById('app')!;
-  root = createRoot(host); root.render(<ChatWindow />);
+  root = createRoot(host); root.render(<><ChatWindow /><VoiceCallHost /></>);
 }
 async function switchTo(key: string) {
   useChatStore.setState({ currentSessionId: key, selectedCharacterId: key, messages: await db.messages.where('sessionId').equals(key).sortBy('createdAt'), hasMoreMessages: false });
@@ -96,6 +117,8 @@ async function unitChecks() {
   check(snapshot('你好-') === '你好' && snapshot('你好--') === '你好' && snapshot('你好---再见') === '你好|再见', 'fragmented separators');
   check(snapshot('（笑') === '' && snapshot('（笑）你好') === '你好', 'no transient roleplay actions');
   check(snapshot('{"messages":["你好"') === '' && snapshot('{"messages":["你好","再见"]}') === '你好|再见', 'no partial JSON syntax');
+  check([' ', '`', '``', '```json', '*', '#', '['].every(raw => snapshot(raw) === ''), 'no bubble for whitespace or standalone formatting prefixes');
+  check([' ', '```json', '*', '[', '{'].every(raw => streamedReplyParts(raw,true).length===0), 'format-only final responses still have no visible body');
   check(streamedReplyParts('一---二---三---四', true).join('|') === '一|二|三|四', 'four independent parts retained');
   check(streamedReplyParts('长长的第一条---嗯---啊---长长的第四条---最后', true).join('|') === '长长的第一条|嗯啊|长长的第四条|最后', 'buffered fifth part merges shortest adjacent pair');
   check(streamedReplyParts('长长的第一条---嗯---啊---長長的第四条---最后', true, true).join('|') === '长长的第一条|嗯|啊|長長的第四条最后', 'published stream never rewrites earlier bubbles when fifth part arrives');
@@ -110,14 +133,14 @@ async function unitChecks() {
   const arrivals: number[] = [];
   four.subscribe(() => { if(four.getSnapshot().length > arrivals.length) arrivals.push(performance.now()); });
   four.push('长长的第一条---嗯---啊---长长的第四条');
-  check(four.getSnapshot().length === 1, 'a burst reveals only the first bubble immediately');
+  check(four.getSnapshot().length === 4, 'available text reveals all four parts without a typing queue');
   const originalIds = [...four.ids];
   const draining = four.finish('长长的第一条---嗯---啊---长长的第四条---最后');
-  check(four.getSnapshot().length === 1, 'completion does not bypass queued arrival delays');
+  check(four.getSnapshot().length === 4, 'completion immediately exposes all reviewed text');
   await draining;
   check(four.getSnapshot().join('|') === '长长的第一条|嗯|啊|长长的第四条最后' && four.ids.length === 4 && four.ids.every((id, i) => id === originalIds[i]), 'real stream class preserves four published row identities through overflow');
-  check(arrivals.length===4&&arrivals.slice(1).every((time,index)=>time-arrivals[index]>=followUpDelay(four.getSnapshot()[index])-5), 'all four bubble arrivals have distinct content-aware reading beats');
-  check(arrivals[3]-arrivals[0]<MAX_TOTAL_DELAY+500, 'fast four-bubble delivery stays within the extra waiting budget');
+  check(arrivals.length===2, 'one publication per content change, not a timer per bubble');
+  check(arrivals[1]-arrivals[0]<150, 'finish adds no deliberate reading pause');
   four.dispose();
   const longDelays=computeMessageDelays(['长'.repeat(400),'短','长'.repeat(400),'尾']);
   check(longDelays[0]===0&&longDelays[1]===850&&longDelays[2]<longDelays[1]&&longDelays.reduce((a,b)=>a+b,0)<=MAX_TOTAL_DELAY,'ready first bubble is immediate and long messages have a bounded reading beat');
@@ -128,14 +151,14 @@ async function unitChecks() {
   check(slow.getSnapshot().length===2,'slow model generation is credited rather than followed by another artificial pause');
   await slow.finish(); slow.dispose();
   const cancelled=new ChatReplyStream('cancelled',()=>undefined);
-  cancelled.push('已看到。---尚未看到。---也未看到。');
+  cancelled.push('已看到。');
   const cancelDrain=cancelled.finish(); cancelled.stop(); await cancelDrain;
   cancelled.push('不该再出现。'); await new Promise(resolve=>setTimeout(resolve,450));
-  check(cancelled.getSnapshot().join('|')==='已看到。','stop cancels final draining and never flushes hidden bubbles or late tokens');
+  check(cancelled.getSnapshot().join('|')==='已看到。','stop preserves visible content and rejects late tokens');
   cancelled.dispose();
   const disposed=new ChatReplyStream('disposed',()=>undefined);
   const disposeDrain=disposed.finish('一---二'); disposed.dispose(); await disposeDrain;
-  check(disposed.getSnapshot().length===1,'disposing clears the reveal queue and releases completion waiters');
+  check(disposed.getSnapshot().length===2,'disposing preserves already visible text and releases completion waiters');
   const bytes = encoder.encode(frame('你好🌙') + 'data: [DONE]\r\n\r\n');
   const seen: string[] = [];
   const parsed = await readSseResponse(new Response(new ReadableStream({ start(c) { for (const byte of bytes) c.enqueue(new Uint8Array([byte])); c.close(); } })), all => seen.push(all));
@@ -169,6 +192,11 @@ async function unitChecks() {
 }
 
 (window as any).chatStreamTest = { setup, switchTo, submit, push, finish, unitChecks,
+  holdUserWrite: () => { holdUserWrite = true; },
+  failUserWrite: () => { failUserWrite = true; },
+  releaseUserWrite: () => { releaseUserWrite?.(); releaseUserWrite = undefined; },
+  userWriteHeld: () => !!releaseUserWrite,
+  rename: (name: string) => useChatStore.setState({ characters: useChatStore.getState().characters.map(c => c.id === 'a' ? { ...c, name } : c) }),
   useReviewedCharacter: async (sourcePresetId: 'preset-guyuena' | 'preset-luxueqi', systemPrompt?:string) => {
     const character = { ...(await db.characters.get('a'))!, name: sourcePresetId === 'preset-luxueqi' ? '陆雪琪' : '古月娜', sourcePresetId, ...(systemPrompt?{systemPrompt}: {}) };
     await db.characters.put(character);
@@ -212,8 +240,10 @@ async function unitChecks() {
   completeRequests: () => completeRequests,
   fail: (index: number) => requests[index].controller.error(new TypeError('connection lost')),
   records: (session = 'a') => db.messages.where('sessionId').equals(session).sortBy('createdAt'),
-  requests: () => requests.map(req => ({ body: JSON.parse(String(req.init.body)), aborted: req.aborted, raw: req.raw })),
+  conversationState: async (session = 'a') => (await db.sessions.get(session))?.conversation,
+  requests: () => requests.map(req => ({ body: JSON.parse(String(req.init.body)), aborted: req.aborted, raw: req.raw,abortReason:req.abortReason,abortStack:req.abortStack })),
   extraNetwork: () => extraNetwork, unmount: () => { root?.unmount(); root = undefined; },
+  remount: () => { root?.unmount(); root = createRoot(document.getElementById('app')!); root.render(<><ChatWindow /><VoiceCallHost /></>); },
   denyNext: () => { nextStatus = 401; },
   storeChanges: () => storeChanges,
   logout: () => useAuthStore.setState({ userId: 'different-account', apiKey: 'sk-other' }),

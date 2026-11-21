@@ -1,9 +1,11 @@
-import { normalizeBubbleText, normalizeChatResponse, normalizeChatParagraphBoundaries, normalizeChatQuotationEscapes, mergeReplyParts, joinReplyText, followUpDelay, MAX_REPLY_PARTS,type ChatTextOptions } from './chat-pacing';
+import { normalizeBubbleText, normalizeChatResponse, normalizeChatParagraphBoundaries, normalizeChatQuotationEscapes, mergeReplyParts, joinReplyText, MAX_REPLY_PARTS,type ChatTextOptions } from './chat-pacing';
 import { stripRoleplayActions } from './ai/text';
 
 /** Explicit separators keep already-visible text in the same bubble as it grows. */
 export function streamedReplyParts(raw: string, final = false, preservePublished = false,options:ChatTextOptions={}): string[] {
   let text = raw;
+  // Fence labels and standalone formatting prefixes are not reply正文.
+  if (/^\s*(?:`{1,3}[a-zA-Z]*|[*_#]+|\[)\s*$/.test(text)) return [];
   if (/^\s*(?:```(?:json)?\s*)?\{/.test(text)) {
     const candidate = text.replace(/^\s*```(?:json)?\s*/, '').replace(/\s*```\s*$/, '');
     try {
@@ -41,10 +43,9 @@ export class ChatReplyStream {
   private snapshot: string[] = [];
   private listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | undefined;
-  private revealTimer: ReturnType<typeof setTimeout> | undefined;
-  private lastRevealAt = 0;
   private final = false;
   private stopped = false;
+  private publicationPaused = false;
   private drained = new Set<() => void>();
   private options:ChatTextOptions={};
   get textOptions():ChatTextOptions { return {...this.options}; }
@@ -52,13 +53,20 @@ export class ChatReplyStream {
   configure(options:ChatTextOptions) { if(!this.raw&&!this.published)this.options={...options}; }
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getSnapshot = () => this.snapshot;
+  setPublicationPaused(paused:boolean){
+    if(this.stopped)return;
+    this.publicationPaused=paused;
+    if(paused){clearTimeout(this.timer);this.timer=undefined;}
+    else if(this.raw||this.final)this.flush();
+  }
   push = (raw: string) => {
     if (this.stopped || this.final) return;
     this.raw = raw;
+    if(this.publicationPaused)return;
     if (!this.published) this.flush();
     else if (!this.timer) this.timer = setTimeout(() => this.flush(), 32);
   };
-  /** Completion waits for queued bubbles: saving must not bypass their cadence. */
+  /** A complete response is displayed immediately; no simulated typing queue. */
   finish(raw = this.raw): Promise<void> {
     if (this.stopped) return Promise.resolve();
     this.raw = raw;
@@ -70,7 +78,6 @@ export class ChatReplyStream {
     if (this.stopped) return;
     this.stopped = true;
     clearTimeout(this.timer); this.timer = undefined;
-    clearTimeout(this.revealTimer); this.revealTimer = undefined;
     this.resolveDrain();
   }
   private resolveDrain() {
@@ -78,28 +85,16 @@ export class ChatReplyStream {
   }
   private flush() {
     clearTimeout(this.timer); this.timer = undefined;
-    clearTimeout(this.revealTimer); this.revealTimer = undefined;
-    if (this.stopped) return;
+    if (this.stopped||this.publicationPaused) return;
     const parts = streamedReplyParts(this.raw, this.final, true,this.options);
-    let visible = Math.min(this.snapshot.length, parts.length);
-    const now = performance.now();
-    // Credit elapsed generation time since the previous bubble appeared. Even
-    // a complete multi-part response can reveal at most one new row per tick.
-    if (parts.length > visible && (!visible || now - this.lastRevealAt >= followUpDelay(parts[visible - 1]))) {
-      visible++;
-      this.lastRevealAt = now;
-    }
-    const next = parts.slice(0, visible);
+    const next = parts;
     if (next.length !== this.snapshot.length || next.some((part, index) => part !== this.snapshot[index])) {
       this.snapshot = next;
       if (next.length && !this.published) { this.published = true; this.firstTextAt=Date.now(); this.onFirstText(); }
       this.listeners.forEach(listener => listener());
     }
     if (this.stopped) return;
-    if (visible < parts.length) {
-      const remaining = followUpDelay(parts[visible - 1]) - (performance.now() - this.lastRevealAt);
-      this.revealTimer = setTimeout(() => this.flush(), Math.max(1, Math.ceil(remaining)));
-    } else if (this.final) this.resolveDrain();
+    if (this.final) this.resolveDrain();
   }
   dispose() { this.stop(); this.listeners.clear(); }
 }

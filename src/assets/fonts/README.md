@@ -1,5 +1,12 @@
 # Local UI typeface
 
+The header signature uses an Allura subset containing only `VirtuGene`, shipped as
+`virtugene-wordmark.woff2` (`VG Signature`). Source:
+[Google Fonts Allura](https://github.com/google/fonts/tree/main/ofl/allura), downloaded 2026-10-25.
+`OFL-Allura.txt` preserves its SIL Open Font License. It is only a brand wordmark;
+body and control typography continue to use VG Sans. The full source font is retained
+in the local layout evidence, and no external font request is made at runtime.
+
 Typeface: Noto Sans SC variable, distributed as the CSS family `VG Sans`.
 
 Source: [Google Fonts — Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc), downloaded on 2026-10-02. The upstream font is `NotoSansSC[wght].ttf`; its SHA-256 is `a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da`. The accompanying SIL Open Font License is preserved in `OFL-NotoSansSC.txt`.

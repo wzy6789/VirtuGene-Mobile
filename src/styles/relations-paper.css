@@ -1,0 +1,55 @@
+/* S05: readable relation list and current, source-checked explanations. */
+.vg-relations-page{padding:0 16px 24px;background:var(--bg);color:var(--text)}
+.vg-relations-header{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:8px;min-height:56px;margin-bottom:16px}
+.vg-relations-header button{display:grid;place-items:center;min-width:44px;min-height:44px;border-radius:12px;color:var(--text)}
+.vg-relations-header h1{font-size:max(18px,1.125rem);line-height:1.5;font-weight:500;text-align:center;overflow-wrap:anywhere}
+.vg-relations-intro,.vg-relations-note,.vg-relations-empty{font-size:max(13px,.8125rem);line-height:1.55;color:var(--text-secondary);overflow-wrap:anywhere}
+.vg-relations-section{margin-top:24px}
+.vg-relations-section>h2{margin:0 0 12px;font-size:max(18px,1.125rem);font-weight:500;line-height:1.5}
+.vg-relations-section>ul{display:grid;gap:12px}
+.vg-relations-section li>button{display:flex;align-items:center;gap:12px;width:100%;min-height:104px;padding:12px;border:1px solid var(--border);border-radius:16px;background:var(--bg-panel);color:var(--text);text-align:left;transition:background var(--vg-motion-fast) var(--vg-motion-standard)}
+.vg-relations-section li>button:active{background:var(--bg-surface)}
+.vg-relations-section li>button>svg{flex:none;color:var(--text-secondary)}
+.vg-relation-row-avatars{display:flex;flex:none;max-width:72px;align-items:center}
+.vg-relation-row-avatars>*{width:48px;height:48px;min-width:48px;border:1px solid var(--border)}
+.vg-relation-row-avatars>*+*{margin-left:-24px}
+.vg-relation-row-copy{flex:1;min-width:0;display:grid;gap:4px}
+.vg-relation-row-copy strong{font-size:max(16px,1rem);font-weight:500;line-height:1.5;overflow-wrap:anywhere}
+.vg-relation-row-copy>span,.vg-relation-row-copy>small{font-size:max(13px,.8125rem);line-height:1.55;color:var(--text-secondary);overflow-wrap:anywhere}
+.vg-relation-row-copy>span{color:var(--vg-accent)}
+.vg-relation-row-copy>small{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.vg-relations-map{margin-top:24px;border:1px solid var(--border);border-radius:16px;background:var(--bg-panel)}
+.vg-relations-map summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:64px;padding:12px;list-style:none;cursor:pointer}
+.vg-relations-map summary::-webkit-details-marker{display:none}
+.vg-relations-map summary>span{display:grid;gap:4px;min-width:0}
+.vg-relations-map strong{font-size:max(16px,1rem);font-weight:500;line-height:1.5}
+.vg-relations-map small,.vg-relations-diagram figcaption{font-size:max(13px,.8125rem);line-height:1.55;color:var(--text-secondary)}
+.vg-relations-diagram{margin:0;padding:0 12px 12px}
+.vg-relations-diagram svg{display:block;width:100%;height:140px}
+.vg-relations-note{margin:24px 0 0}
+.vg-relations-empty{padding:16px;border:1px solid var(--border);border-radius:16px;background:var(--bg-panel)}
+.vg-relations-empty h2{font-size:max(18px,1.125rem);color:var(--text);margin-bottom:12px}
+.vg-relations-empty button{min-height:48px;width:100%;margin-top:16px}
+.vg-relation-detail.vg-modal-panel{background:var(--bg);color:var(--text)}
+.vg-relation-detail .vg-modal-header{min-height:56px;padding:6px 16px;background:var(--bg);border-color:var(--border)}
+.vg-relation-detail .vg-modal-header h2{font-size:max(16px,1rem);font-weight:500}
+.vg-relation-detail-body{max-width:42rem;margin:auto;padding:24px;overflow-wrap:anywhere}
+.vg-relation-detail-identities{display:flex;gap:12px;margin-bottom:16px}
+.vg-relation-detail-identities>*{width:48px;height:48px;min-width:48px}
+.vg-relation-detail-body>h3{font-size:max(26px,1.625rem);line-height:1.35;font-weight:500}
+.vg-relation-level{margin-top:12px;color:var(--vg-accent);font-size:max(16px,1rem);line-height:1.6}
+.vg-relation-detail-body>section{margin-top:24px;padding-top:24px;border-top:1px solid var(--border)}
+.vg-relation-detail-body h4{font-size:max(16px,1rem);font-weight:500;line-height:1.5;margin-bottom:12px}
+.vg-relation-sub,.vg-relation-reason time{display:block;font-size:max(13px,.8125rem);line-height:1.55;color:var(--text-secondary)}
+.vg-relation-facets{display:grid;gap:12px}
+.vg-relation-facets>div{display:grid;grid-template-columns:4em minmax(0,1fr);gap:12px;font-size:max(16px,1rem);line-height:1.6}
+.vg-relation-facets dt{color:var(--text-secondary)}
+.vg-relation-facets dd{margin:0;color:var(--text)}
+.vg-relation-reasons{display:grid;gap:20px;margin:0;padding:0;list-style:none}
+.vg-relation-reason p,.vg-relation-record-links p{font-size:max(16px,1rem);line-height:1.75;margin:0 0 8px}
+.vg-relation-reason .vg-button{min-height:48px;justify-content:flex-start;padding:8px 0;white-space:normal;color:var(--vg-accent);font-size:max(14px,.875rem)}
+.vg-relation-record-links{margin:0 0 16px}
+.vg-relation-record-links button,.vg-relation-detail-body>section>.vg-button{min-height:48px;width:100%;font-size:max(15px,.9375rem);white-space:normal}
+@media(max-width:359px){.vg-relation-detail-body{padding:20px}.vg-relations-section li>button{gap:8px}.vg-relation-row-avatars{max-width:48px}.vg-relation-row-avatars>*+*{display:none}.vg-relation-facets>div{grid-template-columns:minmax(0,1fr);gap:4px}}
+@media(prefers-reduced-motion:reduce){.vg-relations-section li>button{transition:none}}
+html[data-vg-reduced-motion='true'] .vg-relations-section li>button{transition:none}

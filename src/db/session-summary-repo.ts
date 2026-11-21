@@ -1,5 +1,5 @@
 import { db, type Session } from './index';
-import { invalidateSessionSummaryMemory } from './memory-repo';
+import { invalidateSessionSummaryMemory } from './memory-invalidation';
 
 /** Invalidate a summary if any message that it may contain changes or disappears. */
 export async function invalidateSessionSummarySources(sessionId: string, messageIds: string[]): Promise<void> {
@@ -22,9 +22,10 @@ export async function invalidateSessionSummarySources(sessionId: string, message
     summarySourceMessageIds: _summarySourceMessageIds,
     summarySourceMessageRevisions: _summarySourceMessageRevisions,
     summarySourceMessageOffsets: _summarySourceMessageOffsets,
+    summaryCoveragePolicy: _summaryCoveragePolicy,
     summaryWitnessedBy: _summaryWitnessedBy,
     ...rest
   } = session;
-  await db.sessions.put(rest as Session);
+  await db.sessions.put({...rest,summaryRevision:(session.summaryRevision??0)+1} as Session);
   await invalidateSessionSummaryMemory(session.userId, session.id);
 }

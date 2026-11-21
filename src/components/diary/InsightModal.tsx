@@ -1,6 +1,6 @@
 import { useAiAvailability } from '../settings/useAiAvailability';
 import { useEffect, useMemo, useState } from 'react';
-import { Modal } from '../ui/Modal';
+import { DiaryToolModal, DiaryAiFeedback } from './DiaryToolModal';
 import { useAuthStore } from '../../store/auth-store';
 import { useDiaryStore } from '../../store/diary-store';
 import { ipc } from '../../lib/ipc-client';
@@ -56,14 +56,14 @@ export function InsightModal({ open, onClose }: Props) {
         .map((d) => `${d.date} · 心情 ${d.mood ?? 3} · ${d.content.length} 字`);
       const r = await ipc.diary.assist({ apiKey, mode: 'insight', text: rows.join('\n') });
       if (r.error || !r.text) {
-        setError('生成失败，请稍后重试');
+        setError(r.error || 'server:error');
       } else {
         const d = { text: r.text, count: withMood.length, generatedAt: Date.now() };
         setData(d);
         localStorage.setItem(insightKey(), JSON.stringify(d));
       }
-    } catch {
-      setError('生成失败，请稍后重试');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'server:error');
     } finally {
       setLoading(false);
     }
@@ -96,67 +96,59 @@ export function InsightModal({ open, onClose }: Props) {
   }, [diaries]);
 
   return (
-    <Modal open={open} onClose={onClose} title="📊 情绪周期洞察" width="max-w-xl" closeOnBackdrop={false}>
-      <div className="p-6 space-y-4">
+    <DiaryToolModal open={open} onClose={onClose} title="情绪周期洞察">
+      <div className="vg-diary-tool-content space-y-4">
         {/* 星期心情均值柱状（本地统计，无需 AI） */}
-        <div className="rounded-xl border border-line bg-panel/60 px-4 py-3">
-          <p className="text-[11px] tracking-[0.2em] text-gray-500 uppercase mb-2">星期心情均值</p>
-          <div className="flex items-end justify-between h-20 gap-2">
+        <div className="vg-diary-tool-reading rounded-xl px-4 py-3">
+          <p className="text-sm font-medium text-sub mb-3">星期心情均值</p>
+          <dl className="vg-diary-weekday-chart" aria-label="星期心情均值，满分5分">
             {weekdayStats.map(({ wd, avg, count }) => (
-              <div key={wd} className="flex flex-col items-center gap-1 flex-1">
-                <span className="text-[9px] text-gray-400 leading-none">{avg ? avg.toFixed(1) : '—'}</span>
-                <div
-                  className="w-full rounded-t transition-all"
-                  style={{
-                    height: avg ? `${Math.max(6, avg * 12)}px` : '4px',
-                    backgroundColor: avg
-                      ? avg >= 4 ? '#00CEC9' : avg >= 3 ? '#6C5CE7' : '#FB923C'
-                      : 'rgba(161,161,170,0.2)',
-                  }}
-                />
-                <span className="text-[9px] text-gray-500">周{WEEKDAY_LABEL[wd]}</span>
-                {count > 0 && <span className="text-[8px] text-gray-600">{count}篇</span>}
+              <div key={wd} className="vg-diary-weekday-row vg-diary-tool-caption text-sub">
+                <dt>周{WEEKDAY_LABEL[wd]}</dt>
+                <dd className="vg-diary-weekday-track" aria-hidden="true">
+                  <span style={{
+                    width: avg ? `${avg * 20}%` : '4%',
+                    backgroundColor: avg ? avg >= 4 ? '#00CEC9' : avg >= 3 ? '#6C5CE7' : '#FB923C' : 'var(--text-secondary)',
+                  }} />
+                </dd>
+                <dd className="tabular-nums"><span className="sr-only">均值 </span>{avg ? avg.toFixed(1) : '—'}</dd>
+                <dd className="tabular-nums">{count}篇</dd>
               </div>
             ))}
-          </div>
+          </dl>
         </div>
 
         {loading ? (
           <div className="py-8 text-center">
-            <svg className="animate-spin w-6 h-6 mx-auto mb-3 text-gene-purple" viewBox="0 0 16 16" fill="none">
+            <svg className="animate-spin w-6 h-6 mx-auto mb-3 text-[color:var(--vg-accent)]" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="20" />
             </svg>
             <p className="text-sm text-gray-500">正在分析你的情绪规律…</p>
           </div>
-        ) : error ? (
-          <div className="py-8 text-center">
-            <p className="text-sm text-red-400 mb-3">{error}</p>
-            <button onClick={() => void generate()} className="px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] transition-colors">
-              重试
-            </button>
-          </div>
+        ) : error || (!hasAiAccess && !data) ? (
+          <DiaryAiFeedback error={error} onRetry={() => void generate()} />
         ) : data ? (
           <>
-            <div className="rounded-xl border border-line bg-panel/60 px-4 py-3">
-              <p className="text-[11px] tracking-[0.2em] text-gray-500 uppercase mb-2">AI 洞察</p>
+            <div className="vg-diary-tool-reading rounded-xl px-4 py-3">
+              <p className="text-sm font-medium text-sub mb-2">AI 洞察</p>
               <p className="text-sm text-sub leading-relaxed whitespace-pre-wrap">{data.text}</p>
             </div>
-            <div className="flex items-center justify-between text-[10px] text-gray-400">
+            <div className="flex items-center justify-between flex-wrap gap-2 vg-diary-tool-caption text-sub">
               <span>基于 {data.count} 篇日记</span>
-              <button onClick={() => void generate()} disabled={loading} className="text-life-cyan hover:underline disabled:opacity-40">
-                ⟳ 重新分析
+              <button onClick={() => void generate()} disabled={loading} className="vg-button vg-button-ghost">
+                重新分析
               </button>
             </div>
           </>
         ) : (
           <div className="py-8 text-center">
-            <p className="text-sm text-gray-500 mb-3">写几篇日记后，AI 会帮你找出情绪规律</p>
-            <button onClick={() => void generate()} className="px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] transition-colors">
-              ✨ 开始分析
+            <p className="text-sm text-gray-500 mb-3">暂无可分析的日记</p>
+            <button onClick={() => void generate()} className="vg-button vg-button-primary">
+              开始分析
             </button>
           </div>
         )}
       </div>
-    </Modal>
+    </DiaryToolModal>
   );
 }

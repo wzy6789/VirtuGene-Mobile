@@ -1,3 +1,4 @@
+import {parseScopedDeclaration,isHistoricalResidence} from './chat-scoped-facts';
 /** Shared topics or “其实” do not prove that an earlier fact is false.
  * Automatic retirement accepts direct contradictions only; more complex
  * changes remain sourced instead of silently deleting a possibly valid fact.
@@ -12,6 +13,18 @@ function simpleAssertion(content: string): { predicate: string; object: string; 
 }
 
 export function contradictsSimpleMemory(previous: string, replacement: string): boolean {
+  const scopedOld=parseScopedDeclaration(previous),scopedNext=parseScopedDeclaration(replacement);
+  if(scopedOld||scopedNext){
+    if(scopedNext?.kind==='residence'&&!isHistoricalResidence(scopedNext.period)&&scopedNext.explicitSelf){
+      const oldText=previous.normalize('NFKC').trim().replace(/[。.!！]+$/u,'');
+      const oldPlace=scopedOld?.kind==='residence'&&!isHistoricalResidence(scopedOld.period)&&scopedOld.explicitSelf?scopedOld.place
+        :!/[吗么？?的]|朋友|同事|或者|还是|可能|如果|假如/u.test(oldText)?oldText.match(/^我住(?:在)?([\p{L}\p{N}]{1,30})$/u)?.[1]:undefined;
+      return !!oldPlace&&oldPlace!==scopedNext.place;
+    }
+    return !!scopedOld&&!!scopedNext&&scopedOld.kind==='preference'&&scopedNext.kind==='preference'
+      &&scopedOld.explicitSelf&&scopedNext.explicitSelf&&scopedOld.period===scopedNext.period&&!!scopedOld.object&&scopedOld.object===scopedNext.object
+      &&scopedOld.stance?.startsWith('不')!==scopedNext.stance?.startsWith('不');
+  }
   const old = simpleAssertion(previous), next = simpleAssertion(replacement);
   return Boolean(old && next && old.predicate === next.predicate && old.object === next.object && old.negative !== next.negative);
 }

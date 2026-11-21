@@ -183,6 +183,7 @@ async function guardWorldBeatOnce(params: GuardParams, privateActorCharacterId?:
 
   try {
     const res = await worldChat({
+      sourceContext:ctx,
       messages: [
         { role: 'system', content: guardSystem },
         { role: 'user', content: body },

@@ -1,10 +1,18 @@
 .vg-soul-orb {
-  --orb-highlight:#d3c5ff; --orb-body:#8069dd; --orb-depth:#242945;
-  --orb-cyan:var(--vg-cyan,#7fe0db); --orb-face:#f5f4ff; --orb-mouth:#161932; --orb-blush:#f5a6c7; --orb-shadow:rgba(3,7,20,.25);
+  --orb-highlight:#c0b6ce; --orb-body:#897b9c; --orb-depth:#403a52;
+  --orb-cyan:var(--vg-cyan,#b0c1ce); --orb-face:#f5f4ff; --orb-mouth:#161932; --orb-blush:#f5a6c7; --orb-shadow:rgba(3,7,20,.25);
+  /* Host/role/user colors remain the inputs; material light is resolved once here. */
+  --orb-material-depth:color-mix(in srgb,var(--orb-depth) 70%,#292d3a);
+  --orb-material-body:color-mix(in srgb,var(--orb-body) 70%,var(--orb-material-depth));
+  --orb-material-highlight:color-mix(in srgb,var(--orb-highlight) 72%,var(--orb-body));
+  --orb-material-rim:color-mix(in srgb,var(--orb-cyan) 40%,var(--orb-material-body));
   display:inline-flex;position:relative;align-items:center;justify-content:center;flex-shrink:0;vertical-align:middle;
   -webkit-tap-highlight-color:transparent;user-select:none;contain:layout paint;
 }
 .vg-soul-orb svg {width:100%;height:100%;overflow:hidden;pointer-events:none;}
+.vg-soul-orb .vg-orb-core{opacity:.18}
+.vg-soul-orb[data-orb-context='voice']{--orb-material-body:color-mix(in srgb,var(--orb-body) 50%,var(--orb-material-depth))}
+.vg-soul-orb[data-orb-context='voice'] .vg-orb-core{opacity:.5}
 .vg-soul-orb[data-orb-interactive='true'] {touch-action:pan-y;}
 .vg-soul-orb-fallback {position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden;}
 .vg-soul-orb-button {display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;border:0;border-radius:50%;background:transparent;touch-action:pan-y;cursor:pointer;-webkit-tap-highlight-color:transparent;}

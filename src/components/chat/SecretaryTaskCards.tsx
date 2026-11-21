@@ -58,7 +58,7 @@ function TodoSteps({ userId, todoId, date }: { userId: string; todoId: string; d
     <p className="text-xs font-medium text-ink">当前步骤进度 {done}/{todo.subtasks.length}{todo.status === 'cancelled' ? ' · 待办已取消' : ''}</p>
     <progress aria-label="待办步骤完成进度" max={todo.subtasks.length} value={done} className="mt-2 h-2 w-full accent-purple-500" />
     <ol className="mt-2 space-y-2">{todo.subtasks.slice(0, 20).map((step, i) => <li key={step.id} className="flex gap-2 text-xs text-ink"><span aria-hidden="true">{step.completed ? '✓' : '○'}</span><span className={`break-words ${step.completed ? 'line-through text-sub' : ''}`}>{i + 1}. {step.title}</span></li>)}</ol>
-    <p className="mt-3 text-xs leading-relaxed text-sub">{todo.recurrence.kind !== 'none' ? '重复系列的步骤请到待办页管理。' : '接着说“第一步完成了”或“恢复第二步”；步骤全部完成后，整件待办仍由你决定是否划掉。'}</p>
+    <p className="mt-3 text-xs leading-relaxed text-sub">{todo.recurrence.kind !== 'none' ? '重复系列的步骤请到待办页管理。' : '步骤全部完成后，仍需单独完成整件待办。'}</p>
   </div>;
 }
 import { SecretaryIcon, type SecretaryIconName } from '../secretary/SecretaryIcon';
@@ -102,9 +102,23 @@ function SearchRecords({ task, result }: { task: SecretaryTask; result: Secretar
 }
 
 function ResultCard({ task, result, index }: { task: SecretaryTask; result: SecretaryResult; index: number }) {
+  const [allScheduleFields,setAllScheduleFields]=useState(false);
   const [text, setText] = useState(result.action.content ?? '');
   const [title, setTitle] = useState(result.action.title ?? '');
   const [date, setDate] = useState(result.action.date ?? '');
+  const held=task.pendingContext;
+  const missingSchedule=held?.state==='waiting'&&held.resultIndex===index&&held.knownAction.kind===result.action.kind
+    &&held.awaitingFields.some(field=>['title','date','time','intervalDays'].includes(field))?new Set<string>(held.awaitingFields):undefined;
+  // awaitingFields may describe the next question only (e.g. intervalDays).
+  // Never hide other empty inputs that this form requires to submit. Base this
+  // on the saved action so an input does not disappear while it is being filled.
+  const requiredScheduleMissing=new Set([
+    ...(!result.action.date?['date']:[]),
+    ...(result.action.kind==='todo.create'&&!result.action.title?.trim()?['title']:[]),
+    ...((result.action.reminder||result.action.reminderMinutes?.length)&&!result.action.time?['time']:[]),
+    ...(result.action.recurrence==='interval'&&(!Number.isInteger(result.action.intervalDays)||Number(result.action.intervalDays)<1||Number(result.action.intervalDays)>365)?['intervalDays']:[]),
+  ]);
+  const showScheduleField=(field:string)=>allScheduleFields||!missingSchedule||missingSchedule.has(field)||requiredScheduleMissing.has(field);
   const [time, setTime] = useState(result.action.time ?? '');
   const [intervalDays, setIntervalDays] = useState(String(result.action.intervalDays ?? ''));
   const [visibility, setVisibility] = useState(() => result.action.visibility ?? loadMomentsPreferences(task.userId).audience.mode);
@@ -154,7 +168,7 @@ function ResultCard({ task, result, index }: { task: SecretaryTask; result: Secr
     useUIStore.setState({ chatFromList: false, chatFromCharacters: false, mobileTab: 'world', activeView: destination,
       lifeRecordFocus: record ? { userId: task.userId, kind: destination, id: record.id, date: result.targetDate ?? ('date' in record ? record.date : 'dueDate' in record ? record.dueDate : undefined) } : null });
   };
-  const icon: SecretaryIconName = result.action.kind.startsWith('diary.') ? 'diary' : isMoment ? 'moment' : result.action.kind === 'app.open' ? 'chevron' : 'todo';
+  const icon: SecretaryIconName = result.action.kind.startsWith('diary.') ? 'diary' : isMoment ? 'moment' : result.action.kind === 'app.open' ? 'folder' : 'todo';
   const compact = result.status === 'done' && !lockedDiary && !result.todoRows && !result.recordRows;
   return <section aria-label={`${result.label} ${secretaryResultStatus(result)}`} data-status={result.status} className={`vg-secretary-ui vg-secretary-result ${compact ? 'is-compact' : ''} rounded-2xl border border-line bg-panel p-4`}>
     <div className="vg-secretary-result-heading flex items-center justify-between gap-3"><h3 className="flex min-w-0 items-center gap-2 text-sm font-medium text-ink"><SecretaryIcon name={icon} size={17} className="shrink-0" /><span className="break-words min-w-0">{compact ? result.action.title || result.label : result.label}</span></h3><span key={result.status} className="vg-secretary-result-status shrink-0 rounded-full px-2 py-1 text-xs">{result.status === 'done' && <SecretaryIcon name="check" size={12} />}{secretaryResultStatus(result)}</span></div>
@@ -182,11 +196,13 @@ function ResultCard({ task, result, index }: { task: SecretaryTask; result: Secr
     {result.stepCandidates && !lockedDiary && !inactive && <div className="mt-3 space-y-2">{result.stepCandidates.map(step => <button key={step.index} type="button" disabled={busy} onClick={() => void proceed({ stepIndex: step.index })} className="block min-h-11 w-full rounded-xl border border-line px-3 py-2 text-left text-sm text-ink">第{step.index}步 · {step.title}</button>)}</div>}
     {result.action.kind === 'todo.create' && result.status === 'needs-input' && result.action.steps?.length && result.action.recurrence && result.action.recurrence !== 'none' && !inactive && <button type="button" disabled={busy} onClick={() => void proceed({ recurrence: 'none' })} className="mt-3 min-h-11 rounded-xl border border-line px-3 text-xs text-ink">改为单次待办，保留步骤</button>}
     {result.status === 'needs-input' && !task.dailyReview && !inactive && (['todo.create', 'todo.reschedule'].includes(result.action.kind) || result.action.kind === 'todo.update' && /日期|时间|哪一天|重复间隔/u.test(result.detail ?? '')) && !result.candidates && <div className="mt-3 flex flex-wrap gap-2">
-      {result.action.kind === 'todo.create' && <input aria-label="待办名称" placeholder="要做什么？" value={title} onChange={e => setTitle(e.target.value)} maxLength={120} className="w-full min-h-11 rounded-lg border border-line bg-surface px-3 text-sm text-ink" />}
-      <input aria-label="待办日期" type="date" value={date} onChange={e => setDate(e.target.value)} className="min-w-0 min-h-11 flex-1 rounded-lg border border-line bg-surface px-2 text-sm text-ink" />
-      <input aria-label="待办时间" type="time" value={time} onChange={e => setTime(e.target.value)} className="min-w-0 min-h-11 flex-1 rounded-lg border border-line bg-surface px-2 text-sm text-ink" />
-      {result.action.recurrence === 'interval' && <label className="flex w-full items-center gap-2 text-xs text-sub">每隔<input aria-label="重复间隔天数" type="number" min={1} max={365} value={intervalDays} onChange={e => setIntervalDays(e.target.value)} className="min-h-11 w-20 rounded-lg border border-line bg-surface px-2 text-sm text-ink" />天重复</label>}
+      {!showScheduleField('date')&&date&&<p aria-label="已知待办日期" className="w-full text-sm text-sub">{date}{!showScheduleField('time')&&time?' · '+time:''}</p>}
+      {result.action.kind === 'todo.create' && showScheduleField('title') && <input aria-label="待办名称" placeholder="要做什么？" value={title} onChange={e => setTitle(e.target.value)} maxLength={120} className="w-full min-h-11 rounded-lg border border-line bg-surface px-3 text-sm text-ink" />}
+      {showScheduleField('date')&&<input aria-label="待办日期" type="date" value={date} onChange={e => setDate(e.target.value)} className="min-w-0 min-h-11 flex-1 rounded-lg border border-line bg-surface px-2 text-sm text-ink" />}
+      {showScheduleField('time')&&<input aria-label="待办时间" type="time" value={time} onChange={e => setTime(e.target.value)} className="min-w-0 min-h-11 flex-1 rounded-lg border border-line bg-surface px-2 text-sm text-ink" />}
+      {result.action.recurrence === 'interval'&&showScheduleField('intervalDays') && <label className="flex w-full items-center gap-2 text-xs text-sub">每隔<input aria-label="重复间隔天数" type="number" min={1} max={365} value={intervalDays} onChange={e => setIntervalDays(e.target.value)} className="min-h-11 w-20 rounded-lg border border-line bg-surface px-2 text-sm text-ink" />天重复</label>}
       <button disabled={busy || !date || result.action.kind === 'todo.create' && !title.trim() || !!(result.action.reminder || result.action.reminderMinutes?.length) && !time || result.action.recurrence === 'interval' && (!Number.isInteger(Number(intervalDays)) || Number(intervalDays) < 1 || Number(intervalDays) > 365)} onClick={() => void proceed({ date, ...(result.action.kind === 'todo.create' ? { title } : {}), ...(time ? { time } : {}), ...(result.action.recurrence === 'interval' ? { intervalDays: Number(intervalDays) } : {}) })} className="min-h-11 rounded-xl bg-gene-purple px-3 text-xs text-white">{result.action.kind === 'todo.create' ? '补充并创建' : '保存新安排'}</button>
+      {missingSchedule&&<button type="button" aria-expanded={allScheduleFields} disabled={busy} onClick={()=>setAllScheduleFields(value=>!value)} className="min-h-11 rounded-xl px-3 text-sm text-sub">{allScheduleFields?'收起其他信息':'修改其他信息'}</button>}
     </div>}
     {result.status === 'needs-input' && result.action.kind === 'app.open' && !inactive && <div className="mt-3 flex flex-wrap gap-2">{Object.entries(SECRETARY_DESTINATIONS).map(([destination, label]) => <button key={destination} type="button" disabled={busy} onClick={() => void proceed({ destination: destination as SecretaryAction['destination'] })} className="min-h-11 rounded-xl border border-line px-3 text-xs text-ink">{label}</button>)}</div>}
     {result.todoRows && <ol className="mt-3 space-y-2">{result.todoRows.map((r, rowIndex) => <li key={`${r.id}:${r.date}`} className="flex items-start gap-2 text-sm text-ink"><span>{rowIndex + 1}.</span><span>{r.completed ? '✓' : '○'}</span><span className={r.completed ? 'line-through text-sub' : ''}>{r.title}<small className="block text-xs text-sub">{r.date === '9999-12-31' ? '未安排日期' : r.date}{r.time ? ' ' + r.time : ''}{r.stepsTotal ? ` · 步骤 ${r.stepsDone ?? 0}/${r.stepsTotal}` : ''}</small></span></li>)}</ol>}

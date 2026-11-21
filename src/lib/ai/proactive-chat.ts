@@ -8,6 +8,7 @@ import { buildRelationshipToneContext } from '../chat-context';
 import type { Character } from '../../db';
 import {luXueQiRelationshipForTurn} from '../lu-xue-qi-runtime';
 import {guYueNaRelationshipForTurn} from '../gu-yue-na-runtime';
+import {replyPlanSection,type ReplyPlan} from '../chat/topic-candidates';
 
 const PROACTIVE_INSTRUCTION =
   '你是下面描述的角色。请基于你的性格，主动发起一次自然的对话。是否聊过、距上次联系多久只依据所给对话与时间信息；没有记录时不预设失联或久别。\n\n' +
@@ -23,6 +24,7 @@ const PROACTIVE_INSTRUCTION =
   '- 直接输出消息正文，不要任何前缀或后缀';
 
 export interface ProactiveMessageParams {
+  replyPlan?:ReplyPlan;
   apiKey: string;
   systemPrompt: string;
   lastMessages: { role: string; content: string }[];
@@ -42,6 +44,12 @@ export interface ProactiveMessageParams {
   catchphrase?: string;
   signal?: AbortSignal;
   voiceCard?: string;
+  /** Owned entry context; elapsed time never implies unread or abandonment. */
+  trigger?: 'return-visit' | 'invited';
+  /** Only an explicit user question may open recorded personal-life sharing. */
+  shareOwnLife?: boolean;
+  /** Fresh selected-source checks immediately before every actual attempt. */
+  beforeRequest?: () => Promise<void>;
 }
 
 function buildTimeContext(lastMessageAt?: number): string {
@@ -99,7 +107,8 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
       `\n\n[你可以关心的事]\n你记得 TA 说过：${params.followUp.slice(0, 120)}。` +
       '若这次合适，可以自然地关心一下进展（一句即可）；如果上次你已经问过同样的事，就别重复追问。';
   }
-  const lifeHints = [...new Set((params.lifeHints ?? []).map((hint) => hint.trim()).filter((hint) => hint.length >= 3))].slice(0, 3);
+  const lifeHints = params.shareOwnLife === true
+    ? [...new Set((params.lifeHints ?? []).map((hint) => hint.trim()).filter((hint) => hint.length >= 3))].slice(0, 3) : [];
   if (lifeHints.length > 0) {
     systemContent +=
       `\n\n[你自己的近期生活线]\n${lifeHints.map((hint) => `- ${hint.slice(0, 120)}`).join('\n')}\n` +
@@ -113,21 +122,29 @@ export async function generateProactiveMessage(params: ProactiveMessageParams): 
       ? `（现在是早晨，请以${characterName}的身份发一条早安问候）`
       : params.kind === 'night'
         ? `（现在是夜晚，请以${characterName}的身份发一条晚安问候）`
-        : `（用户已有一段时间未读消息）请以${characterName}的身份，主动发一条消息过来。`;
+        : params.trigger === 'invited'
+          ? `用户邀请你选一个话题。以${characterName}的口吻，从有依据的线索选一件说；没有合适内容就留空，不编新经历。`
+          : `用户重新进入当前聊天。以${characterName}的口吻给一个低负担的开场；不推断未读、失联、缺席原因，不追问已结束或暂停的事，没有合适内容就留空。`;
 
   const messages = [
     { role: 'system', content: systemContent },
     { role: 'user', content: userPrompt },
   ];
 
-  messages[0].content = withChatMessagingPolicy(messages[0].content + (params.voiceCard ? '\n\n' + params.voiceCard : ''));
+  messages[0].content = withChatMessagingPolicy(messages[0].content + '\n\n'+replyPlanSection(params.replyPlan)+(params.voiceCard ? '\n\n' + params.voiceCard : ''));
   const recentReplies = lastMessages.filter(m => m.role === 'assistant').map(m => m.content);
   for (let attempt = 0; attempt < 2; attempt++) {
     if (params.signal?.aborted || (useAuthStore.getState().userId ?? '') !== owner) return '';
     const result = await taskChat({ apiKey, messages, maxTokens: 300, temperature: 1,
-      disableThinking: true, timeoutMs: 30_000, signal: params.signal });
+      disableThinking: true, timeoutMs: 30_000, signal: params.signal, beforeRequest: params.beforeRequest });
     if (params.signal?.aborted || (useAuthStore.getState().userId ?? '') !== owner) return '';
-    const inspected = inspectChatOutput(result.content, { mode:'proactive', recentReplies, catchphrase:params.catchphrase,persona:params.systemPrompt,independentCharacterRecords:lifeHints });
+    const delegatesAgain=params.replyPlan?.kind==='discovery'&&/^(?:这会儿|现在|今天)?(?:你)?(?:想|想不想|要不要|要不|我们要不要)[^。！？!?]{0,30}(?:聊|说)[^。！？!?]{0,20}[？?]?$/u.test(result.content.trim());
+    if(result.truncated||delegatesAgain){
+      if(attempt===1)recordQualityEvent(owner,{mode:'proactive',issue:result.truncated?'incomplete-output':'topic-delegation',retries:1,blocked:true,streamed:false,durationMs:performance.now()-started});
+      messages[1].content=userPrompt+'\n'+(result.truncated?'上一稿未完整生成。本次说一段完整短话，不能沿用未完成的结尾。':'话题已经选好，直接说其中一点看法，不能只问对方想不想聊。');
+      continue;
+    }
+    const inspected = inspectChatOutput(result.content, { mode:'proactive', recentReplies,recentUserMessages:lastMessages.filter(message=>message.role==='user').map(message=>message.content),catchphrase:params.catchphrase,persona:params.systemPrompt,independentCharacterRecords:lifeHints });
     if (inspected.check.ok) {recordQualityEvent(owner,{mode:'proactive',retries:attempt,blocked:false,streamed:false,durationMs:performance.now()-started});return inspected.content;}
     if(attempt === 1) recordQualityEvent(owner,{mode:'proactive',issue:inspected.check.issue,retries:1,blocked:true,streamed:false,durationMs:performance.now()-started});
     messages[1].content = userPrompt + '\n' + inspected.check.retryHint;

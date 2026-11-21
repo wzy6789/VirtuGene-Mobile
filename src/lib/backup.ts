@@ -155,7 +155,16 @@ export async function createBackup(password: string): Promise<string> {
   };
 
   // 写共享存储（Download/VirtuGeneBackup/，卸载 App 不丢）
-  await Filesystem.mkdir({ path: BACKUP_DIR, directory: Directory.Documents, recursive: true });
+  try {
+    await Filesystem.mkdir({ path: BACKUP_DIR, directory: Directory.Documents, recursive: true });
+  } catch (error) {
+    // Android rejects mkdir even with recursive:true when the directory exists.
+    // Only accept a verified directory; keep file conflicts/permission failures visible.
+    let existing;
+    try { existing = await Filesystem.stat({ path: BACKUP_DIR, directory: Directory.Documents }); }
+    catch { throw error; }
+    if (existing.type !== 'directory') throw error;
+  }
   const path = `${BACKUP_DIR}/${BACKUP_FILE}`;
   await Filesystem.writeFile({
     path,

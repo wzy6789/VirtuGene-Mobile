@@ -1,0 +1,32 @@
+{
+  "file": "orbit-window.webp",
+  "component": "WorldConstellation scoped panorama",
+  "sourceFile": ".tmp-preview/stage2-ui-20261018/S03-A/asset-source/orbit-window.png",
+  "sourceSha256": "8a2fdc3382163a2b65a9788c0ae5311b93a7c5baed6a6f7a8f2bca2e93988543",
+  "sha256": "54fac32e557e35d3b6d285161279ef4a3a0f11bd2b9f33be9e8ee9d783251642",
+  "dimensions": [
+    1290,
+    645
+  ],
+  "bytes": 138974,
+  "format": "WebP",
+  "alpha": false,
+  "colorSpace": "sRGB",
+  "lightDirection": "upper-left",
+  "composition": "planet on right; left low-contrast orbital arc; no baked UI",
+  "cropSafeArea": {
+    "top": 0.12,
+    "bottom": 0.12,
+    "objectPosition": "center center"
+  },
+  "cssSize": "350x200 at390 viewport; 288x140 at320x640",
+  "decodedRgbaBytes": 3328200,
+  "source": "Built-in image_gen generated for this task; original retained outside shipping assets",
+  "imageModel": "未确认",
+  "imageTokenAndCost": "未确认",
+  "fallback": "existing mineral-world.webp plus real DOM scene controls",
+  "export": "resize and PNG toWebP only; no scripted repaint",
+  "prompt": "Use case: stylized-concept. Standalone final orbital panorama,2:1,1290x645 output intent. Graphite navy#10151D, large finely eroded slate/lavender mineral planet on RIGHT(center82%,55%), single upper-left soft silver light, left40%quiet low-contrast space and fine etched orbital arcs. No moons/debris clutter, no UI/text/numbers/buttons/avatars/navigation/logo/watermark. Reference only palette/mineral material of stage2 reference; all controls remain real DOM.",
+  "promptRecordType": "Concise saved brief; full exact generation requests remain in tool conversation",
+  "referenceConcept": "../../../../.tmp-preview/stage2-ui-20261018/S03-A/concept/starfield-reference.png"
+}

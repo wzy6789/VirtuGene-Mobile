@@ -1,10 +1,12 @@
 import { ipc } from '../../lib/ipc-client';
+import {lazy, Suspense, useState} from 'react';
+const SettingsPanel=lazy(()=>import('../settings/SettingsPanel').then(module=>({default:module.SettingsPanel})));
 
 export type ChatError = 'auth:invalid_key' | 'billing:insufficient' | 'rate:limited' | 'server:error' | 'timeout' | null;
 
 const ERROR_MAP: Record<string, { text: string; action?: string; link?: string }> = {
   'auth:invalid_key': {
-    text: '基因序列验证失败，请检查 API Key',
+    text: '连接验证失败，请检查 API 密钥',
     action: '前往设置',
   },
   'billing:insufficient': {
@@ -28,25 +30,26 @@ interface Props {
 }
 
 export function BalanceBanner({ error }: Props) {
+  const [settingsOpen,setSettingsOpen]=useState(false);
   if (!error) return null;
 
   const info = ERROR_MAP[error] ?? ERROR_MAP['server:error'];
 
   return (
-    <div className="mx-4 mb-2 px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-between text-sm">
-      <span className="text-red-400 text-xs">{info.text}</span>
+    <><div role="alert" className="vg-chat-error-notice">
+      <span>{info.text}</span>
       {info.action && (
         <button
           onClick={() => {
             if (info.link) {
               ipc.shell.open(info.link);
-            }
+            } else setSettingsOpen(true);
           }}
-          className="shrink-0 ml-3 text-xs text-life-cyan hover:underline"
+          className="shrink-0"
         >
           {info.action}
         </button>
       )}
-    </div>
+    </div>{settingsOpen&&<Suspense fallback={null}><SettingsPanel open initialPage="connection" onClose={()=>setSettingsOpen(false)}/></Suspense>}</>
   );
 }

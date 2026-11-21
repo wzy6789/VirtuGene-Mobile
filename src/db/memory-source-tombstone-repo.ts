@@ -70,9 +70,19 @@ export const memorySourceTombstoneRepo = {
   },
 
   async suppressedMessages(userId: string, characterId: string): Promise<Set<string>> {
-    const rows = await db.memorySourceTombstones.where('userId').equals(userId)
-      .filter(row => row.characterId === characterId).toArray();
+    const rows = await db.memorySourceTombstones.where('[userId+characterId]')
+      .equals([userId, characterId]).toArray();
     return new Set(rows.flatMap(row => row.suppressedMessageIds ?? []));
+  },
+
+  /** Fresh validation of selected evidence, including non-message projections. */
+  async selectedSuppressedMessages(userId: string, characterId: string, messageIds: readonly string[]): Promise<Set<string>> {
+    const ids = [...new Set(messageIds.filter(id => !!id))];
+    if (!userId || !characterId || !ids.length) return new Set();
+    const wanted = new Set(ids);
+    const rows = await db.memorySourceTombstones.where('suppressedMessageIds').anyOf(ids).distinct().toArray();
+    return new Set(rows.filter(row => row.userId === userId && row.characterId === characterId)
+      .flatMap(row => (row.suppressedMessageIds ?? []).filter(id => wanted.has(id))));
   },
 
   async blocksImport(input: {

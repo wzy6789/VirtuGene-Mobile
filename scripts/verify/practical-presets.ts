@@ -1,6 +1,7 @@
 import { db, type Character, type Session, type Message, type MemoryItem } from '../../src/db';
 import { initSeedCharacters } from '../../src/lib/seed-init';
 import { PRACTICAL_PRESETS } from '../../src/lib/practical-presets';
+import { avatarImageSrc } from '../../src/lib/avatar';
 const report=window.fetch.bind(window);let count=0,calls=0;
 function check(v:unknown,label:string){if(!v)throw Error(label);count++;}
 async function run(){
@@ -14,7 +15,7 @@ async function run(){
  await initSeedCharacters();
  for(const preset of PRACTICAL_PRESETS){
   const stored=await db.characters.get(preset.id);check(stored?.isPreset&&stored.name===preset.name,'preset registered '+preset.name);
-  const image=new Image();image.src=stored!.avatar;await image.decode();check(image.width===256&&image.height===256,'offline portrait decodes '+preset.name);
+  const image=new Image();image.src=avatarImageSrc(stored!.avatar)!;await image.decode();check(image.width===256&&image.height===256,'bundled offline portrait decodes '+preset.name);
   check(stored!.systemPrompt.length>700&&stored!.greeting.includes(preset.name),'complete persona '+preset.name);
  }
  await initSeedCharacters();

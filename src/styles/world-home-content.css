@@ -1,0 +1,68 @@
+/* Content hierarchy over the approved galaxy; scene material remains shared. */
+.vg-world-landing .vg-heading-detail:empty{display:none}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-assistant{margin-top:14px;padding:16px;border-radius:20px}
+.vg-world-home-sample .vg-world-assistant-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
+.vg-world-home-sample .vg-world-assistant-identity{flex:1;min-width:0}
+.vg-world-home-sample .vg-world-assistant-identity .vg-continuity-eyebrow{margin:0 0 3px;color:var(--text);font-size:15px;line-height:1.45;font-weight:600;letter-spacing:0}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-assistant h2{margin:0;color:var(--text-secondary);font-size:17px;line-height:1.45;font-weight:500;overflow-wrap:anywhere}
+.vg-world-home-sample .vg-world-assistant-portrait .vg-world-assistant-avatar{width:56px;height:60px;border-radius:15px}
+.vg-world-home-sample .vg-world-assistant-placeholder{width:56px;height:60px;border:1px solid var(--vg-world-card-edge);border-radius:15px}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-assistant .vg-world-resume-actions{display:flex;gap:8px;margin-top:12px}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-assistant .vg-world-resume-actions>button{flex:1 1 0;min-width:0;min-height:46px;padding:8px 10px;border-radius:12px;font-size:14px;line-height:1.45;white-space:normal}
+.vg-world-home-sample .vg-world-day-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:center;width:100%;min-height:48px;margin-top:13px;padding:11px 0 0;border-top:1px solid var(--vg-optic-edge,var(--border));background:transparent;color:var(--text-secondary);text-align:left;font:inherit;font-size:13px;line-height:1.5}
+.vg-world-home-sample .vg-world-day-summary>span{display:flex;align-items:baseline;justify-content:center;gap:6px;min-width:0}
+.vg-world-home-sample .vg-world-day-summary>span+span{border-left:1px solid var(--vg-optic-edge,var(--border))}
+.vg-world-home-sample .vg-world-day-summary strong{font-size:16px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-daily{grid-template-columns:repeat(2,minmax(0,1fr));gap:0;margin:16px 0;border-radius:18px}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-daily-entry{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;min-width:0;min-height:62px;padding:8px 14px;border:0;border-radius:0;background:transparent;text-align:left}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-daily-entry:nth-child(odd){border-right:1px solid var(--vg-optic-edge,var(--border))}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-daily-entry:nth-child(-n+2){border-bottom:1px solid var(--vg-optic-edge,var(--border))}
+.vg-world-home-sample .vg-world-daily-entry svg{flex:none;color:var(--text)}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-daily-entry strong{min-width:0;font-size:14px;line-height:1.5;font-weight:600;white-space:nowrap}
+.vg-world-home-sample .vg-world-daily-entry:focus-visible{outline:2px solid var(--vg-accent);outline-offset:-3px}
+.vg-world-resume-content{overflow:hidden}
+.vg-world-resume-content h2{overflow-wrap:anywhere}
+.vg-world-resume-content.is-compact{display:grid;grid-template-columns:minmax(0,1fr) 64px;gap:10px 14px;padding:18px;margin-top:14px;border-radius:20px}
+.vg-world-resume-content.is-compact .vg-world-resume-art{grid-column:2;grid-row:1;width:64px;height:76px;border-radius:12px;overflow:hidden;align-self:start;background:var(--bg-surface)}
+.vg-world-resume-art img{width:100%;height:100%;object-fit:cover;object-position:center}
+.vg-world-resume-content.is-compact .vg-continuity-eyebrow{grid-column:1;margin:0;font-size:12px}
+.vg-world-resume-content.is-compact h2{grid-column:1;grid-row:1;margin:0;font-size:20px;line-height:1.5;font-weight:500}
+.vg-world-resume-content.is-compact .vg-world-resume-place{display:flex;align-items:baseline;gap:6px;grid-column:1/-1;margin:0;font-size:13px;line-height:1.7}
+.vg-world-resume-content.is-compact .vg-world-resume-place>svg{flex-shrink:0;align-self:center}
+.vg-world-resume-content.is-compact .vg-world-cast{grid-column:1/-1;gap:8px 12px;margin-top:5px;flex-wrap:wrap;min-width:0}
+.vg-world-resume-content.is-compact .vg-world-cast-person{display:inline-flex;align-items:center;gap:6px}
+.vg-world-resume-content.is-compact .vg-world-cast-person>span{width:24px;height:24px;min-width:24px}
+.vg-world-resume-content.is-compact .vg-world-cast-person small{max-width:10em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.vg-world-resume-content.is-compact .vg-world-resume-actions{grid-column:1/-1;grid-row:2;align-self:center;margin:0}
+.vg-world-resume-content.is-compact .vg-world-resume-actions button{min-height:44px;padding:9px 12px;font-size:14px;white-space:nowrap}
+.vg-world-resume-content.is-compact .vg-continuity-error{grid-column:1/-1}
+.vg-world-home-sample .vg-world-recent{grid-template-columns:auto minmax(0,1fr)}
+.vg-world-day-summary:focus-visible{outline:2px solid var(--vg-accent);outline-offset:4px;border-radius:8px}
+@media(max-width:359px){.vg-world-resume-content.is-compact{padding:15px;gap:5px 8px}.vg-world-resume-content.is-compact .vg-world-resume-actions button{padding-inline:9px}.vg-world-scene-shell .vg-world-home-sample .vg-world-daily-entry{gap:8px;padding-inline:10px}}
+
+/* The last scene owns the main action; the assistant remains a compact utility. */
+.vg-world-scene-shell .vg-world-home-sample .vg-world-assistant{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:14px 16px;--vg-optic-fill:var(--vg-glass-content-bg)}
+.vg-world-home-sample .vg-world-assistant .vg-world-assistant-head{flex-direction:row-reverse;justify-content:flex-end;gap:10px}
+.vg-world-home-sample .vg-world-assistant .vg-world-assistant-identity .vg-continuity-eyebrow{font-size:12px;font-weight:400;color:var(--text-secondary)}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-assistant h2{font-size:15px;color:var(--text)}
+.vg-world-home-sample .vg-world-assistant :is(.vg-world-assistant-portrait,.vg-world-assistant-placeholder){width:36px;height:40px;min-width:36px;border-radius:12px}
+.vg-world-home-sample .vg-world-assistant .vg-world-assistant-avatar{width:36px!important;height:40px!important}
+.vg-world-home-sample .vg-world-assistant .vg-world-resume-actions{margin:0;align-self:center;gap:4px;flex-wrap:wrap;max-width:160px}
+.vg-world-home-sample .vg-world-assistant .vg-world-resume-actions>button{min-width:64px;min-height:44px;padding:6px 10px;font-size:13px}
+.vg-world-home-sample .vg-world-assistant .vg-world-day-summary{grid-column:1/-1;margin:0;padding:10px 0 0;min-height:44px;font-size:13px;border-radius:0;background:transparent;box-shadow:none}
+:root:not(.dark) .vg-world-scene-shell:not(.vg-starfield-design) .vg-world-scene-backdrop::after{background:linear-gradient(180deg,rgba(246,249,253,.88),rgba(232,241,249,.66) 48%,rgba(244,248,252,.9))}
+:root:not(.dark) .vg-world-scene-shell:not(.vg-starfield-design) .vg-space-heading{color:var(--text);text-shadow:none}
+:root:not(.dark) .vg-world-scene-shell:not(.vg-starfield-design) .vg-space-heading h1{color:var(--text)}
+
+/* Each daily entry keeps its own quiet light and the existing press deformation. */
+.vg-world-home-sample .vg-world-daily-entry[data-world-entry=moments]{--vg-entry-light:109,201,191}
+.vg-world-home-sample .vg-world-daily-entry[data-world-entry=diary]{--vg-entry-light:225,185,139}
+.vg-world-home-sample .vg-world-daily-entry[data-world-entry=todo]{--vg-entry-light:147,176,236}
+.vg-world-home-sample .vg-world-daily-entry[data-world-entry=starfield]{--vg-entry-light:182,158,236}
+:root.dark .vg-world-scene-shell .vg-world-home-sample .vg-world-daily{gap:8px;padding:8px;border:0;background:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+:root.dark .vg-world-scene-shell .vg-world-home-sample .vg-world-daily-entry{border:1px solid rgba(var(--vg-entry-light),.18);border-radius:14px;background:radial-gradient(ellipse at 5% 0,rgba(var(--vg-entry-light),.17),transparent 80%),var(--vg-glass-reading-bg,var(--bg-panel));box-shadow:inset 0 1px 0 rgba(var(--vg-entry-light),.08);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+:root.dark .vg-world-home-sample .vg-world-daily-entry .vg-press-glow{background:radial-gradient(ellipse at var(--press-glow-x,50%) var(--press-glow-y,50%),rgba(var(--vg-entry-light),.3),transparent 64%)}
+:root.dark .vg-world-home-sample .vg-world-daily-entry svg{color:rgb(var(--vg-entry-light))}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-assistant .vg-world-resume-actions{display:grid;grid-template-columns:minmax(max-content,1fr);min-width:max-content;max-width:none;gap:4px}
+.vg-world-scene-shell .vg-world-home-sample .vg-world-assistant .vg-world-resume-actions>button{min-width:calc(4em + 20px);min-height:44px;white-space:nowrap;word-break:keep-all}
+@media(max-width:359px){.vg-world-scene-shell .vg-world-home-sample .vg-world-assistant{grid-template-columns:minmax(0,1fr)}.vg-world-home-sample .vg-world-assistant .vg-world-resume-actions{justify-self:start}}

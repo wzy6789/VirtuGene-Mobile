@@ -48,6 +48,7 @@ export interface GeneratePromptParams {
   fields: CharacterFields;
   webContext?: string;
   documentContext?: string;
+  signal?: AbortSignal;
 }
 
 export interface GenerateCharacterResult {
@@ -73,6 +74,7 @@ function parseResult(raw: string): GenerateCharacterResult {
 }
 
 export async function generateCharacterPrompt(params: GeneratePromptParams): Promise<GenerateCharacterResult> {
+  if (params.signal?.aborted) throw params.signal.reason ?? new DOMException('Cancelled', 'AbortError');
   const { apiKey, characterName, fields, webContext, documentContext } = params;
 
   let userMessage = `角色名：${characterName}\n如果用户指定了自己的身份、双方关系或已认识的过去，必须据此写开场白和互动方式，不要默认是陌生人。用户设定的背景不是已有聊天记录，不编造设定之外的共同经历。`;
@@ -109,7 +111,9 @@ export async function generateCharacterPrompt(params: GeneratePromptParams): Pro
   const result = await taskChat({
     apiKey, messages, maxTokens: 2500, temperature: .9,
     jsonMode: true, disableThinking: true, timeoutMs: 120_000,
+    signal: params.signal,
   });
+  if (params.signal?.aborted) throw params.signal.reason ?? new DOMException('Cancelled', 'AbortError');
   return parseResult(result.content);
 
 }

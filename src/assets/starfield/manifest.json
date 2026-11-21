@@ -1,0 +1,35 @@
+{
+    "file":  "mineral-world.webp",
+    "sha256":  "a87f4dfaf7aedc626ff95d0849d0f32b6e6636a598f2a8930cb837658a494c75",
+    "sourceSha256":  "69d839b80ed2cb99019ed1b7cdf07de595e5116b5afb467a78976dcd8ea521d2",
+    "sourceEvidence":  ".tmp-preview/starfield-upgrade-20261017/P1/assets/manifest.json",
+    "dimensions":  [
+                       1254,
+                       1254
+                   ],
+    "bytes":  352022,
+    "format":  "WebP RGBA",
+    "colorSpace":  "sRGB",
+    "focalPoint":  [
+                       0.5,
+                       0.5
+                   ],
+    "displayWidthCss":  280,
+    "lightDirection":  "upper-left, 10 oclock",
+    "alphaBounds":  [
+                        0,
+                        7,
+                        1230,
+                        1254
+                    ],
+    "source":  "Original built-in image_gen output, P1",
+    "imageModel":  "未提供",
+    "imageGenerationCallsThisPhase":  0,
+    "sourceImageGenerationCalls":  1,
+    "processing":  "WebP format encoding quality88; original dimensions and alpha retained; no visual edits",
+    "license":  "Original generated art; no third-party asset copied",
+    "limitations":  [
+                        "No private text or UI is baked into this asset",
+                        "Sparse source alpha at outer edge retained; opaque silhouette must be reviewed on both themes"
+                    ]
+}

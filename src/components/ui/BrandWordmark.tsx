@@ -1,9 +1,11 @@
 import { useId } from 'react';
+import '../../styles/brand-wordmark.css';
 
 /** The message-page signature has a living double filament behind stable type. */
-export function BrandWordmark({ prominent = false }: { prominent?: boolean }) {
+export function BrandWordmark({ prominent = false, script = false }: { prominent?: boolean; script?: boolean }) {
   const id = useId().replace(/:/g, '');
-  return <span className={`vg-wordmark${prominent ? ' is-signature' : ''}`}>
+  const text = script ? 'VirtuGene' : 'VIRTUGENE';
+  return <span className={`vg-wordmark${prominent ? ' is-signature' : ''}${script ? ' is-script' : ''}`}>
     {prominent && <svg className="vg-wordmark-filaments" viewBox="0 0 260 76" fill="none" aria-hidden="true" focusable="false">
       <defs><linearGradient id={`vg-signature-${id}`} x1="0" y1="0" x2="260" y2="70" gradientUnits="userSpaceOnUse">
         <stop stopColor="#9C78FF" stopOpacity="0" /><stop offset=".25" stopColor="#A890FF" stopOpacity=".75" />
@@ -14,8 +16,8 @@ export function BrandWordmark({ prominent = false }: { prominent?: boolean }) {
         <path className="vg-wordmark-filament-b" d="M2 25C52 4 82 67 133 54S206 1 258 25" strokeWidth=".8" />
       </g>
     </svg>}
-    <span className="vg-wordmark-face">VIRTUGENE</span>
-    <span className="vg-wordmark-reflection" data-text="VIRTUGENE" aria-hidden="true" />
+    <span className="vg-wordmark-face">{text}</span>
+    <span className="vg-wordmark-reflection" data-text={text} aria-hidden="true" />
     {prominent && <span className="vg-wordmark-sparks" aria-hidden="true"><i /><i /><i /></span>}
   </span>;
 }

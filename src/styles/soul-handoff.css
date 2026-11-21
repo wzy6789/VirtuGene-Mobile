@@ -1,6 +1,13 @@
 .vg-soul-ghost { position:fixed; z-index:var(--vg-z-page); transform-origin:left top; pointer-events:none; overflow:hidden; will-change:transform; }
 [data-soul-hidden] { opacity:0!important; }
 .mobile-layout .chat-header-title { display:flex; align-items:center; gap:9px; text-align:left; }
-.mobile-layout .chat-header-title > .vg-chat-identity-copy { min-width:0; }
-.mobile-layout .chat-header-title .vg-chat-identity-copy > div:first-child { font-size:16px; font-weight:var(--vg-weight-strong,700); letter-spacing:.035em; }
+.mobile-layout .chat-header-title > .vg-chat-identity-copy { min-width:0; flex:1; }
+.mobile-layout .chat-header-title .vg-chat-identity-copy > div:first-child { font-size:17px; line-height:1.4; font-weight:var(--vg-weight-strong,700); letter-spacing:normal; }
 .mobile-layout .chat-header-title .vg-chat-presence { justify-content:flex-start; }
+.mobile-layout .chat-header-title .vg-chat-presence { white-space:nowrap; }
+.mobile-layout .vg-chat-presence > span:last-child { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.vg-chat-presence .vg-presence-signal { flex-shrink:0; }
+@media (max-width:360px) {
+  .mobile-layout .chat-header { padding-inline:8px; }
+  .mobile-layout .chat-header-title { min-width:72px; }
+}

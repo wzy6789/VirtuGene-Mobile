@@ -1,0 +1,10 @@
+/* Local, subsetted signature face; no remote font requests or platform fallback dependency. */
+@font-face{font-family:"VG Signature";src:url('../assets/fonts/virtugene-wordmark.woff2') format('woff2');font-style:normal;font-weight:400;font-display:swap}
+.mobile-layout :is(.vg-message-heading,.vg-gallery-heading,.vg-world-brand-heading) .vg-wordmark.is-script{
+ position:relative;flex:none;display:inline-block;max-width:100%;padding:0 2px;font-family:"VG Signature",cursive;font-size:34px;font-weight:400;line-height:1.2;letter-spacing:0;text-transform:none;white-space:nowrap;
+}
+.mobile-layout :is(.vg-message-heading,.vg-gallery-heading,.vg-world-brand-heading) .vg-wordmark.is-script .vg-wordmark-face{
+ color:var(--text);background:none;text-shadow:0 1px 10px var(--vg-glass-contact);
+}
+.mobile-layout .vg-world-brand-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;min-width:0}
+.mobile-layout .vg-world-brand-heading>.vg-space-heading{flex:1;min-width:0}

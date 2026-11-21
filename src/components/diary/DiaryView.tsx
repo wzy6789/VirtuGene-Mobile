@@ -1,6 +1,7 @@
 import type { Diary } from '../../db/index';
 import { formatDiaryHeader, moodEmoji, moodColor, DIARY_MOODS } from '../../lib/diary-utils';
 import { DiarySharingBadge } from './DiarySharing';
+import { Icon } from '../ui/Icon';
 
 interface Props {
   diary: Diary;
@@ -30,7 +31,7 @@ export function DiaryView({ diary }: Props) {
           <div className="flex items-center gap-1.5 text-sm">
             <DiarySharingBadge diary={diary} />
             <span>{moodEmoji(mood)}</span>
-            <span style={{ color: moodColor(mood) }}>
+            <span style={{ color: `color-mix(in srgb,var(--text) 70%,${moodColor(mood)})` }}>
               {DIARY_MOODS.find((m) => m.value === mood)?.label ?? '一般'}
             </span>
           </div>
@@ -43,11 +44,11 @@ export function DiaryView({ diary }: Props) {
 
         {/* 正文段落 */}
         {paragraphs.length === 0 ? (
-          <p className="text-gray-400 text-sm mt-4">（还没有内容）</p>
+          <p className="text-sub text-sm mt-4">（还没有内容）</p>
         ) : (
           <div className="mt-4 space-y-3">
             {paragraphs.map((p, i) => (
-              <p key={i} className="text-[15px] leading-[1.9] text-ink/90 whitespace-pre-wrap">
+              <p key={i} className="text-base leading-[1.9] text-ink whitespace-pre-wrap">
                 {p}
               </p>
             ))}
@@ -56,13 +57,14 @@ export function DiaryView({ diary }: Props) {
 
         {/* 插图 */}
         {diary.images && diary.images.length > 0 && (
-          <div className="mt-4 grid grid-cols-2 gap-2.5">
+          <div className="vg-diary-illustrations mt-4" data-count={diary.images.length}>
             {diary.images.map((img, i) => (
               <img
                 key={i}
                 src={img}
                 alt={`日记插图 ${i + 1}`}
-                className="w-full rounded-lg border border-line object-cover max-h-64"
+                loading="lazy"
+                decoding="async"
               />
             ))}
           </div>
@@ -72,7 +74,7 @@ export function DiaryView({ diary }: Props) {
         {(diary.tags ?? []).length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-5 pt-3 border-t border-line">
             {(diary.tags ?? []).map((t) => (
-              <span key={t} className="px-2 py-0.5 rounded-full bg-gene-purple/10 text-gene-purple text-[11px]">
+              <span key={t} className="px-2 py-0.5 rounded-full bg-gene-purple/10 text-[color:var(--vg-accent)] text-xs">
                 #{t}
               </span>
             ))}
@@ -83,8 +85,8 @@ export function DiaryView({ diary }: Props) {
         {diary.aiNote && (
           <div className="mt-5 rounded-xl border border-life-cyan/25 bg-life-cyan/5 px-4 py-3">
             <div className="flex items-center gap-1.5 mb-1.5">
-              <span className="text-sm">💌</span>
-              <span className="text-[11px] tracking-[0.15em] text-life-cyan uppercase">来自时光的批注</span>
+              <Icon name="inbox" size={18} />
+              <span className="text-xs text-[color:var(--vg-cyan)]">来自时光的批注</span>
             </div>
             <p className="text-sm text-sub leading-relaxed">{diary.aiNote}</p>
           </div>

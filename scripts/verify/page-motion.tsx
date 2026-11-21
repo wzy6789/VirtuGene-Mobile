@@ -24,7 +24,9 @@ function App() {
       commits: () => commits,
       touch(type: string, x: number, y = 200, count = 1) {
         const event = new Event(type, { bubbles: true, cancelable: true });
-        Object.defineProperty(event, 'touches', { value: Array.from({ length: count }, () => ({ clientX: x, clientY: y })) });
+        const points = Array.from({ length: count }, (_, index) => ({ identifier: index + 1, clientX: x, clientY: y }));
+        Object.defineProperty(event, 'touches', { value: type === 'touchend' || type === 'touchcancel' ? [] : points });
+        Object.defineProperty(event, 'changedTouches', { value: points });
         document.querySelector('[data-live-page] .surface')!.dispatchEvent(event);
       },
     },

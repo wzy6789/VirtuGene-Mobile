@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "sceneId": "orbital-observatory",
+  "file": "scene.glb",
+  "bytes": 118580,
+  "sha256": "fc9c42a5f1dc2f4490fc22d771da0f91c3d13f127ff3a85fdb5392e1f3248454",
+  "triangles": 2496,
+  "vertices": 1296,
+  "drawCalls": 2,
+  "geometryBoundsBlender": {
+    "min": [
+      -3.4128823280334473,
+      2.9100000858306885,
+      -7.588691711425781
+    ],
+    "max": [
+      3.4128823280334473,
+      10.649999618530273,
+      7.588691711425781
+    ]
+  },
+  "effectQuad": [
+    [
+      -0.80895,
+      -2.077249,
+      -10.05
+    ],
+    [
+      2.870467,
+      -2.077249,
+      -10.05
+    ],
+    [
+      2.870467,
+      6.440631,
+      -10.05
+    ],
+    [
+      -0.80895,
+      6.440631,
+      -10.05
+    ]
+  ],
+  "lightPoint": [
+    -1.308652,
+    0.560145,
+    -6.3
+  ],
+  "cup": [
+    -0.248488,
+    -0.991195,
+    -2.9
+  ],
+  "camera": {
+    "verticalFovDegrees": 60
+  },
+  "materialStrategy": "Generated native photographic-style art projected on original volumetric fixed-view depth geometry. Approximate window optics, not free-view PBR or ray-traced glass.",
+  "source": {
+    "file": "design/chat-scenes/immersive-20261021/orbital-observatory-depth.blend",
+    "sha256": "e3a46b3285d125cfd1d997dc1855101e830688122d311444c0a03a94e2967711",
+    "art": {
+      "file": "design/chat-scenes/immersive-20261021/orbital-observatory-source.png",
+      "width": 841,
+      "height": 1870,
+      "sha256": "a011c9847796eec5cc935c00f6473b0f6273c90acaa91b29b052efa869d1a9c5",
+      "origin": "Built-in image generation; original photographic-style environment artwork, not a Blender render.",
+      "nativeResolution": true,
+      "upscaled": false,
+      "model": "未确认",
+      "reasoning": "未确认"
+    }
+  },
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认",
+  "ambientVolume": {
+    "origin": [
+      -1.194405,
+      -1.501111,
+      -5.0
+    ],
+    "across": [
+      2.38881,
+      0.0,
+      -0.0
+    ],
+    "up": [
+      0.0,
+      2.424871,
+      -0.0
+    ],
+    "depth": [
+      0,
+      0,
+      -2.0
+    ]
+  }
+}

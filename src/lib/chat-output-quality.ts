@@ -12,11 +12,16 @@ import {findUserVisualRisk} from './chat-user-visual-risk';
 import {findUserHabitRisk} from './chat-user-habit-risk';
 import {findDomesticReferenceRisk} from './chat-domestic-reference-risk';
 import {rejectsSelectedPartner,type OwnedPartnerRole} from './chat-owned-identity';
+import { inspectDialogueSegment } from './chat/output-contract';
+import {findSpeakerSourceRisk} from './chat-speaker-source-risk';
 
 export interface OutputQualityContext {
-  mode: 'private' | 'proactive' | 'group';
+  mode: 'private' | 'proactive' | 'group' | 'voice';
   userMessage?: string;
   recentReplies?: string[];
+  /** Bounded original role utterances for speaker attribution. A four-reply
+   * style window is not the scope of what the speaker actually said. */
+  speakerSources?: string[];
   recentUserMessages?: string[];
   /** Raw user statements only; never model summaries or generated replies. */
   userHabitSources?: string[];
@@ -36,6 +41,17 @@ export interface OutputQualityContext {
 }
 /** Shared textual checks; proactive history is not a new user request. */
 export function inspectChatOutput(raw: string, context: OutputQualityContext): { content: string; check: ReplyCheck; severity: number } {
+  // Inspect the original bytes before the display normalizer can erase a
+  // direction. Fiction changes fact attribution, not the messenger surface.
+  const dialogue = inspectDialogueSegment(raw, context.mode, true);
+  if (dialogue.status !== 'ready') return {
+    content: '',
+    check: { ok:false, issue:raw.trim() ? 'uninvited-staging' : 'empty', retryHint:
+      dialogue.status === 'pending'
+        ? '这条文字的引文、括号或句子结构尚未完整。直接用人物自己的话回应；引用原文、公式和代码仍可保留，写完整，不补旁白、动作或角色标签。'
+        : '普通聊天只发人物说的话，扮演时也保持对白。保留本轮意思、语气、关系和虚构设定；去掉括号动作、旁白、神态描写和人物姓名标签，不把它们改成另一段动作。引用的原话、必要公式和代码可以原样说明。' },
+    severity: 3,
+  };
   const content = polishChatResponse(stripRoleplayActions(normalizeChatResponse(raw,{preserveEscapes:shouldPreserveChatEscapes(context.userMessage??'')})), {longForm:isLongFormRequest(context.userMessage ?? ''),paragraphFallback:context.mode==='private'});
   const history = context.recentReplies ?? [];
   let check = checkReplyQuality(content, context.mode === 'proactive' ? '' : context.userMessage ?? '', history[history.length - 1], history.slice(-4), { catchphrase: context.catchphrase });
@@ -43,12 +59,14 @@ export function inspectChatOutput(raw: string, context: OutputQualityContext): {
   // relationship. This narrow check also applies to explicitly fictional turns.
   const identityConflict=context.selectedPartnerRole&&rejectsSelectedPartner(content,context.selectedPartnerRole,context.userMessage??'');
   if(identityConflict)check={ok:false,issue:'voice-conflict',retryHint:'本条用户已明确选择应用支持的伴侣故事身份；先前退出阶段的疏离不再是当前关系。直接回应本条内容或心意，不否定扮演身份、不要求证明真假，也不编造此前等待或共同经历。保留你自己的语气与主见，不必解释身份规则。'};
+  if(check.ok&&findSpeakerSourceRisk(content,context.userHabitSources??[...(context.recentUserMessages??[]),context.userMessage??''],context.speakerSources??history))
+    check={ok:false,issue:'user-source-risk',retryHint:'刚才把自己前面的措辞说成了用户原话。分清谁说过哪句话，保留自己的看法，不用“你说过、我记得你说”把自己的表达归给对方。'};
   if(check.ok&&!allowsDramaticReply(context.userMessage??'',context.recentUserMessages)
     &&findDomesticReferenceRisk(content,context.persona,context.independentCharacterRecords,context.userHabitSources))
     check={ok:false,issue:'self-report-risk',retryHint:'保留你对眼前事情的反应、自己的喜好和自然玩笑。刚才补了没有来源的已有家庭物件或过去照料习惯；未来的选择也不证明以前已经这样做过。直接聊本轮内容，不需要用旧生活细节证明亲近，也不用解释资料核对。'};
   if(check.ok && !allowsDramaticReply(context.userMessage ?? '',context.recentUserMessages)) {
     if(findUserAudioRisk(content))check={ok:false,issue:'user-source-risk',retryHint:'这次请求只有文字或图片，没有用户的声音。保留你对原话的反应与心意，不把文字中的开心写成听到了笑声、嗓音或呼吸；普通“听你这么说”仍可使用，不替换成看见身体表情，也不向用户解释检查过程。'};
-    else if(findUserVisualRisk(content,context.hasUserVisualEvidence??context.hasCurrentImage))check={ok:false,issue:'user-source-risk',retryHint:'这次请求没有可查看的用户图片。沿用户已经描述的内容表达自己的兴趣、联想或看法，也可以自然请他发图；不要假装已看见画面、检查过像不像或补未提供的颜色细节。不需要向用户解释核对过程。'};
+    else if(findUserVisualRisk(content,context.hasUserVisualEvidence??context.hasCurrentImage,context.userMessage??'',context.hasCurrentImage??false))check={ok:false,issue:'user-source-risk',retryHint:'沿用户已经描述的内容表达自己的兴趣、联想或看法，也可以自然请他发图；过去的小事或历史图片不证明眼下的物件位置，不把刚才拿错杯子写成现在仍拿着。不要假装已看见画面、检查过像不像或补未提供的细节。不需要向用户解释核对过程。'};
     else if(hasUninvitedStaging(content)) check={ok:false,issue:'uninvited-staging',retryHint:'这轮是在发消息，不是同处一室。保留角色态度与亲密感，直接接用户的话；不要继续进门、坐下、看着对方或当面再说的表演，也不要换一组动作替代。'};
     else if(hasOverwrittenAffection(content,context.userMessage ?? '')) check={ok:false,issue:'emotional-script',retryHint:'直接用角色自己的口语表达对这份心意的态度；不要层层解释如何接收这句话，不堆意象、仪式或要求当面再说，不强迫回应相同爱意。'};
     else if(findAffectionHistoryRisk(content,context.userMessage,context.recentUserMessages,context.persona)) check={ok:false,issue:'emotional-script',retryHint:'保留你对这句话的喜欢、开心或轻轻打趣；当前没有依据判断对方平时很少直白表达，不要把这一刻写成难得、终于或与过去比较。直接说自己的当下反应，不向对方解释检查过程，也不追加考查心意来历的问题。'};

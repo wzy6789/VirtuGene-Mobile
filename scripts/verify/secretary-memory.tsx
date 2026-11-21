@@ -2,7 +2,8 @@ import { createRoot } from 'react-dom/client';
 import { db, type Message, type Character } from '../../src/db';
 import { createSecretary, dismissSecretary } from '../../src/lib/secretary/character';
 import { runSecretaryRequest, executeSecretaryTask } from '../../src/lib/secretary/agent';
-import { readSecretaryMemories, editSecretaryMemory, validateSecretaryMemories, parseSecretaryMemoryCommand } from '../../src/lib/secretary/memory';
+import { readSecretaryMemories, editSecretaryMemory, validateSecretaryMemories, parseSecretaryMemoryCommand, assertSecretaryMemoryReferences, buildSecretaryMemoryContext } from '../../src/lib/secretary/memory';
+import { memorySourceTombstoneId, memorySourceTombstoneRepo } from '../../src/db/memory-source-tombstone-repo';
 import { memoryRepo } from '../../src/db/memory-repo';
 import { messageRepo } from '../../src/db/message-repo';
 import { todoRepo, localDateKey } from '../../src/db/todo-repo';
@@ -36,6 +37,7 @@ window.fetch = async (input, init) => {
 const uid = 'secretary-memory-owner';
 const auth = (id = uid) => useAuthStore.setState({ userId: id, isLoggedIn: true, apiKey: 'test-key' });
 let character: Character, sid: string, checks = 0;
+let selectedValidationMetrics: unknown;
 const ok = (v: unknown, s: string) => { if (!v) throw new Error(s); checks++; };
 async function rejects(fn: () => Promise<unknown>, s: string) { let rejected = false; try { await fn(); } catch { rejected = true; } ok(rejected, s); }
 async function session() {
@@ -340,7 +342,92 @@ async function run() {
   } finally { db.secretarySearch.hook('reading').unsubscribe(switchDuringRead); auth(); }
   await request('月桥项目的办公资料呢');
   ok(payload.assistantMemory.retrieval.matchingFacts >= payload.assistantMemory.retrieval.includedFacts, 'recall reports coverage rather than implying every fact was checked');
+  const correctionAt = Date.now() - 10000;
+  const original: Message = { id: 'correction-a', sessionId: sid, role: 'user', content: '曦原项目的核对会定在周五。', createdAt: correctionAt, revision: 1, isProactive: false };
+  const followup: Message = { ...original, id: 'correction-b', content: '不是周五，是周四。' };
+  await messageRepo.create(original); await messageRepo.create(followup);
+  await session();
+  const correctedRecall = await request('曦原项目的核对会是哪天');
+  ok(payload.assistantMemory.previousUserMessages.some((m: any) => m.id === followup.id && m.followsMessageId === original.id && m.content === followup.content), 'cross-chat recall carries a noun-free correction even at the same timestamp');
+  ok(correctedRecall.task.memoryReferences?.messageIds.includes(followup.id), 'adjoining correction keeps its own source version in final verification');
+  await db.secretaryTasks.put({ ...correctedRecall.task, id: `secretary-task:${uid}:${followup.id}`, messageId: followup.id, sessionId: original.sessionId, request: followup.content,
+    dailyReview: { date: localDateKey(), includeDiary: true, includeTodos: false, notes: '', outputs: ['moment'] }, privacyScope: 'diary' });
+  useSettingsStore.setState({ diaryPin: 'locked' }); setDiaryUnlocked(false);
+  await request('曦原项目的核对会是哪天');
+  ok(!payload.assistantMemory.previousUserMessages.some((m: any) => m.id === followup.id), 'locked diary-derived adjoining correction does not leak through history expansion');
+  useSettingsStore.setState({ diaryPin: null }); setDiaryUnlocked(true);
+  await db.secretaryTasks.delete(`secretary-task:${uid}:${followup.id}`);
+  before = () => messageRepo.update(followup.id, { content: '不是周五，是周三。' }).then(() => undefined);
+  await rejects(() => request('曦原项目的核对会是哪天'), 'editing the recalled correction during generation cancels the obsolete answer');
+  await request('曦原项目的核对会是哪天');
+  ok(payload.assistantMemory.previousUserMessages.some((m: any) => m.id === followup.id && m.content.includes('周三')), 'next recall adopts the current corrected original text');
+  await messageRepo.deleteById(followup.id); await request('曦原项目的核对会是哪天');
+  ok(!payload.assistantMemory.previousUserMessages.some((m: any) => m.id === followup.id), 'deleted adjoining correction is never retained in recall');
+  await selectedValidationChecks();
   await request('记住：我喜欢桂花茶');
-  await report('/result?suite=secretary-memory', { method: 'POST', body: `ok ${checks} assertions\nALL PASS` });
+  await report('/result?suite=secretary-memory', { method: 'POST', body: `ok ${checks} assertions\nSELECTED_VALIDATION ${JSON.stringify(selectedValidationMetrics)}\nALL PASS` });
+}
+
+async function selectedValidationChecks() {
+  const previousOwner = uid;
+  const stockOwner = 'assistant-memory-stock';
+  auth(stockOwner);
+  const stockAssistant = await createSecretary(stockOwner, '隔离记忆助理');
+  const stamp = Date.now() - 10000;
+  const stockSessions = Array.from({ length: 512 }, (_, i) => ({ id: `stock-session-${i}`, userId: stockOwner, characterId: stockAssistant.id, type: 'single' as const, title: '存量会话', createdAt: stamp, updatedAt: stamp, unreadCount: 0 }));
+  const stockMessages: Message[] = stockSessions.map((s, i) => ({ id: `stock-message-${i}`, sessionId: s.id, role: 'user', content: `我长期在第${i}工作室工作`, createdAt: stamp, revision: 1, isProactive: false }));
+  await db.sessions.bulkAdd(stockSessions); await db.messages.bulkAdd(stockMessages);
+  await db.memories.bulkAdd(stockMessages.map(m => ({ id: `stock-memory-${m.id}`, userId: stockOwner, characterId: stockAssistant.id, content: m.content, type: 'auto', status: 'active', memoryKind: 'fact', createdAt: stamp, updatedAt: stamp,
+    sourceSessionId: m.sessionId, sourceMessageIds: [m.id], sourceMessageRevisions: { [m.id]: 1 } })));
+  await db.memorySourceTombstones.bulkAdd(Array.from({ length: 8105 }, (_, i) => ({ id: memorySourceTombstoneId(stockOwner, 'memory', `unrelated-${i}`), userId: stockOwner,
+    characterId: i < 5000 ? stockAssistant.id : `other-role-${i % 4}`, sourceType: 'memory' as const, sourceId: `unrelated-${i}`, sourceRevision: 1, status: 'withdrawn' as const,
+    suppressedMessageIds: [`unrelated-source-${i}`], updatedAt: stamp })));
+  await flushSecretarySearchJobs();
+  const counters = { memories: 0, messages: 0, sessions: 0, tombstones: 0 };
+  const hooks = [
+    [db.memories, (row: any) => { if (row) counters.memories++; return row; }], [db.messages, (row: any) => { if (row) counters.messages++; return row; }],
+    [db.sessions, (row: any) => { if (row) counters.sessions++; return row; }], [db.memorySourceTombstones, (row: any) => { if (row) counters.tombstones++; return row; }],
+  ] as const;
+  for (const [table, hook] of hooks) table.hook('reading', hook);
+  const refs = { memoryIds: ['stock-memory-stock-message-0'], memoryVersions: { 'stock-memory-stock-message-0': stamp }, messageIds: ['stock-message-0'], messageVersions: { 'stock-message-0': 1 }, taskIds: [] };
+  const task = { userId: stockOwner, characterId: stockAssistant.id, memoryReferences: refs } as any;
+  try {
+    const measure = async (work: () => Promise<void>) => {
+      for (const key of Object.keys(counters) as (keyof typeof counters)[]) counters[key] = 0;
+      const start = performance.now(); await work(); return { ms: performance.now() - start, rows: { ...counters } };
+    };
+    // Same-data query comparison: the former listing-based validation shape.
+    // This is a query-only baseline, not a restored historical app build.
+    const baseline = await measure(async () => {
+      const all = await readSecretaryMemories(stockOwner, stockAssistant.id);
+      const suppressed = await memorySourceTombstoneRepo.suppressedMessages(stockOwner, stockAssistant.id);
+      const sessions = new Set(await db.sessions.where('[characterId+userId]').equals([stockAssistant.id, stockOwner]).filter(s => s.type !== 'group').primaryKeys());
+      const source = await db.messages.get('stock-message-0');
+      if (!all.some(m => m.id === refs.memoryIds[0]) || !source || !sessions.has(source.sessionId) || suppressed.has(source.id)) throw Error('invalid baseline evidence');
+    });
+    const selected = await measure(() => assertSecretaryMemoryReferences(task));
+    ok(counters.memories === 1 && counters.messages <= 2 && counters.sessions <= 2 && counters.tombstones === 0, 'selected validation reads one fact, its exact evidence and sessions instead of 512 facts or 8105 unrelated tombstones: ' + JSON.stringify(counters));
+    ok(baseline.rows.memories === 512 && baseline.rows.tombstones === 5000, 'same-data listing baseline includes all assistant facts and its scoped tombstones');
+    const contextTask = { ...task, id: 'stock-context', messageId: 'not-a-source', sessionId: stockSessions[0].id, request: '我在哪个工作室工作', createdAt: Date.now(), employmentId: stockAssistant.secretaryEmploymentId };
+    const inputBefore = JSON.stringify(await buildSecretaryMemoryContext(contextTask, [], true, true));
+    await assertSecretaryMemoryReferences(task);
+    const inputAfter = JSON.stringify(await buildSecretaryMemoryContext(contextTask, [], true, true));
+    ok(inputBefore === inputAfter, 'keyed final validation preserves the complete prepared memory payload');
+    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(inputAfter)))].map(b => b.toString(16).padStart(2, '0')).join('');
+    selectedValidationMetrics = { stock: { messages: 512, memories: 512, tombstones: 8105, sameCharacterTombstones: 5000 }, baseline, selected, payloadHashBefore: hash, payloadHashAfter: hash,
+      timingScope: 'single desktop query-only sample; not model or Android first display', realModelCalls: 0 };
+  } finally { for (const [table, hook] of hooks) table.hook('reading').unsubscribe(hook); }
+  await db.memorySourceTombstones.put({ id: memorySourceTombstoneId(stockOwner, 'memory', 'selected-revocation'), userId: stockOwner, characterId: stockAssistant.id, sourceType: 'memory', sourceId: 'selected-revocation', sourceRevision: 1, status: 'withdrawn', suppressedMessageIds: ['stock-message-0'], updatedAt: Date.now() });
+  await rejects(() => assertSecretaryMemoryReferences(task), 'fresh selected suppression invalidates already recalled assistant evidence');
+  await db.memorySourceTombstones.delete(memorySourceTombstoneId(stockOwner, 'memory', 'selected-revocation'));
+  await db.memorySourceTombstones.put({ id: memorySourceTombstoneId('different-owner', 'memory', 'same-message-id'), userId: 'different-owner', characterId: stockAssistant.id, sourceType: 'memory', sourceId: 'same-message-id', sourceRevision: 1, status: 'withdrawn', suppressedMessageIds: ['stock-message-0'], updatedAt: Date.now() });
+  await assertSecretaryMemoryReferences(task);
+  ok(true, 'a different account suppression cannot invalidate this user selected evidence');
+  await db.sessions.update('stock-session-0', { userId: 'different-owner' });
+  await rejects(() => assertSecretaryMemoryReferences(task), 'transferred source session invalidates a selected fact without relying on cached ownership');
+  await db.sessions.update('stock-session-0', { userId: stockOwner });
+  await db.messages.update('stock-message-0', { revision: 2 });
+  await rejects(() => assertSecretaryMemoryReferences(task), 'edited selected evidence invalidates its old source revision');
+  auth(previousOwner);
 }
 run().catch(async e => report('/result?suite=secretary-memory', { method: 'POST', body: `FAIL ${String(e.stack || e)}\n1 FAILED` }));

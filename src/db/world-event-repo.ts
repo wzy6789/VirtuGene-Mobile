@@ -57,17 +57,32 @@ export function isSharedWorldEvent(event: WorldEvent): boolean {
 
 /** A world-shared diary is visible only to its linked participant with current diary consent. */
 export async function isMentionableDiaryEvent(event: WorldEvent, characterId: string, userId?: string): Promise<boolean> {
-  if (event.sourceType !== 'diary') return true;
-  const diary = await db.diaries.get(event.sourceId);
-  if (!diary || (userId !== undefined && diary.userId !== userId) || diary.userId !== event.userId
-    || diary.deletedAt || diary.visibility !== 'world' || diary.worldEventId !== event.id
-    || diary.characterId !== characterId || !event.participants.includes(characterRef(characterId))) return false;
-  const knowledge = await db.characterKnowledge.where('[worldId+characterId]')
-    .equals([event.worldId, characterId])
-    .filter((row) => row.userId === event.userId && row.eventId === `diary:${diary.id}`
-      && row.canMention && row.knowledgeLevel === 'full')
-    .first();
-  return Boolean(knowledge);
+  return (await mentionableDiaryEvents([event], characterId, userId))[0];
+}
+
+/** Revalidate selected facts in batches, without scanning unrelated knowledge per event. */
+export async function mentionableDiaryEvents(events: readonly WorldEvent[], characterId: string, userId?: string): Promise<boolean[]> {
+  const diaries = events.filter(event => event.sourceType === 'diary');
+  const rows = await db.diaries.bulkGet(diaries.map(event => event.sourceId));
+  const byId = new Map(rows.filter(row => !!row).map(row => [row!.id, row!]));
+  const scopes = new Map<string, { userId: string; worldId: string; ids: string[] }>();
+  for (const event of diaries) {
+    const key = JSON.stringify([event.userId, event.worldId]);
+    const scope = scopes.get(key) ?? { userId: event.userId, worldId: event.worldId, ids: [] };
+    scope.ids.push(`diary:${event.sourceId}`); scopes.set(key, scope);
+  }
+  const knowledge = (await Promise.all([...scopes.values()].map(async scope =>
+    (await db.characterKnowledge.where('[characterId+eventId]').anyOf(scope.ids.map(id => [characterId, id])).toArray())
+      .filter(row => row.userId === scope.userId && row.worldId === scope.worldId)))).flat();
+  return events.map(event => {
+    if (event.sourceType !== 'diary') return true;
+    const diary = byId.get(event.sourceId);
+    return !!diary && (userId === undefined || diary.userId === userId) && diary.userId === event.userId
+      && !diary.deletedAt && diary.visibility === 'world' && diary.worldEventId === event.id
+      && diary.characterId === characterId && event.participants.includes(characterRef(characterId))
+      && knowledge.some(row => row.userId === event.userId && row.worldId === event.worldId
+        && row.eventId === `diary:${diary.id}` && row.canMention && row.knowledgeLevel === 'full');
+  });
 }
 
 export const worldEventRepo = {

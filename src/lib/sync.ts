@@ -3,8 +3,10 @@
  * 桌面端与手机端共用同一份格式，通过 HTTP 互传。
  */
 import { db, type Character, type Session, type Message, type MemoryItem, type EmotionSnapshot, type CharacterState, type Diary, type Group, type ContinuityThread, type SharedStoryEvent, type World, type WorldEvent, type WorldScene, type WorldSceneEntry, type CharacterKnowledge, type SharedMemory, type RelationshipState, type RelationshipEvent, type WorldFact, type WorldTurn, type WorldLocation, type WorldPresence, type WorldAgentState, type WorldPulse, type WorldObject, type Todo, type TodoOccurrence, type TodoReminder, type Moment, type MomentMedia, type MomentView, type MomentReaction, type MomentContact, type MomentJob, type MomentNotification, type CharacterLifeEvent, type MomentPostPlan, type MemorySourceTombstone } from '../db/index';
-import { memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
+import { memorySourceTombstoneId, memorySourceTombstoneRepo } from '../db/memory-source-tombstone-repo';
 import { clearDiarySharing } from './world/diary-visibility';
+import {assertSyncOwnership} from './sync-ownership';
+import {emptyChatConversationState} from './chat-conversation-state';
 import { momentsRepo } from '../db/moments-repo';
 import { messageRepo } from '../db/message-repo';
 import type { SecretaryTask } from './secretary/types';
@@ -16,8 +18,10 @@ import { isSecretaryPersonality, isGeneratedSecretaryGreeting, secretaryGreeting
 import { isSecretaryAppearance, parseSecretaryAvatar } from './secretary/appearance';
 import type { TodoEvent } from '../db';
 import { mergeTodoWork, validateTodoEvent, validWorkDate } from '../db/todo-work';
+import { assertTodoEventSource } from '../db/todo-event-protocol';
 import { mergeVoiceProfile } from './voice-call/profile';
 import { projectCallMessages, type VoiceCallRecord } from './voice-call/record';
+import {normalizeImportedReplyDelivery} from './chat/reply-delivery';
 
 export interface SyncExportData {
   __meta__: {
@@ -136,6 +140,12 @@ export async function collectSyncData(
   const accountWorlds = owns(worlds);
   const accountScenes = owns(worldScenes);
   const sceneIds = new Set(accountScenes.map((scene) => scene.id));
+  const accountTombstones = owns(sourceTombstones);
+  const todoParents = new Map(todos.map(todo => [todo.id, todo]));
+  const todoDeletions = new Map(accountTombstones.filter(row => row.sourceType === 'todo').map(row => [row.sourceId, row]));
+  const occurrenceDeletions = new Map(accountTombstones.filter(row => row.sourceType === 'todoOccurrence').map(row => [row.sourceId, row]));
+  const accountTodoEvents = owns(todoEvents);
+  for (const event of accountTodoEvents) assertTodoEventSource(ownerId, event, todoParents.get(event.todoId), todoDeletions.get(event.todoId), occurrenceDeletions.get(event.occurrenceId));
   return {
     __meta__: {
       app: 'VirtuGene',
@@ -173,7 +183,7 @@ export async function collectSyncData(
     worldObjects: owns(worldObjects),
     todos: owns(todos),
     todoOccurrences: owns(todoOccurrences),
-    todoEvents: owns(todoEvents),
+    todoEvents: accountTodoEvents,
     todoReminders: owns(todoReminders),
     // 朋友圈数据必须跟随当前账号导出。即使同一台设备切换过账号，
     // 也不能把其他账号的动态、屏蔽名单或角色互动带到同步端。
@@ -186,7 +196,7 @@ export async function collectSyncData(
     momentNotifications: owns(momentNotifications),
     characterLifeEvents: owns(characterLifeEvents),
     momentPostPlans: owns(momentPostPlans),
-    sourceTombstones: owns(sourceTombstones),
+    sourceTombstones: accountTombstones,
     secretaryTasks: owns(secretaryTasks).filter(task => sessionIds.has(task.sessionId)),
     secretaryBindings: owns(secretaryBindings),
   };
@@ -222,7 +232,7 @@ async function removeStaleSessionSummary(session: Session, userId: string): Prom
   }
   if (!stale) return session;
   const { summary: _summary, summaryUpdatedAt: _summaryUpdatedAt, summarySourceMessageIds: _sourceIds,
-    summarySourceMessageRevisions: _sourceRevisions, summarySourceMessageOffsets: _sourceOffsets,
+    summarySourceMessageRevisions: _sourceRevisions, summarySourceMessageOffsets: _sourceOffsets, summaryCoveragePolicy: _coveragePolicy,
     summaryWitnessedBy: _witnessedBy, ...rest } = session;
   return rest as Session;
 }
@@ -307,6 +317,7 @@ export async function importSyncData(
         db.moments, db.momentMedia, db.momentViews, db.momentReactions, db.momentContacts, db.momentJobs, db.momentNotifications,
         db.characterLifeEvents, db.momentPostPlans, db.memorySourceTombstones, db.secretaryTasks, db.secretaryBindings, db.memoryJobs, db.memoryClaims, db.memoryEvidence, db.memoryKnowledge, db.voiceCalls],
       async () => {
+        await assertSyncOwnership(ownerId,data);
         await memorySourceTombstoneRepo.merge(data.sourceTombstones ?? []);
         const tombstones = data.sourceTombstones ?? [];
         const incomingDiaryRevision = (id: string) => data.diaries?.find((diary) => diary.id === id)?.revision ?? 0;
@@ -485,7 +496,22 @@ export async function importSyncData(
           const existing = await db.sessions.get(s.id);
           const preferred = existing && existing.updatedAt > s.updatedAt ? existing : s;
           const session = await removeStaleSessionSummary(preferred, ownerId);
-          await db.sessions.put(session);
+          // Local in-flight jobs must not survive a restore/import merely
+          // because text and source versions happen to be identical (ABA).
+          const revision=(value:number|undefined)=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0&&value<Number.MAX_SAFE_INTEGER?value:0;
+          const summaryRevision=existing?Math.max(revision(existing.summaryRevision),revision(session.summaryRevision))+1:revision(session.summaryRevision);
+          const auxiliaryRevision=existing?Math.max(revision(existing.auxiliaryRevision),revision(session.auxiliaryRevision))+1:revision(session.auxiliaryRevision);
+          const conversationVersion=(value:number|undefined)=>{
+            if(value===undefined)return 0;
+            if(!Number.isSafeInteger(value)||value<0||value>=Number.MAX_SAFE_INTEGER)throw Error('会话版本信息不正确，已停止导入。');
+            return value;
+          };
+          const importedVersion=conversationVersion(session.conversation?.version);
+          // Restoring identical text is still a branch boundary. A generation
+          // that started before restore must not pass a reused version (ABA),
+          // including legacy sessions that have no conversation state yet.
+          const conversation=existing?{...(session.conversation??emptyChatConversationState()),version:Math.max(conversationVersion(existing.conversation?.version),importedVersion)+1}:session.conversation;
+          await db.sessions.put({...session,conversation,summaryRevision,auxiliaryRevision});
           n += 1;
         }
         counts.sessions = n;
@@ -496,7 +522,7 @@ export async function importSyncData(
           if (await memorySourceTombstoneRepo.blocksImport({ userId: ownerId, sourceType: 'message', sourceId: m.id, sourceRevision: revision })) continue;
           const existing = await db.messages.get(m.id);
           if (existing && (existing.revision ?? 1) >= revision) continue;
-          await db.messages.put({ ...m, revision });
+          await db.messages.put(normalizeImportedReplyDelivery({ ...m, revision }));
           n += 1;
         }
         counts.messages = n;
@@ -791,10 +817,21 @@ export async function importSyncData(
         }
         counts.todoOccurrences = n;
         n=0;
+        const incomingEvents = data.todoEvents ?? [];
+        for (const event of incomingEvents) validateTodoEvent(event);
+        // Fresh selected-key reads in this writer transaction, shared by events
+        // with the same parent. Never scan account history per event or cache
+        // these authority checks across imports.
+        const eventParents = new Map((await db.todos.where(':id').anyOf([...new Set(incomingEvents.map(event => event.todoId))]).toArray()).map(todo => [todo.id, todo]));
+        const eventDeletionKeys = [...new Set(incomingEvents.flatMap(event => [
+          memorySourceTombstoneId(ownerId, 'todo', event.todoId),
+          ...(event.source === 'legacy-completion' ? [memorySourceTombstoneId(ownerId, 'todoOccurrence', event.occurrenceId)] : []),
+        ]))];
+        const eventDeletions = new Map((await db.memorySourceTombstones.where(':id').anyOf(eventDeletionKeys).toArray()).map(row => [row.id, row]));
         for(const event of data.todoEvents??[]) {
-          validateTodoEvent(event);
-          const todo=await db.todos.get(event.todoId);
-          if(!todo||todo.userId!==ownerId)throw new Error('事件来源归属无效。');
+          assertTodoEventSource(ownerId, event, eventParents.get(event.todoId),
+            eventDeletions.get(memorySourceTombstoneId(ownerId, 'todo', event.todoId)),
+            eventDeletions.get(memorySourceTombstoneId(ownerId, 'todoOccurrence', event.occurrenceId)));
           const existing=await db.todoEvents.get(event.id);
           if(existing) {
             if(existing.userId!==ownerId||existing.todoId!==event.todoId||existing.kind!==event.kind)throw new Error('事件身份冲突。');

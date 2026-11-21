@@ -1,0 +1,231 @@
+{
+  "schema": 1,
+  "sceneId": "home-living",
+  "designWidth": 1440,
+  "designHeight": 3201.902497027348,
+  "qualities": {
+    "841": {
+      "width": 841,
+      "height": 1870,
+      "poster": {
+        "file": "poster-photo-20261022-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 371178,
+        "sha256": "21a8549be9528aaab97d73aedf9420b7c7f45cbeab34a33e68bb8a33b3d78886",
+        "decodedRgbaBytes": 6290680
+      },
+      "cleanPlate": {
+        "file": "poster-photo-20261022-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 371178,
+        "sha256": "21a8549be9528aaab97d73aedf9420b7c7f45cbeab34a33e68bb8a33b3d78886",
+        "decodedRgbaBytes": 6290680
+      },
+      "layers": [],
+      "windowMask": {
+        "file": "window-mask-photo-20261022-841.webp",
+        "width": 332,
+        "height": 748,
+        "bytes": 3362,
+        "sha256": "651f96db55473e8c72465e08b4c47e7e77b2393ba314ccf50c334d5026f205f6",
+        "decodedRgbaBytes": 993344,
+        "rect": [
+          869.8216,
+          0.0,
+          568.4661,
+          1280.761
+        ],
+        "maskMode": "alpha"
+      },
+      "decodedBytesWithPoster": 7284024,
+      "decodedBytesAfterPosterRelease": 7284024
+    }
+  },
+  "thumbnail": {
+    "file": "thumbnail-photo-20261022.webp",
+    "width": 360,
+    "height": 800,
+    "bytes": 83352,
+    "sha256": "625c21d9660f0b61088be32d70ba764effcaba5d18c2e500e86fc0f6a3acee02",
+    "decodedRgbaBytes": 1152000
+  },
+  "windowPolygon": [],
+  "lightRect": [
+    376.6944,
+    719.1439,
+    1027.3484,
+    1541.0226
+  ],
+  "cupMouth": [
+    818.4542,
+    1994.7681
+  ],
+  "effectArea": "window",
+  "provenance": "Original task-authorized built-in image_gen photographic artwork; not a camera photograph or Blender render. Production WebP encodes original native dimensions without upscaling.",
+  "compositeStrategy": "One complete photographic-style artwork reused as poster and cleanPlate; layers empty. No detached foreground/parallax claim. Old realtime geometry disabled for this replacement.",
+  "sourceFiles": [
+    {
+      "file": "design/ui-upgrade-20261022/home-living/source.png",
+      "sha256": "ce95011c7f9fa59b9d4633688a1c28e589fd4abb2eae1a28a55219566e006be4"
+    }
+  ],
+  "motion": {
+    "baseMaxDesignPixels": 0,
+    "effectOpeningStatic": true,
+    "note": "Static complete artwork with pane-restricted local weather/fire effects only; no old geometry foreground."
+  },
+  "maskCalibration": {
+    "coordinateSpace": "source pixels",
+    "sourceWidth": 841,
+    "sourceHeight": 1870,
+    "polygons": [
+      [
+        [
+          511,
+          40
+        ],
+        [
+          574,
+          24
+        ],
+        [
+          574,
+          166
+        ],
+        [
+          509,
+          180
+        ]
+      ],
+      [
+        [
+          590,
+          23
+        ],
+        [
+          650,
+          9
+        ],
+        [
+          650,
+          153
+        ],
+        [
+          590,
+          166
+        ]
+      ],
+      [
+        [
+          510,
+          198
+        ],
+        [
+          574,
+          187
+        ],
+        [
+          574,
+          350
+        ],
+        [
+          508,
+          358
+        ]
+      ],
+      [
+        [
+          590,
+          183
+        ],
+        [
+          650,
+          172
+        ],
+        [
+          650,
+          346
+        ],
+        [
+          590,
+          352
+        ]
+      ],
+      [
+        [
+          712,
+          3
+        ],
+        [
+          840,
+          0
+        ],
+        [
+          840,
+          123
+        ],
+        [
+          712,
+          137
+        ]
+      ],
+      [
+        [
+          712,
+          156
+        ],
+        [
+          840,
+          141
+        ],
+        [
+          840,
+          334
+        ],
+        [
+          712,
+          344
+        ]
+      ],
+      [
+        [
+          712,
+          364
+        ],
+        [
+          840,
+          355
+        ],
+        [
+          840,
+          542
+        ],
+        [
+          712,
+          547
+        ]
+      ],
+      [
+        [
+          712,
+          571
+        ],
+        [
+          840,
+          567
+        ],
+        [
+          840,
+          748
+        ],
+        [
+          712,
+          741
+        ]
+      ]
+    ],
+    "note": "Conservative inspected glass panes exclude frames/indoor foreground. Firebox only for hearth. Train uses safe interior rectangle."
+  }
+}

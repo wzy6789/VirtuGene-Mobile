@@ -65,7 +65,10 @@ createRoot(document.getElementById('root')).render(<div className="mobile-layout
     // One arrival per frame exercises stack replacement while prior motion is active.
     await page.evaluate(async()=>{for(let i=0;i<60;i++){window.perfUi.push();await new Promise(requestAnimationFrame);}});await page.waitForTimeout(400);
     const after=await metrics();
-    await page.evaluate(()=>{window.perfUi.clear();window.perfUi.stream.finish('第一段已经生成完毕。---第二段');});await page.waitForTimeout(100);
+    // A second bubble now has an intentional reading delay. Begin counting
+    // only after finish() confirms it has appeared and the first is inactive.
+    await page.evaluate(async()=>{window.perfUi.clear();await window.perfUi.stream.finish('第一段已经生成完毕。---第二段');});
+    await page.waitForFunction(() => document.querySelectorAll('.vg-streaming-part').length === 2);
     const first=await page.evaluate(()=>({id:window.perfUi.stream.ids[0],renders:window.perfUi.renders[window.perfUi.stream.ids[0]]}));
     await page.evaluate(async()=>{for(let i=0;i<60;i++){window.perfUi.stream.finish(window.perfUi.stream.raw+'文字');await new Promise(requestAnimationFrame);}});
     const completedBubbleRenders=await page.evaluate(({id,renders})=>window.perfUi.renders[id]-renders,first);

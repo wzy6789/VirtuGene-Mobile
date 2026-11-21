@@ -5,15 +5,22 @@ import { useAuthStore } from '../../src/store/auth-store';
 import { useChatStore } from '../../src/store/chat-store';
 import { useUIStore } from '../../src/store/ui-store';
 import { useSettingsStore } from '../../src/store/settings-store';
+import { useThemeStore } from '../../src/store/theme-store';
+import { installUiFont } from '../../src/lib/ui-font';
+import { installUiPreferences } from '../../src/lib/ui-preferences';
+import { installThemePreferences } from '../../src/lib/theme';
+import { IS_MOBILE, IS_CAPACITOR } from '../../src/lib/platform';
 import { createSecretary } from '../../src/lib/secretary/character';
 import { runSecretaryRequest, undoSecretaryAction } from '../../src/lib/secretary/agent';
 import { todoRepo, localDateKey, addLocalDays } from '../../src/db/todo-repo';
 import { readActionDay } from '../../src/lib/action-cabin/query';
 import { readConversationTodo, todoConversationContext } from '../../src/lib/secretary/workspace-todo';
 import { SecretaryHubPage } from '../../src/components/secretary/SecretaryHubPage';
+import { MobileLayout } from '../../src/components/layout/MobileLayout';
 import { SecretaryWorkspaceCard } from '../../src/components/secretary/SecretaryWorkspaceCard';
 import '../../src/styles/assistant-hub.css';
 
+installThemePreferences();installUiPreferences();installUiFont();
 const root = createRoot(document.getElementById('root')!);
 const uid = 'hub-owner', day = localDateKey(), tomorrow = addLocalDays(day, 1);
 let assistantId = '', sessionId = '', selectedId = '', calls = 0, checks = 0;
@@ -126,8 +133,11 @@ function Router() {
 }
 (window as any).hubTest = { db, auth, dataChecks, seed, currentContext, useUIStore, useChatStore,
   mount: async () => { await seed(); root.render(<Router />); },
+  mountLayout: async () => { await seed(); useUIStore.setState({mobileTab:'world'}); root.render(<MobileLayout />); },
   setPlan: (plan: any[]) => { actions = plan; },
   hold: () => { responseWait = new Promise(resolve => { release = resolve; }); }, release: () => release?.(),
   calls: () => calls, day, tomorrow, selected: () => selectedId,
+  theme: (mode:'dark'|'light') => useThemeStore.getState().setTheme(mode),
+  diagnostics: () => ({IS_MOBILE,native:IS_CAPACITOR,font:document.documentElement.dataset.vgFont,theme:document.documentElement.dataset.vgTheme,width:innerWidth,height:innerHeight,dpr:devicePixelRatio}),
   noApi: () => useAuthStore.setState({ apiKey: null }),
 };

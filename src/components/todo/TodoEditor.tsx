@@ -2,7 +2,7 @@ import { FeedbackNotice } from '../ui/FeedbackNotice';
 import { Modal } from '../ui/Modal';
 import { useEffect, useState } from 'react';
 import { db, type Todo, type TodoPriority, type TodoRecurrence, type TodoVisibility, type TodoWorkStatus } from '../../db';
-import { todoRepo, localDateKey, occurrenceId } from '../../db/todo-repo';
+import { todoRepo, localDateKey, occurrenceId, type TodoDeletionReceipt } from '../../db/todo-repo';
 import { requestNotificationPermission } from '../../lib/notify';
 import { useAuthStore } from '../../store/auth-store';
 
@@ -21,6 +21,9 @@ export function TodoEditor({ userId, todo, date, characters, onClose, onSaved }:
   const [subtaskDraft, setSubtaskDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [failure,setFailure]=useState('');
+  const [deleteOpen,setDeleteOpen]=useState(false);
+  const [deletionReceipt,setDeletionReceipt]=useState<TodoDeletionReceipt|null>(null);
+  const [restoredTodo,setRestoredTodo]=useState<Todo|null>(null);
   const [scope,setScope]=useState<'instance'|'future'>('instance');
   const [workStatus,setWorkStatus]=useState<TodoWorkStatus>('todo');
   const [focusDate,setFocusDate]=useState<string|null>(null);
@@ -80,6 +83,34 @@ export function TodoEditor({ userId, todo, date, characters, onClose, onSaved }:
     finally{setSaving(false);}
   };
 
+  const deletionResult = restoredTodo ? '待办已恢复，提醒待重建。' : '已删除待办';
+  if (deletionReceipt && todo) return <Modal open onClose={()=>{if(!saving)onSaved(deletionResult);}} title={restoredTodo?'待办已恢复':'待办已删除'} presentation="dialog" closeOnBackdrop={false} canSnapshotOnExit={()=>useAuthStore.getState().userId===userId}>
+    <div className="p-5 space-y-4">
+      <p className="text-base text-ink leading-relaxed">{deletionReceipt.title}</p>
+      {failure&&<FeedbackNotice message={failure} tone="error"/>}
+      <div className="flex flex-wrap gap-3">
+        <button type="button" className="vg-button vg-button-secondary" disabled={saving} onClick={async()=>{
+          if(saving)return;
+          setSaving(true);setFailure('');
+          try{
+            if(useAuthStore.getState().userId!==userId)throw new Error('账号已切换。');
+            if(!restoredTodo){
+              const restored=await todoRepo.undoRemove(userId,deletionReceipt);
+              if(useAuthStore.getState().userId!==userId)return;
+              setRestoredTodo(restored);
+            }
+            try{await todoRepo.rebuildReminders(userId);}catch{
+              setFailure('待办已恢复，提醒更新失败，可重试提醒。');return;
+            }
+            if(useAuthStore.getState().userId===userId)onSaved('待办已恢复');
+          }catch(e){setFailure(e instanceof Error?e.message:'恢复失败，请重试。');}
+          finally{setSaving(false);}
+        }}>{saving?'处理中…':restoredTodo?'重试提醒':'撤销删除'}</button>
+        <button type="button" className="vg-button vg-button-primary" disabled={saving} onClick={()=>onSaved(deletionResult)}>完成</button>
+      </div>
+    </div>
+  </Modal>;
+
   return <Modal open onClose={onClose} title={todo ? '编辑行动' : '记下一件事'} canSnapshotOnExit={() => useAuthStore.getState().userId === userId}>
     <div className="vg-todo-sheet">
       <input aria-label="事项名称" className="vg-todo-title-input" autoFocus value={title} onChange={e => setTitle(e.target.value)} placeholder="要做什么？" maxLength={80} />
@@ -93,12 +124,21 @@ export function TodoEditor({ userId, todo, date, characters, onClose, onSaved }:
       }}><option value="none">不重复</option><option value="daily">每天</option><option value="weekdays">工作日</option><option value="weekly">每周</option><option value="monthly">每月</option>{repeat.kind==='interval'&&<option value="interval">每 {repeat.days} 天</option>}</select></label>
       <label className="vg-todo-wide-field">工作状态<select value={workStatus} onChange={e=>setWorkStatus(e.target.value as TodoWorkStatus)}><option value="todo">待开始</option><option value="doing">进行中</option><option value="waiting">等待别人</option><option value="blocked">遇到阻塞</option></select></label>
       <label className="vg-todo-wide-field"><span><input type="checkbox" checked={focusDate===localDateKey()} onChange={e=>setFocusDate(e.target.checked?localDateKey():null)} /> 标为今日重点</span>{focusDate&&focusDate<localDateKey()&&<small>原重点日期：{focusDate} <button type="button" onClick={()=>setFocusDate(null)}>清除旧重点</button></small>}</label>
-      {workStatus==='waiting'&&<><label className="vg-todo-wide-field">等待谁的反馈<input value={waitingFor} onChange={e=>setWaitingFor(e.target.value)} maxLength={120}/></label><label className="vg-todo-wide-field">下次跟进<input type="date" min={localDateKey()} value={followupDate} onChange={e=>setFollowupDate(e.target.value)}/></label><p className="text-xs text-sub">只调整跟进安排，没有向对方发送消息。</p></>}
+      {workStatus==='waiting'&&<><label className="vg-todo-wide-field">等待谁的反馈<input value={waitingFor} onChange={e=>setWaitingFor(e.target.value)} maxLength={120}/></label><label className="vg-todo-wide-field">下次跟进<input type="date" min={localDateKey()} value={followupDate} onChange={e=>setFollowupDate(e.target.value)}/></label><p className="text-xs text-sub">仅改跟进安排，不发送消息。</p></>}
       {workStatus==='blocked'&&<label className="vg-todo-wide-field">阻塞原因<textarea value={blockedReason} onChange={e=>setBlockedReason(e.target.value)} maxLength={1000}/></label>}
       <div className="vg-todo-subtasks"><div className="vg-todo-subtask-add"><input value={subtaskDraft} onChange={e=>setSubtaskDraft(e.target.value)} placeholder="添加一个步骤" maxLength={120} onKeyDown={e=>{if(e.key==='Enter'&&subtaskDraft.trim()){e.preventDefault();setSubtasks(old=>[...old,{id:crypto.randomUUID(),title:subtaskDraft.trim(),completed:false}]);setSubtaskDraft('');}}}/><button type="button" aria-label="添加步骤" onClick={()=>{if(subtaskDraft.trim()){setSubtasks(old=>[...old,{id:crypto.randomUUID(),title:subtaskDraft.trim(),completed:false}]);setSubtaskDraft('');}}}>＋</button></div>{subtasks.map(step=><label key={step.id}><input type="checkbox" checked={step.completed} onChange={e=>setSubtasks(old=>old.map(item=>item.id===step.id?{...item,completed:e.target.checked}:item))}/>{step.title}</label>)}</div>
       <fieldset className="vg-todo-share"><legend>世界里的知情范围</legend><label><input type="radio" checked={visibility==='private'} onChange={()=>setVisibility('private')}/> 仅自己</label><label><input type="radio" checked={visibility==='selected'} onChange={()=>setVisibility('selected')}/> 告诉指定角色</label>{visibility==='selected'&&<div className="vg-todo-character-list">{characters.map(character=><label key={character.id}><input type="checkbox" checked={visibleTo.includes(character.id)} onChange={e=>setVisibleTo(old=>e.target.checked?[...old,character.id]:old.filter(id=>id!==character.id))}/> {character.name}</label>)}</div>}</fieldset>
       {failure&&<FeedbackNotice message={failure} tone="error" className="mt-3" />}
-      {todo&&<button className="vg-todo-delete" disabled={saving||loading} onClick={async()=>{setSaving(true);try{if(useAuthStore.getState().userId!==userId)throw new Error('账号已切换');await todoRepo.remove(userId,todo.id);if(useAuthStore.getState().userId===userId)onSaved('已移入回收站');}catch(e){setFailure(e instanceof Error?e.message:'删除失败');}finally{setSaving(false);}}}>删除整项任务{todo.recurrence.kind!=='none'?'（含所有重复）':''}</button>}
+      {todo&&<button type="button" className="vg-todo-delete" disabled={saving||loading} onClick={()=>setDeleteOpen(true)}>删除整项任务{todo.recurrence.kind!=='none'?'（含所有重复）':''}</button>}
+      {todo&&<Modal open={deleteOpen} onClose={()=>{if(!saving)setDeleteOpen(false);}} title="删除这项待办？" presentation="dialog" canSnapshotOnExit={()=>useAuthStore.getState().userId===userId}>
+        <div className="p-5 space-y-4">
+          <p className="text-base text-ink leading-relaxed">{todo.recurrence.kind!=='none'?'将删除整项任务及所有重复安排。':'将删除这项待办。'}删除后可在关闭前撤销。</p>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" className="vg-button vg-button-secondary" disabled={saving} onClick={()=>setDeleteOpen(false)}>保留</button>
+            <button type="button" className="vg-button vg-button-danger" disabled={saving} onClick={async()=>{if(saving)return;setSaving(true);setFailure('');try{const receipt=await todoRepo.remove(userId,todo.id,todo.updatedAt);if(useAuthStore.getState().userId===userId){setDeletionReceipt(receipt);if(receipt.remindersPending)setFailure('旧提醒待取消，可重试撤销。');}}catch(e){setFailure(e instanceof Error?e.message:'删除失败');setDeleteOpen(false);}finally{setSaving(false);}}}>{saving?'删除中…':'删除'}</button>
+          </div>
+        </div>
+      </Modal>}
       <button className="vg-todo-save" disabled={!title.trim()||saving||loading} onClick={()=>void save()}>{loading?'读取中…':saving?'保存中…':'保存行动'}</button>
     </div>
   </Modal>;

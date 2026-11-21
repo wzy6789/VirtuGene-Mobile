@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "sceneId": "moonlit-bedroom",
+  "file": "scene.glb",
+  "bytes": 101324,
+  "sha256": "ac408f1571f18adeb2a93aba0aa8b81db84312f3068b0bbe5fdfa314a64eeba5",
+  "triangles": 2092,
+  "vertices": 1108,
+  "drawCalls": 2,
+  "geometryBoundsBlender": {
+    "min": [
+      -3.4128823280334473,
+      2.9100000858306885,
+      -7.588691711425781
+    ],
+    "max": [
+      3.4128823280334473,
+      10.600000381469727,
+      7.588691711425781
+    ]
+  },
+  "effectQuad": [
+    [
+      -0.260952,
+      -1.624664,
+      -10.05
+    ],
+    [
+      2.870467,
+      -1.624664,
+      -10.05
+    ],
+    [
+      2.870467,
+      6.092489,
+      -10.05
+    ],
+    [
+      -0.260952,
+      6.092489,
+      -10.05
+    ]
+  ],
+  "lightPoint": [
+    -1.079638,
+    0.872954,
+    -6.3
+  ],
+  "cup": [
+    -0.298186,
+    -0.713259,
+    -2.9
+  ],
+  "camera": {
+    "verticalFovDegrees": 60
+  },
+  "materialStrategy": "Generated native photographic-style art projected on original volumetric fixed-view depth geometry. Approximate window optics, not free-view PBR or ray-traced glass.",
+  "source": {
+    "file": "design/chat-scenes/immersive-20261021/moonlit-bedroom-depth.blend",
+    "sha256": "e6bd2f777a0849079ec14e8a85b0bb6f1c12bdcec1f973705932f77fefe018c1",
+    "art": {
+      "file": "design/chat-scenes/immersive-20261021/moonlit-bedroom-source.png",
+      "width": 841,
+      "height": 1870,
+      "sha256": "2047ea02a26a95581cc73b75d20ef598e5eb33f353426a4d74f050afa1e83ae8",
+      "origin": "Built-in image generation; original photographic-style environment artwork, not a Blender render.",
+      "nativeResolution": true,
+      "upscaled": false,
+      "model": "未确认",
+      "reasoning": "未确认"
+    }
+  },
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认",
+  "ambientVolume": {
+    "origin": [
+      -1.194405,
+      -1.501111,
+      -5.0
+    ],
+    "across": [
+      2.38881,
+      0.0,
+      -0.0
+    ],
+    "up": [
+      0.0,
+      2.424871,
+      -0.0
+    ],
+    "depth": [
+      0,
+      0,
+      -2.0
+    ]
+  }
+}

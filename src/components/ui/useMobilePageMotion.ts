@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { MOBILE_TABS, type MobileTab } from '../../store/ui-store';
-import { prefersReducedMotion, restoreSnapshotScroll, settleFrames, subscribeReducedMotion, visualSnapshot } from '../../lib/mobile-motion';
+import { prefersReducedMotion, restoreSnapshotScroll, settleFrames, settleProgress, subscribeReducedMotion, visualSnapshot } from '../../lib/mobile-motion';
 
 interface PagePosition { key: string; tab: MobileTab; depth: number }
 
@@ -42,7 +42,7 @@ export function useMobilePageMotion(position: PagePosition) {
     }
     const index = (tab: MobileTab) => MOBILE_TABS.findIndex(item => item.key === tab);
     const direction = before.tab !== position.tab ? Math.sign(index(position.tab) - index(before.tab)) : position.depth < before.depth ? -1 : 1;
-    const distance = before.depth !== position.depth ? Math.min(56, el.clientWidth * .12) : 26;
+    const depthChange = before.depth !== position.depth;
     const animations: Animation[] = [];
     let ghost: HTMLElement | null = frame?.node ?? null;
     if (ghost && frame) {
@@ -54,7 +54,14 @@ export function useMobilePageMotion(position: PagePosition) {
       animations.push(exit);
     }
     el.style.willChange = 'transform,opacity';
-    const enter = el.animate(settleFrames(direction * distance, 0, ghost ? .9 : .96, 1, 'x', 3), { duration: 300, easing: 'linear' });
+    const opacityFrom = ghost ? .9 : .96;
+    // The page wrapper has no border or scrollbar. Resolve its authored 12%
+    // offset during layout, instead of flushing the incoming page in this ref.
+    const frames = depthChange && CSS.supports('transform','translate3d(min(56px,12%),0,0)')
+      ? settleProgress(3).map(({offset,progress})=>({offset,opacity:opacityFrom+(1-opacityFrom)*progress,
+        transform:`translate3d(calc(min(56px,12%) * ${direction*(1-progress)}),0,0)`}))
+      : settleFrames(direction * (depthChange ? Math.min(56,el.clientWidth*.12) : 26),0,opacityFrom,1,'x',3);
+    const enter = el.animate(frames, { duration: 300, easing: 'linear' });
     animations.push(enter);
     const stop = () => {
       animations.forEach(animation => animation.cancel());

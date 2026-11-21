@@ -60,7 +60,7 @@ export function SecretaryWorkspaceCard({ onOpen, compact = false }: { onOpen?: (
         <span className="flex min-w-0 items-center gap-2"><span className="truncate text-base font-medium text-ink">{character?.name ?? '聘用助理'}</span>{character && <span className="vg-secretary-badge shrink-0">助理</span>}</span>
         <span className="mt-1 flex min-w-0 items-center gap-2 text-xs text-sub"><span className="vg-secretary-presence truncate" data-active={ready && !error && active ? 'true' : 'false'}>{!ready ? '读取中…' : error ? '读取失败 · 展开重试' : active ? '在职 · 为你办事' : character ? '助理空缺 · 记录保留' : '等待你的聘用'}</span>{snapshot && snapshot.attention > 0 && <span className="vg-secretary-attention shrink-0"><AnimatedValue value={snapshot.attention} /> 待处理</span>}</span>
       </span>
-      <svg aria-hidden="true" className="vg-secretary-chevron shrink-0 text-sub" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m8 10 4 4 4-4" /></svg>
+      <span aria-hidden="true" className="vg-secretary-disclosure-label shrink-0 text-sub">{expanded ? '收起' : '展开'}</span>
     </button>
     <div className="vg-assistant-home-actions">
       <button type="button" onClick={() => openAssistantWorkspace('today')} className="vg-assistant-home-today"><SoulOrb size={36} emotion="idle" soulKey={`action-cabin:${userId}`} soulRole="list" /><span>查看今日</span></button>
@@ -70,7 +70,7 @@ export function SecretaryWorkspaceCard({ onOpen, compact = false }: { onOpen?: (
     <div ref={detailsRef} id={detailsId} className="vg-secretary-details" aria-hidden={!expanded} inert={!expanded}>
       <div ref={detailsContentRef} className="vg-secretary-details-clip">
         <div className="vg-secretary-details-content">
-          <p className="text-xs leading-relaxed text-sub">{active ? '记日记、写朋友圈、安排待办。' : character ? '查看保留记录，或聘用新的助理。' : '名字、性格和形象，由你决定。'}</p>
+          <p className="text-xs leading-relaxed text-sub">{active ? '记日记、写朋友圈、安排待办。' : character ? '可查看记录或重新聘用。' : '名字、性格和形象，由你决定。'}</p>
           {snapshot && <div aria-label="助理办事概览" className="vg-secretary-counts mt-3 grid grid-cols-3 gap-1 rounded-xl py-3 text-center text-xs text-sub">
             {[[snapshot.todayCount, '今日及逾期待办'], [snapshot.attention, '待处理请求'], [snapshot.drafts, '待发布草稿']].map(([count, label]) => <p key={label}><span className="mb-1 block text-base font-semibold text-ink"><AnimatedValue value={count} /></span>{label}</p>)}
           </div>}
@@ -78,7 +78,7 @@ export function SecretaryWorkspaceCard({ onOpen, compact = false }: { onOpen?: (
             <button type="button" aria-label={character ? `与助理${character.name}对话` : '聘用生活助理'} disabled={!ready || error} onClick={enter} className="vg-secretary-chat flex-1 min-h-12 rounded-xl px-3 text-sm font-medium disabled:opacity-50">{character ? '进入对话' : '开始聘用'}</button>
             {character && <button type="button" onClick={manage} className="vg-secretary-manage min-h-12 rounded-xl px-4 text-sm text-ink">助理管理</button>}
           </div>
-          <p className="vg-secretary-retained mt-3 text-xs leading-relaxed text-sub"><SecretaryIcon name={snapshot?.failed ? 'inbox' : 'shield'} size={14} />{snapshot?.failed ? `${snapshot.failed} 个请求未办成，进入收件箱处理` : '你的记录归你，换助理也保留。'}</p>
+          <p className="vg-secretary-retained mt-3 text-xs leading-relaxed text-sub"><SecretaryIcon name={snapshot?.failed ? 'inbox' : 'shield'} size={14} />{snapshot?.failed ? `${snapshot.failed} 个请求未办成，进入收件箱处理` : '换助理后，记录保留。'}</p>
           {error && <button type="button" onClick={() => setRevision(value => value + 1)} className="min-h-12 w-full text-sm text-gene-purple">重新读取助理工作台</button>}
         </div>
       </div>

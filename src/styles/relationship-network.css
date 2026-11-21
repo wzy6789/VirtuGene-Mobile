@@ -1,0 +1,23 @@
+/* Actual character portrait map only; shared scene and glass materials stay with their owners. */
+.vg-relationship-network-body{min-width:0}
+.vg-relationship-network .vg-portrait-constellation{min-width:0}
+.vg-relationship-network .vg-portrait-link{cursor:pointer;outline:none;opacity:1}
+.vg-relationship-network .vg-portrait-link[data-secondary]{opacity:.72}
+.vg-relationship-network [data-edge-selected] .vg-portrait-link:not([data-related]){opacity:.18}
+.vg-relationship-network .vg-portrait-link[data-related]{opacity:1}
+.vg-relationship-network .vg-portrait-link[data-related] .vg-portrait-link-line{stroke-width:2}
+.vg-relationship-network [data-portrait-ref][data-muted]{opacity:.38}
+.vg-relationship-network .vg-portrait-link[data-selected]{opacity:1}
+.vg-relationship-network .vg-portrait-link-line{stroke-width:1.7;vector-effect:non-scaling-stroke;pointer-events:none}
+.vg-relationship-network .vg-portrait-link[data-secondary] .vg-portrait-link-line{stroke-width:1}
+.vg-relationship-network .vg-portrait-link[data-selected] .vg-portrait-link-line{stroke-width:2.4}
+.vg-relationship-network .vg-portrait-link-hit{pointer-events:stroke}
+.vg-relationship-network .vg-portrait-link-glow{vector-effect:non-scaling-stroke;pointer-events:none}
+.vg-relationship-network .vg-portrait-link:focus-visible,.vg-relationship-network [data-edge-selected] .vg-portrait-link:focus-visible{opacity:1}
+.vg-relationship-network .vg-portrait-link:focus-visible .vg-portrait-link-line{stroke:var(--text);stroke-width:2.4}
+.vg-relationship-network .vg-relationship-network-controls{flex-wrap:wrap;min-width:0}
+.vg-relationship-network-controls button{min-width:44px;min-height:44px;touch-action:manipulation}
+.vg-relationship-network-pages{margin-left:auto;flex:none}
+.vg-relationship-network-pages button{font-size:13px;line-height:1.5;white-space:nowrap}
+.vg-relationship-network-controls>button{font-size:12px;line-height:1.5}
+.vg-relationship-network .vg-relationship-network-empty{margin:12px 0 0;color:var(--text-secondary);font-size:13px;line-height:1.6;overflow-wrap:anywhere}

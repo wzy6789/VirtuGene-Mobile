@@ -3,14 +3,11 @@ package com.virtugene.app;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Window;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
-import androidx.core.view.WindowCompat;
-import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
@@ -19,10 +16,11 @@ import com.getcapacitor.BridgeWebChromeClient;
 import com.virtugene.app.plugins.NativeAudioRecorderPlugin;
 import com.virtugene.app.plugins.ChatTextRecognitionPlugin;
 import com.virtugene.app.plugins.VoiceCallAudioPlugin;
+import com.virtugene.app.plugins.MimoStreamPlugin;
+import com.virtugene.app.plugins.ResourceCachePlugin;
+import com.virtugene.app.plugins.SystemAppearancePlugin;
 
 public class MainActivity extends BridgeActivity {
-
-    private static final int STATUS_BAR_COLOR = 0xFF0F0F1A;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -30,6 +28,9 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(NativeAudioRecorderPlugin.class);
         registerPlugin(ChatTextRecognitionPlugin.class);
         registerPlugin(VoiceCallAudioPlugin.class);
+        registerPlugin(MimoStreamPlugin.class);
+        registerPlugin(ResourceCachePlugin.class);
+        registerPlugin(SystemAppearancePlugin.class);
 
         super.onCreate(savedInstanceState);
 
@@ -37,8 +38,8 @@ public class MainActivity extends BridgeActivity {
 
         applySystemBarColors();
 
-        // Capacitor 的 SystemBars 插件在 WebView 加载后会把 decorView 背景设为主题
-        // windowBackground；再延迟强制一次，确保状态栏区域始终是品牌深色（不透白）
+        // Capacitor initializes its system bars after loading the WebView.
+        // Reapply the saved resolved theme, including a light theme selected in-app.
         new Handler(Looper.getMainLooper()).postDelayed(this::applySystemBarColors, 300);
 
         // 麦克风（getUserMedia）放行兜底：
@@ -113,14 +114,11 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void applySystemBarColors() {
-        Window window = getWindow();
-        window.setStatusBarColor(STATUS_BAR_COLOR);
-        window.setNavigationBarColor(STATUS_BAR_COLOR);
-        window.getDecorView().setBackgroundColor(STATUS_BAR_COLOR);
+        SystemAppearancePlugin.applySaved(this);
+    }
 
-        // 深色状态栏 → 白色图标（清除 light-status-bar 标志）
-        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
-        controller.setAppearanceLightStatusBars(false);
-        controller.setAppearanceLightNavigationBars(false);
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) applySystemBarColors();
     }
 }

@@ -1,21 +1,114 @@
 type FrameClient = (dt: number, now: number) => void;
 const clients = new Set<FrameClient>();
+
+/** Raw browser frames, not the deliberately throttled SVG paint cadence. */
+export function createOrbFrameBudget() {
+  let mode: 'full' | 'static' | 'gentle' = 'full', recoveries = 0;
+  let previous: number | undefined, start: number | undefined;
+  let intervals: number[] = [], eligible = true, badWindows = 0, stableMs = 0;
+  const pause = () => { previous = start = undefined; intervals = []; eligible = true; badWindows = stableMs = 0; };
+  return {
+    pause,
+    state: () => ({ mode, recoveries, locked: mode === 'static' && recoveries >= 1, badWindows, stableMs }),
+    sample(now: number, blocked = false): boolean {
+      if (!Number.isFinite(now) || now < 0) return false;
+      if (previous === undefined) { previous = start = now; eligible = !blocked; return false; }
+      const interval = now - previous;
+      if (interval <= 0) return false;
+      previous = now;
+      // A long suspension is not evidence of three consecutive slow windows.
+      if (interval > 1000) { pause(); previous = start = now; eligible = !blocked; return false; }
+      intervals.push(interval); eligible &&= !blocked;
+      const elapsed = now - start!;
+      if (elapsed < 1000) return false;
+      intervals.sort((a, b) => a - b);
+      const slow = intervals[Math.max(0, Math.ceil(intervals.length * .95) - 1)] > 33;
+      const before = mode;
+      badWindows = slow ? badWindows + 1 : 0;
+      if (mode !== 'static' && badWindows >= 3) { mode = 'static'; stableMs = 0; }
+      else if (mode === 'static' && recoveries < 1) {
+        stableMs = !slow && eligible ? stableMs + elapsed : 0;
+        if (stableMs >= 10000) { mode = 'gentle'; recoveries++; stableMs = badWindows = 0; }
+      }
+      start = now; intervals = []; eligible = !blocked;
+      return before !== mode;
+    },
+  };
+}
+
+const budget = createOrbFrameBudget(), budgetListeners = new Set<() => void>();
+const recoveryHolds = new Set<symbol>(), pointers = new Set<number>();
+let budgetMode: 'full' | 'static' | 'gentle' = 'full', budgetLocked = false, trackingInput = false;
+export const orbFrameBudgetState = () => budget.state();
+export const orbFrameBudgetMode = () => budgetMode;
+export function subscribeOrbFrameBudget(listener: () => void) { budgetListeners.add(listener); return () => { budgetListeners.delete(listener); }; }
+/** A live call may become static, but must never restart ambient motion mid-call. */
+export function holdOrbMotionRecovery() {
+  const token = Symbol(); recoveryHolds.add(token);
+  return () => { recoveryHolds.delete(token); wakeRecoveryProbe(); };
+}
+const pointerDown = (event: PointerEvent) => { pointers.add(event.pointerId); };
+const pointerUp = (event: PointerEvent) => { pointers.delete(event.pointerId); wakeRecoveryProbe(); };
+const pointerMove = (event: PointerEvent) => { if (event.buttons || event.pressure > 0) pointers.add(event.pointerId); else { pointers.delete(event.pointerId); wakeRecoveryProbe(); } };
+function stopInputTracking() {
+  if (trackingInput) {
+    window.removeEventListener('pointerdown', pointerDown, true); window.removeEventListener('pointerup', pointerUp, true);
+    window.removeEventListener('pointercancel', pointerUp, true); window.removeEventListener('pointermove', pointerMove, true);
+  }
+  trackingInput = false; pointers.clear();
+}
+function startInputTracking() {
+  if (trackingInput || budgetLocked || typeof window === 'undefined') return;
+  trackingInput = true;
+  window.addEventListener('pointerdown', pointerDown, { capture: true, passive: true }); window.addEventListener('pointerup', pointerUp, { capture: true, passive: true });
+  window.addEventListener('pointercancel', pointerUp, { capture: true, passive: true }); window.addEventListener('pointermove', pointerMove, { capture: true, passive: true });
+}
+type OrbTiming = { clock: { current: number }; phase: { current: number } };
+const timings = new WeakMap<HTMLElement, OrbTiming>();
+export function registerOrbTiming(node: HTMLElement, clock: OrbTiming['clock'], phase: OrbTiming['phase']) {
+  timings.set(node, { clock, phase });
+  return () => { timings.delete(node); };
+}
+export function inheritOrbTiming(source: HTMLElement, target: HTMLElement) {
+  const from=timings.get(source), to=timings.get(target);
+  if(from&&to){to.clock.current=from.clock.current;to.phase.current=from.phase.current;}
+}
 let frame = 0, previous = 0;
+const canSchedule = () => clients.size > 0 && !budgetLocked
+  && (budgetMode !== 'static' || (pointers.size === 0 && recoveryHolds.size === 0));
+function wakeRecoveryProbe() {
+  if (budgetMode === 'static' && !frame && canSchedule()) {
+    budget.pause(); previous = 0; frame = requestAnimationFrame(tick);
+  }
+}
 
 /** All visible orbs share one clock. No component state is updated on a frame. */
 function tick(now: number) {
   frame = 0;
+  if (budget.sample(now, pointers.size > 0 || recoveryHolds.size > 0)) {
+    const state = budget.state(); budgetMode = state.mode; budgetLocked = state.locked;
+    if (typeof document !== 'undefined') document.documentElement.setAttribute('data-vg-orb-budget', budgetMode);
+    if (budgetLocked) stopInputTracking();
+    budgetListeners.forEach(listener => listener());
+  }
+  // Ambient SVG motion needs 30Hz, regardless of a 120/165Hz screen.
+  // Keep one rAF driver and integrate the actual elapsed interval when painting.
+  if (previous && now - previous < 1000 / 30) {
+    if (canSchedule()) frame = requestAnimationFrame(tick);
+    return;
+  }
   const dt = previous ? Math.min(.064, (now - previous) / 1000) : 1 / 60;
   previous = now;
   clients.forEach(client => client(dt, now));
-  if (clients.size) frame = requestAnimationFrame(tick);
+  if (canSchedule()) frame = requestAnimationFrame(tick);
 }
 export function subscribeSoulOrbFrame(client: FrameClient): () => void {
+  if (!clients.size) startInputTracking();
   clients.add(client);
-  if (!frame) { previous = 0; frame = requestAnimationFrame(tick); }
+  if (!frame && canSchedule()) { previous = 0; frame = requestAnimationFrame(tick); }
   return () => {
     clients.delete(client);
-    if (!clients.size) { cancelAnimationFrame(frame); frame = 0; previous = 0; }
+    if (!clients.size) { cancelAnimationFrame(frame); frame = 0; previous = 0; budget.pause(); stopInputTracking(); }
   };
 }
 export const soulOrbMotionActivity = () => ({ clients: clients.size, scheduled: !!frame });
@@ -42,10 +135,11 @@ export function stepOrbSpring(value:number,velocity:number,target:number,dt:numb
   return [target+c[0]*y+c[1]*velocity,c[2]*y+c[3]*velocity];
 }
 
-export type OrbCue='touch'|'success'|'error'|'surprised'|'happy';
+export type OrbCue='touch'|'arrival'|'success'|'error'|'surprised'|'happy';
 const accentProfiles:Record<OrbCue,readonly [number,number,number,number,number]>={
   // preparation(ms), angular frequency, stretch impulse, lift impulse, roll
   touch:[0,24,0,0,80],success:[50,24,2.3,480,-80],error:[50,24,0,0,0],
+  arrival:[30,20,.7,115,0],
   surprised:[35,28,2.3,390,25],happy:[45,24,1.8,340,-65],
 };
 export interface OrbAccent {

@@ -43,7 +43,11 @@ async function main() {
   for (let i = 0; i < 35; i++) end = noise.push(0.001);
   check(end === 'discard', 'very short noise is discarded');
   const bounded = new UtteranceGate(700, 1000); const boundedEvents = Array.from({ length: 50 }, () => bounded.push(0.08));
-  check(boundedEvents.includes('end'), 'continuous speech is bounded');
+  check(boundedEvents.filter(event => event === 'segment').length === 1 && !boundedEvents.includes('end'), 'continuous speech is segmented without claiming a real pause');
+  const continued = Array.from({ length: 4 }, () => bounded.push(0.08));
+  check(continued.every(event => event === 'none'), 'segment continuation does not start a new utterance even when shorter than 200ms');
+  const ended = Array.from({ length: 35 }, () => bounded.push(0.001));
+  check(ended.filter(event => event === 'end').length === 1 && !ended.includes('discard'), 'real silence ends the original utterance after a short continuation');
   const speech = new SpokenSentenceBuffer();
   check(speech.push('（轻声').length === 0, 'partial stage directions remain hidden');
   assert.deepEqual(speech.push('）你好。**微笑**今天好吗？<think>不能播报</think>我在。'), ['你好。', '今天好吗？', '我在。']); checks++;
@@ -94,7 +98,7 @@ async function main() {
   await assert.rejects(readCallEvents(new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: 'x'.repeat(2 * 1024 * 1024) } }] }) + '\n\n', { headers: { 'Content-Type': 'text/event-stream' } }), signal, () => { oversizedDelivered = true; }), (e: any) => e.code === 'limit'); checks++;
   check(!oversizedDelivered, 'oversized complete SSE frames are rejected before downstream delivery');
   await assert.rejects(readCallEvents(new Response('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n', { headers: { 'Content-Type': 'text/event-stream' } }), signal, () => {}), (e: any) => e.code === 'protocol'); checks++;
-  for (const [status, code] of [[401, 'key'], [402, 'quota'], [429, 'rate'], [503, 'network'], [400, 'protocol'], [404, 'protocol'], [421, 'limit']] as const) {
+  for (const [status, code] of [[401, 'key'], [402, 'quota'], [429, 'rate'], [503, 'service'], [400, 'protocol'], [404, 'protocol'], [421, 'limit']] as const) {
     let calls = 0;
     const failing = new MimoCallClient(async () => 'mock-key', (async () => { calls++; return new Response('', { status }); }) as typeof fetch);
     await assert.rejects(failing.recognize(wav, { signal }), (e: any) => e instanceof CallApiError && e.code === code);
@@ -104,6 +108,13 @@ async function main() {
     let deliveredTail = false;
     await assert.rejects(readCallEvents(sse([{ choices: [{ delta: { content: '不能作为正常完成播出的尾句。' }, finish_reason: finish }] }]), signal, () => { deliveredTail = true; }), (error: any) => error.code === code);
     check(!deliveredTail, `${finish} cannot deliver its final partial content or masquerade as normal completion`);
+  }
+  for (const [status, code] of [[401, 'key'], [403, 'forbidden'], [402, 'quota'], [429, 'rate'], [503, 'service']] as const) {
+    let delivered = false;
+    const streamedFailure = new MimoCallClient(async () => 'mock-key', (async () => sse([{ error: { code: String(status), message: 'private service details' } }])) as typeof fetch);
+    await assert.rejects(streamedFailure.dialogue([{ role: 'user', content: '你好' }], { signal, onText: () => { delivered = true; } }),
+      (error: any) => error instanceof CallApiError && error.code === code && error.stage === 'dialogue' && error.httpStatus === undefined && !error.message.includes('private')); checks++;
+    check(!delivered, 'numeric error inside HTTP200 SSE is classified safely without generating speech or inventing HTTP status');
   }
   const before = new AbortController(); before.abort();
   await assert.rejects(client.recognize(wav, { signal: before.signal }), (e: any) => e.name === 'AbortError'); checks++;
@@ -156,6 +167,37 @@ async function main() {
     }), (error: any) => error.code === 'timeout'); checks++;
     check(blockedRequests === 1 && !!finishBlockedPcm, 'transport deadline terminates a TTS stream waiting on playback activation without automatic retry');
   } finally { globalThis.setTimeout = originalTimer; finishBlockedPcm?.(); }
+  for (const [nativeCode, code] of [['dns', 'dns'], ['tls', 'tls'], ['timeout', 'timeout'], ['transport_missing', 'transport_missing'],
+    ['transport_limit', 'transport_limit'], ['transport_duplicate', 'transport_duplicate'], ['transport_url', 'transport_url'], ['stream_closed', 'stream_closed'],
+    ['native_network', 'network']] as const) {
+    let attempts = 0;
+    const nativeFailure = new MimoCallClient(async () => 'mock-key', (async () => { attempts++; throw { message: `voice:${nativeCode}` }; }) as typeof fetch);
+    await assert.rejects(nativeFailure.dialogue([{ role: 'user', content: '你好' }], { signal, onText: () => {} }),
+      (error: any) => error instanceof CallApiError && error.code === code && error.stage === 'dialogue' && error.httpStatus === undefined); checks++;
+    check(attempts === 1, `fixed native ${nativeCode} failure is not automatically retried`);
+  }
+  for (const value of ['mock key', 'mock\nkey', 'mock\u200bkey', 'Bearer mock-key']) {
+    let requests = 0;
+    const invalidLocal = new MimoCallClient(async () => value, (async () => { requests++; return sse([]); }) as typeof fetch);
+    await assert.rejects(invalidLocal.dialogue([{ role: 'user', content: '你好' }], { signal, onText: () => {} }),
+      (error: any) => error instanceof CallApiError && error.code === 'key_format'); checks++;
+    check(requests === 0, 'malformed local key never reaches a billable request or produces a header/network failure');
+  }
+  const local = new MimoCallClient(async () => 'mock-key', (async () => sse([{ choices: [{ delta: { content: 'hello', audio: { data: 'AAAA' } } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }])) as typeof fetch);
+  const sourceFailure = new Error('voice:source_withdrawn');
+  await assert.rejects(local.dialogue([{ role: 'user', content: 'hello' }], { signal, onText: () => { throw sourceFailure; } }),
+    (error: unknown) => error === sourceFailure); checks++;
+  const audioFailure = { message: 'voice:audio_backpressure' };
+  await assert.rejects(local.synthesize('hello', '茉莉', '', { signal, onPcm: () => { throw audioFailure; } }),
+    (error: unknown) => error === audioFailure); checks++;
+  const usageFailure = new Error('voice:usage_local');
+  await assert.rejects(local.recognize(wav, { signal, onUsage: () => { throw usageFailure; } }),
+    (error: unknown) => error === usageFailure); checks++;
+  let rejectedBeforeFetch = 0;
+  const accounting = new MimoCallClient(async () => 'mock-key', (async () => { rejectedBeforeFetch++; return sse([]); }) as typeof fetch);
+  await assert.rejects(accounting.dialogue([{ role: 'user', content: 'hello' }], { signal, onRequest: () => { throw usageFailure; }, onText: () => {} }),
+    (error: unknown) => error === usageFailure); checks++;
+  check(rejectedBeforeFetch === 0, 'local request accounting failure is not disguised as network and makes no model request');
   console.log(JSON.stringify({ checks, realApiCalls: 0, modelTokens: 0, mode: 'mock-protocol-and-pure-logic', completeCallImplemented: false }));
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

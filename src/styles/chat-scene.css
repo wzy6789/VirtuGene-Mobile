@@ -1,0 +1,35 @@
+.vg-chat-scene{position:absolute;left:0;top:0;width:var(--chat-image-width,100%);height:var(--chat-image-height,100%);overflow:hidden;pointer-events:none;contain:layout paint}
+.vg-scene-plane{position:absolute;left:0;top:0;transform-origin:0 0;pointer-events:none}
+.vg-scene-webgl{position:absolute;inset:0;display:block;width:100%;height:100%;pointer-events:none}
+.vg-scene-poster,.vg-scene-base{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none}
+.vg-scene-layer{position:absolute;pointer-events:none}
+.vg-scene-layer>img{width:100%;height:100%;display:block}
+.vg-scene-layered{position:absolute;inset:0}
+.vg-scene-steam{position:absolute;pointer-events:none;mix-blend-mode:screen}
+.vg-scene-steam>i{position:absolute;left:24%;bottom:0;width:27%;height:76%;border-radius:50%;background:radial-gradient(ellipse,#fff7e95e,transparent 68%);filter:blur(8px);opacity:.14;transform-origin:50% 100%}
+.vg-scene-steam>i:nth-child(2){left:46%;height:92%;width:22%}
+.vg-scene-light-field{position:absolute;pointer-events:none;mix-blend-mode:screen;transform-origin:50% 50%}
+.vg-scene-ambient-light{position:absolute;inset:0;pointer-events:none;mix-blend-mode:screen;opacity:1;transition:opacity 200ms ease}
+.vg-chat-scene[data-scene-ambient=low] :is(.vg-scene-ambient-light,.vg-scene-steam){opacity:.45}
+.vg-scene-steam{transition:opacity 200ms ease}
+.vg-scene-light-window{background:radial-gradient(ellipse at 55% 34%,var(--scene-light-color) 0%,transparent 64%);mask-image:linear-gradient(112deg,transparent 2%,#000 34%,#0009 66%,transparent 98%);-webkit-mask-image:linear-gradient(112deg,transparent 2%,#000 34%,#0009 66%,transparent 98%)}
+.vg-scene-light-beam{background:linear-gradient(139deg,transparent 24%,var(--scene-light-color) 45%,transparent 63%);mask-image:radial-gradient(ellipse at 60% 24%,#000 0%,#0007 26%,transparent 68%);-webkit-mask-image:radial-gradient(ellipse at 60% 24%,#000 0%,#0007 26%,transparent 68%)}
+.vg-scene-light-lamp{background:radial-gradient(ellipse 24% 19% at 48% 44%,var(--scene-light-color),transparent 92%),radial-gradient(ellipse at 48% 44%,var(--scene-light-color),transparent 61%)}
+.vg-scene-light-bounce{background:radial-gradient(ellipse at 50% 32%,var(--scene-light-color),transparent 64%)}
+.vg-scene-effect-host{position:absolute;inset:0;pointer-events:none;mask-mode:alpha;mask-repeat:no-repeat;mask-size:var(--scene-mask-w) var(--scene-mask-h);mask-position:var(--scene-mask-x) var(--scene-mask-y);-webkit-mask-repeat:no-repeat;-webkit-mask-size:var(--scene-mask-w) var(--scene-mask-h);-webkit-mask-position:var(--scene-mask-x) var(--scene-mask-y)}
+.vg-scene-effect-scale{position:absolute;left:0;top:0;transform-origin:0 0;pointer-events:none}
+.vg-scene-particle-slot,.vg-scene-particle-slot>div,.vg-scene-particle-slot canvas{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;pointer-events:none!important}
+.vg-chat-scene[data-scene-policy=paused] *{animation-play-state:paused!important}
+.vg-chat-scene[data-scene-policy=static] .vg-scene-layered{visibility:hidden}
+.vg-chat-atmosphere:has(>.vg-chat-atmosphere-edge[data-background-mode=scene]) :is(.vg-message-bubble.is-user-bubble,.vg-message-bubble.is-character-bubble){color:var(--chat-text);opacity:1}
+.vg-chat-atmosphere:has(>.vg-chat-atmosphere-edge[data-background-mode=scene]) .vg-message-bubble.is-user-bubble .text-white{color:var(--chat-text)}
+.vg-chat-atmosphere:has(>.vg-chat-atmosphere-edge[data-background-mode=scene]) :is(.vg-message-time,.vg-message-date,.vg-message-generation-status){color:var(--chat-sub);background:var(--chat-panel);opacity:1}
+.vg-chat-atmosphere:has(>.vg-chat-atmosphere-edge[data-background-mode=scene]) .chat-thread .text-sub{background:var(--chat-panel);color:var(--chat-sub);border-radius:6px}
+.vg-chat-atmosphere:has(>.vg-chat-atmosphere-edge[data-background-mode=scene]) .vg-message-text a{color:inherit;text-decoration:underline}
+.vg-chat-atmosphere:has(>.vg-chat-atmosphere-edge[data-background-mode=scene]) :is(.chat-composer-input,.vg-background-preview-input)::placeholder{color:var(--chat-sub);opacity:1}
+.vg-background-scene-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:12px}
+.vg-background-scene-cards button{min-width:0;text-align:left;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--bg-panel);color:var(--text)}
+.vg-background-scene-cards button>img{display:block;width:100%;height:144px;object-fit:cover;object-position:50% 58%}
+.vg-background-scene-cards button>span{display:block;padding:12px;font-size:max(14px,.875rem);line-height:1.5}
+.vg-background-scene-cards [aria-pressed=true]{border-color:var(--vg-accent);outline:1px solid var(--vg-accent)}
+@media(max-width:359px){.vg-background-scene-cards{gap:8px}.vg-background-scene-cards button>img{height:120px}}

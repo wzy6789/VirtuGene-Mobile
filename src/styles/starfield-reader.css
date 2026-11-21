@@ -1,0 +1,326 @@
+/* Quiet story pages retain the cover's light at their edges. */
+.vg-canvas.vg-starfield-reader {
+  background:
+    radial-gradient(ellipse at 100% 0%,color-mix(in srgb,var(--vg-reading-window,var(--sf-accent)) 5%,transparent),transparent 42%),
+    radial-gradient(ellipse at 0% 100%,color-mix(in srgb,var(--vg-reading-lamp,var(--sf-muted)) 3%,transparent),transparent 40%),
+    var(--sf-bg);
+  color:var(--sf-text);
+}
+.vg-canvas.vg-starfield-reader::before,
+.vg-canvas.vg-starfield-reader::after {
+  content:none;
+  animation:none;
+}
+
+/* Keep the original particle pattern/density and scene light. The reading
+   surface covers the text measure; the room remains visible at its perimeter. */
+:root.dark .vg-canvas.vg-starfield-reader {
+  --sf-reading-base:color-mix(in srgb,var(--sf-bg) 97%,var(--vg-reading-window,var(--sf-accent)));
+  background:var(--sf-reading-base);
+}
+:root.dark .vg-canvas.vg-starfield-reader::before {
+  content:'';
+  opacity:calc(var(--vg-world-intensity) * .8);
+  background:
+    radial-gradient(ellipse 70% 58% at -12% 12%,color-mix(in srgb,var(--vg-reading-window,var(--sf-accent)) 32%,transparent),transparent 100%),
+    radial-gradient(ellipse 64% 55% at 112% 82%,color-mix(in srgb,var(--vg-reading-lamp,var(--sf-accent)) 28%,transparent),transparent 100%);
+}
+:root.dark .vg-canvas.vg-starfield-reader::after {
+  content:'';
+  animation:vg-world-particles var(--sf-particle-period,18s) linear infinite;
+}
+:root.dark .vg-canvas.vg-starfield-reader.vg-world-particle-rain {--sf-particle-period:1.8s}
+:root.dark .vg-canvas.vg-starfield-reader.vg-world-particle-snow {--sf-particle-period:24s}
+:root.dark .vg-canvas.vg-starfield-reader.vg-world-particle-embers {--sf-particle-period:10s}
+:root.dark .vg-canvas.vg-starfield-reader.vg-canvas-is-busy::before {animation:vg-world-breathe 3.2s ease-in-out infinite}
+:root.dark .vg-canvas.vg-starfield-reader .vg-canvas-scroll {
+  background:linear-gradient(90deg,transparent,var(--sf-reading-base) var(--sf-gutter),var(--sf-reading-base) calc(100% - var(--sf-gutter)),transparent);
+}
+:root.dark .vg-canvas.vg-starfield-reader :is(.vg-canvas-top,.vg-canvas-bottom) {
+  background:
+    radial-gradient(ellipse at 0 0,color-mix(in srgb,var(--vg-reading-window,var(--sf-accent)) 13%,transparent),transparent 65%),
+    radial-gradient(ellipse at 100% 100%,color-mix(in srgb,var(--vg-reading-lamp,var(--sf-accent)) 9%,transparent),transparent 65%),var(--sf-bg);
+  border-color:color-mix(in srgb,var(--vg-reading-window,var(--sf-accent)) 20%,var(--sf-line));
+}
+:root.dark .vg-canvas.vg-starfield-reader > .vg-story-compass {
+  margin-inline:0;
+  padding-inline:var(--sf-gutter);
+  background:linear-gradient(90deg,transparent,var(--sf-reading-base) var(--sf-gutter),var(--sf-reading-base) calc(100% - var(--sf-gutter)),transparent);
+}
+:root.dark .vg-canvas.vg-starfield-reader.vg-canvas-sheet-open::after,
+html.dark[data-vg-background] .vg-canvas.vg-starfield-reader::before,
+html.dark[data-vg-background] .vg-canvas.vg-starfield-reader::after,
+[inert] .vg-canvas.vg-starfield-reader::before,
+[inert] .vg-canvas.vg-starfield-reader::after {animation-play-state:paused}
+html.dark[data-vg-reduced-motion=true] .vg-canvas.vg-starfield-reader::before,
+html.dark[data-vg-reduced-motion=true] .vg-canvas.vg-starfield-reader::after {animation:none;transition:none}
+@media(prefers-reduced-motion:reduce) {
+  :root.dark .vg-canvas.vg-starfield-reader::before,
+  :root.dark .vg-canvas.vg-starfield-reader::after {animation:none;transition:none}
+}
+
+/* Let long real titles wrap while the three existing controls keep their space. */
+.vg-canvas.vg-starfield-reader .vg-canvas-top {
+  flex-shrink:0;
+  min-height:64px;
+  padding:10px 12px;
+  gap:8px;
+  border-bottom:1px solid var(--sf-line);
+  background:var(--sf-bg);
+}
+.vg-canvas.vg-starfield-reader .vg-starfield-reader-thumbnail {
+  display:block;
+  flex:0 0 36px;
+  width:36px;
+  height:42px;
+  object-fit:cover;
+  border-radius:8px;
+  background:var(--sf-inset);
+}
+.vg-canvas.vg-starfield-reader .vg-canvas-title {
+  display:-webkit-box;
+  margin:0;
+  overflow:hidden;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  text-overflow:clip;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:2;
+  font-size:max(16px,1rem);
+  line-height:1.45;
+  font-weight:500;
+  letter-spacing:normal;
+  color:var(--sf-text);
+}
+.vg-canvas.vg-starfield-reader .vg-canvas-place {
+  margin-top:3px;
+  overflow:visible;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  text-overflow:clip;
+  font-size:max(13px,.8125rem);
+  line-height:1.5;
+  color:var(--sf-muted);
+}
+.vg-canvas.vg-starfield-reader :is(.vg-canvas-back,.vg-canvas-more) {
+  width:44px;
+  height:44px;
+  min-width:44px;
+  min-height:44px;
+  border-radius:12px;
+  color:var(--sf-text);
+}
+.vg-canvas.vg-starfield-reader :is(.vg-canvas-back,.vg-canvas-more):active {
+  background:var(--sf-inset);
+}
+.vg-canvas.vg-starfield-reader .vg-canvas-back {font-size:max(14px,.875rem);white-space:nowrap}
+.vg-canvas.vg-starfield-reader .vg-canvas-panel {
+  flex-shrink:0;
+  max-height:min(35dvh,20rem);
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  padding:16px var(--sf-gutter);
+  border-color:var(--sf-line);
+  background:var(--sf-paper);
+  color:var(--sf-muted);
+}
+.vg-canvas.vg-starfield-reader .vg-canvas-panel-title {
+  font-size:max(16px,1rem);
+  color:var(--sf-text);
+}
+
+/* Keep the real compass above the record, with its disclosure and actions intact. */
+.vg-canvas.vg-starfield-reader > .vg-story-compass {
+  margin:0 var(--sf-gutter);
+  border:0;
+  border-bottom:1px solid var(--sf-line);
+  border-radius:0;
+  background:transparent;
+}
+.vg-canvas.vg-starfield-reader .vg-story-compass-heading {
+  padding:8px 0;
+  font-size:max(13px,.8125rem);
+  color:var(--sf-muted);
+}
+.vg-canvas.vg-starfield-reader .vg-story-compass-heading>small {font:inherit;flex:none;margin-left:auto}
+.vg-canvas.vg-starfield-reader .vg-story-compass-body {
+  padding:4px 0 16px;
+  color:var(--sf-text);
+}
+.vg-canvas.vg-starfield-reader .vg-story-compass-body :is(input,button) {
+  border-color:var(--sf-line);
+  background:var(--sf-inset);
+  color:var(--sf-text);
+}
+
+/* Committed and live paragraphs share one measure and the same reading rhythm. */
+.vg-canvas.vg-starfield-reader .vg-canvas-scroll {
+  padding:28px var(--sf-gutter) 24px;
+  color:var(--sf-text);
+}
+.vg-canvas.vg-starfield-reader .vg-stream {
+  max-width:42rem;
+  margin-inline:auto;
+  gap:26px;
+}
+.vg-canvas.vg-starfield-reader .vg-canvas-scroll > :is(.vg-narration,.vg-beat) {
+  max-width:42rem;
+  margin:26px auto 0;
+}
+.vg-canvas.vg-starfield-reader .vg-canvas-scroll > .vg-stream:empty + :is(.vg-narration,.vg-beat) {
+  margin-top:0;
+}
+.vg-canvas.vg-starfield-reader :is(.vg-narration,.vg-beat-line,.vg-beat-action,.vg-user-action) {
+  font-size:max(16px,1rem);
+  line-height:1.85;
+  font-weight:400;
+  letter-spacing:normal;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  word-break:normal;
+  text-shadow:none;
+}
+.vg-canvas.vg-starfield-reader :is(.vg-narration,.vg-beat-line) {
+  color:var(--sf-text);
+}
+.vg-canvas.vg-starfield-reader .vg-beat {
+  gap:12px;
+}
+.vg-canvas.vg-starfield-reader .vg-beat::after {
+  content:none;
+}
+.vg-canvas.vg-starfield-reader .vg-beat-name {
+  font-size:max(13px,.8125rem);
+  line-height:1.55;
+  font-weight:500;
+  overflow-wrap:anywhere;
+  color:var(--sf-accent);
+}
+.vg-canvas.vg-starfield-reader .vg-beat-action {
+  color:var(--sf-muted);
+}
+.vg-canvas.vg-starfield-reader .vg-beat-line + .vg-beat-line {
+  margin-top:.75em;
+}
+.vg-canvas.vg-starfield-reader :is(.vg-beat-action + .vg-beat-line,.vg-beat-line + .vg-beat-action) {
+  margin-top:.65em;
+}
+.vg-canvas.vg-starfield-reader .vg-user-action {
+  align-self:stretch;
+  max-width:100%;
+  margin:0;
+  padding:8px 0 8px 14px;
+  border-left:2px solid var(--sf-accent);
+  border-radius:0;
+  background:transparent;
+  color:var(--sf-muted);
+}
+.vg-canvas.vg-starfield-reader :is(.vg-system-note,.vg-canvas-loading,.vg-canvas-saved,.vg-canvas-finished p) {
+  font-size:max(13px,.8125rem);
+  line-height:1.65;
+  overflow-wrap:anywhere;
+  color:var(--sf-muted);
+}
+.vg-canvas.vg-starfield-reader .vg-trace-line {
+  border-color:var(--sf-line);
+  background:transparent;
+  color:var(--sf-accent);
+}
+.vg-canvas.vg-starfield-reader .vg-trace-panel {
+  border-color:var(--sf-line);
+  background:var(--sf-inset);
+}
+.vg-canvas.vg-starfield-reader .vg-canvas-empty p {
+  line-height:1.85;
+  color:var(--sf-muted);
+}
+/* Suggestions still come exclusively from WorldSuggestions; nothing is prefilled. */
+.vg-canvas.vg-starfield-reader .vg-canvas-bottom {
+  border-top:1px solid var(--sf-line);
+  background:var(--sf-bg);
+}
+.vg-canvas.vg-starfield-reader .vg-suggestions {
+  padding:10px var(--sf-gutter) 0;
+}
+.vg-canvas.vg-starfield-reader :is(.vg-suggestion-peek,.vg-suggestion) {
+  border-color:var(--sf-line);
+  background:transparent;
+  color:var(--sf-text);
+}
+.vg-canvas.vg-starfield-reader .vg-composer {
+  padding:10px var(--sf-gutter) 12px;
+}
+.vg-canvas.vg-starfield-reader .vg-search-field.vg-composer-row {
+  min-height:44px;
+  align-items:flex-end;
+  padding:0;
+  gap:8px;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.vg-canvas.vg-starfield-reader .vg-composer-input {
+  min-height:44px;
+  padding:10px 14px;
+  border:1px solid var(--sf-line);
+  border-radius:22px;
+  background:var(--sf-paper);
+  color:var(--sf-text);
+  caret-color:var(--sf-accent);
+  font-size:max(16px,1rem);
+  line-height:1.5;
+  font-weight:400;
+  letter-spacing:normal;
+  box-shadow:none;
+}
+.vg-canvas.vg-starfield-reader .vg-composer-input:focus {
+  border-color:var(--sf-accent);
+  outline:none;
+  box-shadow:none;
+}
+.vg-canvas.vg-starfield-reader .vg-composer-input::placeholder {
+  color:var(--sf-muted);
+}
+.vg-canvas.vg-starfield-reader :is(.vg-composer-control,.vg-composer-send) {
+  width:44px;
+  height:44px;
+  min-width:44px;
+  min-height:44px;
+  border-radius:50%;
+  box-shadow:none;
+}
+.vg-canvas.vg-starfield-reader .vg-composer-control {
+  border:1px solid var(--sf-line);
+  background:var(--sf-inset);
+  color:var(--sf-text);
+}
+.vg-canvas.vg-starfield-reader .vg-composer-control:active {
+  transform:scale(.97);
+  background:var(--sf-inset);
+}
+.vg-canvas.vg-starfield-reader .vg-composer-send {
+  background:var(--sf-action);
+  color:var(--sf-on-action);
+}
+.vg-canvas.vg-starfield-reader .vg-canvas-finished {
+  padding:16px var(--sf-gutter) 12px;
+}
+
+/* Keep the existing focus contraction when the keyboard reduces the viewport. */
+.vg-canvas.vg-starfield-reader:has(.vg-composer-input:focus) .vg-canvas-title {
+  display:-webkit-box;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:1;
+  overflow:hidden;
+}
+
+@media(max-width:359px) {
+  .vg-canvas.vg-starfield-reader .vg-starfield-reader-thumbnail {
+    display:none;
+  }
+  .vg-canvas.vg-starfield-reader .vg-canvas-top {
+    padding-inline:8px;
+    gap:6px;
+  }
+}

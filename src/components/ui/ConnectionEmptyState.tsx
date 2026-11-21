@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 
 /** A quiet brand illustration with a clear next action, for empty and filtered lists. */
 export function ConnectionEmptyState({ title, detail, searching = false, action }: {
-  title: string; detail: string; searching?: boolean; action?: ReactNode;
+  title: string; detail?: string; searching?: boolean; action?: ReactNode;
 }) {
   return <div className="vg-connection-empty">
     <div className="vg-empty-art" aria-hidden="true">
@@ -18,7 +18,7 @@ export function ConnectionEmptyState({ title, detail, searching = false, action 
       </svg>
     </div>
     <h2>{title}</h2>
-    <p>{detail}</p>
+    {detail && <p>{detail}</p>}
     {action && <div className="vg-empty-action">{action}</div>}
   </div>;
 }

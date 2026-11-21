@@ -1,0 +1,7 @@
+.vg-memory-archive { color:var(--text); }
+.vg-memory-archive .vg-record-card { padding:16px; border:1px solid var(--vg-elev-edge); border-radius:var(--vg-radius-4); background:var(--vg-elev-1); box-shadow:inset 0 1px 0 var(--vg-elev-highlight),var(--vg-elev-shadow-1); }
+.vg-memory-archive p,.vg-memory-archive span { overflow-wrap:anywhere; }
+.vg-memory-archive .vg-button { font-size:12px; padding-inline:12px; }
+.vg-memory-archive .vg-button:disabled { opacity:.5; }
+.vg-memory-archive [aria-pressed=true] { border-color:var(--vg-accent); color:var(--vg-accent); }
+.vg-memory-archive .vg-loading-skeleton { padding-inline:0; }

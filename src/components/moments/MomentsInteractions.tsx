@@ -9,7 +9,6 @@ export function MomentsInbox({ count, avatar, onOpen }: { count: number; avatar:
     <button type="button" className="vg-moments-inbox" onClick={onOpen} aria-label={`查看 ${count} 条新消息`}>
       <Avatar avatar={avatar} size="sm" className="vg-moments-inbox-avatar" />
       <span>{count > 99 ? '99+' : count} 条新消息</span>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
     </button>
   </div>;
 }

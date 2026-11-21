@@ -1,0 +1,13 @@
+{
+  "createdOn": "2026-10-15",
+  "generator": "Built-in image_gen tool",
+  "purpose": "Static monochrome translucent glass material only; real-time eyes, springs, gaze, audio lifecycle and orbit remain code-native.",
+  "reference": "User-approved call concept",
+  "prompt": "Generate a production UI material asset, not a screenshot. Reference image is STYLE ONLY: reproduce the premium translucent glass sphere material of the main mascot in the attached voice-call concept. Output ONE perfectly circular clear glass sphere centered in a square TRANSPARENT RGBA canvas, sphere occupies exactly 88% of image width and height, 6% transparent padding all sides, front view orthographic. Colorless pearlescent frosted clear glass: delicate bright milky-white crescent rim top-left, soft volumetric refraction inside, subtle lower-right caustic, transparent smoky-neutral center allowing a background gradient to show through. Keep natural softly blended refraction, absolutely no flat vector strokes or hard concentric bands. White/silver monochrome material only, absolutely no purple/green color cast because app adds theme colors behind glass. NO eyes, NO mouth, NO facial features, NO orbit ring, NO satellites, NO ground shadow, NO backdrop, NO text, NO UI, NO frame. A physically plausible thick-walled glass bubble with convincing depth and softly polished highlights. True transparent pixels outside and semi-transparent middle; avoid a black opaque center. Material will be composited behind real-time vector eyes and orbit in an app; preserve clean readable middle area.",
+  "transparentBackgroundRequested": true,
+  "source": "exec-4ea45be5-be36-4062-b90e-a7a429ec9bc8.png",
+  "productionFile": "voice-glass-shell.png",
+  "rendering": "Voice contexts only; existing SVG material image clipped to circular body at .36 opacity, paired with .72 theme body, .5 highlight, .54 rim and .12 painted sheen. This lets the natural refraction replace the conspicuous vector highlight without washing out the theme. White core gain remains .45. Updated 2026-10-17 after dark/light runtime comparison, without regenerating or editing the asset; no image upload or model inclusion.",
+  "model": "未确认",
+  "reasoningEffort": "未确认"
+}

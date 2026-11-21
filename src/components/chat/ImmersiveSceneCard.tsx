@@ -1,18 +1,22 @@
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import type { Character } from '../../db/index';
 import { sessionRepo } from '../../db/session-repo';
 import type { SceneAtmosphere, SceneTimeOfDay } from '../../lib/chat-context';
 import { useAuthStore } from '../../store/auth-store';
+import { db, type Session } from '../../db';
+import { Icon } from '../ui/Icon';
+import '../../styles/conversation-continuity.css';
 
 interface Props {
   character: Character;
   userId: string;
   sessionId?: string | null;
-  affinity: number;
-  mood: number;
+  affinity?: number;
+  mood?: number;
   lastMessageAt?: number;
-  onPrompt: (text: string) => void;
+  onPrompt?: (text: string) => void;
+  embedded?: boolean;
 }
 
 const SCENE_SLOT_HOURS: Record<SceneTimeOfDay, number> = {
@@ -59,10 +63,27 @@ function getSceneTime(slot?: SceneTimeOfDay) {
  * Shared Space 2.0 —— 角色此刻的"在场感"。
  * 这里仅管理本会话的场域设置；全部读写本地 Session，不在这里发任何 AI 请求。
  */
-export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId, userId }: Props) {
+export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId, userId, character, embedded=false }: Props) {
+  const activeUserId = useAuthStore((state) => state.userId);
+  const readScope = JSON.stringify([sessionId, userId, character.id]);
+  const readEpoch = useRef(0);
+  const [readAttempt, setReadAttempt] = useState(0);
+  const [readState, setReadState] = useState<{ scope: string; status: 'idle' | 'loading' | 'ready' | 'error' }>({ scope: readScope, status: 'loading' });
+  const readStatus = activeUserId !== userId || !sessionId ? 'error' : readState.scope === readScope ? readState.status : 'loading';
+  const sceneReady = readStatus === 'ready';
   const [expanded, setExpanded] = useState(false);
-  const closePanel = useCallback(() => setExpanded(false), []);
-  useEffect(() => { setExpanded(false); }, [sessionId]);
+  const reloadScene = useCallback(() => {
+    readEpoch.current++;
+    setReadState({ scope: readScope, status: 'loading' });
+    setReadAttempt((attempt) => attempt + 1);
+  }, [readScope]);
+  const closePanel = useCallback(() => {
+    readEpoch.current++;
+    setExpanded(false);
+    setReadState((state) => state.status === 'loading' ? { scope: readScope, status: 'idle' } : state);
+  }, [readScope]);
+  const openPanel = useCallback(() => { reloadScene(); setExpanded(true); }, [reloadScene]);
+  useEffect(() => { setExpanded(false); }, [sessionId, userId, character.id, activeUserId]);
   const [sceneSlot, setSceneSlot] = useState<SceneTimeOfDay | undefined>();
   const [scenePlace, setScenePlace] = useState('');
   const [scenePlaceDraft, setScenePlaceDraft] = useState('');
@@ -70,6 +91,31 @@ export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId, 
   const [sceneAtmosphere, setSceneAtmosphere] = useState<SceneAtmosphere>('daily');
   const [sceneMode, setSceneMode] = useState<'follow-now' | 'fixed'>('follow-now');
   const [scene, setScene] = useState(getSceneTime);
+  const [sceneSaving, setSceneSaving] = useState(false);
+  const [savedScene, setSavedScene] = useState(false);
+  const [saveIssue, setSaveIssue] = useState('');
+  const saveLock = useRef(false), scopeEpoch = useRef(0);
+  useEffect(() => {
+    scopeEpoch.current++; saveLock.current = false; setSceneSaving(false); setSavedScene(false); setSaveIssue('');
+    return () => { scopeEpoch.current++; };
+  }, [sessionId, userId, character.id]);
+  const persistScene = useCallback(async (patch: Partial<Session>) => {
+    if (!sceneReady || !sessionId || !userId || saveLock.current || useAuthStore.getState().userId !== userId) return false;
+    const epoch = scopeEpoch.current;
+    const current = () => epoch === scopeEpoch.current && useAuthStore.getState().userId === userId;
+    saveLock.current = true; setSceneSaving(true); setSaveIssue('');
+    try {
+      await db.transaction('rw', db.sessions, async () => {
+        const stored = await db.sessions.get(sessionId);
+        if (!current() || !stored || stored.userId !== userId || stored.characterId !== character.id || stored.type === 'group') throw new Error('scene:context_changed');
+        await sessionRepo.update(sessionId, patch);
+        if (!current()) throw new Error('scene:context_changed');
+      });
+      if (!current()) return false;
+      setSavedScene(true); return true;
+    } catch { if (current()) setSaveIssue('场景设定没有保存，原设定保留，请重试。'); return false; }
+    finally { if (current()) { saveLock.current = false; setSceneSaving(false); } }
+  }, [sessionId, userId, character.id, sceneReady]);
   useEffect(() => {
     const update = () => { if (!document.hidden && !sceneSlot) setScene(getSceneTime()); };
     const timer = setInterval(update, 60_000);
@@ -78,85 +124,69 @@ export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId, 
   }, [sceneSlot]);
 
   useEffect(() => {
-    let cancelled = false;
+    const epoch = ++readEpoch.current;
+    const current = () => readEpoch.current === epoch && useAuthStore.getState().userId === userId;
+    const cancel = () => { if (readEpoch.current === epoch) readEpoch.current++; };
+    setReadState({ scope: readScope, status: 'loading' });
+    if (!sessionId || !userId || activeUserId !== userId) {
+      setReadState({ scope: readScope, status: 'error' });
+      return cancel;
+    }
     void (async () => {
-      const session = sessionId ? await sessionRepo.getById(sessionId).catch(() => undefined) : undefined;
-      if (cancelled) return;
-      const savedMode = session?.sceneMode ?? (session?.sceneTimeOfDay ? 'fixed' : 'follow-now');
-      setSceneSlot(session?.sceneTimeOfDay);
-      setScenePlace(session?.scenePlace ?? '');
-      setScenePlaceDraft(session?.scenePlace ?? '');
-      setCustomPlaceOpen(Boolean(session?.scenePlace && !SCENE_PLACE_OPTIONS.includes(session.scenePlace)));
-      setSceneAtmosphere(session?.sceneAtmosphere ?? 'daily');
-      setSceneMode(savedMode);
-      setScene(getSceneTime(savedMode === 'fixed' ? session?.sceneTimeOfDay : undefined));
+      try {
+        const session = await sessionRepo.getById(sessionId);
+        if (!current()) return;
+        if (!session || session.id !== sessionId || session.userId !== userId || session.characterId !== character.id || session.type === 'group') throw new Error('scene:context_changed');
+        const savedMode = session.sceneMode ?? (session.sceneTimeOfDay ? 'fixed' : 'follow-now');
+        setSceneSlot(session.sceneTimeOfDay);
+        setScenePlace(session.scenePlace ?? '');
+        setScenePlaceDraft(session.scenePlace ?? '');
+        setCustomPlaceOpen(Boolean(session.scenePlace && !SCENE_PLACE_OPTIONS.includes(session.scenePlace)));
+        setSceneAtmosphere(session.sceneAtmosphere ?? 'daily');
+        setSceneMode(savedMode);
+        setScene(getSceneTime(savedMode === 'fixed' ? session.sceneTimeOfDay : undefined));
+        setReadState({ scope: readScope, status: 'ready' });
+      } catch {
+        if (current()) setReadState({ scope: readScope, status: 'error' });
+      }
     })();
-    return () => { cancelled = true; };
-  }, [sessionId]);
+    return cancel;
+  }, [sessionId, userId, character.id, activeUserId, readScope, readAttempt]);
 
   const chooseSceneTime = useCallback(async (slot?: SceneTimeOfDay) => {
+    if (!await persistScene({ sceneTimeOfDay: slot, sceneMode: slot ? 'fixed' : 'follow-now' })) return;
     setSceneSlot(slot);
     setSceneMode(slot ? 'fixed' : 'follow-now');
     setScene(getSceneTime(slot));
-    if (!sessionId) return;
-    try {
-      await sessionRepo.update(sessionId, { sceneTimeOfDay: slot, sceneMode: slot ? 'fixed' : 'follow-now' });
-    } catch {
-      // 本地持久化失败时保留当前界面选择，下一次进入会回到已保存的值。
-    }
-  }, [sessionId]);
+  }, [persistScene]);
 
   const choosePlace = useCallback(async (place: string) => {
     const next = place.replace(/[\r\n]+/g, ' ').trim().slice(0, 24);
+    if (!await persistScene({ scenePlace: next })) return;
     setScenePlace(next);
     setScenePlaceDraft(next);
     setCustomPlaceOpen(Boolean(next && !SCENE_PLACE_OPTIONS.includes(next)));
-    if (!sessionId) return;
-    try {
-      await sessionRepo.update(sessionId, { scenePlace: next });
-    } catch {
-      // Keep the local selection visible; it will retry when the user chooses again.
-    }
-  }, [sessionId]);
+  }, [persistScene]);
 
   const chooseAtmosphere = useCallback(async (atmosphere: SceneAtmosphere) => {
+    if (!await persistScene({ sceneAtmosphere: atmosphere })) return;
     setSceneAtmosphere(atmosphere);
-    if (!sessionId) return;
-    try {
-      await sessionRepo.update(sessionId, { sceneAtmosphere: atmosphere });
-    } catch {
-      // Keep the local selection visible.
-    }
-  }, [sessionId]);
+  }, [persistScene]);
 
-  return (
-    <section className={`scene-card scene-${scene.tone} shrink-0 mx-4 mt-2 animate-fade-in`}>
-      <div className="scene-grain" />
-      <div className="scene-orb scene-orb-a" />
-      <div className="scene-orb scene-orb-b" />
-      <button
-        type="button"
-        onClick={() => expanded ? closePanel() : setExpanded(true)}
-        className="relative z-[1] w-full flex items-center gap-3 px-3.5 py-2.5 text-left"
-        aria-expanded={expanded}
-        aria-haspopup="dialog"
-      >
-        <span className="scene-presence-mark" aria-hidden="true"><i /></span>
-        <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 text-[13px] font-medium tracking-[0.08em] text-white/80">
-            <span>{scene.icon}</span> 此刻 · {scene.label}
-            {scenePlace && <span className="scene-setting-summary">· {scenePlace}</span>}
-          </p>
-        </div>
-        <span className={`text-white/40 text-xs transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`}>⌄</span>
-      </button>
-
-      <Modal open={expanded} onClose={closePanel} title="此刻设置" canSnapshotOnExit={() => useAuthStore.getState().userId === userId}>
+  const readFeedback = (
+    <div className={`${embedded ? 'scene-settings-body' : 'scene-settings-scroll'} px-4 py-4`} aria-busy={readStatus === 'loading'}>
+      {readStatus === 'error' ? <>
+        <p role="alert" className="vg-continuity-error">此刻设置读取失败</p>
+        <button type="button" className="vg-button vg-button-secondary mt-3" onClick={reloadScene} disabled={!sessionId || activeUserId !== userId}>重试</button>
+      </> : <p role="status" className="text-sm text-sub">读取中…</p>}
+    </div>
+  );
+  const sceneContent=sceneReady ? (
         <div className={`scene-card scene-card-expanded scene-${scene.tone} vg-scene-page-content`}>
-          <div className="scene-settings-scroll px-4 pb-3.5">
+          <div className={`${embedded ? 'scene-settings-body' : 'scene-settings-scroll'} px-4 pb-3.5`}>
             <div className="scene-time-picker" aria-label="选择这段对话的时段">
               <div className="scene-time-picker-heading">
-                <span>这段对话发生在</span>
+                <span>时段</span>
                 <b>{scene.label}</b>
               </div>
               <div className="scene-time-options">
@@ -216,12 +246,48 @@ export const ImmersiveSceneCard = memo(function ImmersiveSceneCard({ sessionId, 
               <span aria-hidden="true">{scene.icon}</span>
               <div>
                 <strong>{scene.label}{scenePlace ? ` · ${scenePlace}` : ''} · {SCENE_ATMOSPHERE_OPTIONS.find((option) => option.value === sceneAtmosphere)?.label}</strong>
-                <p>{SCENE_ATMOSPHERE_OPTIONS.find((option) => option.value === sceneAtmosphere)?.detail}</p>
+
               </div>
             </div>
-            <p className="scene-time-picker-note">只影响聊天里的环境、节奏和语气，不会改动消息显示的发送时间。选择“跟随现在”后，时段会随现实时间变化。</p>
+
           </div>
         </div>
+  ) : readFeedback;
+  if(embedded)return <section className="vg-orb-scene-settings">{sceneContent}{sceneReady&&saveIssue&&<p role="alert" className="vg-continuity-error">{saveIssue}</p>}{sceneReady&&(sceneSaving?<p role="status">保存中…</p>:savedScene&&<p role="status" className="text-sm text-sub">已保存</p>)}</section>;
+  return (
+    <section className={`scene-card scene-${scene.tone} shrink-0 mx-4 mt-2 animate-fade-in`}>
+      <div className="scene-grain" />
+      <div className="scene-orb scene-orb-a" />
+      <div className="scene-orb scene-orb-b" />
+      <button
+        type="button"
+        onClick={() => expanded ? closePanel() : openPanel()}
+        className="relative z-[1] w-full flex items-center gap-3 px-3.5 py-2.5 text-left"
+        aria-expanded={expanded}
+        aria-haspopup="dialog"
+      >
+        <span className="scene-presence-mark" aria-hidden="true"><i /></span>
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-2 text-[13px] font-medium tracking-[0.08em] text-white/80">
+            {sceneReady ? <><span>{scene.icon}</span> 此刻 · {scene.label}
+            {scenePlace && <span className="scene-setting-summary">· {scenePlace}</span>}</> : <>此刻{readStatus === 'loading' ? ' · 读取中…' : readStatus === 'error' ? ' · 读取失败' : ''}</>}
+          </p>
+        </div>
+        <span className="text-white/60 text-xs">{expanded ? '收起' : '设置'}</span>
+      </button>
+
+      {sceneReady && savedScene && <details className="vg-chat-context-card" aria-label="刚保存的场景设定">
+        <summary><Icon name="check" size={16}/><span>场景设定已保存</span></summary>
+        <p>{sceneMode === 'follow-now' ? '跟随现在' : scene.label} · {placeLabel(scenePlace)} · {SCENE_ATMOSPHERE_OPTIONS.find(option => option.value === sceneAtmosphere)?.label}</p>
+        <p>仅本会话生效。</p>
+        <button type="button" onClick={openPanel}>调整此刻设置</button>
+        <button type="button" onClick={() => setSavedScene(false)}>收起这条提示</button>
+      </details>}
+      {sceneReady && saveIssue && <p role="alert" className="vg-continuity-error px-4">{saveIssue}</p>}
+      {sceneReady && sceneSaving && <span role="status" className="vg-continuity-note px-4">正在保存场景设定…</span>}
+
+      <Modal open={expanded} onClose={closePanel} title="此刻设置" canSnapshotOnExit={() => useAuthStore.getState().userId === userId}>
+        {sceneContent}
       </Modal>
 
     </section>

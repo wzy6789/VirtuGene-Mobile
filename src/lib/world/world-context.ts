@@ -28,7 +28,9 @@ import { knowledgeRepo } from '../../db/knowledge-repo';
 import { continuityRepo } from '../../db/continuity-repo';
 import { relationshipRepo } from '../../db/relationship-repo';
 import { characterRef, userRef } from './subjects';
-import { buildCharacterMemoryContext, renderMemoryRetrievalStatus, detectRecallIntent } from '../character-memory';
+import { buildCharacterMemoryContext,revalidateCharacterMemoryContext, renderMemoryRetrievalStatus, detectRecallIntent,type CharacterMemoryRequest,type CharacterMemoryContext } from '../character-memory';
+import {addWorldSourceGuards} from './world-source-guard';
+import {inheritMemorySnapshotsWithoutRoute,memorySourceSnapshotIds} from '../memory-source-snapshot';
 import { isTopicRelated } from '../chat-conversation-state';
 import { coolingWorldMotifs, WORLD_OBJECT_TOPIC_RULE, worldAttentionHint } from './world-attention';
 import { describeFacets, FACET_LABEL } from './relationships';
@@ -184,6 +186,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
 
   const perCharacter: Record<string, CharacterMemory> = {};
   const secrets: { ownerCharacterId: string; title: string }[] = [];
+  const selectedMemory:Array<{request:CharacterMemoryRequest;context:CharacterMemoryContext}>=[];
 
   for (const characterId of presence) {
     const participant = scene.state.participants?.find((p) => p.characterId === characterId);
@@ -207,29 +210,31 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
      * 世界设定（`worldFactRepo`）、当前关系、当前状态是本场戏的设定与即时状态，
      * 不是长期记忆档案，仍然在这里读。
      */
+    // Keep the selected originals and their request for later source checks.
+    // Per-actor private material still never enters the public director prompt.
+    const memoryRequest:CharacterMemoryRequest={
+      userId,characterId,topic:params.userText,recentConversation:recentEntries,
+      audience:[characterId],mode:'world-scene',scene:{worldId,sceneId:scene.id,liveSegments:true},
+      excludeSceneId:scene.id,budget:2200,includePrivateCharacterLifeEvents:true,withCatalog:true,
+    };
     const [facts, relation, characterState, memory] = await Promise.all([
       worldFactRepo.listForCharacter(worldId, characterId, 10, userId),
       relationshipRepo.getStateFor(userRef(userId), characterRef(characterId), worldId),
       stateRepo.get(characterId, userId),
-      carryMemory ? buildCharacterMemoryContext({
-        // 只召回这个 Actor 自己知道的事；其他在场者和导演永远拿不到这份结果。
-        userId, characterId,
-        topic: params.userText,
-        recentConversation: recentEntries,
-        audience: [characterId],
-        mode: 'world-scene',
-        scene: { worldId, sceneId: scene.id, liveSegments: true },
-        excludeSceneId: scene.id,
-        budget: 2200,
-        // This is one actor's private request. Public speech is reviewed for
-        // disclosure before it reaches the world stream; other actors never receive it.
-        includePrivateCharacterLifeEvents: true,
-        withCatalog: true,
-      }) : Promise.resolve(null),
+      carryMemory ? buildCharacterMemoryContext(memoryRequest) : Promise.resolve(null),
     ]);
     // `carryMemory=false`（amnesiac）时服务完全不参与，字段退化成空值；
     // 下面统一用空目录兜底，保证字段名与取值形态与改造前完全一致。
     const catalog = memory?.catalog;
+    if(memory?.references.length){
+      // Appending this turn changes only the current scene's update timestamp;
+      // its old entries remain exactly the same sources. Keep their snapshots,
+      // and guard this routing scene separately below instead of treating our
+      // own successful append as withdrawal of the older entry.
+      selectedMemory.push({request:memoryRequest,context:{...memory,references:memory.references.map(reference=>
+        memorySourceSnapshotIds(reference,'worldScenes').includes(scene.id)
+          ?inheritMemorySnapshotsWithoutRoute({...reference},reference,'worldScenes',scene.id):reference)}});
+    }
 
     perCharacter[characterId] = {
       ...(characterState ? {
@@ -262,7 +267,7 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     }
   }
 
-  return {
+  const context:WorldContext={
     sceneGoal: scene.state.sceneGoal,
     userId,
     worldId,
@@ -282,6 +287,23 @@ export async function buildWorldContext(params: WorldContextParams): Promise<Wor
     conversation: scene.state.conversation ?? emptyConversationState(),
     visual: scene.state.visual ?? deriveWorldVisualState(scene),
   };
+  if(selectedMemory.length){
+    const route=(row:WorldScene)=>{
+      const {updatedAt:_updatedAt,state,...body}=row;
+      const {conversation:_conversation,visual:_visual,...sourceState}=state;
+      return JSON.stringify({...body,state:sourceState});
+    };
+    const expected=route(scene);
+    addWorldSourceGuards(context,async()=>{
+      const [currentScene,currentWorld]=await Promise.all([db.worldScenes.get(scene.id),db.worlds.get(worldId)]);
+      return !!currentScene&&currentWorld?.userId===userId&&route(currentScene)===expected;
+    });
+  }
+  for(const selected of selectedMemory)addWorldSourceGuards(context,async()=>{
+    const fresh=await revalidateCharacterMemoryContext(selected.request,selected.context);
+    return fresh.references.length===selected.context.references.length&&fresh.text===selected.context.text;
+  });
+  return context;
 }
 
 /* ------------------------------------------------------------------ *

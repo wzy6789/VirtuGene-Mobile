@@ -15,8 +15,9 @@ export function isRoleplayAction(inner: string): boolean {
   if (/笑话|笑容|声音文件|声音设置|语气词|眼神交流|(?:不含|含税|截止|预算|备注|例如|也就是|意思是|原文|定义|术语)/u.test(inner)) return false;
   if (/^(?:低声说|轻声说|小声说|轻笑|深呼吸|吸了口气|沉默了一会儿才开口)$/u.test(inner.trim())) return true;
   const clauses = inner.trim().split(/[，,。；;！!]/u).map(s => s.trim()).filter(Boolean);
+  const gaze = /^(?:(?:我|他|她|轻轻|缓缓|慢慢)\s*)?(?:望|看)(?:了)?(?:向|着)(?:窗外|窗边|门口|天花板|远处)$/u;
   const action = /^(?:(?:轻轻|慢慢|缓缓|无奈地|微微|默默|悄悄|有些|一边|忽然|突然|用力|低声|小声|轻声|深深地?|忍不住|不由得|笑着|叹着气|他|她|我|你)\s*)?(?:笑|苦笑|微笑|叹气|叹了|叹口气|点头|点了点头|摇头|摇了摇头|顿了顿|沉默|停顿|眨眼|眨了|挑眉|皱眉|抿嘴|抿了|咬唇|歪头|耸肩|扶额|捂脸|低头|抬头|转身|伸手|把(?:手机|杯子|手|头)|放下(?:手机|杯子)|拿起(?:手机|杯子)|声音(?:低|轻|放|变)|语气(?:变|放|低)|眼神|看(?:向你|着你|了你)|摸(?:摸|了)|揉(?:揉|了))/u;
-  return clauses.length > 0 && clauses.every(c => COMMON_ACTION_CLAUSE.test(c) || action.test(c) || /^(?:才开口|才说话|不说话|没说话|了一会儿|了一下)$/u.test(c));
+  return clauses.length > 0 && clauses.every(c => COMMON_ACTION_CLAUSE.test(c) || gaze.test(c) || action.test(c) || /^(?:才开口|才说话|不说话|没说话|了一会儿|了一下)$/u.test(c));
 }
 
 /** Collapse only line-break whitespace; preserve intentionally typed spaces. */

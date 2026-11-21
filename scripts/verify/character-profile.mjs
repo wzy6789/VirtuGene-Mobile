@@ -24,20 +24,20 @@ try {
   const open = async (existing = false, shared = false) => {
     await page.evaluate(([existing, shared]) => window.characterProfile.setup(existing, shared), [existing, shared]);
     await page.getByRole('button').filter({ hasText: '艾莉' }).first().click();
-    await page.getByRole('dialog', { name: '角色资料', exact: true }).waitFor();
+    await page.getByRole('dialog', { name: '角色空间', exact: true }).waitFor();
   };
   await open();
-  const dialog = page.getByRole('dialog', { name: '角色资料', exact: true });
+  const dialog = page.getByRole('dialog', { name: '角色空间', exact: true });
   check(await page.getByRole('button', { name: '添加到我', exact: true }).count() === 0, 'profile removes the separate add action');
   check(await dialog.getByRole('button', { name: '开始聊天', exact: true }).count() === 1, 'profile exposes exactly one chat action');
   check((await dialog.getByRole('button', { name: '开始聊天', exact: true }).boundingBox()).height >= 44, 'primary chat action preserves touch size');
-  check(await dialog.locator('.vg-profile-primary svg').count() === 0, 'chat action has no arrow');
+  check(await dialog.locator('.vg-space-chat-action').count() === 1 && await dialog.locator('.vg-space-chat-action').getAttribute('type') === 'button', 'role-space chat action remains one explicit button');
   await page.waitForTimeout(280);
   const profileBounds = await dialog.boundingBox();
   check(profileBounds.x === 0 && profileBounds.y === 0 && profileBounds.width === 390 && profileBounds.height === 844, 'role profile is a full page');
   await dialog.getByRole('button', {name:'返回',exact:true}).click();
   await page.getByRole('dialog',{name:'基因实验室',exact:true}).waitFor();
-  check(await page.getByRole('dialog',{name:'角色资料',exact:true}).count() === 0, 'profile back returns to the existing library');
+  check(await page.getByRole('dialog',{name:'角色空间',exact:true}).count() === 0, 'profile back returns to the existing library');
   await page.waitForTimeout(280);
   mkdirSync('.tmp-preview/character-profile', { recursive: true });
   await page.screenshot({path:'.tmp-preview/character-profile/library-dark.png'});

@@ -7,6 +7,7 @@ import { collectSyncData, importSyncData } from '../../src/lib/sync';
 import { summarizeVoiceCall, chunkCallSummary } from '../../src/lib/voice-call/summary';
 import { projectCallMessages } from '../../src/lib/voice-call/record';
 import { messageRepo } from '../../src/db/message-repo';
+import { memorySourceTombstoneRepo } from '../../src/db/memory-source-tombstone-repo';
 import Dexie from 'dexie';
 async function main() {
   let checks = 0;
@@ -99,6 +100,12 @@ async function main() {
   check(pageOne.length === 2 && pageTwo.length === 2 && new Set([...pageOne, ...pageTwo].map(row => row.id)).size === 4, 'history pagination handles shared timestamps without skipping or repeating records');
   const journal: VoiceCallRecord = { ...record, id: 'checkpoint-call', status: 'active', exchanges: [{ ...record.exchanges[0], recordedAt: 70 }] };
   await voiceCallRepo.save(journal);
+  let activeRequests = 0;
+  try {
+    await summarizeVoiceCall(journal.id, record.userId, new AbortController().signal, { api: { dialogue: async () => { activeRequests++; } } });
+    throw new Error('active call summarized');
+  } catch (error) { check((error as Error).message === 'voice:call_active' && activeRequests === 0, 'unfinished checkpoint cannot trigger a billable summary'); }
+  check((await db.voiceCalls.get(journal.id))?.summaryState === 'pending', 'rejecting an unfinished summary does not mark a valid checkpoint failed');
   const firstMessage = await db.messages.get(`voice:${journal.id}:turn-one:user`);
   await voiceCallRepo.save(journal);
   check((await db.voiceCalls.get(journal.id))?.exchanges.length === 1, 'active checkpoint retries do not duplicate turns');
@@ -130,6 +137,78 @@ async function main() {
   check(attempts <= 6, 'failure recovery retains the four-request run limit');
   if ((await db.voiceCalls.get(failedLong.id))?.summaryState !== 'ready') await summarizeVoiceCall(failedLong.id, record.userId, new AbortController().signal, { api: { dialogue: async (_messages, options) => { attempts++; options.onRequest?.(); await options.onText('最后缺失部分。'); } } });
   check(attempts === chunks.length + 1 && (await db.voiceCalls.get(failedLong.id))?.summaryState === 'ready', 'explicit continuation never regenerates the previously successful chunk');
+  const summaryCommitRaceCases: { boundary: string; action: string; triggered: boolean; requests: number; error: string; summary?: string; partCount: number; usageCount: number; state?: string }[] = [];
+  for (const boundary of ['bulkGet', 'last-tombstone', 'update'] as const) {
+    for (const action of ['abort', 'account-switch'] as const) {
+      const raceCall = await voiceCallRepo.save({ ...record, id: `summary-commit-${boundary}-${action}` });
+      const cancel = new AbortController();
+      let modelFinished = false, triggered = false, requests = 0, error = '';
+      const lastSourceId = raceCall.messageIds[raceCall.messageIds.length - 1];
+      const originalBulkGet = db.messages.bulkGet;
+      const originalBlocksImport = memorySourceTombstoneRepo.blocksImport;
+      const originalUpdate = db.voiceCalls.update;
+      const trigger = () => {
+        if (!modelFinished || triggered) return;
+        triggered = true;
+        if (action === 'abort') cancel.abort(); else useAuthStore.setState({ userId: 'another-owner' });
+      };
+      // Complete the real IndexedDB read, then change authority before the caller resumes.
+      // This exercises the final transaction after the model has finished, without fake late model callbacks.
+      db.messages.bulkGet = async (...args: Parameters<typeof originalBulkGet>) => {
+        const rows = await originalBulkGet.apply(db.messages, args);
+        if (boundary === 'bulkGet') trigger();
+        return rows;
+      };
+      memorySourceTombstoneRepo.blocksImport = async input => {
+        const blocked = await originalBlocksImport.call(memorySourceTombstoneRepo, input);
+        if (boundary === 'last-tombstone' && input.sourceId === lastSourceId) trigger();
+        return blocked;
+      };
+      db.voiceCalls.update = async (...args: Parameters<typeof originalUpdate>) => {
+        const updated = await originalUpdate.apply(db.voiceCalls, args);
+        if (boundary === 'update' && args[0] === raceCall.id) trigger();
+        return updated;
+      };
+      try {
+        await summarizeVoiceCall(raceCall.id, record.userId, cancel.signal, { api: { dialogue: async (_messages, options) => {
+          requests++; options.onRequest?.(); await options.onText('请求已完成，但取消或切账号后不得提交这段摘要。'); modelFinished = true;
+        } } });
+      } catch (caught) { error = (caught as Error).name === 'AbortError' ? 'AbortError' : (caught as Error).message; }
+      finally {
+        db.messages.bulkGet = originalBulkGet; memorySourceTombstoneRepo.blocksImport = originalBlocksImport; db.voiceCalls.update = originalUpdate;
+        useAuthStore.setState({ userId: record.userId });
+      }
+      const audit = await db.voiceCalls.get(raceCall.id);
+      summaryCommitRaceCases.push({ boundary, action, triggered, requests, error, summary: audit?.summary,
+        partCount: audit?.summaryParts?.length ?? 0, usageCount: audit?.usage?.length ?? 0, state: audit?.summaryState });
+    }
+  }
+  // The no-source path has its own commit transaction and must obey the same cancellation rule.
+  const emptyRace = await voiceCallRepo.save({ ...record, id: 'summary-empty-commit-abort', exchanges: [] });
+  const emptyCancel = new AbortController();
+  const originalEmptyBulkGet = db.messages.bulkGet;
+  let emptyReads = 0, emptyRequests = 0, emptyError = '';
+  db.messages.bulkGet = async (...args: Parameters<typeof originalEmptyBulkGet>) => {
+    const rows = await originalEmptyBulkGet.apply(db.messages, args);
+    if (++emptyReads === 2) emptyCancel.abort();
+    return rows;
+  };
+  try {
+    await summarizeVoiceCall(emptyRace.id, record.userId, emptyCancel.signal, { api: { dialogue: async () => { emptyRequests++; } } });
+  } catch (caught) { emptyError = (caught as Error).name === 'AbortError' ? 'AbortError' : (caught as Error).message; }
+  finally { db.messages.bulkGet = originalEmptyBulkGet; }
+  const emptyAudit = await db.voiceCalls.get(emptyRace.id);
+  summaryCommitRaceCases.push({ boundary: 'empty-source-bulkGet', action: 'abort', triggered: emptyCancel.signal.aborted,
+    requests: emptyRequests, error: emptyError, summary: emptyAudit?.summary, partCount: emptyAudit?.summaryParts?.length ?? 0,
+    usageCount: emptyAudit?.usage?.length ?? 0, state: emptyAudit?.summaryState });
+  (window as any).voiceSummaryCommitRaceCases = summaryCommitRaceCases;
+  for (const race of summaryCommitRaceCases) {
+    const expectedError = race.action === 'abort' ? 'AbortError' : 'voice:account_changed';
+    check(race.triggered && race.requests === (race.boundary === 'empty-source-bulkGet' ? 0 : 1) && race.error === expectedError,
+      `${race.boundary}/${race.action}: authority loss during final real DB read/write rejects commit`);
+    check(!race.summary && race.partCount === 0 && race.state === 'pending', `${race.boundary}/${race.action}: transaction does not commit late summary text`);
+    check(race.usageCount === (race.action === 'abort' && race.requests ? 1 : 0), `${race.boundary}/${race.action}: cancellation retains known request attempt only for the current account`);
+  }
   await sessionRepo.deleteById(record.sessionId);
   check(!(await db.voiceCalls.get(finalCall.id)), 'original session deletion removes call audit');
   check(!(await db.messages.where('sessionId').equals(record.sessionId).count()), 'session deletion removes projected chat facts');
@@ -147,6 +226,6 @@ async function main() {
   check(migratedMessage?.content === '升级前的真实原话' && migratedMessage.revision === 3, 'message index migration preserves original source content and revision');
   check(db.messages.schema.indexes.some(index => index.name === '[sessionId+createdAt+id]'), 'current message ordering index is created from the v32 fixture');
   check(await db.voiceCalls.count() === 0, 'migration creates an empty audit store without fabricating calls');
-  return { checks, mode: 'browser-record-and-memory-jobs', realApiCalls: 0, modelTokens: 0, deviceTested: false };
+  return { checks, mode: 'browser-record-and-memory-jobs', summaryCommitRaceCases, realApiCalls: 0, modelTokens: 0, deviceTested: false };
 }
-main().then(result => { (window as any).voiceProfileResult = result; }).catch(error => { (window as any).voiceProfileResult = { error: String(error) }; });
+main().then(result => { (window as any).voiceProfileResult = result; }).catch(error => { (window as any).voiceProfileResult = { error: String(error), summaryCommitRaceCases: (window as any).voiceSummaryCommitRaceCases }; });

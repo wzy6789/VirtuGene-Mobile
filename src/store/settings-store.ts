@@ -1,8 +1,16 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { ORB_COLORS, type OrbColor } from '../lib/orb-colors';
+import { ORB_MOTION_INTENSITIES, type OrbMotionIntensity } from '../lib/orb-vitality';
+import { useAuthStore } from './auth-store';
 
 interface SettingsState {
+  chatBackgroundEnabled: boolean;
+  setChatBackgroundEnabled: (enabled:boolean)=>void;
+  cinematicChatDefaultsByUser:Record<string,number>;
+  adoptCinematicChatDefaults:(userId:string,version:number)=>void;
+  orbMotionByUser: Record<string, OrbMotionIntensity>;
+  setOrbMotionIntensity: (userId: string, intensity: OrbMotionIntensity) => void;
   orbColor: OrbColor;
   setOrbColor: (color: OrbColor) => void;
   /** Reduce motion throughout the interface; the system preference also applies. */
@@ -11,6 +19,9 @@ interface SettingsState {
   setHapticsEnabled: (enabled: boolean) => void;
   setReduceMotion: (enabled: boolean) => void;
   chatFontSize: number;
+  /** Ordinary private chat only; structured assistant work keeps its own policy. */
+  chatThinkingEnabled: boolean;
+  setChatThinkingEnabled: (enabled: boolean) => void;
   setChatFontSize: (size: number) => void;
   /** 日记 AI 辅助（润色/续写/提炼对话）总开关 */
   diaryAiEnabled: boolean;
@@ -54,15 +65,30 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
+      chatBackgroundEnabled:true,
+      setChatBackgroundEnabled:(chatBackgroundEnabled)=>set({chatBackgroundEnabled}),
+      cinematicChatDefaultsByUser:{},
+      adoptCinematicChatDefaults:(userId,version)=>{
+        if(!userId||useAuthStore.getState().userId!==userId||!Number.isInteger(version)||version<1)return;
+        if((get().cinematicChatDefaultsByUser?.[userId]??0)>=version)return;
+        set(state=>({chatBackgroundEnabled:true,cinematicChatDefaultsByUser:{...state.cinematicChatDefaultsByUser,[userId]:version}}));
+      },
+      orbMotionByUser: {},
+      setOrbMotionIntensity: (userId, intensity) => {
+        if (!userId || useAuthStore.getState().userId !== userId || !ORB_MOTION_INTENSITIES.includes(intensity)) return;
+        set(state => ({ orbMotionByUser: { ...state.orbMotionByUser, [userId]: intensity } }));
+      },
       orbColor: 'auto',
       setOrbColor: (orbColor) => { if(ORB_COLORS.some(color=>color.id===orbColor))set({orbColor}); },
       reduceMotion: false,
       hapticsEnabled: true,
       setHapticsEnabled: (hapticsEnabled) => set({ hapticsEnabled }),
       setReduceMotion: (reduceMotion) => set({ reduceMotion }),
-      chatFontSize: 14,
+      chatFontSize: 16,
+      chatThinkingEnabled: true,
+      setChatThinkingEnabled: (chatThinkingEnabled) => set({chatThinkingEnabled}),
       setChatFontSize: (size) => {
-        const chatFontSize = Number.isFinite(size) ? Math.max(12, Math.min(22, Math.round(size))) : 14;
+        const chatFontSize = Number.isFinite(size) ? Math.max(12, Math.min(22, Math.round(size))) : 16;
         if (get().chatFontSize !== chatFontSize) set({ chatFontSize });
       },
       diaryAiEnabled: true,

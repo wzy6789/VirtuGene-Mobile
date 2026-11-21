@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "sceneId": "home-bedroom",
+  "file": "scene.glb",
+  "bytes": 805176,
+  "sha256": "e4d93250e20a8360589dc7e19cb75531d60b3733e310b6eb4f542ba7d8ae52de",
+  "triangles": 44026,
+  "vertices": 22153,
+  "drawCalls": 2,
+  "geometryBoundsBlender": {
+    "min": [
+      -4.001999855041504,
+      -7.0,
+      -0.15000000596046448
+    ],
+    "max": [
+      4.101999759674072,
+      9.0,
+      4.079999923706055
+    ]
+  },
+  "camera": {
+    "position": [
+      0.08,
+      2.5,
+      6.1
+    ],
+    "rotationQuaternion": [
+      0.7576175928115845,
+      0.6526760458946228,
+      0.003551873378455639,
+      0.004122966900467873
+    ],
+    "verticalFovDegrees": 60.28277110415069
+  },
+  "effectQuad": [
+    [
+      0.89,
+      1.13,
+      -3.49
+    ],
+    [
+      2.53,
+      1.13,
+      -3.49
+    ],
+    [
+      2.53,
+      3.07,
+      -3.49
+    ],
+    [
+      0.89,
+      3.07,
+      -3.49
+    ]
+  ],
+  "lightPoint": [
+    1.14,
+    1.34,
+    -1.69
+  ],
+  "cup": null,
+  "source": {
+    "file": "design/chat-scenes/collection-home/home-bedroom/VirtuGene-home-bedroom-Original.blend",
+    "sha256": "27ef124a3abb523d6e74db233385ffa93d619a3fcb52a2c6fff0730599d1ce80",
+    "originalObjects": 67,
+    "originalTriangles": 48412
+  },
+  "apertureCutForRealtime": true,
+  "distantBackgroundDepthWrite": false,
+  "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认"
+}

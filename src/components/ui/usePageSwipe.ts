@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
-import { SWIPE_EDGE, swipeBlocked, swipeCommits, swipeDirection } from '../../lib/swipe-policy';
-import { prefersReducedMotion, settleFrames, subscribeReducedMotion } from '../../lib/mobile-motion';
+import { SWIPE_EDGE, swipeBlocked, swipeCommits } from '../../lib/swipe-policy';
+import { prefersReducedMotion, subscribeReducedMotion } from '../../lib/mobile-motion';
 import { IS_CAPACITOR } from '../../lib/platform';
+import { elasticAnimationSample, elasticDirection, elasticSettleFrames, elasticVelocity, type ElasticPhase } from './useElasticSurface';
 
 /** One gesture owns its surface; a second touch can take over an unfinished release. */
 export function usePageSwipe(enabled: boolean, key: string, canMove: (dx: number) => boolean, commit: (dx: number) => void, back = false) {
@@ -13,22 +14,31 @@ export function usePageSwipe(enabled: boolean, key: string, canMove: (dx: number
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    type Gesture = { x: number; y: number; dx: number; origin: number; time: number; lastX: number; lastTime: number; velocity: number; dir: 'x' | 'y' | null };
+    type Gesture = { id: number; x: number; y: number; dx: number; origin: number; width: number; time: number; lastX: number; lastTime: number; velocity: number; dir: 'x' | 'y' | null };
     let gesture: Gesture | null = null;
     let frame = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let animation: Animation | null = null;
     let painted = 0;
+    let sequence = 0;
+    const phase = (value: ElasticPhase) => {
+      if (el.dataset.swipePhase !== value) el.dataset.swipePhase = value;
+      const token = String(sequence);
+      if (el.dataset.swipeSequence !== token) el.dataset.swipeSequence = token;
+    };
 
     const readX = () => {
       if (!animation) return painted;
+      const sample = elasticAnimationSample(animation);
+      if (sample) return sample.x;
       const transform = getComputedStyle(el).transform;
       return transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m41;
     };
     const clearFrame = () => { if (frame) cancelAnimationFrame(frame); frame = 0; };
     const clearCommit = () => { if (timer !== undefined) clearTimeout(timer); timer = undefined; };
-    const paint = (x: number, duration = 0, release = false) => {
+    const paint = (x: number, duration = 0, release = false, initialVelocity?: number) => {
       const from = readX();
+      const velocity = initialVelocity ?? elasticVelocity(el, animation);
       animation?.cancel();
       animation = null;
       painted = x;
@@ -38,19 +48,19 @@ export function usePageSwipe(enabled: boolean, key: string, canMove: (dx: number
       if (!duration || prefersReducedMotion() || Math.abs(from - x) <= .5) return;
       el.style.willChange = 'transform';
       // Release keeps moving immediately; returning to rest uses the damped curve.
-      const frames = release
-        ? [{ transform: `translate3d(${from}px,0,0)` }, { transform: `translate3d(${x}px,0,0)` }]
-        : settleFrames(from, x);
-      const next = el.animate(frames, { duration, easing: release ? 'cubic-bezier(.16,1,.3,1)' : 'linear' });
+      const frames = elasticSettleFrames(from, x, velocity, duration);
+      const token = sequence;
+      const next = el.animate(frames, { duration, easing: 'linear' });
       animation = next;
       next.onfinish = () => {
-        if (animation !== next) return;
+        if (animation !== next || token !== sequence) return;
         animation = null;
         el.style.willChange = x ? 'transform' : '';
+        if (!release && !gesture) phase('idle');
       };
     };
     const dragX = (g: Gesture) => {
-      const width = el.clientWidth || 390;
+      const width = g.width;
       if (back) {
         const raw = Math.max(0, g.origin + g.dx);
         const edge = width * .85;
@@ -63,9 +73,11 @@ export function usePageSwipe(enabled: boolean, key: string, canMove: (dx: number
       return x;
     };
     const cancel = () => {
+      ++sequence;
       clearCommit();
       clearFrame();
       gesture = null;
+      phase('settling');
       paint(0, 280);
     };
     const start = (event: TouchEvent) => {
@@ -79,11 +91,15 @@ export function usePageSwipe(enabled: boolean, key: string, canMove: (dx: number
       }
       clearCommit();
       clearFrame();
+      ++sequence;
       // Freeze at the actual displayed position, so grabbing a rebound cannot jump.
+      const width = el.clientWidth || 390;
       const origin = readX();
+      const velocity = elasticVelocity(el, animation);
       paint(origin);
       const now = performance.now();
-      gesture = { x: touch.clientX, y: touch.clientY, dx: 0, origin, time: now, lastX: touch.clientX, lastTime: now, velocity: 0, dir: null };
+      gesture = { id: touch.identifier, x: touch.clientX, y: touch.clientY, dx: 0, origin, width, time: now, lastX: touch.clientX, lastTime: now, velocity, dir: null };
+      phase('tracking');
     };
     const move = (event: TouchEvent) => {
       if (event.touches.length !== 1) { cancel(); return; }
@@ -92,11 +108,12 @@ export function usePageSwipe(enabled: boolean, key: string, canMove: (dx: number
       if (!g || !touch) return;
       const dx = touch.clientX - g.x;
       const dy = touch.clientY - g.y;
-      g.dir ??= swipeDirection(dx, dy);
+      g.dir ??= elasticDirection(dx, dy);
       if (g.dir === 'y') { cancel(); return; }
       if (g.dir !== 'x') return;
       if ((back && dx <= 0 && g.origin <= 0) || !event.cancelable) { cancel(); return; }
       event.preventDefault();
+      phase('dragging');
       const now = performance.now();
       g.velocity = (touch.clientX - g.lastX) / Math.max(8, now - g.lastTime);
       g.lastX = touch.clientX; g.lastTime = now;
@@ -106,18 +123,30 @@ export function usePageSwipe(enabled: boolean, key: string, canMove: (dx: number
         if (gesture) paint(dragX(gesture));
       });
     };
-    const finish = () => {
+    const finish = (event: TouchEvent) => {
       const g = gesture;
       // A duplicate touchend must not cancel a release that already owns its commit.
       if (!g) return;
+      const touch = Array.from(event.changedTouches).find(item => item.identifier === g.id);
+      if (!touch || event.touches.length) { cancel(); return; }
+      const now = performance.now();
+      if (g.dir === 'x') {
+        // A final coordinate can arrive without another touchmove. Only touchend
+        // supplies it; touchcancel continues through cancel without reading it.
+        if (touch.clientX !== g.lastX) {
+          g.velocity = (touch.clientX - g.lastX) / Math.max(8, now - g.lastTime);
+          g.lastX = touch.clientX; g.lastTime = now;
+        }
+        g.dx = touch.clientX - g.x;
+      }
       gesture = null;
       clearFrame();
-      const now = performance.now();
+      phase('settling');
       const velocity = now - g.lastTime < 100 ? g.velocity : 0;
       const distance = back ? Math.max(0, g.origin + g.dx) : g.dx;
       const commits = back
-        ? velocity >= -.18 && (distance >= Math.min(110, Math.max(72, el.clientWidth * .25)) || distance >= 36 && velocity >= .55)
-        : swipeCommits(distance, now - g.time, el.clientWidth);
+        ? velocity >= -.18 && (distance >= Math.min(110, Math.max(72, g.width * .25)) || distance >= 36 && velocity >= .55)
+        : swipeCommits(distance, now - g.time, g.width);
       if (g.dir !== 'x' || !latest.current.canMove(back ? distance : g.dx) || !commits) {
         paint(0, 280);
         return;
@@ -125,31 +154,46 @@ export function usePageSwipe(enabled: boolean, key: string, canMove: (dx: number
       paint(dragX(g));
       const releaseX = readX() + Math.sign(g.dx) * 22;
       const duration = prefersReducedMotion() ? 0 : 110;
-      paint(releaseX, duration, true);
+      paint(releaseX, duration, true, velocity);
+      const token = sequence;
       timer = setTimeout(() => {
         timer = undefined;
+        if (token !== sequence || document.hidden || document.querySelector('[aria-modal="true"],[data-group-dialog]')) { cancel(); return; }
         // The page ref captures this pose and emits a synchronous handoff before
         // mounting its replacement. This also works when history.back is async.
         flushSync(() => latest.current.commit(g.dx));
         if (Math.abs(readX()) > .5) {
           // Standalone consumers need not mount a replacement page.
-          timer = setTimeout(() => { timer = undefined; paint(0, 180); }, 160);
+          timer = setTimeout(() => { timer = undefined; if (token === sequence) paint(0, 180); }, 160);
         }
       }, duration);
     };
     const interrupted = () => {
+      ++sequence;
       clearCommit();
       clearFrame();
       gesture = null;
       paint(0);
+      phase('idle');
     };
     const hidden = () => { if (document.hidden) interrupted(); };
+    const covered = () => { if (document.querySelector('[aria-modal="true"],[data-group-dialog]')) interrupted(); };
+    // Geometry is stable during a gesture. Container resizing invalidates it,
+    // including changes that do not dispatch window.resize.
+    const resize = new ResizeObserver(() => {
+      if (gesture && Math.abs(el.clientWidth - gesture.width) > 1) interrupted();
+    });
+    resize.observe(el);
+    phase('idle');
     el.addEventListener('touchstart', start, { passive: true });
     el.addEventListener('touchmove', move, { passive: false });
     el.addEventListener('touchend', finish);
     el.addEventListener('touchcancel', cancel);
     el.addEventListener('vg:swipe-handoff', interrupted);
     window.addEventListener('resize', interrupted);
+    window.addEventListener('vg:back-request', interrupted);
+    window.addEventListener('blur', interrupted);
+    document.addEventListener('focusin', covered);
     document.addEventListener('visibilitychange', hidden);
     const unsubscribe = subscribeReducedMotion(interrupted);
     return () => {
@@ -159,8 +203,12 @@ export function usePageSwipe(enabled: boolean, key: string, canMove: (dx: number
       el.removeEventListener('touchcancel', cancel);
       el.removeEventListener('vg:swipe-handoff', interrupted);
       window.removeEventListener('resize', interrupted);
+      window.removeEventListener('vg:back-request', interrupted);
+      window.removeEventListener('blur', interrupted);
+      document.removeEventListener('focusin', covered);
       document.removeEventListener('visibilitychange', hidden);
       unsubscribe();
+      resize.disconnect();
       interrupted();
     };
   }, [enabled, key, back]);

@@ -1,0 +1,29 @@
+/* Starfield's shared palette. It is scoped to the library, scene detail and reader. */
+.vg-starfield-design{
+ --sf-bg:#f4f8fc;--sf-paper:#fff;--sf-inset:#eaf1f7;--sf-text:#16283b;--sf-muted:#53677d;
+ --sf-line:#d5e1eb;--sf-accent:#365e80;--sf-action:#274e70;--sf-on-action:#fff;
+ --sf-active:#365e80;--sf-paused:#866024;--sf-saved:#2e7669;--sf-gutter:20px;
+ color:var(--sf-text);background-color:var(--sf-bg);
+}
+:root.dark .vg-starfield-design{
+ --sf-bg:#09121e;--sf-paper:#111f2e;--sf-inset:#192b3d;--sf-text:#edf3fa;--sf-muted:#9dacc0;
+ --sf-line:#27394d;--sf-accent:#b9d5eb;--sf-action:#c3dbef;--sf-on-action:#102234;
+ --sf-active:#b1dcf4;--sf-paused:#e9bd7c;--sf-saved:#8acabc;
+}
+html .vg-starfield-design>.vg-world-page.vg-light-paper,
+html .vg-starfield-design.vg-starfield-reader.vg-light-paper{
+ --bg:var(--sf-bg);--bg-panel:var(--sf-paper);--bg-surface:var(--sf-inset);--bg-surface-strong:var(--sf-line);
+ --text:var(--sf-text);--text-secondary:var(--sf-muted);--text-ink:var(--sf-text);--text-sub:var(--sf-muted);
+ --border:var(--sf-line);--vg-edge:var(--sf-line);--vg-accent:var(--sf-accent);--vg-action:var(--sf-action);--vg-on-action:var(--sf-on-action);
+}
+.vg-starfield-design :is(button,input,textarea,summary):focus-visible{outline:2px solid var(--sf-accent);outline-offset:3px}
+.vg-starfield-design .vg-starfield-status{display:inline-flex;align-items:center;gap:6px;min-width:0;font-size:max(12px,.75rem);font-weight:400;line-height:1.6;color:var(--sf-muted)}
+.vg-starfield-design .vg-starfield-status::before{content:'';width:5px;height:5px;flex:none;border-radius:50%;background:currentColor}
+.vg-starfield-design .vg-starfield-status[data-status=active]{color:var(--sf-active)}
+.vg-starfield-design .vg-starfield-status[data-status=paused]{color:var(--sf-paused)}
+.vg-starfield-design .vg-starfield-status[data-status=finished]{color:var(--sf-saved)}
+.vg-starfield-design .vg-starfield-primary{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;min-height:48px;padding:12px 16px;border:0;border-radius:14px;background:var(--sf-action);color:var(--sf-on-action);font:inherit;font-size:max(15px,.9375rem);line-height:1.5;font-weight:500;text-align:center;box-shadow:none;touch-action:manipulation}
+.vg-starfield-design .vg-starfield-primary>svg{flex:none}
+.vg-starfield-design .vg-starfield-primary:disabled{opacity:.5;cursor:wait}
+.vg-starfield-design .vg-starfield-primary:active:not(:disabled){opacity:.88}
+@media(max-width:359px){.vg-starfield-design{--sf-gutter:16px}}

@@ -4,7 +4,7 @@ import { assessExpressionSignals, expressionDirection, recentRhythmDirection, re
 import { SAMPLE_LINE, validVoiceSamples, VOICE_SAMPLE_MARKER } from './character-voice';
 import { directChatGuidance, DIRECT_AFFECTION_DIRECTION, AFFECTION_QUESTION_DIRECTION, isAffectionQuestion, isDirectAffection, isViewExchange,isTopicInvitation,allowsDramaticReply } from './chat-expression-boundary';
 import { authoredReactionLines, emotionalExpressionGuidance, selectVoiceExamples, interactionMoment, interactionMomentForTurn } from './chat-emotional-expression';
-import { hasExplicitTopicShift, isStandaloneClosing, isPersonalExperienceQuestion,requestsRepetition,hasSelfChosenPlan,correctsOwnFeeling,requestsCharacterPerspective,requestsCharacterChoice,correctsConversationIntent } from './chat-turn-cues';
+import { hasExplicitTopicShift, isStandaloneClosing, conversationDeparture, isTopicClarification, isPersonalExperienceQuestion,questionsCharacterClaim,requestsRepetition,hasSelfChosenPlan,correctsOwnFeeling,requestsCharacterPerspective,requestsCharacterChoice,correctsConversationIntent } from './chat-turn-cues';
 import {authoredVoiceFields,JUDGMENT_FIELDS,ADDRESS_FIELDS} from './character-voice-fields';
 import type {PromptSection} from './chat-context-compiler';
 import {isLongFormRequest} from './reply-quality';
@@ -13,6 +13,7 @@ import {buildRecentFactRecallContext} from './chat-recent-fact-recall';
 import {buildHypothesisContext,buildPreferenceProposalContext} from './chat-hypothesis';
 import {buildViewContinuityContext} from './chat-view-continuity';
 import {requestsCharacterWording} from './chat-turn-cues';
+import {replyPlanSection,type ReplyPlan} from './chat/topic-candidates';
 
 /**
  * 只在本地判断这一轮对话的气质，不调用模型，也不写入数据库。
@@ -43,6 +44,7 @@ export interface HumanTurnSignals {
 }
 
 export interface HumanConversationOptions {
+  replyPlan?:ReplyPlan;
   /** Verified owned private roles can react without the longer coaching
    * paragraph. No effect on facts, identity, requests or emotional routing. */
   compactOrdinaryReaction?: boolean;
@@ -163,11 +165,16 @@ export function chooseConversationAction(
   // Whole-turn closing is explicit; lexical non-overlap with the previous
   // subject must not turn a goodbye into another casual subject.
   if (isClosing(userText)) return 'short-close';
+  if(questionsCharacterClaim(userText))return 'answer-directly';
   if(isTopicInvitation(userText)&&signals.mode!=='request')return 'start-topic';
   if(requestsCharacterPerspective(userText))return 'answer-directly';
   if(correctsConversationIntent(userText)&&signals.mode!=='request'&&!hasExplicitTopicShift(userText)&&!allowsDramaticReply(userText,recentUserMessages))return 'respond-clarification';
+  if(!['request','question'].includes(signals.mode)&&isTopicClarification(userText)&&!hasExplicitTopicShift(userText)&&!allowsDramaticReply(userText,recentUserMessages))return 'respond-clarification';
   if(isAffectionQuestion(userText)&&signals.mode!=='request')return 'respond-affection';
   if(!['request','question'].includes(signals.mode)&&isDirectAffection(userText)&&!replyContainsSubstantiveQuestion([userText]))return 'respond-affection';
+  // Explicitly continuing to be heard is stronger than lexical topic distance.
+  // A new question/task or an explicit topic change keeps its own direction.
+  if(!['request','question'].includes(signals.mode)&&!hasExplicitTopicShift(userText)&&adviceForCurrentTopic(userText)==='listen')return 'stay-present';
   if (signals.mode === 'topic-shift') return 'follow-topic';
   if (signals.mode === 'emotional') return 'stay-present';
   if (signals.mode === 'question') return 'answer-directly';
@@ -180,7 +187,7 @@ export function chooseConversationAction(
   const userTurnCount = options.turnNumber ?? recentUserMessages.length + 1;
   const proactive = character?.proactivity ?? 0.5;
   const hasLifeLine = (options.lifeHints ?? []).some((hint) => compact(hint).length >= 3);
-  if (hasLifeLine && mayShareLife(character?.name ?? '', userTurnCount, proactive)) return 'share-life';
+  if (!options.replyPlan && hasLifeLine && mayShareLife(character?.name ?? '', userTurnCount, proactive)) return 'share-life';
   if (recentAssistantMessages.length > 0 && /[？?]\s*$/u.test(recentAssistantMessages[recentAssistantMessages.length - 1])) {
     return 'react';
   }
@@ -356,6 +363,7 @@ export function buildHumanConversationSections(
     {key:'character-voice',text:['[人物声音卡]',...characterVoiceLines(character,userText,history,true),'[/人物声音卡]'].join('\n'),priority:100,placement:'tail',tailOrder:1},
   ];
   const action = chooseConversationAction(userText, history, character, options);
+  const sourceQuestion=questionsCharacterClaim(userText);
   const wording=requestsCharacterWording(userText)&&!allowsDramaticReply(userText,recentUsers);
   const authoredReactionIncluded=authoredReactionLines(character?.systemPrompt??'',userText,history).length>0;
   const ownPerspective = requestsCharacterPerspective(userText)||requestsCharacterChoice(userText)||isViewExchange(userText);
@@ -363,7 +371,7 @@ export function buildHumanConversationSections(
   const directions: Record<ConversationAction, string> = {
     'respond-clarification': '按本轮明确的交流范围，继续聊他提到的具体事情。说一处你感兴趣的细节、自己的看法或感受，接话本身体现听懂了。若有需要纠正的事实，简短纠正后接上；自己的不同好恶仍然保留。',
     'respond-affection': isAffectionQuestion(userText)?AFFECTION_QUESTION_DIRECTION:DIRECT_AFFECTION_DIRECTION,
-    'start-topic': '这轮由你开话题：先说你此刻愿意聊的一个判断、偏好、疑问或设想，再展开一点自己的想法，让对方有东西可接。话题依你的性格与兴趣选择，不固定抽同一类问题。直接说现在怎么看，不从“前几天发生了什么、我忽然想起”开一段新故事；确有已提供的独立经历记录才可沿用其时间与经过，家庭背景和兴趣不算近事记录。对方已经愿意聊，不必再宣布陪着、听着或让他先挑话题；普通闲聊也不自动转成吃饭、睡觉等生活检查，确有相关原话才顺着聊。不需要先发生一件新近况，也不需要先向对方收集资料。',
+    'start-topic': '这轮由你开话题，直接说一件此刻想聊的具体小事，接一点自己的趣味或看法。依人物兴趣选题，不必先宣布要想话题、让对方猜，或替小爱好解释人生意义。说到有意思的地方就留个自然停顿，想象不用铺成一整天的安排；具体问题仍可自然问。不需要先发生一件新近况，真实经历须有独立记录，家庭背景和兴趣不证明今天做过什么。对方已愿意聊，不再让他先选，不自动转成吃饭、睡觉等生活检查。',
     'follow-topic': '用户正在换话题，跟随新话题，旧线索暂时放下。不因为前面聊过情绪就继续安慰，也不必先解决旧事；普通分享可以先说你自己的反应，不必把新话题又接成一个问题。同感可以是一句当下的态度或玩笑，不必用“我以前也这样”“我有次”开一段无来源的亲身故事。本轮明确问你的问题或求助仍直接回答。',
     'stay-present': '接用户眼前说的这件事，说出你这个人真正在意的一点，由人设与原话决定。关心可以落在已说出的付出、落空或此刻心意上：把自己的在意说给他听，话的重点是你对这件事的反应，而不是给他的感受评定正常、应该或不丢人。用户明确问感受是否合理时仍认真回应。对他的在意与对事情的判断各自说清；尚未讲明的经过与第三方理由留白，明确的不公或伤害照常认真回应。想聊别的就自然聊别的，也允许短短一个反应或自然停顿；陪聊不是替他决定情绪该如何释放。没求办法就不接管，没讲明的就留白。',
     'answer-directly': (ownPerspective
@@ -371,13 +379,14 @@ export function buildHumanConversationSections(
       : isLongFormRequest(userText)?'按用户要求充分展开。':'普通问句也在聊天，回答自己懂、在意的那一点，聊到这里就可以停；长短依人物与当前内容。')+'不懂或不想回答可以坦白说。事实、经历与设想遵循共享表达契约。',
     'finish-request': '按角色的能力和边界回应这个请求，不擅自扩展任务或宣称应用操作已完成。',
     'share-life': '先回应眼前的话，气氛合适时就已提供的角色生活线索说一点自己的看法；时间和经过沿用线索，不把过去的事说成现在正在做，也不从职业、爱好补写今天的行程。',
-    'short-close': '用户正在收尾，按这个人的方式回应告别，不硬开新话题；下次聊天的时间与安排沿用对方讲明的内容，未约定时不替他定明天或要求按时回来。你先前提出的邀请不是对方已经答应的约定，告别不再催他落实。问候可以依照用户的作息，不用根据当前时钟纠正一句晚安。前面的普通闲聊不自动变成用户仍然挂心的事，不为显得记得细节追加「别惦记、别担心」等未经表达的安抚；有真正共同的笑点仍可以简短呼应。',
-    react: options.compactOrdinaryReaction?'接这件小事，说出你自己此刻的反应。':'轻松交流，从这件事里你真正在意的细节接话，说自己的趣味、好恶或感受。熟悉的人分享小事，就当作已经聊起来了，不必先解释他为什么来分享或衡量这事值不值得。好奇时问你确实想知道的一点，反应说完也可以停。普通分享不是让你检查生活是否正确，不自动补处理办法。用户只说当下感受时，回应这一刻就够了，不需要给出它从哪里来的解释；用户自己讲明的原因照常使用。同感可以是一句当下的态度或玩笑；经历与现场仍按共享契约。',
+    'short-close': '用户正在收尾，按这个人的语气简短告别，说完就停；不总结聊天收获、报告自己的状态或硬开新话题。下次安排沿用对方讲明的内容，未约定时不替他定明天或要求按时回来。'+(action==='short-close'&&conversationDeparture(userText)?.waitDeclined?'对方明确不用等回复，这次告别也不追加等待、催回来的话；亲近可以留在称呼与语气里。':'')+'先前邀请不是对方已经答应的约定。问候不用根据当前时钟纠正一句晚安。普通闲聊不自动变成用户仍然挂心的事，不补未经表达的安抚；共同笑点可以简短呼应。',
+    react: options.compactOrdinaryReaction?'接这件小事，说出你自己此刻的反应。不必先追问原因或替他猜一个原因。':'轻松交流，从你真正在意的细节接话，先说对这件事的具体反应。沿用原话的转折，不将缺少某物改成用户故意避开；未说明的心情与好恶留白。不必先追问原因或给对方列几种心理解释；好奇时问你确实想知道的一点，不把猜测当成事实。普通分享不是让你检查生活是否正确，不自动补处理办法。用户只说当下感受时，回应这一刻就够了；用户自己讲明的原因照常使用。同感可以是一句当下的态度或玩笑；经历与现场仍按共享契约。',
   };
   if(affectionateOpening)directions['start-topic']='用户直接表达了心意，也邀请聊些平常话。先说你自己的心意，再接着聊一点你此刻感兴趣的具体想法、好恶或设想；让他有内容可接，不把话题交还给他。已有关系决定亲疏，内容依你这个人的兴趣，不规定一定聊家庭或哪种题目。真实往事沿用独立来源；没有近况记录也可以说现在的想法，不编今天做过什么，也不转成生活检查。保持自然长短，不要求每次固定两条。';
-  const selfChosenPlan=action!=='respond-affection'&&hasSelfChosenPlan(userText)&&!['question','request'].includes(signals.mode)&&!isClosing(userText)&&!allowsDramaticReply(userText,recentUsers);
+  const selfChosenPlan=!sourceQuestion&&action!=='respond-affection'&&hasSelfChosenPlan(userText)&&!['question','request'].includes(signals.mode)&&!isClosing(userText)&&!allowsDramaticReply(userText,recentUsers);
   const lines = ['[本轮交流的隐藏节奏]', selfChosenPlan
     ?'用户正在告诉你自己的打算，沿用他讲明的时间、内容和范围。按人物口吻接这个打算，可以表达自己的兴趣或轻松反应，留个自然停顿；不需要替他批准、解释决定，也不把计划说成已执行，不补身体姿势、行程或另安排一项。用户希望少分析、少建议时也沿用这个节奏。明确问题和求助照常回应。'
+    :sourceQuestion?'先回应对你先前说法的真实性追问，分清有来源的经历与临时设想；按本轮经历核对处理，不用新的情节替旧说法圆场。'
     :wording?'对方想听你会亲口说什么。先给出你会说的那句话，让措辞、亲疏与此刻的态度体现你这个人。需要解释时再接一句，不先报告准备怎样回应。假设中的对话仍是假设，沿用已经给出的内容。':directions[action]];
   if(ownPerspective&&!selfChosenPlan&&['react','answer-directly','follow-topic'].includes(action))lines.push('说自己的选择时，理由可以落在眼前事物的特点与此刻想要的体验上，不需要补一套平时怎么做的生活习惯来证明有主见。讨论中的选择仍是这个情境里的选择，不自动变成一贯如此、改不了的性格事实；已有的人设与独立经历可以照常使用。');
   // The terminal intent already settles this turn. Emotional and cadence hints
@@ -394,16 +403,16 @@ export function buildHumanConversationSections(
   }
   // The shared contract already covers ordinary chat. Only add an emotion or
   // request clue when it contributes something specific to this turn.
-  if (action!=='start-topic' && !isDirectAffection(userText) && (signals.expression.request || signals.expression.situation !== 'neutral'))
+  if (!sourceQuestion && action!=='start-topic' && !isDirectAffection(userText) && (signals.expression.request || signals.expression.situation !== 'neutral'))
     lines.push(expressionDirection(signals.expression));
-  else if (signals.expression.situation==='neutral' && action!=='start-topic' && !isDirectAffection(userText) && action !== 'follow-topic' && recentUsers.slice(-2).some(text=>assessExpressionSignals(text).situation!=='neutral'))
+  else if (!sourceQuestion && signals.expression.situation==='neutral' && action!=='start-topic' && action!=='stay-present' && !isDirectAffection(userText) && action !== 'follow-topic' && recentUsers.slice(-2).some(text=>assessExpressionSignals(text).situation!=='neutral'))
     lines.push('不因为前面聊过情绪就继续安慰；本轮以用户现在说的内容为准。');
   const direct = directChatGuidance(userText,recentUsers,recentReplies,{includeAffection:action!=='respond-affection'&&!affectionateOpening,includeTopicInvitation:action!=='start-topic'});
   if (direct) lines.push(direct);
   if (correctsOwnFeeling(userText) && !allowsDramaticReply(userText,recentUsers)) {
     lines.push('用户明确更正了对自己感受的判断，按本人此刻的解释接话。被否认的感受不再作为关心或玩笑的前提，也不换成“如果真是这样”的建议继续同一方向；新的感受、原因和明确求助仍以这条原话为准。');
   }
-  if(ownPerspective&&!allowsDramaticReply(userText,recentUsers)) {
+  if(ownPerspective&&!sourceQuestion&&!allowsDramaticReply(userText,recentUsers)) {
     lines.push('邀请你说自己的想法，不是质疑你的主见。继续讲这件事里你喜欢什么、为什么即可；无需证明刚才没有迎合，也不把选择转成给对方的安排。同意或不同意都由你真实的判断决定。');
   }
   if(!allowsDramaticReply(userText,recentUsers)) {
@@ -414,13 +423,13 @@ export function buildHumanConversationSections(
     const viewContinuity=buildViewContinuityContext(userText,history);
     if(viewContinuity)lines.push(viewContinuity);
   }
-  if (isPersonalExperienceQuestion(userText)) {
+  if (sourceQuestion || isPersonalExperienceQuestion(userText)) {
     const authored=(character?.systemPrompt??'').split(/\r?\n/u).filter(line=>!SAMPLE_LINE.test(line)).join('\n').slice(0,2000);
     const recorded=(options.lifeHints??[]).slice(0,4).map(line=>line.slice(0,160));
     lines.push('[本轮经历核对]',`人设正文参考（剔除声音例句；完整正文仍有效）：${authored||'未提供'}`,`本地生活记录参考：${recorded.join(' / ')||'未提供；仍可核对本轮其他有来源的经历记录'}`,
       '用户在问你自己的经历：先核对独立的角色设定或本轮有来源的经历记录，再作答。声音例句和你先前随口生成的自述不能证明经历发生过；旧回复里出现过也不等于有依据。已知发生过某件事，不代表知道当时的地点、频次、家人反应或身体感受；说已有事实即可，生动可以来自此刻的看法，不靠补写回忆。缺少记载不等于从未发生，不能断言「没这事」；不确定就坦白不确定。如果上轮编过，简短更正那一句，不给自己补失忆，也不拿「可能、大概」续编。纠正时保留人物自己的口语，别说「依据、核验、记录不足、拿不出经历」等内部审查措辞，不解释核对过程，也不反复道歉。用户明确要求创作或扮演时仍按其情境交流。','[/本轮经历核对]');
   }
-  const feeling=action==='start-topic'?'':emotionalExpressionGuidance(userText,history,character?{...character,hasVoiceJudgment:!!validVoiceSamples(character)}:character,options.recentReplyTurns,{authoredReactionAlreadyIncluded:authoredReactionIncluded});
+  const feeling=sourceQuestion||action==='start-topic'?'':emotionalExpressionGuidance(userText,history,character?{...character,hasVoiceJudgment:!!validVoiceSamples(character)}:character,options.recentReplyTurns,{authoredReactionAlreadyIncluded:authoredReactionIncluded});
   if(feeling)lines.push(feeling);
   const replyTurns=options.recentReplyTurns??[];
   // A user's question can invite the actor's contribution rather than answer
@@ -445,7 +454,7 @@ export function buildHumanConversationSections(
   const candidates = [...new Set((options.proactiveTopics ?? []).map(compact).filter(t => t.length >= 3))]
     .filter(t => !isTopicRelated(t, recentText) && !compact(userText).includes(t));
   const turn = options.turnNumber ?? recentUsers.length + 1;
-  if (!selfChosenPlan && options.adviceStyle !== 'listen' && signals.mode === 'casual' && !isClosing(userText) && mayShareLife(character?.name ?? '', turn, character?.proactivity ?? 0.5)) {
+  if (!options.replyPlan && !selfChosenPlan && options.adviceStyle !== 'listen' && signals.mode === 'casual' && !isClosing(userText) && mayShareLife(character?.name ?? '', turn, character?.proactivity ?? 0.5)) {
     const topic = candidates[turn % Math.max(1, candidates.length)];
     if (topic) lines.push(`如果话题自然停住，可以打开一个具体小话题：「${topic.slice(0, 80)}」。这是可选线索，不是必须念出的台词。`);
   }
@@ -456,6 +465,7 @@ export function buildHumanConversationSections(
   const factRecall=buildRecentFactRecallContext(userText,history);
   return [
     {key:'human-conversation',text:lines.join('\n'),priority:99,placement:'tail',tailOrder:0},
+    ...(replyPlanSection(options.replyPlan)?[{key:'reply-direction',text:replyPlanSection(options.replyPlan),priority:99,placement:'tail' as const,tailOrder:.25,requireComplete:true}]:[]),
     ...(factRecall?[{key:'recent-fact-recall',text:factRecall,priority:98,placement:'tail' as const,tailOrder:.5,requireComplete:true}]:[]),
     {key:'character-voice',text:['[人物声音卡]',...characterVoiceLines(character,userText,history),'[/人物声音卡]'].join('\n'),priority:100,placement:'tail',tailOrder:1},
   ];

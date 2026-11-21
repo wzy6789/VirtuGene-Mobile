@@ -35,6 +35,10 @@ const server = http.createServer((req, res) => {
     return;
   }
   const file = path.join(root, decodeURIComponent((req.url || '/').split('?')[0]));
+  if(/^\/assets\/preset-avatars\/preset-[a-z]+\.jpg$/.test((req.url||'').split('?')[0])) {
+    const portrait=path.resolve(root,'../../public','.'+req.url.split('?')[0]);
+    fs.readFile(portrait,(err,data)=>{res.writeHead(err?404:200,{'Content-Type':'image/jpeg'});res.end(err?'not found':data);});return;
+  }
   fs.readFile(file, (err, data) => {
     if (err) {
       res.writeHead(404);

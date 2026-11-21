@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { Diary } from '../../db/index';
 import { DiaryTimeline } from './DiaryTimeline';
+import { Icon } from '../ui/Icon';
 
 interface Props {
   entries: Diary[];
@@ -24,8 +25,8 @@ export function DiaryTagsView({ entries, onEdit, tagFilter, onTagClick, highligh
 
   if (entries.length === 0) {
     return (
-      <div className="py-16 text-center text-gray-500">
-        <p className="text-3xl mb-2">🏷️</p>
+      <div className="py-16 text-center text-sub">
+        <Icon name="folder" size={32} className="mx-auto mb-3" />
         <p className="text-sm">没有带标签的日记</p>
       </div>
     );
@@ -37,8 +38,9 @@ export function DiaryTagsView({ entries, onEdit, tagFilter, onTagClick, highligh
         <div key={tag}>
           <button
             onClick={() => onTagClick(tagFilter === tag ? null : tag)}
+            aria-pressed={tagFilter === tag}
             className={`text-xs px-2.5 py-1 rounded-full mb-2 transition-colors ${
-              tagFilter === tag ? 'bg-gene-purple/20 text-gene-purple' : 'bg-surface text-gray-500 hover:text-ink'
+              tagFilter === tag ? 'bg-gene-purple/20 text-[color:var(--vg-accent)]' : 'bg-surface text-sub hover:text-ink'
             }`}
           >
             #{tag} <span className="opacity-60">({list.length})</span>

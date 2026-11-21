@@ -74,15 +74,16 @@ export function CharacterDispatchCard({ userId, taskId }: { userId: string; task
     <div className="flex items-center gap-2 min-w-0">{target && <Avatar avatar={target.avatar} size="sm" />}<div className="min-w-0"><p className="text-sm font-medium text-ink break-words">{target?.name ?? d.recipientName ?? '选择收件角色'}</p><p role="status" className="mt-1 text-xs text-sub break-words">{d.stopRequested && d.state === 'generating' ? '正在停止回复生成…' : d.state === 'replied' && !replies.length ? '回复记录已不可用' : DISPATCH_LABELS[d.state]}</p></div></div>
     {editable ? <div className="mt-3 space-y-2">
       <label className="block text-xs text-sub">收件角色<select aria-label="代发收件角色" value={recipient} disabled={busy || inactive} onChange={e => setRecipient(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-line bg-surface px-3 text-sm text-ink"><option value="">请选择</option>{choices.map(c => <option key={c.id} value={c.id}>{c.name}{c.signature ? ` · ${c.signature.slice(0, 36)}` : ''}</option>)}</select></label>
-      <textarea aria-label="代发消息正文" value={text} maxLength={6000} rows={3} disabled={busy || inactive} onChange={e => setText(e.target.value)} placeholder="想对这个角色说什么？" className="w-full rounded-xl border border-line bg-surface p-3 text-sm text-ink" />
+      <label className="block text-xs text-sub">消息正文<textarea aria-label="代发消息正文" value={text} maxLength={6000} rows={3} disabled={busy || inactive} onChange={e => setText(e.target.value)} className="mt-1 w-full rounded-xl border border-line bg-surface p-3 text-sm text-ink" /></label>
+      <p className="text-xs leading-relaxed text-sub">发送会写入角色聊天并请求模型回复，可能产生费用。</p>
       <div className="flex flex-wrap gap-2">
         {d.state !== 'needs-model' && <button type="button" disabled={busy || inactive || !recipient || !text.trim()} onClick={() => void run({ recipientId: recipient, content: text, send: true })} className="min-h-11 rounded-xl bg-gene-purple px-4 text-sm text-white">{busy ? '正在处理…' : '发送这一版'}</button>}
         <button type="button" disabled={busy || inactive || !dirty} onClick={() => void run({ recipientId: recipient, content: text })} className="min-h-11 rounded-xl border border-line px-3 text-sm text-ink">保存草稿</button>
       </div>
     </div> : <p className="mt-2 line-clamp-2 text-sm text-ink whitespace-pre-wrap break-words">{result.action.content}</p>}
-    {editable && <p role="status" className="mt-2 text-xs text-sub">{dirty ? '修改尚未保存。保存或暂停都会保留当前内容。' : notice}</p>}
+    {editable && <p role="status" className="mt-2 text-xs text-sub">{dirty ? '修改尚未保存；保存或暂停可保留内容。' : notice}</p>}
     {replies.length > 0 && <div className="mt-3 rounded-xl bg-surface p-3"><p className="text-xs text-sub">角色的实际回复</p><p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-sm text-ink">{replies.map(m => m.content).join('\n')}</p></div>}
-    {inactive && <p className="mt-2 text-xs text-sub">助理任期已变化，记录保留；原代发不会自动继续。</p>}
+    {inactive && <p className="mt-2 text-xs text-sub">助理已离任，记录保留；代发不会自动继续。</p>}
     {(error || d.error) && <p role="alert" className="mt-2 text-xs text-red-400">{error || d.error}</p>}
     <div className="mt-2 flex flex-wrap gap-2">
       {d.state === 'needs-model' && <button type="button" disabled={busy || inactive || !recipient || !text.trim()} onClick={() => setModelPick(true)} className="min-h-11 rounded-xl bg-gene-purple px-3 text-sm text-white">选择角色对话模型</button>}

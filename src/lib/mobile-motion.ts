@@ -57,7 +57,7 @@ export function visualSnapshot(element: HTMLElement): HTMLElement | null {
       if (characters > 200_000) return null;
     } else {
       const original = current as Element;
-      if (original.matches('canvas,video,audio,iframe,object,embed') || originals.length >= 900) return null;
+      if (original.matches('[data-sensitive],canvas,video,audio,iframe,object,embed') || originals.length >= 900) return null;
       originals.push(original);
     }
     current = walker.nextNode();

@@ -90,8 +90,7 @@ export const knowledgeRepo = {
   },
 
   async getForCharacterEvent(characterId: string, eventId: string): Promise<CharacterKnowledge | undefined> {
-    const rows = await db.characterKnowledge.where('characterId').equals(characterId).toArray();
-    return rows.find((r) => r.eventId === eventId);
+    return db.characterKnowledge.where('[characterId+eventId]').equals([characterId, eventId]).first();
   },
 
   /** TA 能不能提起这件事（没记录 ⇒ false：不允许凭空知道） */
@@ -114,7 +113,9 @@ export const knowledgeRepo = {
     opts: { minLevel?: CharacterKnowledge['knowledgeLevel']; limit?: number; userId?: string } = {},
   ): Promise<CharacterKnowledge[]> {
     const minLevel = opts.minLevel ?? 'hint';
-    const rows = await db.characterKnowledge.where('characterId').equals(characterId).toArray();
+    // Candidate selection is already scoped to one world. Do not reread all
+    // other worlds for this actor each time a caller enters this world.
+    const rows = await db.characterKnowledge.where('[worldId+characterId]').equals([worldId, characterId]).toArray();
     return rows
       .filter((r) => r.worldId === worldId)
       .filter((r) => opts.userId === undefined || r.userId === opts.userId)

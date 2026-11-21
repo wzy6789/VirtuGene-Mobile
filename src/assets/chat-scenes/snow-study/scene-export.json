@@ -1,0 +1,195 @@
+{
+  "schema": 1,
+  "sceneId": "snow-study",
+  "designWidth": 1440,
+  "designHeight": 3201.902497027348,
+  "qualities": {
+    "841": {
+      "width": 841,
+      "height": 1870,
+      "poster": {
+        "file": "poster-photo-20261022-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 416790,
+        "sha256": "bd6fab57c8a5fe2a8b6e167d44018a95369037a6822a7ab664c45ec0a8214218",
+        "decodedRgbaBytes": 6290680
+      },
+      "cleanPlate": {
+        "file": "poster-photo-20261022-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 416790,
+        "sha256": "bd6fab57c8a5fe2a8b6e167d44018a95369037a6822a7ab664c45ec0a8214218",
+        "decodedRgbaBytes": 6290680
+      },
+      "layers": [],
+      "windowMask": {
+        "file": "window-mask-photo-20261022-841.webp",
+        "width": 405,
+        "height": 931,
+        "bytes": 4026,
+        "sha256": "6321fc948effed2f87fe082cf66fac391be19790e13eb17dc8090439ba660f26",
+        "decodedRgbaBytes": 1508220,
+        "rect": [
+          743.1153,
+          1.7122,
+          693.4602,
+          1594.1023
+        ],
+        "maskMode": "alpha"
+      },
+      "decodedBytesWithPoster": 7798900,
+      "decodedBytesAfterPosterRelease": 7798900
+    }
+  },
+  "thumbnail": {
+    "file": "thumbnail-photo-20261022.webp",
+    "width": 360,
+    "height": 800,
+    "bytes": 89734,
+    "sha256": "e34fea8e41a8fff7478e6cc9cfea7d284477ad64efa06db7812c7e2c76802197",
+    "decodedRgbaBytes": 1152000
+  },
+  "windowPolygon": [],
+  "lightRect": [
+    34.2449,
+    1027.3484,
+    667.7765,
+    890.3686
+  ],
+  "cupMouth": [
+    1143.7812,
+    1773.8882
+  ],
+  "effectArea": "window",
+  "provenance": "Original task-authorized built-in image_gen photographic artwork; not a camera photograph or Blender render. Production WebP encodes original native dimensions without upscaling.",
+  "compositeStrategy": "One complete photographic-style artwork reused as poster and cleanPlate; layers empty. No detached foreground/parallax claim. Old realtime geometry disabled for this replacement.",
+  "sourceFiles": [
+    {
+      "file": "design/ui-upgrade-20261022/snow-study/source.png",
+      "sha256": "cfcdd4c4f7343072b9b57aa2e0d5067ac5dd5b956b8c832ca207fdaba5b8b786"
+    }
+  ],
+  "motion": {
+    "baseMaxDesignPixels": 0,
+    "effectOpeningStatic": true,
+    "note": "Static complete artwork with pane-restricted local weather/fire effects only; no old geometry foreground."
+  },
+  "maskCalibration": {
+    "coordinateSpace": "source pixels",
+    "sourceWidth": 841,
+    "sourceHeight": 1870,
+    "polygons": [
+      [
+        [
+          445,
+          67
+        ],
+        [
+          628,
+          5
+        ],
+        [
+          628,
+          279
+        ],
+        [
+          438,
+          317
+        ]
+      ],
+      [
+        [
+          655,
+          4
+        ],
+        [
+          839,
+          1
+        ],
+        [
+          839,
+          221
+        ],
+        [
+          655,
+          265
+        ]
+      ],
+      [
+        [
+          438,
+          346
+        ],
+        [
+          628,
+          307
+        ],
+        [
+          628,
+          571
+        ],
+        [
+          434,
+          588
+        ]
+      ],
+      [
+        [
+          655,
+          301
+        ],
+        [
+          839,
+          261
+        ],
+        [
+          839,
+          551
+        ],
+        [
+          655,
+          569
+        ]
+      ],
+      [
+        [
+          434,
+          615
+        ],
+        [
+          628,
+          602
+        ],
+        [
+          628,
+          932
+        ],
+        [
+          434,
+          919
+        ]
+      ],
+      [
+        [
+          656,
+          603
+        ],
+        [
+          839,
+          585
+        ],
+        [
+          839,
+          832
+        ],
+        [
+          656,
+          832
+        ]
+      ]
+    ],
+    "note": "Conservative inspected glass panes exclude frames/indoor foreground. Firebox only for hearth. Train uses safe interior rectangle."
+  }
+}

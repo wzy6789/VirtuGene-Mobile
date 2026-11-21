@@ -28,6 +28,13 @@ export function diaryKnowledgeAnchor(diaryId: string): string {
   return `${DIARY_ANCHOR_PREFIX}${diaryId}`;
 }
 
+/** Exact source validation must not reread all of a character's knowledge. */
+export async function canMentionDiary(userId: string, characterId: string, diaryId: string): Promise<boolean> {
+  const rows = await db.characterKnowledge.where('[characterId+eventId]')
+    .equals([characterId, diaryKnowledgeAnchor(diaryId)]).toArray();
+  return rows.some(row => row.userId === userId && row.canMention && row.knowledgeLevel === 'full');
+}
+
 export function diaryIdFromAnchor(anchor: string): string | null {
   return anchor.startsWith(DIARY_ANCHOR_PREFIX) ? anchor.slice(DIARY_ANCHOR_PREFIX.length) : null;
 }
@@ -190,9 +197,11 @@ export async function clearDiarySharing(
  * 认知等级要求 full：只知道一点点的（partial）不注入，避免角色说错。
  */
 export async function listMentionableDiaryIds(userId: string, worldId: string | undefined, characterId: string): Promise<Set<string>> {
-  const rows = worldId
-    ? await knowledgeRepo.listKnownBy(characterId, worldId, { minLevel: 'full', limit: Number.MAX_SAFE_INTEGER, userId })
-    : await db.characterKnowledge.where('characterId').equals(characterId).filter(row => row.userId === userId).toArray();
+  // The existing compound index can select the diary-anchor prefix directly.
+  // ':' sorts immediately before ';', so this range includes every diary: ID.
+  const rows = await db.characterKnowledge.where('[characterId+eventId]')
+    .between([characterId, DIARY_ANCHOR_PREFIX], [characterId, 'diary;'], true, false)
+    .filter(row => row.userId === userId && (worldId === undefined || row.worldId === worldId)).toArray();
   const out = new Set<string>();
   for (const row of rows) {
     if (!row.canMention || row.knowledgeLevel !== 'full') continue;

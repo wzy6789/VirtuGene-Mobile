@@ -21,6 +21,7 @@ try {
   await page.goto(`http://127.0.0.1:${server.address().port}`); await page.waitForFunction(() => !!window.chatPolicy);
   const outcome = await page.evaluate(() => window.chatPolicy.run());
   let ui = 0; const check = (value, label) => { if (!value) throw Error(label); ui++; console.log(`ok ${label}`); };
+  await page.getByRole('button', { name: '人物设定', exact: true }).click();
   await page.getByRole('button', { name: '预览聊天开场白建议', exact: true }).click();
   await page.getByLabel('开场白建议', { exact: true }).waitFor();
   check((await page.evaluate(id => window.chatPolicy.record(id), outcome.manualId)).greeting === '来了呀', 'greeting suggestion preview does not overwrite saved opening');
@@ -40,8 +41,10 @@ try {
   await page.evaluate(() => window.chatPolicy.holdNext());
   await page.getByRole('button', { name: '补全声音样本', exact: true }).click();
   await page.waitForFunction(() => window.chatPolicy.held());
-  await page.locator('input').filter({ visible: true }).first().fill('修改中的名字');
+  await page.getByRole('button', { name: '基本资料', exact: true }).click();
+  await page.getByLabel('姓名', { exact: false }).fill('修改中的名字');
   await page.evaluate(() => window.chatPolicy.release());
+  await page.getByRole('button', { name: '人物设定', exact: true }).click();
   await page.getByRole('button', { name: '补全声音样本', exact: true }).waitFor();
   check(await page.getByLabel('声音样本预览').count() === 0, 'editing source while manual generation is pending rejects late preview');
   await page.getByRole('button', { name: '补全声音样本', exact: true }).click();

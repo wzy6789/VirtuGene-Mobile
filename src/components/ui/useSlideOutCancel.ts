@@ -4,17 +4,29 @@ import { prefersReducedMotion, subscribeReducedMotion } from '../../lib/mobile-m
 /** Native/keyboard clicks stay native; a pointer released outside cancels before React. */
 export function useSlideOutCancel() {
   useEffect(() => {
-    let press: { id: number; button: HTMLButtonElement; outside: boolean; box: DOMRect; themed: boolean } | null = null;
+    let press: { id: number; button: HTMLButtonElement; outside: boolean; box: DOMRect; themed: boolean; x: number; y: number; moved: boolean } | null = null;
     const cancelled = new WeakMap<HTMLButtonElement, number>();
     const lightTimers = new Map<HTMLButtonElement, number>();
+    let touchFrame = 0;
+    let pendingTouch: { button: HTMLButtonElement; box: DOMRect; x: number; y: number } | null = null;
+    const cancelPaint = () => {
+      cancelAnimationFrame(touchFrame);
+      touchFrame = 0;
+      pendingTouch = null;
+    };
     const forgetLight = (button: HTMLButtonElement) => {
       const timer = lightTimers.get(button);
       if (timer !== undefined) window.clearTimeout(timer);
       lightTimers.delete(button);
       button.style.removeProperty('--vg-touch-x');
       button.style.removeProperty('--vg-touch-y');
+      button.style.removeProperty('--vg-touch-scale-x');
+      button.style.removeProperty('--vg-touch-scale-y');
+      button.style.removeProperty('--vg-touch-shift-x');
+      button.style.removeProperty('--vg-touch-shift-y');
     };
     const clearLight = (immediate = false) => {
+      cancelPaint();
       if (!press) return;
       const { button, themed } = press;
       button.removeAttribute('data-touch-pressed');
@@ -23,36 +35,82 @@ export function useSlideOutCancel() {
       // Keep the light at its touch origin until its opacity has settled.
       const timer = lightTimers.get(button);
       if (timer !== undefined) window.clearTimeout(timer);
-      lightTimers.set(button, window.setTimeout(() => forgetLight(button), 300));
+      lightTimers.set(button, window.setTimeout(() => forgetLight(button), 380));
     };
     const clear = (immediate = false) => { clearLight(immediate); press?.button.removeAttribute('data-press-cancelled'); press = null; };
     const outside = (box: DOMRect, x: number, y: number) => {
       return x < box.left || x > box.right || y < box.top || y > box.bottom;
     };
+    const paintTouch = (button: HTMLButtonElement, box: DOMRect, x: number, y: number) => {
+      const localX = Math.max(0, Math.min(box.width, x - box.left));
+      const localY = Math.max(0, Math.min(box.height, y - box.top));
+      button.style.setProperty('--vg-touch-x', `${localX}px`);
+      button.style.setProperty('--vg-touch-y', `${localY}px`);
+      button.style.setProperty('--vg-touch-shift-x', `${(localX / Math.max(1, box.width) - .5) * 1.2}px`);
+      button.style.setProperty('--vg-touch-shift-y', `${(localY / Math.max(1, box.height) - .5) * 1.2}px`);
+    };
+    const queueTouch = (button: HTMLButtonElement, box: DOMRect, x: number, y: number) => {
+      pendingTouch = { button, box, x, y };
+      if (touchFrame) return;
+      touchFrame = requestAnimationFrame(() => {
+        touchFrame = 0;
+        const next = pendingTouch;
+        pendingTouch = null;
+        if (!next || press?.button !== next.button || press.outside || press.moved || !next.button.isConnected) return;
+        paintTouch(next.button, next.box, next.x, next.y);
+      });
+    };
     const down = (event: PointerEvent) => {
-      clear();
+      if (!event.isPrimary) {
+        if (press) cancelled.set(press.button, performance.now() + 800);
+        clear();
+        return;
+      }
       const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button') : null;
-      if (!button || button.disabled || event.button !== 0 || !event.isPrimary || button.closest('.vg-voice-tools,[data-pointer-action]')) return;
-      cancelled.delete(button);
+      if (!button || button.disabled || event.button !== 0 || button.closest('.vg-voice-tools,[data-pointer-action]')) { clear(); return; }
+      // Read the new hit box before clearing the previous material's styles.
       const box = button.getBoundingClientRect();
-      const themed = !button.matches('.vg-press-card') && !!button.closest('.mobile-layout,.vg-mobile-page,.vg-mobile-dialog,.vg-settings-panel,.vg-settings-design');
+      const themed = !button.matches('.vg-press-card') && !!button.closest('.mobile-layout,.vg-mobile-page,.vg-mobile-dialog,.vg-settings-panel,.vg-settings-design,.vg-auth-shell');
+      clear();
+      cancelled.delete(button);
       forgetLight(button);
-      press = { id: event.pointerId, button, outside: false, box, themed };
+      press = { id: event.pointerId, button, outside: false, box, themed, x: event.clientX, y: event.clientY, moved: false };
       if (themed && !prefersReducedMotion()) {
-        button.style.setProperty('--vg-touch-x', `${event.clientX - box.left}px`);
-        button.style.setProperty('--vg-touch-y', `${event.clientY - box.top}px`);
+        // The box is stable throughout a press; only its material compresses.
+        button.style.setProperty('--vg-touch-scale-x', `${1 - Math.min(.045, 2.8 / Math.max(1, box.width))}`);
+        button.style.setProperty('--vg-touch-scale-y', `${1 - Math.min(.045, 2.8 / Math.max(1, box.height))}`);
+        paintTouch(button, box, event.clientX, event.clientY);
         button.setAttribute('data-touch-pressed', '');
       }
     };
     const move = (event: PointerEvent) => {
       if (!press || press.id !== event.pointerId) return;
+      if (press.moved) return;
+      // Yield before native scrolling starts, including motion still inside a tall button.
+      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10) {
+        press.moved = true;
+        clearLight(true);
+        return;
+      }
+      const wasOutside = press.outside;
       press.outside = outside(press.box, event.clientX, event.clientY);
-      press.button.toggleAttribute('data-press-cancelled', press.outside);
-      if (press.themed) press.button.toggleAttribute('data-touch-pressed', !press.outside && !prefersReducedMotion());
+      if (wasOutside !== press.outside) press.button.toggleAttribute('data-press-cancelled', press.outside);
+      if (press.themed) {
+        const active = !press.outside && !prefersReducedMotion();
+        if (press.button.hasAttribute('data-touch-pressed') !== active) press.button.toggleAttribute('data-touch-pressed', active);
+        if (active) queueTouch(press.button, press.box, event.clientX, event.clientY);
+        else cancelPaint();
+      }
     };
     const finish = (event: PointerEvent) => {
       if (!press || press.id !== event.pointerId) return;
-      if (event.type === 'pointercancel' || outside(press.button.getBoundingClientRect(), event.clientX, event.clientY)) cancelled.set(press.button, performance.now() + 800);
+      // The final hit test remains fresh and synchronous. Only decorative writes
+      // are coalesced; a release between frames must retain its last touch origin.
+      const invalid = press.moved || event.type === 'pointercancel' || !press.button.isConnected
+        || Math.hypot(event.clientX - press.x, event.clientY - press.y) > 10
+        || outside(press.button.getBoundingClientRect(), event.clientX, event.clientY);
+      if (invalid) cancelled.set(press.button, performance.now() + 800);
+      else if (press.themed && !prefersReducedMotion()) paintTouch(press.button, press.box, event.clientX, event.clientY);
       clear();
     };
     const click = (event: MouseEvent) => {

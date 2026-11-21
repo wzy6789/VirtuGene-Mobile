@@ -1,255 +1,151 @@
+import { useMemo, useState } from 'react';
 import { avatarImageSrc } from '../../lib/avatar';
 import type { Character, RelationshipEvent, RelationshipState } from '../../db/index';
-import { useState } from 'react';
 import { characterRef, userRef } from '../../lib/world/subjects';
-import { pairTitle, recentReasons } from '../../lib/world/relationships';
+import { pairTitle, recentReasons, reasonText } from '../../lib/world/relationships';
 import { DEFAULT_USER_AVATAR, useAuthStore } from '../../store/auth-store';
+import '../../styles/relationship-roles.css';
 
-const WIDTH = 360;
-const HEIGHT = 300;
-const CENTER = { x: 180, y: 137 };
-const ORIGIN_BOTTOM = { x: 180, y: 272 };
-const DEFAULT_SLOTS = [
-  { x: 180, y: 33 }, { x: 93, y: 47 }, { x: 270, y: 48 },
-  { x: 47, y: 120 }, { x: 313, y: 124 }, { x: 82, y: 207 },
-  { x: 278, y: 204 }, { x: 146, y: 246 }, { x: 220, y: 249 },
-];
-const FOCUS_SLOTS = [
-  { x: 180, y: 28 }, { x: 92, y: 50 }, { x: 268, y: 50 },
-  { x: 42, y: 130 }, { x: 318, y: 130 }, { x: 77, y: 214 },
-  { x: 283, y: 214 }, { x: 132, y: 252 }, { x: 228, y: 252 },
-];
-const MAX_NEIGHBORS = 6;
+const WIDTH = 360, HEIGHT = 320, CENTER = { x: 180, y: 160 }, PAGE_SIZE = 8;
+type Point = { ref: string; x: number; y: number };
+type Person = { ref: string; name: string; avatar?: string; user?: boolean };
+type Edge = { key: string; a: string; b: string };
 
-type GraphNode = { id: string; ref: string; name: string; avatar?: string; x: number; y: number; user?: boolean };
-type GraphEdge = { key: string; a: GraphNode; b: GraphNode; state?: RelationshipState; events: RelationshipEvent[]; recorded: boolean };
-
-function pairKey(a: string, b: string): string {
-  return [a, b].sort().join('|');
-}
-
-function relationTone(edge: GraphEdge): string {
-  if (!edge.recorded) return 'rgba(141,138,168,.24)';
-  if (edge.state && edge.state.conflict >= edge.state.trust && edge.state.conflict >= edge.state.familiarity) return '#f0a5ad';
-  if (edge.state && edge.state.trust >= 67) return '#82e8e3';
-  return '#9b8bed';
-}
-
-function edgeEndpoints(a: GraphNode, b: GraphNode): { x1: number; y1: number; x2: number; y2: number } {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const length = Math.max(1, Math.hypot(dx, dy));
-  const inset = Math.min(16, length * 0.16);
-  const ux = dx / length;
-  const uy = dy / length;
-  return { x1: a.x + ux * inset, y1: a.y + uy * inset, x2: b.x - ux * inset, y2: b.y - uy * inset };
-}
-
-function starPath(x: number, y: number, radius: number): string {
-  const inner = radius * 0.34;
-  return `M ${x} ${y - radius} L ${x + inner} ${y - inner} L ${x + radius} ${y} L ${x + inner} ${y + inner} L ${x} ${y + radius} L ${x - inner} ${y + inner} L ${x - radius} ${y} L ${x - inner} ${y - inner} Z`;
-}
-
-export function RelationshipConstellation({
-  userId,
-  characters,
-  states,
-  events,
-}: {
-  userId: string;
-  characters: Character[];
-  states: RelationshipState[];
-  events: RelationshipEvent[];
-}) {
-  characters = characters.filter(c => c.agentProfile !== 'secretary');
-  const userAvatar = useAuthStore((state) => state.avatar) ?? DEFAULT_USER_AVATAR;
-  const userNode: GraphNode = { id: `u:${userId}`, ref: userRef(userId), name: '你', avatar: userAvatar, x: CENTER.x, y: CENTER.y, user: true };
-  const characterNodes: GraphNode[] = characters.map((character, index) => ({
-    id: character.id,
-    ref: characterRef(character.id),
-    name: character.name,
-    avatar: character.avatar,
-    ...(DEFAULT_SLOTS[index] ?? { x: CENTER.x, y: CENTER.y }),
-  }));
-  const stateMap = new Map(states.map((state) => [state.pairKey, state]));
-  const eventMap = new Map<string, RelationshipEvent[]>();
-  for (const event of events) {
-    const list = eventMap.get(event.pairKey) ?? [];
-    list.push(event);
-    eventMap.set(event.pairKey, list);
-  }
-  const edges: GraphEdge[] = [];
-  for (const node of characterNodes) {
-    const key = pairKey(userNode.ref, node.ref);
-    const relatedEvents = eventMap.get(key) ?? [];
-    edges.push({ key, a: userNode, b: node, state: stateMap.get(key), events: relatedEvents, recorded: Boolean(stateMap.has(key) || relatedEvents.length) });
-  }
-  for (let i = 0; i < characterNodes.length; i += 1) {
-    for (let j = i + 1; j < characterNodes.length; j += 1) {
-      const a = characterNodes[i];
-      const b = characterNodes[j];
-      const key = pairKey(a.ref, b.ref);
-      const relatedEvents = eventMap.get(key) ?? [];
-      edges.push({ key, a, b, state: stateMap.get(key), events: relatedEvents, recorded: Boolean(stateMap.has(key) || relatedEvents.length) });
+/** Cluster related neighbors around the whole perimeter, including its lower half. */
+export function constellationLayout(refs: string[], edges: { a: string; b: string }[]): Point[] {
+  const order = [...new Set(refs)].slice(0, PAGE_SIZE);
+  const visible = new Set(order);
+  // Limit every swap's cost calculation to the current page's peripheral geometry.
+  const peripheralEdges = edges.filter(edge => edge.a !== edge.b && visible.has(edge.a) && visible.has(edge.b));
+  const cost = () => peripheralEdges.reduce((sum, edge) => {
+    const a = order.indexOf(edge.a), b = order.indexOf(edge.b);
+    if (a < 0 || b < 0) return sum;
+    const d = Math.min(Math.abs(a - b), order.length - Math.abs(a - b));
+    return sum + d * d;
+  }, 0);
+  for (let pass = 0; pass < 4; pass++) {
+    let changed = false;
+    for (let a = 0; a < order.length; a++) for (let b = a + 1; b < order.length; b++) {
+      const previous = cost();
+      [order[a], order[b]] = [order[b], order[a]];
+      if (cost() < previous) changed = true;
+      else [order[a], order[b]] = [order[b], order[a]];
     }
+    if (!changed) break;
   }
+  return order.map((ref, index) => {
+    const angle = -Math.PI / 2 + index * Math.PI * 2 / order.length;
+    return { ref, x: CENTER.x + 124 * Math.cos(angle), y: CENTER.y + 106 * Math.sin(angle) };
+  });
+}
 
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [focusedRef, setFocusedRef] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
-  const originRef = userNode.ref;
-  const activeFocusRef = focusedRef && characterNodes.some((node) => node.ref === focusedRef) ? focusedRef : originRef;
-  const focusEdges = edges
-    .filter((edge) => edge.a.ref === activeFocusRef || edge.b.ref === activeFocusRef)
-    .sort((a, b) => Number(b.recorded) - Number(a.recorded) || b.events.length - a.events.length);
-  const primaryFocusEdge = focusEdges.find((edge) => edge.a.user || edge.b.user);
-  const displayEdges = focusEdges.length <= MAX_NEIGHBORS
-    ? focusEdges
-    : primaryFocusEdge
-      ? [primaryFocusEdge, ...focusEdges.filter((edge) => edge !== primaryFocusEdge).slice(0, MAX_NEIGHBORS - 1)]
-      : focusEdges.slice(0, MAX_NEIGHBORS);
-  const visibleEdges = showAll ? focusEdges : displayEdges;
-  const hiddenEdgeCount = Math.max(0, focusEdges.length - displayEdges.length);
-  const activeCenter = activeFocusRef === originRef ? userNode : characterNodes.find((node) => node.ref === activeFocusRef) ?? userNode;
-  const graphNodes = (() => {
-    const refs = new Set(visibleEdges.flatMap((edge) => [edge.a.ref, edge.b.ref]).filter((ref) => ref !== activeFocusRef));
-    const neighborRefs = [...(refs.has(originRef) ? [originRef] : []), ...[...refs].filter((ref) => ref !== originRef)];
-    const neighbors = neighborRefs.map((ref, index) => {
-      if (ref === originRef) return { ...userNode, x: ORIGIN_BOTTOM.x, y: ORIGIN_BOTTOM.y };
-      const character = characterNodes.find((node) => node.ref === ref);
-      const slots = activeFocusRef === originRef ? DEFAULT_SLOTS : FOCUS_SLOTS;
-      const slot = slots[index - (refs.has(originRef) ? 1 : 0)] ?? { x: CENTER.x, y: 32 };
-      return { ...(character ?? { id: ref, ref, name: '未知角色' }), ...slot };
+/** Peripheral arcs run outside the portraits, leaving the center spokes clear. */
+export function constellationRoute(a: Point, b: Point, secondary: boolean, lane = 0): string {
+  if (!secondary) {
+    const dx = b.x - a.x, dy = b.y - a.y, distance = Math.max(1, Math.hypot(dx, dy));
+    return `M ${a.x + dx / distance * 27} ${a.y + dy / distance * 27} L ${b.x - dx / distance * 27} ${b.y - dy / distance * 27}`;
+  }
+  const angle = (p: Point) => Math.atan2((p.y - CENTER.y) / 106, (p.x - CENTER.x) / 124);
+  const alpha = angle(a), beta = angle(b), rx = 150 + lane % 3 * 7, ry = 132 + lane % 3 * 7;
+  const sweep = ((beta - alpha + Math.PI * 3) % (Math.PI * 2) - Math.PI) > 0 ? 1 : 0;
+  const outer = (theta: number) => `${CENTER.x + rx * Math.cos(theta)} ${CENTER.y + ry * Math.sin(theta)}`;
+  const tip = (p: Point) => {
+    const dx = p.x - CENTER.x, dy = p.y - CENTER.y, d = Math.hypot(dx, dy);
+    return `${p.x + dx / d * 24} ${p.y + dy / d * 24}`;
+  };
+  return `M ${tip(a)} L ${outer(alpha)} A ${rx} ${ry} 0 0 ${sweep} ${outer(beta)} L ${tip(b)}`;
+}
+
+function tone(state: RelationshipState | undefined) {
+  if (state && state.conflict >= state.trust && state.conflict >= state.familiarity) return '#f0a5ad';
+  return state && state.trust >= 67 ? '#68c9c7' : '#a395d9';
+}
+type Props = { userId: string; characters: Character[]; states: RelationshipState[]; events: RelationshipEvent[]; compact?: boolean };
+export function RelationshipConstellation(props: Props) {
+  return <Constellation key={props.userId} {...props} />;
+}
+function Constellation({ userId, characters, states, events, compact = false }: Props) {
+  const avatar = useAuthStore(state => state.avatar) ?? DEFAULT_USER_AVATAR;
+  const [focused, setFocused] = useState<string>();
+  const [page, setPage] = useState(0);
+  const [selectedKey, setSelectedKey] = useState<string>();
+  const origin = userRef(userId);
+  // Read names, avatars and evidence from the current props; no business-record cache.
+  const people: Person[] = [
+    { ref: origin, name: '你', avatar, user: true },
+    ...characters.filter(c => c.agentProfile !== 'secretary').map(c => ({ ref: characterRef(c.id), name: c.name, avatar: c.avatar })),
+  ];
+  const byRef = new Map(people.map(p => [p.ref, p]));
+  const center = focused && byRef.has(focused) ? focused : origin;
+  // Only ref/key topology is memoized, never source records, reads or access decisions.
+  const topology = useMemo(() => {
+    const refs = [origin, ...characters.filter(c => c.agentProfile !== 'secretary').map(c => characterRef(c.id))];
+    const known = new Set(refs);
+    const edges = new Map<string, Edge>();
+    const add = (a: string, b: string) => {
+      if (a === b || !known.has(a) || !known.has(b)) return;
+      const key = [a, b].sort().join('|');
+      if (!edges.has(key)) edges.set(key, { key, a, b });
+    };
+    // Presence alone never creates a relationship; retain every loaded evidence-backed edge.
+    for (const state of states) add(state.subjectA, state.subjectB);
+    for (const event of events) add(event.subjectA, event.subjectB);
+    return { refs, edges: [...edges.values()] };
+  }, [origin, characters, states, events]);
+  const neighbors = useMemo(() => topology.refs.filter(ref => ref !== center), [topology.refs, center]);
+  const totalPages = Math.max(1, Math.ceil(neighbors.length / PAGE_SIZE));
+  const activePage = Math.min(page, totalPages - 1);
+  const geometry = useMemo(() => {
+    const refs = neighbors.slice(activePage * PAGE_SIZE, (activePage + 1) * PAGE_SIZE);
+    const nodes: Point[] = [{ ref: center, ...CENTER }, ...constellationLayout(refs, topology.edges)];
+    const positions = new Map(nodes.map(p => [p.ref, p]));
+    const edges = topology.edges.filter(e => positions.has(e.a) && positions.has(e.b))
+      .sort((a, b) => Number(a.a === center || a.b === center) - Number(b.a === center || b.b === center));
+    const routes = edges.map((edge, index) => {
+      const secondary = edge.a !== center && edge.b !== center;
+      return { ...edge, secondary, path: constellationRoute(positions.get(edge.a)!, positions.get(edge.b)!, secondary, index) };
     });
-    return [{ ...activeCenter, x: CENTER.x, y: CENTER.y }, ...neighbors];
-  })();
-  const graphNodeByRef = new Map(graphNodes.map((node) => [node.ref, node]));
-  const selected = visibleEdges.find((edge) => edge.key === selectedKey) ?? null;
-  const selectedReasons = selected ? recentReasons(selected.events, 2) : [];
-  const selectedTitle = selected ? pairTitle({ subjectA: selected.a.ref, subjectB: selected.b.ref }, userId, (id) => characters.find((c) => c.id === id)?.name ?? 'TA') : '';
-  const hasRecordedEdges = edges.some((edge) => edge.recorded);
+    return { nodes, routes, edgeKeys: new Set(edges.map(edge => edge.key)) };
+  }, [neighbors, topology.edges, center, activePage]);
+  // Resolve current display evidence afresh, outside the geometric memos.
+  const visibleStates = new Map<string, RelationshipState>();
+  for (const state of states) {
+    const key = [state.subjectA, state.subjectB].sort().join('|');
+    if (geometry.edgeKeys.has(key)) visibleStates.set(key, state);
+  }
+  const selected = geometry.routes.find(e => e.key === selectedKey);
+  const selectedReasons = selected ? recentReasons(events.filter(event => [event.subjectA, event.subjectB].sort().join('|') === selected.key), 2) : [];
+  const focus = (ref: string) => { setFocused(ref === origin ? undefined : ref); setPage(0); setSelectedKey(undefined); };
 
-  return (
-    <section className="vg-relationship-constellation" aria-label="关系星图">
-      <div className="vg-relationship-constellation-head">
-        <div>
-          <p className="vg-world-constellation-kicker">RELATIONSHIP MAP</p>
-          <h2>关系星图</h2>
-          <p>先看你与他们的航线，点一颗星展开它的近邻关系。</p>
-        </div>
-        <span className="vg-relationship-count">{characters.length} 位角色</span>
-      </div>
-
-      <div className="vg-relationship-constellation-map">
-        <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label="你与角色以及角色之间的关系星图">
-          <circle cx={CENTER.x} cy={CENTER.y} r="116" fill="none" stroke="rgba(108,92,231,.13)" strokeDasharray="1 8" />
-          <circle cx={CENTER.x} cy={CENTER.y} r="73" fill="none" stroke="rgba(0,206,201,.09)" strokeDasharray="1 9" />
-          {[{ x: 25, y: 44, r: 1 }, { x: 333, y: 49, r: .8 }, { x: 31, y: 246, r: .8 }, { x: 329, y: 251, r: 1.2 }, { x: 88, y: 20, r: .7 }, { x: 270, y: 281, r: .8 }, { x: 350, y: 160, r: .7 }].map((star) => (
-            <circle key={`${star.x}-${star.y}`} cx={star.x} cy={star.y} r={star.r} fill="#b6adff" opacity=".6" />
-          ))}
-          {visibleEdges.map((edge) => {
-            const a = graphNodeByRef.get(edge.a.ref);
-            const b = graphNodeByRef.get(edge.b.ref);
-            if (!a || !b) return null;
-            const active = selectedKey === edge.key;
-            const selectedRefs = selectedKey?.split('|') ?? [];
-            const dimmed = Boolean(selectedKey && !active && !selectedRefs.includes(edge.a.ref) && !selectedRefs.includes(edge.b.ref));
-            const endpoints = edgeEndpoints(a, b);
-            return (
-              <g key={edge.key} className="vg-relationship-edge" onClick={() => setSelectedKey(edge.key)}>
-                <line x1={endpoints.x1} y1={endpoints.y1} x2={endpoints.x2} y2={endpoints.y2} stroke={relationTone(edge)} strokeWidth={active ? 3 : edge.recorded ? 1.9 : 1} strokeDasharray={edge.recorded ? undefined : '3 6'} opacity={dimmed ? .14 : 1} />
-              </g>
-            );
-          })}
-          {graphNodes.map((node) => {
-            const connected = edges.filter((edge) => edge.a.ref === node.ref || edge.b.ref === node.ref);
-            const active = selectedKey?.split('|').includes(node.ref) ?? false;
-            const tone = connected.find((edge) => edge.recorded) ? relationTone(connected.find((edge) => edge.recorded)!) : '#9b8bed';
-            const isCenter = node.ref === activeFocusRef;
-            return (
-              <g
-                key={node.id}
-                role="button"
-                tabIndex={0}
-                aria-label={node.user ? '回到你的关系视角' : `查看 ${node.name} 的关系`}
-                className="vg-relationship-node"
-                onClick={() => {
-                  if (node.user) {
-                    setFocusedRef(null);
-                    setSelectedKey(null);
-                    setShowAll(false);
-                  } else {
-                    setFocusedRef(node.ref);
-                    setSelectedKey(pairKey(originRef, node.ref));
-                    setShowAll(false);
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    if (node.user) {
-                      setFocusedRef(null);
-                      setSelectedKey(null);
-                      setShowAll(false);
-                    } else {
-                      setFocusedRef(node.ref);
-                      setSelectedKey(pairKey(originRef, node.ref));
-                      setShowAll(false);
-                    }
-                  }
-                }}
-              >
-                {node.user ? (
-                  <>
-                    <path d={`M ${node.x} ${node.y - 18} L ${node.x + 18} ${node.y} L ${node.x} ${node.y + 18} L ${node.x - 18} ${node.y} Z`} fill="#101d34" stroke="#82e8e3" strokeWidth="1.2" />
-                    {avatarImageSrc(node.avatar) ? <image href={avatarImageSrc(node.avatar)} x={node.x - 11} y={node.y - 11} width="22" height="22" preserveAspectRatio="xMidYMid slice" /> : <text x={node.x} y={node.y + 5} textAnchor="middle" fill="#f0edff" fontSize="16">{node.avatar || '🧬'}</text>}
-                  </>
-                ) : (
-                  <>
-                    <path d={starPath(node.x, node.y, isCenter || active ? 14 : 11)} fill={tone} className="vg-relationship-star" />
-                  </>
-                )}
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-
-      <div className="vg-relationship-legend">
-        <span><i className="is-connected" />已有真实记录</span>
-        <span><i className="is-unconnected" />等待相遇</span>
-        <span>{hasRecordedEdges ? '点选节点或连线查看原因' : '连线会在共同经历后变亮'}</span>
-      </div>
-
-      {focusedRef && (
-        <button type="button" className="vg-relationship-focus-reset" onClick={() => { setFocusedRef(null); setSelectedKey(null); setShowAll(false); }}>
-          ‹ 回到你的视角 <span>{visibleEdges.length} 条近邻航线</span>
-        </button>
-      )}
-      {hiddenEdgeCount > 0 && (
-        <button type="button" className="vg-relationship-focus-reset" onClick={() => setShowAll((value) => !value)}>
-          {showAll ? '收起较远关系' : `展开另外 ${hiddenEdgeCount} 条关系`}
-        </button>
-      )}
-
-      {selected && (
-        <div className="vg-relationship-insight">
-          <div className="vg-relationship-insight-title">
-            <div>
-              <p className="text-[12px] tracking-[0.15em] uppercase text-gray-500">这条连线</p>
-              <h3>{selectedTitle}</h3>
-            </div>
-            <button type="button" onClick={() => setSelectedKey(null)} aria-label="关闭关系详情">×</button>
-          </div>
-          {selectedReasons.length > 0 ? (
-            <ul className="vg-relationship-insight-reasons">
-              {selectedReasons.map((event) => <li key={event.id}>{event.reason}</li>)}
-            </ul>
-          ) : (
-            <p className="vg-relationship-insight-empty">还没有记录到他们之间的具体变化。</p>
-          )}
-        </div>
-      )}
-    </section>
-  );
+  return <section className="vg-relationship-constellation vg-evidence-constellation" data-compact={compact || undefined} aria-label="关系星图">
+    {!compact && <div className="vg-relationship-constellation-head"><div><h2>关系星图</h2><p>点头像切换视角，点连线查看已有记录。</p></div><span className="vg-relationship-count">{people.length - 1} 位角色</span></div>}
+    <div className="vg-relationship-constellation-map">
+      <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="group" aria-label="已有记录的关系连线">
+        <ellipse cx={CENTER.x} cy={CENTER.y} rx="124" ry="106" fill="none" stroke="var(--border)" strokeDasharray="1 8" />
+        {geometry.routes.map(edge => {
+          const { secondary, path } = edge, active = edge.key === selectedKey;
+          return <g key={edge.key} className="vg-relationship-edge" data-peripheral={secondary || undefined} data-edge-key={edge.key} role="button" tabIndex={0} aria-pressed={active} aria-label={`查看${byRef.get(edge.a)!.name}与${byRef.get(edge.b)!.name}的关系`}
+            onClick={() => setSelectedKey(edge.key)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedKey(edge.key); } }}>
+            <path d={path} fill="none" stroke="transparent" strokeWidth="16" />
+            <path className="vg-constellation-line" d={path} fill="none" stroke={tone(visibleStates.get(edge.key))} strokeWidth={active ? 2.6 : secondary ? 1.1 : 1.8} opacity={active ? 1 : secondary ? .55 : .95} />
+          </g>;
+        })}
+      </svg>
+      {geometry.nodes.map(point => {
+        const node = byRef.get(point.ref);
+        if (!node) return null;
+        return <button key={node.ref} type="button" className="vg-evidence-avatar" data-centered={node.ref === center || undefined} data-portrait-ref={node.ref}
+        aria-pressed={node.ref === center} aria-label={node.user ? '以你的视角查看关系' : `以${node.name}为中心查看关系`} onClick={() => focus(node.ref)} style={{ left: `${point.x / WIDTH * 100}%`, top: `${point.y / HEIGHT * 100}%` }}>
+        {avatarImageSrc(node.avatar) ? <img src={avatarImageSrc(node.avatar)} alt="" draggable={false} /> : <span aria-hidden="true">{node.avatar || '✦'}</span>}
+      </button>;})}
+    </div>
+    <div className="vg-evidence-map-controls">
+      {center !== origin ? <button type="button" onClick={() => focus(origin)}>回到我的视角</button> : <span className="vg-evidence-map-note">仅连接已有记录</span>}
+      {totalPages > 1 && <div className="vg-evidence-map-pages" aria-label="头像分页"><button type="button" aria-label="上一组头像" disabled={activePage === 0} onClick={() => { setPage(activePage - 1); setSelectedKey(undefined); }}>上一组</button><span role="status">{activePage + 1}/{totalPages}</span><button type="button" aria-label="下一组头像" disabled={activePage + 1 >= totalPages} onClick={() => { setPage(activePage + 1); setSelectedKey(undefined); }}>下一组</button></div>}
+    </div>
+    {!geometry.routes.length && <p className="vg-evidence-map-note">{topology.edges.length ? '这组头像之间还没有记录到联系；可以换组或切换视角。' : '还没有记录到关系变化。'}</p>}
+    {selected && <div className="vg-relationship-insight"><div className="vg-relationship-insight-title"><h3>{pairTitle({ subjectA: selected.a, subjectB: selected.b }, userId, id => byRef.get(characterRef(id))?.name ?? 'TA')}</h3><button type="button" aria-label="关闭关系详情" onClick={() => setSelectedKey(undefined)}>×</button></div>
+      {selectedReasons.length ? <ul className="vg-relationship-insight-reasons">{selectedReasons.map(event => <li key={event.id}>{reasonText(event)}</li>)}</ul> : <p className="vg-relationship-insight-empty">还没有记录到他们之间的具体变化。</p>}
+    </div>}
+  </section>;
 }

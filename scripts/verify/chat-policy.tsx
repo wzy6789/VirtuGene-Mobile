@@ -179,9 +179,17 @@ async function run() {
     ok(saved.length===1&&saved[0].content==='突然这么认真……我有点开心。','real database stores the repaired reply once without the rejected scene draft');
     ok(affectionPrompt.includes('不证明你与用户同处一室')&&affectionPrompt.includes('用户直接表达了心意')&&!affectionPrompt.includes('用户说得很短，可以只回'),'actual prompt combines ambient limits with affection instead of generic short-reaction padding');
     stageCalls=0;
+    const streamedStageBefore=new Set((await db.messages.toArray()).map(message=>message.id));
     webApi.chat.send=async params=>{stageCalls++;params.onDelta?.(stage);await new Promise(resolve=>setTimeout(resolve,60));return {content:stage};};
     await turn(old,'我想你');
-    ok(stageCalls===1&&chatQualityReport().samples.at(-1)?.issue==='uninvited-staging'&&chatQualityReport().samples.at(-1)?.streamed,'published stage prose is measured honestly instead of secretly regenerated');
+    const streamedStageRows=(await db.messages.toArray()).filter(message=>!streamedStageBefore.has(message.id)&&message.role==='assistant');
+    ok(stageCalls===1&&streamedStageRows.length===1&&streamedStageRows[0].content==='我听见了。'&&streamedStageRows[0].replyCompletion==='interrupted'
+      &&chatQualityReport().samples.at(-1)?.issue==='uninvited-staging'&&chatQualityReport().samples.at(-1)?.streamed,'unsafe suffix is blocked and measured without rewriting the reviewed visible prefix');
+    ok(chatQualityReport().events.some(event=>event.issue==='uninvited-staging'&&event.blocked&&event.streamed),'quality events retain the discarded suffix rather than report only the successful prefix');
+    // A legacy stored scene still needs the original drift guard; new rejected
+    // staging is no longer written merely to set up this independent scenario.
+    const legacyStage:Message={id:'legacy-stage-history',sessionId:'voice-session',role:'assistant',content:stage,createdAt:Date.now(),isProactive:false};
+    await db.messages.add(legacyStage);useChatStore.getState().addMessage(legacyStage);
     webApi.chat.send=async params=>{affectionPrompt=params.systemPrompt;return {content:'我也想跟你再聊会儿。'};};
     await turn(old,'好想你');
     ok(affectionPrompt.includes('历史里的门、动作和氛围不是现在同处一室的证据'),'next actual chat turn corrects inherited scene drift without deleting history');
@@ -279,7 +287,7 @@ async function run() {
   ok(auditGreeting('（翻了个白眼）进来，坐下，把门带上').length >= 2 && !auditGreeting('喂，来了呀').length, 'greeting audit distinguishes stage opening from natural greeting');
   await db.sessions.update('voice-session',{conversation:undefined});
   useChatStore.setState({currentSessionId:'voice-session',selectedCharacterId:old.id,characters:[old],messages:await db.messages.where('sessionId').equals('voice-session').sortBy('createdAt')});
-  await turn(old,'先别给建议，少问一点，陪我聊两句。');
+  await turn(old,'以后都先别给建议，少问一点，陪我聊两句。');
   const listening=(await db.sessions.get('voice-session'))!.conversation!;
   ok(listening.preferences.adviceStyle==='listen'&&listening.preferences.questionTolerance==='low','real send persists explicit listening and fewer-question preference');
   db.close();await db.open();

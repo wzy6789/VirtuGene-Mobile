@@ -1,0 +1,311 @@
+/* Scene book page. Colors belong to the surrounding starfield design scope. */
+.vg-starfield-scene-page.vg-sector-detail,
+.mobile-layout .vg-starfield-scene-page.vg-sector-detail {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 54rem;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 0 0 24px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--sf-text, var(--text));
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  animation: none;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-cover {
+  width: 100%;
+  height: auto;
+  max-height: 26rem;
+  aspect-ratio: 16 / 9;
+  margin: 0 0 20px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 18px;
+  background: var(--sf-inset, var(--bg-surface));
+  box-shadow: none;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  margin: 0;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-title h2 {
+  margin: 0;
+  color: var(--sf-text, var(--text));
+  font-size: clamp(1.625rem, 6.8vw, 2rem);
+  font-weight: var(--vg-weight-heading, 600);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-world-scene-status {
+  position: static;
+  justify-self: start;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--sf-accent, var(--vg-accent));
+  font-size: max(14px, .875rem);
+  font-weight: 400;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  box-shadow: none;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-enter {
+  display: block;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-enter > button {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 20px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: var(--sf-action, var(--vg-action));
+  color: var(--sf-on-action, var(--vg-on-action));
+  font: inherit;
+  font-size: max(16px, 1rem);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-shadow: none;
+  box-shadow: none;
+}
+
+.vg-starfield-scene-page.vg-sector-detail button:focus-visible {
+  outline: 2px solid var(--sf-accent, var(--vg-accent));
+  outline-offset: 3px;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-issue {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border: 0;
+  border-inline-start: 2px solid var(--sf-accent, var(--vg-accent));
+  border-radius: 0;
+  background: var(--sf-inset, var(--bg-surface));
+  color: var(--sf-text, var(--text));
+  box-shadow: none;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-issue p {
+  margin: 0;
+  font-size: max(14px, .875rem);
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-issue button {
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--sf-line, var(--border));
+  border-radius: 10px;
+  background: var(--sf-paper, var(--bg-panel));
+  color: var(--sf-text, var(--text));
+  font: inherit;
+  font-size: max(14px, .875rem);
+  line-height: 1.7;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-shadow: none;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-issue > button::before {
+  content: none;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin: 24px 0 0;
+  padding: 0 0 22px;
+  border-bottom: 1px solid var(--sf-line, var(--border));
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-facts > div {
+  min-width: 0;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-facts > div + div {
+  padding-inline-start: 20px;
+  border-inline-start: 1px solid var(--sf-line, var(--border));
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-facts dt {
+  color: var(--sf-muted, var(--text-secondary));
+  font-size: max(13px, .8125rem);
+  line-height: 1.7;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-facts dd {
+  margin: 4px 0 0;
+  color: var(--sf-text, var(--text));
+  font-size: max(16px, 1rem);
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-cast {
+  margin: 22px 0 0;
+  padding: 0 0 22px;
+  border-bottom: 1px solid var(--sf-line, var(--border));
+}
+
+.vg-starfield-scene-page.vg-sector-detail :is(.vg-sector-cast, .vg-sector-recent) h3 {
+  margin: 0;
+  color: var(--sf-text, var(--text));
+  font-size: max(17px, 1.0625rem);
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: normal;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-starfield-scene-page__cast-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-starfield-scene-page__cast-list > li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--sf-text, var(--text));
+  font-size: max(16px, 1rem);
+  line-height: 1.7;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-avatar {
+  flex: none;
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--sf-inset, var(--bg-surface));
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-starfield-scene-page__cast-list > li > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-recent {
+  margin: 22px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-recent-list {
+  display: block;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-recent-list > li {
+  position: relative;
+  min-width: 0;
+  padding: 0 0 20px 24px;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-recent-list > li::before {
+  content: '';
+  position: absolute;
+  top: .6rem;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sf-accent, var(--vg-accent));
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-recent-list > li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: calc(.6rem + 7px);
+  bottom: -.6rem;
+  left: 3px;
+  width: 1px;
+  background: var(--sf-line, var(--border));
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-recent-list p {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  font-size: max(16px, 1rem);
+  line-height: 1.85;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-recent-list b {
+  color: var(--sf-muted, var(--text-secondary));
+  font-size: max(13px, .8125rem);
+  font-weight: 400;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.vg-starfield-scene-page.vg-sector-detail .vg-sector-recent-list p > span {
+  display: block;
+  max-height: none;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: initial;
+  color: var(--sf-text, var(--text));
+  line-height: 1.85;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.vg-starfield-scene-page.vg-sector-detail :is(.vg-sector-cast > p, .vg-sector-empty) {
+  margin: 12px 0 0;
+  color: var(--sf-muted, var(--text-secondary));
+  font-size: max(14px, .875rem);
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 319px) {
+  .vg-starfield-scene-page.vg-sector-detail .vg-sector-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .vg-starfield-scene-page.vg-sector-detail .vg-sector-facts > div + div {
+    padding-inline-start: 0;
+    border-inline-start: 0;
+  }
+}

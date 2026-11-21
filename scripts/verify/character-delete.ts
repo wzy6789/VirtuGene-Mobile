@@ -89,4 +89,4 @@ async function run(count = 10000) {
   check(!!(await db.sessions.get('rollback-session'))&&!(await db.sessions.get('rollback-session'))?.summary&&await db.messages.where('sessionId').equals('rollback-session').count()===0,'clear conversation keeps session while invalidating legacy summary');
   return {checks,count,durationMs,operations,maxBulkRead,fullSessionRead,frames:ticks,maxFrameGapMs:Math.round(maxFrameGap),paidCalls:0};
 }
-(window as any).characterDeleteTest={run};
+(window as any).characterDeleteTest={run,switchOwner:(userId:string)=>useAuthStore.setState({userId}),owner:()=>useAuthStore.getState().userId};

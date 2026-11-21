@@ -1,0 +1,95 @@
+/* A scene-led library: one featured room, then a continuous directory. */
+.vg-world-scene-shell.vg-starfield-design[data-world-scene]{background:var(--sf-bg)}
+.vg-world-scene-shell.vg-starfield-design[data-world-scene]>.vg-world-scene-backdrop{height:clamp(240px,72vw,360px);bottom:auto;mask-image:linear-gradient(#000 0 55%,transparent 100%);-webkit-mask-image:linear-gradient(#000 0 55%,transparent 100%)}
+.vg-world-scene-shell.vg-starfield-design[data-world-scene]>.vg-world-scene-backdrop>img{object-position:50% 24%}
+.vg-world-scene-shell.vg-starfield-design[data-world-scene]>.vg-world-scene-backdrop::after{background:linear-gradient(180deg,rgba(244,248,252,.85),rgba(244,248,252,.5) 50%,var(--sf-bg))}
+:root.dark .vg-world-scene-shell.vg-starfield-design[data-world-scene]>.vg-world-scene-backdrop::after{background:linear-gradient(180deg,rgba(9,18,30,.32),rgba(9,18,30,.15) 45%,var(--sf-bg))}
+html .mobile-layout .vg-world-scene-shell.vg-starfield-design>.vg-world-page{padding:0 var(--sf-gutter) 28px;background:linear-gradient(180deg,transparent 0,var(--sf-bg) 260px);scroll-padding-top:16px;color:var(--sf-text)}
+.vg-starfield-design .vg-world-page>.vg-world-theater-header{grid-template-columns:auto minmax(0,1fr) auto;gap:8px;min-height:76px;margin:0 0 20px;padding:10px 0}
+.vg-starfield-design .vg-world-page>.vg-world-theater-header h1{min-width:0;color:var(--sf-text);text-align:left;font-size:max(24px,1.5rem);font-weight:600;line-height:1.35;letter-spacing:normal;overflow-wrap:anywhere}
+.vg-starfield-design .vg-world-page>.vg-world-theater-header>button{width:auto;min-width:48px;min-height:48px;padding:0;border:0;background:transparent;box-shadow:none;color:var(--sf-text);font-size:max(14px,.875rem);line-height:1.5;white-space:nowrap}
+.vg-starfield-design .vg-world-page>.vg-world-theater-header>.vg-starfield-create{display:flex;align-items:center;justify-content:center;gap:6px;width:auto;height:auto;padding:8px 0 8px 8px;font:inherit;font-size:max(13px,.8125rem);line-height:1.5;white-space:nowrap}
+.vg-starfield-design .vg-starfield-detail-page>.vg-world-theater-header{min-height:60px;margin-bottom:12px}
+.vg-starfield-design .vg-starfield-detail-page>.vg-world-theater-header h1{font-size:max(17px,1.0625rem);font-weight:500;letter-spacing:normal}
+.vg-starfield-library{min-width:0;margin:0;color:var(--sf-text)}
+.vg-starfield-directory-region{min-width:0;padding:0 14px;border:1px solid var(--vg-glass-edge);border-radius:22px;background:var(--vg-glass-control-sheen),var(--vg-glass-content-bg);box-shadow:var(--vg-glass-shadow)}
+.vg-starfield-directory-tools{padding-top:8px}
+.vg-starfield-library .vg-starfield-directory-region .vg-starfield-scene-row:last-child{border-bottom:0}
+.vg-starfield-library .vg-starfield-directory-region .vg-starfield-scene-row{grid-template-columns:64px minmax(0,1fr)}
+.vg-starfield-library .vg-starfield-directory-region .vg-starfield-scene-row>.vg-world-scene-cover{width:64px}
+.vg-starfield-feature-region{margin:0 0 20px}
+.vg-starfield-feature{position:relative;min-width:0;padding:0;background:transparent;overflow-wrap:anywhere}
+.vg-starfield-feature-art{position:relative;aspect-ratio:2.3;max-height:240px;margin:0 0 14px;overflow:hidden;border-radius:18px;background:var(--sf-paper)}
+.vg-starfield-feature-art>img{display:block;width:100%;height:100%;object-fit:cover;object-position:center 45%}
+.vg-starfield-feature-art::after{content:'';position:absolute;inset:50% 0 0;pointer-events:none;background:linear-gradient(transparent,var(--sf-bg))}
+.vg-starfield-feature-heading{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;margin:0}
+.vg-starfield-feature-heading>h2{flex:1 1 8em;min-width:0;margin:0;color:var(--sf-text);font-size:max(25px,1.5625rem);font-weight:600;line-height:1.45;letter-spacing:normal;text-wrap:pretty}
+.vg-starfield-feature-heading>.vg-starfield-status{flex:none}
+.vg-starfield-feature-place{margin:6px 0 0;color:var(--sf-muted);font-size:max(13px,.8125rem);line-height:1.6}
+.vg-starfield-feature-cast{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin-top:12px;color:var(--sf-muted);font-size:max(12px,.75rem);line-height:1.5}
+.vg-starfield-feature-cast .vg-world-cast-person{display:inline-flex;align-items:center;gap:7px;max-width:100%;min-width:0}
+.vg-starfield-feature-cast .vg-world-cast-person>:first-child{width:28px;height:28px;min-width:28px}
+.vg-starfield-feature-cast .vg-world-cast-person>small{display:block;min-width:0;font:inherit;white-space:normal;overflow-wrap:anywhere}
+.vg-starfield-feature-excerpt{margin:12px 0 0;color:var(--sf-muted);font-size:max(14px,.875rem);line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere}
+.vg-starfield-feature>.vg-starfield-primary{justify-content:space-between;margin-top:16px}
+.vg-starfield-feature>.vg-starfield-primary>span{flex:1}
+.vg-starfield-feature>.vg-continuity-error{margin:12px 0 0}
+.vg-starfield-feature-links{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:6px}
+.vg-starfield-feature-links>button{display:flex;align-items:center;gap:6px;min-width:48px;min-height:48px;max-width:100%;padding:6px 0;background:transparent;color:var(--sf-muted);font:inherit;font-size:max(14px,.875rem);line-height:1.6;text-align:left}
+.vg-starfield-feature-links>button>svg{flex:none}
+.vg-starfield-feature-links>button>span{min-width:0;white-space:normal;overflow-wrap:anywhere}
+.vg-starfield-feature-links>button:disabled{opacity:.5}
+.vg-starfield-library-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;min-height:48px;margin-top:8px}
+.vg-starfield-library-heading h2{margin:0;color:var(--sf-text);font-size:max(20px,1.25rem);font-weight:600;line-height:1.45}
+.vg-starfield-library-heading>button{display:flex;align-items:center;gap:4px;min-width:48px;min-height:48px;max-width:100%;padding:6px 0 6px 8px;font:inherit;font-size:max(14px,.875rem);line-height:1.5;white-space:normal;overflow-wrap:anywhere;background:transparent;color:var(--sf-muted)}
+.vg-world-constellation.vg-starfield-library .vg-starfield-tools{margin:8px 0 0}
+.vg-starfield-library .vg-starfield-search{min-height:48px;padding-inline:12px;border:1px solid var(--sf-line);border-radius:12px;color:var(--sf-muted);background:var(--sf-paper);box-shadow:none}
+.vg-starfield-library .vg-starfield-search input{min-height:46px;color:var(--sf-text);font-size:max(14px,.875rem)}
+.vg-starfield-library .vg-starfield-search>button{min-width:48px;min-height:48px;flex:none}
+.vg-starfield-library .vg-starfield-search input::placeholder{color:var(--sf-muted);opacity:1}
+.vg-starfield-library .vg-starfield-search:focus-within{border-color:var(--sf-accent)}
+.vg-starfield-library .vg-starfield-search input:focus-visible{outline:none}
+.vg-world-constellation.vg-starfield-library .vg-starfield-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,4.5rem),1fr));gap:0;margin:8px 0 0;padding:0;border:0;border-bottom:1px solid var(--sf-line);border-radius:0;background:transparent}
+.vg-starfield-library .vg-starfield-filters>button{position:relative;min-width:0;min-height:48px;padding:10px 4px;border:0;border-radius:0;background:transparent;color:var(--sf-muted);font-size:max(14px,.875rem);line-height:1.5;white-space:normal;overflow-wrap:anywhere}
+.vg-starfield-library .vg-starfield-filters>button[aria-pressed=true]{background:transparent;color:var(--sf-text);font-weight:500}
+.vg-starfield-library .vg-starfield-filters>button::before{content:none}
+.vg-starfield-library .vg-starfield-filters>button[aria-pressed=true]::after{content:'';position:absolute;bottom:-1px;left:10%;right:10%;height:2px;border-radius:2px;background:var(--sf-accent)}
+.vg-starfield-library .vg-world-scene-directory{gap:0;margin:0}
+.vg-world-constellation .vg-starfield-scene-row{position:relative;grid-template-columns:80px minmax(0,1fr);align-items:center;gap:12px;min-height:112px;margin:0;padding:16px 0;border:0;border-bottom:1px solid var(--sf-line);border-radius:0;background:transparent;color:var(--sf-text);box-shadow:none;transition:none}
+.vg-starfield-library .vg-starfield-scene-row[aria-pressed=true]{border-color:var(--sf-line);background:transparent}
+.vg-starfield-library .vg-starfield-scene-row[aria-pressed=true] .vg-world-scene-copy>strong{color:var(--sf-accent)}
+.vg-starfield-library .vg-starfield-scene-row:active{transform:none;background:var(--sf-inset)}
+.vg-starfield-library .vg-starfield-scene-row>.vg-world-scene-cover{width:80px;height:76px;max-width:100%;border-radius:10px;object-position:center;background:var(--sf-paper)}
+.vg-starfield-library .vg-starfield-scene-row .vg-world-scene-copy{gap:4px;padding:0}
+.vg-starfield-library .vg-starfield-scene-row .vg-world-scene-copy>strong{display:block;overflow:visible;-webkit-line-clamp:unset;font-size:max(17px,1.0625rem);font-weight:500;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.vg-starfield-library .vg-world-scene-place{overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere;font-size:max(14px,.875rem);line-height:1.5;color:var(--sf-muted)}
+.vg-starfield-library .vg-world-scene-names{overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere;font-size:max(14px,.875rem);line-height:1.5;color:var(--sf-muted)}
+.vg-starfield-library .vg-world-scene-foot{flex-wrap:wrap;gap:6px;margin-top:2px}
+.vg-starfield-library .vg-starfield-status{font-size:max(13px,.8125rem);white-space:normal;overflow-wrap:anywhere}
+.vg-starfield-library .vg-world-scene-cast>*{width:20px!important;height:20px!important;border:1px solid var(--sf-bg)}
+.vg-starfield-library .vg-starfield-scene-row>svg{color:var(--sf-muted)}
+.vg-starfield-library .vg-world-scene-empty{padding:28px 8px;color:var(--sf-muted);font-size:max(14px,.875rem);line-height:1.8}
+.vg-starfield-library .vg-world-scene-empty>button{min-width:48px;min-height:48px;max-width:100%;padding:10px;color:var(--sf-accent);font:inherit;white-space:normal;overflow-wrap:anywhere}
+.vg-starfield-welcome{display:flex;flex-direction:column;align-items:flex-start;gap:20px;padding:28px 0 20px;margin-bottom:12px;color:var(--sf-accent)}
+.vg-starfield-welcome h2{margin:0;font-size:max(25px,1.5625rem);font-weight:500;line-height:1.5;color:var(--sf-text)}
+.vg-world-constellation.vg-starfield-library .vg-starfield-archives{margin:24px 0 0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+.vg-starfield-library .vg-starfield-archives>h3{margin:0;color:var(--sf-text);font-size:max(18px,1.125rem);line-height:1.5;font-weight:500}
+.vg-starfield-library .vg-starfield-archives .vg-world-dock{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:12px 0 0}
+.vg-starfield-library .vg-starfield-archives .vg-world-dock>button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:76px;padding:8px 4px;border:0;border-radius:12px;background:transparent;color:var(--sf-muted);box-shadow:none;text-align:center}
+.vg-starfield-library .vg-starfield-archives .vg-world-dock>button>span{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:0;background:transparent;color:var(--sf-accent)}
+.vg-starfield-library .vg-starfield-archives .vg-world-dock>button b{font-size:max(13px,.8125rem);line-height:1.5;font-weight:400;color:var(--sf-muted)}
+.vg-starfield-library .vg-starfield-archives .vg-world-dock>button:active{transform:none;background:var(--sf-inset)}
+.vg-starfield-design .vg-world-page .vg-world-now-card{margin:24px 0 0;padding:20px 0 0;border:0;border-top:1px solid var(--sf-line);border-radius:0;background:transparent;box-shadow:none}
+.vg-starfield-design .vg-world-page .vg-world-now-card::before{content:none}
+.vg-starfield-design .vg-world-now-actions>button{min-height:44px;border-radius:12px;font-size:max(14px,.875rem)}
+@media(min-width:640px){
+ .vg-starfield-design .vg-world-theater,.vg-starfield-design .vg-world-page>.vg-world-theater-header{max-width:680px;margin-inline:auto}
+ .vg-starfield-feature-art{aspect-ratio:2.8;max-height:240px}
+ .vg-world-constellation .vg-starfield-scene-row{grid-template-columns:108px minmax(0,1fr);min-height:120px}
+ .vg-starfield-library .vg-starfield-scene-row>.vg-world-scene-cover{width:108px;height:84px}
+}
+@media(max-width:359px){
+ .vg-starfield-design .vg-world-page>.vg-world-theater-header{gap:4px}
+ .vg-world-constellation .vg-starfield-scene-row{grid-template-columns:64px minmax(0,1fr);gap:10px}
+ .vg-starfield-library .vg-starfield-scene-row>.vg-world-scene-cover{width:64px;height:76px}
+}

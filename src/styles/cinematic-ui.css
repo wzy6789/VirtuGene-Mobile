@@ -1,0 +1,71 @@
+/* One material family; only the header samples live backdrop in balanced mode. */
+.mobile-layout .vg-home-stage-page .vg-conversation-brand{padding-top:12px;padding-bottom:4px}
+.vg-chat-error-notice{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 16px 8px;padding:6px 12px;border:1px solid color-mix(in srgb,var(--vg-danger) 40%,var(--border));border-radius:14px;background:var(--vg-glass-reading-bg,var(--bg-panel));color:var(--text);font-size:max(13px,.8125rem);line-height:1.6;overflow-wrap:anywhere}
+.vg-chat-error-notice>span{flex:1;min-width:0}
+.vg-chat-error-notice>button{min-width:44px;min-height:44px;padding:6px 4px;color:var(--vg-accent);font:inherit}
+.mobile-layout .chat-room.vg-chat-paper{background:var(--bg);--vg-chat-input-scale:1rem}
+.mobile-layout .chat-room.vg-chat-paper .chat-header{
+ margin:8px 12px 0;min-height:64px;padding:6px 8px;gap:4px;border:1px solid var(--vg-glass-edge);border-radius:24px;
+ background:var(--vg-glass-control-sheen),var(--vg-glass-control-bg);box-shadow:inset 0 1px 0 var(--vg-glass-highlight),var(--vg-glass-shadow);background-clip:padding-box;
+}
+.mobile-layout .chat-room.vg-chat-paper .chat-header>.h-px{display:none}
+.mobile-layout .chat-room.vg-chat-paper .chat-header>.chat-header-title{display:flex;align-items:center;gap:10px;flex:1;width:auto;height:auto;max-width:none;min-width:0;min-height:48px;padding:0 4px;background:none;color:var(--text);border-radius:12px}
+.mobile-layout .chat-room.vg-chat-paper .chat-header>.chat-header-title .vg-chat-identity-copy{flex:1;min-width:0}
+.mobile-layout .chat-room.vg-chat-paper .vg-chat-identity-copy [role=heading]{font-size:max(17px,1.0625rem);line-height:1.4;font-weight:600}
+.mobile-layout .chat-room.vg-chat-paper .chat-header button:not(.chat-header-title){width:48px;height:48px;min-width:48px;min-height:48px}
+.mobile-layout .chat-room.vg-chat-paper .chat-header>button[aria-label="返回"]{width:max(48px,1.75rem);min-width:max(48px,1.75rem);height:auto;min-height:48px;white-space:nowrap}
+.mobile-layout .chat-room.vg-chat-paper .chat-header>button[aria-label="返回"]>span{font-size:max(14px,.875rem);line-height:1.5}
+.mobile-layout .chat-room .vg-chat-presence{display:block;white-space:normal;overflow-wrap:anywhere;font-size:max(12px,.75rem);line-height:1.5;margin-top:4px;color:var(--text-secondary)}
+.vg-chat-avatar-frame{position:relative;display:grid;place-items:center;flex:0 0 36px;width:36px;height:36px;border-radius:50%;overflow:hidden;box-shadow:0 0 0 1px var(--vg-glass-highlight)}
+.vg-chat-avatar-frame::after{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(135deg,rgba(237,246,255,.20),transparent 48%,rgba(236,190,133,.06));pointer-events:none;animation:vg-avatar-light 19s ease-in-out infinite alternate}
+.vg-chat-avatar-frame>.vg-chat-identity-avatar{animation:vg-avatar-presence 23s ease-in-out infinite alternate}
+@keyframes vg-avatar-presence{from{translate:-.4px 0}to{translate:.6px -.5px}}
+@keyframes vg-avatar-light{from{opacity:.38}to{opacity:.64}}
+.chat-room[data-chat-avatar=off] .vg-chat-avatar-frame *,.chat-room[data-chat-avatar=off] .vg-chat-avatar-frame::after{animation-play-state:paused}
+.chat-room[data-chat-avatar=low] .vg-chat-avatar-frame *{animation-duration:32s}
+.chat-composer-send .vg-composer-icon.is-send{font-size:max(13px,.8125rem);font-weight:500;line-height:1;white-space:nowrap}
+.mobile-layout .chat-room.vg-chat-paper .chat-thread{padding:16px 12px}
+.mobile-layout .chat-room.vg-chat-paper .vg-message-bubble{box-shadow:0 2px 6px color-mix(in srgb,var(--vg-glass-contact) 65%,transparent);border-color:color-mix(in srgb,var(--vg-glass-edge) 60%,transparent)}
+.mobile-layout .chat-room.vg-chat-paper .vg-message-quote{border-left-color:var(--chat-sub);font-size:.875em;line-height:1.6}
+.mobile-layout .chat-room.vg-chat-paper .vg-message-time{font-variant-numeric:tabular-nums}
+/* Shared short cards/settings gain optical edges without a live filter per card. */
+:is(.vg-settings-panel,.vg-background-editor) :is(.vg-preference-box,.vg-settings-group){border-color:var(--vg-glass-edge);background:linear-gradient(150deg,var(--vg-glass-reflection),transparent 55%),var(--vg-glass-content-bg);box-shadow:inset 0 1px 0 var(--vg-glass-highlight),0 4px 12px var(--vg-glass-contact)}
+:is(.vg-modal-header,.vg-modal-footer){border-color:var(--vg-glass-edge)}
+.vg-material-calibration{display:grid;gap:16px;padding:16px;isolation:isolate}
+.vg-material-calibration>section{border-radius:24px;padding:16px;background-size:cover;background-position:center;display:grid;gap:12px}
+.vg-material-calibration .vg-glass-content{padding:14px;font-size:1rem;line-height:1.6}
+.vg-background-scope-surface{margin-bottom:16px}.vg-background-scope-surface .vg-background-scope-note{margin:0;padding:14px;border:0}
+@supports(backdrop-filter:blur(1px)){
+ .mobile-layout .chat-room.vg-chat-paper .chat-header{backdrop-filter:var(--vg-glass-sample);-webkit-backdrop-filter:var(--vg-glass-sample)}
+}
+@media(max-width:359px){.mobile-layout .chat-room.vg-chat-paper .chat-header{margin-inline:8px;padding-inline:4px}.mobile-layout .chat-room.vg-chat-paper .chat-composer{margin-inline:8px}.mobile-layout .chat-room.vg-chat-paper .chat-header>.chat-header-title{gap:7px}.vg-chat-avatar-frame{flex-basis:32px;width:32px;height:32px}}
+html[data-vg-background] .vg-chat-avatar-frame *,html[data-vg-background] .vg-chat-avatar-frame::after,html:has(.vg-modal-overlay) .chat-room .vg-chat-avatar-frame *,html:has(.vg-modal-overlay) .chat-room .vg-chat-avatar-frame::after{animation-play-state:paused}
+html[data-vg-reduced-motion=true] .vg-chat-avatar-frame *,html[data-vg-reduced-motion=true] .vg-chat-avatar-frame::after{animation:none}
+@media(prefers-reduced-motion:reduce){.vg-chat-avatar-frame *,.vg-chat-avatar-frame::after{animation:none}}
+
+.vg-scene-advanced{margin-block:16px;border:1px solid var(--vg-glass-edge);border-radius:20px;background:var(--vg-glass-content-bg);overflow:hidden}
+.vg-scene-advanced>summary{min-height:56px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 16px;padding:14px 16px;font-size:15px;cursor:pointer}
+.vg-scene-advanced>summary>span{font-size:12px;color:var(--text-secondary)}
+.vg-scene-advanced[open]>summary{border-bottom:1px solid var(--vg-glass-edge)}
+
+/* One quiet settings plane; selected values carry the emphasis in both themes. */
+.vg-scene-page-content.scene-card{background:var(--bg-panel);color:var(--text)}
+.vg-scene-page-content :is(.scene-time-picker,.scene-setting-section){margin:0 0 24px;padding:0;border:0;border-radius:0;background:transparent}
+.vg-scene-page-content :is(.scene-time-picker-heading,.scene-setting-heading){color:var(--text-secondary);font-size:max(13px,.8125rem);line-height:1.6}
+.vg-scene-page-content :is(.scene-time-picker-heading,.scene-setting-heading) b{color:var(--text);font-size:inherit;font-weight:500;white-space:normal;overflow-wrap:anywhere;text-align:right}
+.vg-scene-page-content :is(.scene-time-option,.scene-chip){min-height:44px;padding:8px 6px;border-color:transparent;border-radius:12px;background:var(--bg-surface);color:var(--text-secondary);font-size:max(13px,.8125rem);line-height:1.5;white-space:normal;overflow-wrap:anywhere;box-shadow:none}
+.vg-scene-page-content .scene-time-option{min-height:56px;gap:4px}
+.vg-scene-page-content .scene-time-option strong{font-size:inherit;white-space:normal;overflow:visible}
+.vg-scene-page-content .scene-time-option span{color:var(--text-secondary)}
+.vg-scene-page-content :is(.scene-time-option,.scene-chip).is-selected{border-color:var(--vg-accent);background:color-mix(in srgb,var(--vg-accent) 9%,var(--bg-panel));color:var(--text);box-shadow:none}
+.vg-scene-page-content .scene-time-option.is-selected span{color:var(--vg-accent)}
+.vg-scene-page-content .scene-custom-place :is(input,button){min-height:44px;height:auto;border-color:var(--border);border-radius:12px;color:var(--text);background:var(--bg-surface);font-size:max(13px,.8125rem);line-height:1.5}
+.vg-scene-page-content .scene-custom-place input{padding:10px}
+.vg-scene-page-content .scene-custom-place input:focus{border-color:var(--vg-accent);box-shadow:none}
+.vg-scene-page-content .scene-custom-place button{padding:8px 12px}
+.vg-scene-page-content .scene-setting-preview{border-color:var(--border);background:var(--bg-surface)}
+.vg-scene-page-content .scene-setting-preview>span{color:var(--vg-accent)}
+.vg-scene-page-content .scene-setting-preview strong{color:var(--text);font-size:max(13px,.8125rem);line-height:1.65;font-weight:500;letter-spacing:normal;overflow-wrap:anywhere}
+
+/* Long details never expose a second set of words through their reading plane. */
+.vg-modal-overlay>.vg-modal-panel[data-vg-surface-mode="long-form"]{background:linear-gradient(var(--vg-glass-reading-bg),var(--vg-glass-reading-bg)),var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none}

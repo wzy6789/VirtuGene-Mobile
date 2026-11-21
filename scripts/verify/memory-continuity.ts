@@ -242,7 +242,7 @@ async function run() {
 
   /* ─────────── ⑤ 更正 / 删除源内容 ─────────── */
   section('场景五：更正与删除在三种模式同时生效');
-  await db.memories.put({ id: 'c-old', userId: 'u', characterId: 'a', content: '用户不吃香菜', memoryKind: 'preference', status: 'active', type: 'auto', createdAt: now } as any);
+  await db.memories.put({ id: 'c-old', userId: 'u', characterId: 'a', content: '用户不喜欢香菜', memoryKind: 'preference', status: 'active', type: 'auto', createdAt: now } as any);
   await db.memories.put({ id: 'c-new', userId: 'u', characterId: 'a', content: '其实我很喜欢香菜', memoryKind: 'preference', status: 'active', type: 'auto', createdAt: now + 1 } as any);
   await memoryRepo.supersedeLikelyCorrections('a', 'u', { id: 'c-new', userId: 'u', characterId: 'a', content: '其实我很喜欢香菜', memoryKind: 'preference', type: 'auto', createdAt: now + 1 } as any);
   check((await db.memories.get('c-old'))?.status === 'superseded', 'a clear correction retires the old version');

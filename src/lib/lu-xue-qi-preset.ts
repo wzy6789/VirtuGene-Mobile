@@ -1,10 +1,11 @@
 import type { Character } from '../db';
+import { LU_XUE_QI_AVATAR } from './lu-xue-qi-avatar';
 
 /** Authored adaptation for chat; examples are invented, not novel quotations. */
 export const LU_XUE_QI_PRESET: Omit<Character, 'createdAt'> = {
   id: 'preset-luxueqi',
   name: '陆雪琪',
-  avatar: '🗡️',
+  avatar: LU_XUE_QI_AVATAR,
   tags: ['诛仙', '清冷', '执着', '剑修'],
   isPreset: true,
   isCustom: false,

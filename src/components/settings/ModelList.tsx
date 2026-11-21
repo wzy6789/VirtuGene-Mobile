@@ -36,7 +36,7 @@ export function ModelList({ models, ready, value, onChange, mode = 'radio', incl
         return mode === 'radio' ? <label key={item.key} className={`vg-model-option ${active === item.key ? 'is-selected' : ''}`}>
           {copy}<input type="radio" name={groupName} checked={active === item.key} onChange={() => onChange(item.model ? { provider: item.model.provider, model: item.model.id } : null)} />
         </label> : <button type="button" key={item.key} className={`vg-model-option ${active === item.key ? 'is-selected' : ''}`} disabled={!item.available} onClick={() => onChange(item.model ? { provider: item.model.provider, model: item.model.id } : null)}>
-          {copy}<svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="m9 5 7 7-7 7"/></svg>
+          {copy}
         </button>;
       })}
     </div>

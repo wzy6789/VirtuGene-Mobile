@@ -1,0 +1,5 @@
+/* Limited to assistant secondary forms; controls reuse the shared button system. */
+.vg-assistant-preferences .vg-secretary-surface-intro>p { font-size:14px; }
+.vg-assistant-preferences .vg-secretary-personality :is(p,legend,.text-xs:not(small)),.vg-assistant-preferences .vg-secretary-appearance>p,.vg-assistant-preferences .vg-secretary-appearance label>span { font-size:14px; }
+.vg-assistant-preferences .vg-secretary-personality>label { font-size:14px; }
+.vg-assistant-preferences .vg-secretary-request-day { font-size:12px; }

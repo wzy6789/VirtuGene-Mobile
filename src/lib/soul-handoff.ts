@@ -1,7 +1,9 @@
 import { useAuthStore } from '../store/auth-store';
 import { prefersReducedMotion, settleProgress, subscribeReducedMotion } from './mobile-motion';
+import { inheritOrbTiming } from './soul-orb-motion';
+import {useUIStore} from '../store/ui-store';
 
-export type SoulRole = 'list' | 'chat' | 'profile' | 'media' | 'cabin';
+export type SoulRole = 'list' | 'chat' | 'profile' | 'media' | 'cabin' | 'interaction' | 'call' | 'call-capsule' | 'world-scene' | 'world-entry';
 const elements = new Map<string, Set<HTMLElement>>();
 type Handoff = { key: string; role: SoulRole; source: HTMLElement; target?: HTMLElement; owner: string | null; ghost: HTMLElement; stop: () => void; fly: (node: HTMLElement) => void };
 let active: Handoff | undefined;
@@ -19,6 +21,7 @@ export function registerSoulElement(node: HTMLElement, key: string, role: SoulRo
   group.add(node); elements.set(id, group);
   if (active?.key === key && active.role === role && node !== active.source) {
     const handoff = active;
+    inheritOrbTiming(handoff.source,node);
     queueMicrotask(() => { if (active === handoff && node.isConnected) handoff.fly(node); });
   }
   return () => {
@@ -35,20 +38,52 @@ function visibleRect(node: HTMLElement): DOMRect | undefined {
   return rect;
 }
 
+/** Sample the destination before hiding either orb or inserting flight layers. */
+function destinationPose(node: HTMLElement) {
+  const rect = visibleRect(node); if (!rect) return;
+  // Only entrance translations are temporary; title centering stays authored.
+  for (const selector of ['.vg-page-transition', '.vg-modal-panel']) {
+    const parent = node.closest<HTMLElement>(selector);
+    if (!parent) continue;
+    const transform = getComputedStyle(parent).transform;
+    if (transform !== 'none') { const matrix = new DOMMatrixReadOnly(transform); rect.x -= matrix.m41; rect.y -= matrix.m42; }
+  }
+  const style = getComputedStyle(node);
+  return { rect, radius: parseFloat(style.borderTopLeftRadius), fontSize: parseFloat(style.fontSize) };
+}
+
 /** One inert, bounded visual; navigation and input never wait for the animation. */
 export function beginSoulHandoff(key: string, source: HTMLElement | undefined | null, role: SoulRole): () => void {
+  const interruptedRect = active?.key === key ? active.ghost.getBoundingClientRect() : undefined;
+  const interruptedRadius = active?.key === key ? getComputedStyle(active.ghost).borderTopLeftRadius : undefined;
   cancelSoulHandoff();
-  if (!source || prefersReducedMotion() || document.hidden) return () => {};
-  const from = visibleRect(source);
-  const limit = role === 'media' ? 512 : 200;
+  if (!source || source.dataset.orbIntensity === 'reduced' || prefersReducedMotion() || document.hidden) return () => {};
+  const sourceRect = visibleRect(source);
+  const from = interruptedRect && interruptedRect.width > 0 ? interruptedRect : sourceRect;
   const orb = source.matches('span.vg-soul-orb[data-soul-orb-host]') && source.childElementCount<=2 && !!source.querySelector(':scope > svg') && source.querySelectorAll('*').length<=160;
-  if (!from || from.width > limit || from.height > limit || !source.matches('img,span') || !orb&&(source.childElementCount>0 || source.textContent!.length > 64)) return () => {};
+  const worldFlight=role==='world-scene'||role==='world-entry';
+  const callPortrait = source.matches('.vg-voice-portrait-image,.vg-voice-call-capsule-portrait') && (role === 'call' || role === 'call-capsule' || role === 'chat');
+  const limit = role === 'media' || worldFlight ? 512 : callPortrait || orb && (role === 'call' || role === 'call-capsule' || role === 'chat') ? 320 : 200;
+  if (!from || !sourceRect || sourceRect.width > limit || sourceRect.height > limit || !source.matches('img,span') || !orb&&(source.childElementCount>0 || source.textContent!.length > 64)) return () => {};
   const visual = source.cloneNode(orb) as HTMLElement;
   if (!orb && !(source instanceof HTMLImageElement)) visual.textContent = source.textContent;
   for (const attribute of [...visual.attributes]) {
     if (!['src', 'alt'].includes(attribute.name)) visual.removeAttribute(attribute.name);
   }
   const style = getComputedStyle(source);
+  const sourceRadius = interruptedRadius ?? style.borderTopLeftRadius;
+  // Carry only the authored ambient gradient, never a snapshot of profile text.
+  const cover = source.closest<HTMLElement>('.vg-space-cover,.vg-character-cover,.vg-today-portrait,.vg-world-resume,.vg-canvas');
+  const coverRect = cover?.getBoundingClientRect();
+  const coverStyle = cover && getComputedStyle(cover.matches('.vg-space-cover') ? cover.querySelector('.vg-space-cover-light') ?? cover : cover, cover.matches('.vg-today-portrait,.vg-canvas') ? '::before' : null);
+  const coverLight = coverStyle?.backgroundImage;
+  // An already-mounted return target can be read in the same clean-layout
+  // phase as the source. This pose is used only by the synchronous fly below;
+  // newly mounted targets still measure themselves after registration.
+  const existingTarget = soulElement(key, role);
+  let preparedTarget = existingTarget && existingTarget !== source
+    && (!(existingTarget instanceof HTMLImageElement) || existingTarget.complete)
+    ? { node: existingTarget, pose: destinationPose(existingTarget) } : undefined;
   if(orb) {
     visual.className='vg-soul-orb'; visual.setAttribute('data-orb-emotion',source.dataset.orbEmotion??'idle');
     // Freeze a trusted mascot visual; never copy application content or handlers.
@@ -62,10 +97,11 @@ export function beginSoulHandoff(key: string, source: HTMLElement | undefined | 
     }
     visual.removeAttribute('data-orb-interactive');
   }
-  Object.assign(visual.style, { width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', objectFit:style.objectFit, color:style.color, background:style.backgroundColor, font:style.font, lineHeight:style.lineHeight });
+  Object.assign(visual.style, { width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', objectFit:style.objectFit, objectPosition:style.objectPosition, color:style.color, background:style.backgroundColor, font:style.font, lineHeight:style.lineHeight });
   const ghost = document.createElement('div');
   ghost.className = 'vg-soul-ghost'; ghost.inert = true; ghost.setAttribute('aria-hidden','true');
-  Object.assign(ghost.style, { width:`${from.width}px`,height:`${from.height}px`,left:`${from.left}px`,top:`${from.top}px`,borderRadius:style.borderRadius });
+  if(worldFlight)ghost.setAttribute('data-world-cover-flight',role==='world-scene'?'entry':'return');
+  Object.assign(ghost.style, { width:`${from.width}px`,height:`${from.height}px`,left:`${from.left}px`,top:`${from.top}px`,borderRadius:sourceRadius });
   ghost.append(visual);
   const modal = source.closest('.vg-modal-overlay');
   const host = modal || role === 'media' ? document.body : document.querySelector<HTMLElement>('[data-soul-host]') ?? document.body;
@@ -75,14 +111,15 @@ export function beginSoulHandoff(key: string, source: HTMLElement | undefined | 
   const owner = useAuthStore.getState().userId;
   let imageReady: HTMLImageElement | undefined, ready: (() => void) | undefined;
   let contentAnimation: Animation | undefined;
+  let surfaceAnimation: Animation | undefined, surface: HTMLElement | undefined;
   let animation: Animation | undefined, timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   const stop = () => {
     if (disposed) return; disposed = true;
-    clearTimeout(timer); animation?.cancel(); contentAnimation?.cancel(); ghost.remove();
+    clearTimeout(timer); animation?.cancel(); contentAnimation?.cancel(); surfaceAnimation?.cancel(); surface?.remove(); ghost.remove();
     if (imageReady && ready) { imageReady.removeEventListener('load',ready); imageReady.removeEventListener('error',stop); }
     source.removeAttribute('data-soul-hidden'); handoff.target?.removeAttribute('data-soul-hidden');
-    unsubscribe(); unsubscribeAuth();
+    unsubscribe(); unsubscribeAuth(); unsubscribeNavigation();
     window.removeEventListener('resize', stop); window.removeEventListener('blur', stop); window.removeEventListener('pointerdown', stop, true); window.removeEventListener('touchstart', stop, true);
     window.visualViewport?.removeEventListener('resize',stop); window.visualViewport?.removeEventListener('scroll',stop);
     document.removeEventListener('visibilitychange',hidden);
@@ -91,36 +128,45 @@ export function beginSoulHandoff(key: string, source: HTMLElement | undefined | 
   const hidden = () => { if (document.hidden) stop(); };
   const handoff: Handoff = { key, role, source, ghost, owner, stop, fly: node => {
     if (disposed || handoff.target || owner !== useAuthStore.getState().userId) return;
+    inheritOrbTiming(source,node);
     if (node instanceof HTMLImageElement && !node.complete) {
       handoff.target = node; node.setAttribute('data-soul-hidden',''); imageReady = node;
       ready = () => { if (!disposed) { handoff.target = undefined; handoff.fly(node); } };
       node.addEventListener('load',ready,{once:true}); node.addEventListener('error',stop,{once:true}); return;
     }
-    const to = visibleRect(node); if (!to) { stop(); return; }
-    // Measure after layout effects restore list scroll, subtracting only the
-    // temporary page entrance, never static title centering transforms.
-    const page = node.closest<HTMLElement>('.vg-page-transition');
-    if (page) {
-      const transform = getComputedStyle(page).transform;
-      if (transform !== 'none') { const matrix = new DOMMatrixReadOnly(transform); to.x -= matrix.m41; to.y -= matrix.m42; }
-    }
-    const panel = node.closest<HTMLElement>('.vg-modal-panel');
-    if (panel) {
-      const transform = getComputedStyle(panel).transform;
-      if (transform !== 'none') { const matrix = new DOMMatrixReadOnly(transform); to.x -= matrix.m41; to.y -= matrix.m42; }
-    }
+    const pose = preparedTarget?.node === node ? preparedTarget.pose : destinationPose(node);
+    preparedTarget = undefined;
+    if (!pose) { stop(); return; }
+    const to = pose.rect;
     clearTimeout(timer); handoff.target = node; node.setAttribute('data-soul-hidden','');
+    const room = node.closest<HTMLElement>(worldFlight?role==='world-scene'?'.vg-canvas':'.vg-world-resume':'.chat-room');
+    const atmosphere = worldFlight?room:room?.querySelector<HTMLElement>(':scope > .vg-chat-atmosphere-edge[data-background-mode="atmosphere"]');
+    if ((role === 'chat'||worldFlight) && atmosphere && room?.dataset.chatMotion !== 'off' && coverRect && coverLight && coverLight !== 'none' && !coverLight.includes('url(')) {
+      const rect = atmosphere.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        surface = document.createElement('div'); surface.className = 'vg-soul-surface'; surface.inert = true;
+        Object.assign(surface.style, { position:'absolute', inset:'0', pointerEvents:'none', backgroundImage:coverLight, transformOrigin:'0 0' });
+        atmosphere.append(surface);
+        surfaceAnimation = surface.animate([
+          {transform:`translate(${coverRect.left-rect.left}px,${coverRect.top-rect.top}px) scale(${coverRect.width/rect.width},${coverRect.height/rect.height})`,opacity:.5},
+          {transform:'none',opacity:0},
+        ], {duration:300,easing:'cubic-bezier(.2,.8,.2,1)'});
+      }
+    }
     // Image frames grow their crop while compensating the inner picture's
     // scale, so a square thumbnail expands into a wide photo without distortion.
-    if (role === 'media' && node instanceof HTMLImageElement) {
-      const fit = Math.min(to.width/node.naturalWidth,to.height/node.naturalHeight);
-      const width = node.naturalWidth*fit, height = node.naturalHeight*fit;
-      to.x += (to.width-width)/2; to.y += (to.height-height)/2; to.width=width; to.height=height;
+    if (source instanceof HTMLImageElement && node instanceof HTMLImageElement && (role === 'media' || Math.abs(from.width/from.height - to.width/to.height) > .02)) {
+      if (role === 'media') {
+        const fit = Math.min(to.width/node.naturalWidth,to.height/node.naturalHeight);
+        const width = node.naturalWidth*fit, height = node.naturalHeight*fit;
+        to.x += (to.width-width)/2; to.y += (to.height-height)/2; to.width=width; to.height=height;
+      }
       Object.assign(ghost.style,{left:`${to.left}px`,top:`${to.top}px`,width:`${to.width}px`,height:`${to.height}px`});
-      visual.style.objectFit = 'contain'; visual.style.transformOrigin = 'center';
+      visual.style.objectFit = role === 'media' ? 'contain' : 'cover'; visual.style.transformOrigin = 'center';
       const sx=from.width/to.width,sy=from.height/to.height,dx=from.left-to.left,dy=from.top-to.top;
       const progress = settleProgress(3);
-      animation = ghost.animate(progress.map(({offset,progress:p})=>({offset,transform:`translate3d(${dx*(1-p)}px,${dy*(1-p)}px,0) scale(${sx+(1-sx)*p},${sy+(1-sy)*p})`,borderRadius:`${parseFloat(style.borderTopLeftRadius)*(1-p)}px`})),{duration:300,easing:'linear'});
+      const radius = role === 'media' ? 0 : pose.radius;
+      animation = ghost.animate(progress.map(({offset,progress:p})=>({offset,transform:`translate3d(${dx*(1-p)}px,${dy*(1-p)}px,0) scale(${sx+(1-sx)*p},${sy+(1-sy)*p})`,borderRadius:`${parseFloat(sourceRadius)*(1-p)+radius*p}px`})),{duration:300,easing:'linear'});
       contentAnimation = visual.animate(progress.map(({offset,progress:p})=>{const x=sx+(1-sx)*p,y=sy+(1-sy)*p,cover=Math.max(x,y);return {offset,transform:`scale(${cover/x},${cover/y})`};}),{duration:300,easing:'linear'});
       animation.onfinish=stop; return;
     }
@@ -129,26 +175,33 @@ export function beginSoulHandoff(key: string, source: HTMLElement | undefined | 
       // Glyph avatars need their own font scale; avatar diameter alone would
       // leave an oversized glyph just before the live header takes over.
       ghost.style.backgroundColor = style.backgroundColor; visual.style.backgroundColor = 'transparent';
-      const fontScale = parseFloat(getComputedStyle(node).fontSize) / (parseFloat(style.fontSize) * scale);
+      const fontScale = pose.fontSize / (parseFloat(style.fontSize) * scale);
       visual.style.transformOrigin = 'center';
       contentAnimation = visual.animate(settleProgress(3).map(({offset,progress}) => ({offset,transform:`scale(${1+(fontScale-1)*progress})`})),{duration:300,easing:'linear'});
     }
     const dx = to.left + (to.width - from.width*scale)/2 - from.left;
     const dy = to.top + (to.height - from.height*scale)/2 - from.top;
-    const radius = parseFloat(getComputedStyle(node).borderTopLeftRadius)/scale;
-    const initialRadius = parseFloat(style.borderTopLeftRadius);
+    const radius = pose.radius/scale;
+    const initialRadius = parseFloat(sourceRadius);
     const frames = settleProgress(3).map(({offset,progress})=>({offset,transform:`translate3d(${dx*progress}px,${dy*progress}px,0) scale(${1+(scale-1)*progress})`,borderRadius:`${initialRadius+(radius-initialRadius)*progress}px`,opacity:1}));
     animation = ghost.animate(frames,{duration:300,easing:'linear'});
     animation.onfinish = stop;
   }};
   const unsubscribe = subscribeReducedMotion(() => { if (prefersReducedMotion()) stop(); });
   const unsubscribeAuth = useAuthStore.subscribe(state => { if (state.userId !== owner) stop(); });
+  // The flight is decoration, never a navigation lock. A late canvas mount must
+  // not receive an old title after the user has already gone elsewhere.
+  const unsubscribeNavigation = worldFlight?useUIStore.subscribe(state=>{
+    if(role==='world-scene'
+      ?state.activeView!=='canvas'||JSON.stringify([owner,state.canvasSceneId])!==key
+      :state.activeView!=='chat'||state.mobileTab!=='world')stop();
+  }):()=>{};
   window.addEventListener('resize',stop); window.addEventListener('blur',stop); window.addEventListener('pointerdown',stop,true); window.addEventListener('touchstart',stop,true);
   window.visualViewport?.addEventListener('resize',stop); window.visualViewport?.addEventListener('scroll',stop);
   document.addEventListener('visibilitychange',hidden);
   active = handoff;
   timer = setTimeout(stop,300);
   // Existing mounted targets are only valid when they are outside the source page.
-  const target = soulElement(key,role); if (target && target !== source) handoff.fly(target);
+  if (existingTarget && existingTarget !== source) handoff.fly(existingTarget);
   return stop;
 }

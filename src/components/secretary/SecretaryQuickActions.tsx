@@ -23,7 +23,7 @@ export function SecretaryQuickActions({ busy, vacant, onDraft, onSend, onInbox, 
   };
   return <div className="vg-secretary-tools shrink-0 border-b border-line">
     <div className="vg-secretary-tool-heading flex items-center justify-between gap-2">
-      <button type="button" onClick={onInbox} className="vg-secretary-inbox-link"><SecretaryIcon name="inbox" size={17} />{embedded ? '待处理' : '办事收件箱'}<SecretaryIcon name="chevron" size={12} /></button>
+      <button type="button" onClick={onInbox} className="vg-secretary-inbox-link"><SecretaryIcon name="inbox" size={17} />{embedded ? '待处理' : '办事收件箱'}</button>
       {!embedded && <button type="button" aria-label="助理管理" disabled={busy} onClick={onManage} className="vg-secretary-manage-link disabled:opacity-40"><SecretaryIcon name="profile" size={15} />{vacant ? '聘用助理' : '助理管理'}</button>}
     </div>
     <div className="vg-secretary-quick-grid" role="group" aria-label="助理快捷办事">

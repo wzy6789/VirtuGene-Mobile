@@ -7,11 +7,14 @@
  * - **连续同角色合并成一个视觉组**（§69）：对白 + 动作 + 对白 = 一个头像，不是三个。
  * - 世界痕迹**不弹数字**（§11.5）：只有一句"这一刻被世界记住了。"，点开才看到具体内容。
  */
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { Character, WorldSceneEntry } from '../../db/index';
 import { Avatar } from '../ui/Avatar';
 import { describeTurnArtifacts } from '../../lib/world/world-turn';
 import { worldTurnRepo } from '../../db/world-turn-repo';
+import {useAuthStore} from '../../store/auth-store';
+import {useChatAtmosphere} from '../chat/useChatAtmosphere';
+import { Icon } from '../ui/Icon';
 
 export type StreamGroup =
   | { kind: 'narration'; id: string; entry: WorldSceneEntry }
@@ -53,6 +56,7 @@ export function groupStream(entries: WorldSceneEntry[]): StreamGroup[] {
  * 世界痕迹：点开才看到"世界记住了什么"（§11.5）
  * ------------------------------------------------------------------ */
 function WorldTrace({ turnId, content }: { turnId?: string; content: string }) {
+  const detailsId=useId();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<string[] | null>(null);
 
@@ -72,13 +76,13 @@ function WorldTrace({ turnId, content }: { turnId?: string; content: string }) {
 
   return (
     <div className="vg-trace">
-      <button type="button" onClick={() => void toggle()} className="vg-trace-line">
-        <span aria-hidden>✦</span>
+      <button type="button" onClick={() => void toggle()} className="vg-trace-line" aria-expanded={open} aria-controls={detailsId}>
+        <Icon name="spark" size={16}/>
         <span>{content}</span>
         <span className="vg-trace-more">{open ? '收起' : '看看记住了什么'}</span>
       </button>
       {open && (
-        <div className="vg-trace-panel">
+        <div id={detailsId} className="vg-trace-panel">
           {items === null ? (
             <p className="text-[12px] text-gray-500">正在读取…</p>
           ) : items.length === 0 ? (
@@ -98,11 +102,16 @@ function WorldTrace({ turnId, content }: { turnId?: string; content: string }) {
   );
 }
 
+export function WorldCharacterAvatar({character}:{character?:Character}){
+  const owner=useAuthStore(s=>s.userId)??'';
+  const visual=useChatAtmosphere(character,owner).config.roleVisual;
+  return <Avatar avatar={visual?.avatar?.image||character?.avatar||'🙂'} size="sm"/>;
+}
 function CharacterGroup({ entries, character }: { entries: WorldSceneEntry[]; character?: Character }) {
   const name = character?.name ?? '某人';
   return (
     <div className="vg-beat">
-      <Avatar avatar={character?.avatar ?? '🙂'} size="sm" />
+      <WorldCharacterAvatar character={character}/>
       <div className="min-w-0 flex-1">
         <p className="vg-beat-name">{name}</p>
         {entries.map((entry) => (
@@ -127,7 +136,7 @@ export function WorldStream({ entries, characters }: { entries: WorldSceneEntry[
           return <p key={group.id} className="vg-narration" data-beat-id={typeof group.entry.meta?.beatId === 'string' ? group.entry.meta.beatId : undefined}>{group.entry.content}</p>;
         }
         if (group.kind === 'user') {
-          return <p key={group.id} className="vg-user-action">你{group.entry.content.startsWith('你') ? group.entry.content.slice(1) : `：${group.entry.content}`}</p>;
+          return <p key={group.id} className="vg-user-action"><span className="sr-only">你：</span>{group.entry.content}</p>;
         }
         if (group.kind === 'character') {
           return <CharacterGroup key={group.id} entries={group.entries} character={byId.get(group.characterId)} />;

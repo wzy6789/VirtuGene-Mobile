@@ -1,11 +1,32 @@
 import { db, type Todo, type TodoOccurrence, type TodoRecurrence, type TodoReminder, type TodoWorkFields, type TodoEvent } from './index';
-import { validateWorkFields, validWorkDate, WORK_FIELDS } from './todo-work';
+import { validateWorkFields, validateTodoEvent, validWorkDate, WORK_FIELDS } from './todo-work';
 import { useAuthStore } from '../store/auth-store';
 import Dexie, { type Transaction } from 'dexie';
 import { cancelReminderRows, reconcileTodoReminders } from '../lib/todo-reminders';
 import { memorySourceTombstoneRepo } from './memory-source-tombstone-repo';
 
 export type TodoWithOccurrence = { todo: Todo; occurrence: TodoOccurrence };
+
+/** Immediate undo is local to the editor; imported or copied receipts carry no authority. */
+export interface TodoDeletionReceipt {
+  readonly todoId: string;
+  readonly title: string;
+  readonly version: number;
+  readonly remindersPending: boolean;
+}
+type DeletedTodoSnapshot = { todo: Todo; occurrences: TodoOccurrence[]; events: TodoEvent[] };
+const deletedTodoSnapshots = new WeakMap<TodoDeletionReceipt, DeletedTodoSnapshot>();
+function assertTodoAccount(userId: string) {
+  if (!userId || useAuthStore.getState().userId !== userId) throw new Error('账号已切换。');
+}
+async function cancelDeletedTodoReminders(userId: string, todoId: string): Promise<boolean> {
+  assertTodoAccount(userId);
+  const active = () => db.todoReminders.where('todoId').equals(todoId)
+    .filter(row => row.userId === userId && !['cancelled', 'expired', 'fired'].includes(row.status));
+  await cancelReminderRows(userId, await active().toArray());
+  assertTodoAccount(userId);
+  return (await active().count()) > 0;
+}
 
 export function localDateKey(date = new Date()): string {
   const y = date.getFullYear();
@@ -285,12 +306,80 @@ export const todoRepo = {
       if(!event.voidedAt)await db.todoEvents.update(id,{voidedAt:Math.max(Date.now(),event.updatedAt+1),updatedAt:Math.max(Date.now(),event.updatedAt+1)});
     });notifyTodo(userId);
   },
-  async remove(userId: string, id: string): Promise<void> {
-    const todo = await this.get(userId, id);
-    if (!todo) return;
-    await this.update(userId, id, { status: 'deleted', deletedAt: Date.now() });
-    const reminders = await db.todoReminders.where('todoId').equals(id).filter((item) => item.userId === userId).toArray();
-    await cancelReminderRows(userId, reminders);
+  async remove(userId: string, id: string, expectedUpdatedAt?: number): Promise<TodoDeletionReceipt> {
+    const { snapshot, version } = await db.transaction('rw',
+      [db.todos, db.todoOccurrences, db.todoEvents, db.todoReminders, db.memorySourceTombstones], async () => {
+        assertTodoAccount(userId);
+        const todo = await this.get(userId, id);
+        if (!todo || todo.status === 'deleted') throw new Error('待办已删除或不可用。');
+        if (expectedUpdatedAt !== undefined && todo.updatedAt !== expectedUpdatedAt) throw new Error('事项已被修改，请重新打开后删除。');
+        const occurrences = await db.todoOccurrences.where('todoId').equals(id).filter(row => row.userId === userId).toArray();
+        const events = await db.todoEvents.where('todoId').equals(id).filter(row => row.userId === userId).toArray();
+        const occurrenceIds = new Set(occurrences.map(row => row.id));
+        for (const row of occurrences) {
+          const date = row.id.slice(`todo-occ:${id}:`.length);
+          if (!row.id.startsWith(`todo-occ:${id}:`) || !validWorkDate(date) || row.scheduledDate !== undefined && row.scheduledDate !== date) throw new Error('事项实例身份无效，请重新查看。');
+        }
+        for (const event of events) {
+          validateTodoEvent(event);
+          if (!occurrenceIds.has(event.occurrenceId)) throw new Error('事项历史缺少对应实例，请重新查看。');
+        }
+        const snapshot = { todo, occurrences, events };
+        const deleted = await this.update(userId, id, { status: 'deleted', deletedAt: Date.now() });
+        // Retain immutable history under the deleted identity. Sync validates
+        // these facts against its same-owner deleted-source revision boundary.
+        await db.todoReminders.where('todoId').equals(id)
+          .filter(row => row.userId === userId && !['cancelled', 'expired', 'fired'].includes(row.status))
+          .modify(row => { row.status = 'cancel-pending'; row.error = undefined; row.updatedAt = Math.max(Date.now(), row.updatedAt + 1); });
+        assertTodoAccount(userId);
+        return { snapshot, version: deleted.updatedAt };
+      });
+    // Data deletion is committed even if the native cancellation fails. Pending
+    // rows survive for the next reconciliation, and undo can retry cancellation.
+    let remindersPending = true;
+    try { remindersPending = await cancelDeletedTodoReminders(userId, id); } catch { /* receipt remains usable */ }
+    const receipt = Object.freeze({ todoId: id, title: snapshot.todo.title, version, remindersPending });
+    deletedTodoSnapshots.set(receipt, snapshot);
+    return receipt;
+  },
+  async undoRemove(userId: string, receipt: TodoDeletionReceipt): Promise<Todo> {
+    assertTodoAccount(userId);
+    const snapshot = deletedTodoSnapshots.get(receipt);
+    if (!snapshot || snapshot.todo.userId !== userId) throw new Error('撤销记录已失效，请重新查看。');
+    // A fresh task has fresh notification IDs. Do not allow replacements while
+    // notifications for the deleted identity are still awaiting cancellation.
+    if (await cancelDeletedTodoReminders(userId, snapshot.todo.id)) throw new Error('旧提醒尚未取消，请重试撤销。');
+    const restored = await db.transaction('rw', [db.todos, db.todoOccurrences, db.todoEvents], async () => {
+      assertTodoAccount(userId);
+      const current = await db.todos.get(snapshot.todo.id);
+      if (!current || current.userId !== userId || current.status !== 'deleted' || current.updatedAt !== receipt.version) throw new Error('事项已变化或已恢复，不能再次撤销。');
+      const originals = await db.todoOccurrences.where('todoId').equals(current.id).filter(row => row.userId === userId).toArray();
+      const versions = new Map(snapshot.occurrences.map(row => [row.id, row.updatedAt]));
+      const originalEvents = await db.todoEvents.where('todoId').equals(current.id).filter(row => row.userId === userId).toArray();
+      const eventVersions = new Map(snapshot.events.map(event => [event.id, event.updatedAt]));
+      if (originals.length !== versions.size || originals.some(row => versions.get(row.id) !== row.updatedAt)
+        || originalEvents.length !== eventVersions.size || originalEvents.some(event => eventVersions.get(event.id) !== event.updatedAt)) throw new Error('事项历史已变化，请重新查看。');
+      const revision = snapshot.occurrences.reduce((value, row) => Math.max(value, row.updatedAt + 1), Math.max(Date.now(), current.updatedAt + 1));
+      const todo: Todo = { ...snapshot.todo, id: crypto.randomUUID(), updatedAt: revision };
+      const ids = new Map<string, string>();
+      const occurrences = snapshot.occurrences.map(row => {
+        const scheduledDate = row.id.slice(`todo-occ:${current.id}:`.length);
+        const id = occurrenceId(todo.id, scheduledDate); ids.set(row.id, id);
+        return { ...row, id, todoId: todo.id, scheduledDate, updatedAt: revision };
+      });
+      const events = snapshot.events.map(event => ({ ...event, id: crypto.randomUUID(), todoId: todo.id, occurrenceId: ids.get(event.occurrenceId)!, updatedAt: Math.max(revision, event.updatedAt + 1) }));
+      await db.todos.add(todo);
+      await db.todoOccurrences.bulkAdd(occurrences);
+      await db.todoEvents.bulkAdd(events);
+      // Consume this deleted revision in the same transaction as the new IDs.
+      // The original task stays deleted and every old tombstone stays intact.
+      await db.todos.update(current.id, { updatedAt: revision });
+      assertTodoAccount(userId);
+      notifyTodo(userId);
+      return todo;
+    });
+    deletedTodoSnapshots.delete(receipt);
+    return restored;
   },
   async visibleForCharacter(userId: string, characterId: string, limit = 5, includeUnplanned = false): Promise<Todo[]> {
     return (await this.visibleOccurrencesForCharacter(userId, characterId, limit, includeUnplanned)).map(({ todo }) => todo);

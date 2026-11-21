@@ -25,7 +25,7 @@ export const MOBILE_TABS: { key: MobileTab; label: string }[] = [
 
 /** 哪些视图是"世界"下的内容页（底部导航保持可见） */
 export const WORLD_OVERLAY_VIEWS: ActiveView[] = ['diary', 'todo', 'moments', 'relations', 'stage', 'memory', 'timeline', 'worldSettings'];
-/** 用户命名的助理工作区属于消息下的聊天详情，不属于世界内容页。 */
+/** 助理工作区使用详情转场，所属导航由进入时的 mobileTab 保留（消息或世界）。 */
 export const CHAT_DETAIL_VIEWS: ActiveView[] = ['actionCabin'];
 /** 沉浸式视图（隐藏底部导航） */
 export const IMMERSIVE_VIEWS: ActiveView[] = ['canvas'];

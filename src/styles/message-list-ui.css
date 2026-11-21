@@ -1,0 +1,63 @@
+/* One full-height conversation workspace; its tools stay above the scrolling rows. */
+.mobile-layout .vg-conversations.vg-home-stage-page .vg-conversation-brand.vg-message-heading {
+  align-items:center;
+  min-height:64px;
+  padding:12px 20px 8px;
+  gap:12px;
+}
+.mobile-layout .vg-conversations.vg-home-stage-page .vg-message-heading h1 {
+  font-size:max(24px,1.5rem);
+  font-weight:600;
+  line-height:1.4;
+}
+.mobile-layout .vg-conversations .vg-message-workspace {
+  display:flex;
+  flex:1;
+  flex-direction:column;
+  min-height:0;
+  margin:0 12px;
+  border-radius:26px 26px 0 0;
+  border-bottom:0;
+  overflow:hidden;
+  --vg-glass-scene-fill:var(--vg-glass-content-bg);
+}
+.mobile-layout .vg-conversations.vg-home-stage-page .vg-message-toolbar {
+  min-height:48px;
+  margin:0;
+  padding:12px;
+  border-bottom:1px solid var(--vg-glass-edge);
+  gap:8px;
+}
+.mobile-layout .vg-conversations.vg-home-stage-page .vg-message-toolbar .vg-conversation-channels {
+  padding:2px;
+  border-radius:16px;
+}
+.mobile-layout .vg-conversations .vg-message-search-row{display:flex;padding:0 16px 12px}
+.mobile-layout .vg-conversations.vg-home-stage-page[data-home-scene] .vg-home-conversation-section {
+  margin:0;
+  padding:0 14px;
+  border-radius:0;
+}
+.mobile-layout .vg-conversations .vg-message-workspace .vg-home-group-list {
+  padding:12px 14px 0;
+}
+.mobile-layout .vg-conversations .vg-message-workspace .vg-home-assistant {
+  padding:16px 14px;
+}
+.mobile-layout .vg-conversations .vg-message-workspace .vg-home-assistant .vg-secretary-workspace {
+  border-top:0;
+}
+.mobile-layout .vg-conversations .vg-message-workspace .vg-conversation-scroll {
+  overscroll-behavior:contain;
+}
+.mobile-layout .vg-conversations.vg-home-stage-page .vg-conversation-row p {
+  font-size:max(14px,.875rem);
+  font-weight:400;
+  line-height:1.55;
+}
+.mobile-layout .vg-conversations.vg-home-stage-page .vg-conversation-name {
+  font-weight:500;
+}
+.mobile-layout .vg-conversations.vg-home-stage-page .vg-message-search {
+  min-height:48px;
+}

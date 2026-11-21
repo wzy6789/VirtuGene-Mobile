@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "sceneId": "hearth-cabin",
+  "file": "scene.glb",
+  "bytes": 822188,
+  "sha256": "5ca5d7f4c96cd3a980aa1c9111163caa5512ee4f37db092c083a4b26ab0aef16",
+  "triangles": 44238,
+  "vertices": 22804,
+  "drawCalls": 2,
+  "geometryBoundsBlender": {
+    "min": [
+      -4.002999782562256,
+      -7.0,
+      -0.13969296216964722
+    ],
+    "max": [
+      4.102999687194824,
+      9.0,
+      3.93999981880188
+    ]
+  },
+  "camera": {
+    "position": [
+      -0.1,
+      2.15,
+      5.4
+    ],
+    "rotationQuaternion": [
+      0.7451065182685852,
+      0.6669093370437622,
+      -0.004631092306226492,
+      -0.005174100864678621
+    ],
+    "verticalFovDegrees": 60.28277110415069
+  },
+  "effectQuad": [
+    [
+      -1.5,
+      0.17,
+      -3.12
+    ],
+    [
+      -0.19,
+      0.17,
+      -3.12
+    ],
+    [
+      -0.19,
+      1.27,
+      -3.12
+    ],
+    [
+      -1.5,
+      1.27,
+      -3.12
+    ]
+  ],
+  "lightPoint": [
+    -0.85,
+    0.75,
+    -3.05
+  ],
+  "cup": [
+    -0.05,
+    0.864,
+    1.6
+  ],
+  "source": {
+    "file": "design/chat-scenes/collection-warm/hearth-cabin/VirtuGene-hearth-cabin-Original.blend",
+    "sha256": "98984dee7f65cd9fb0c7fc82a61b1ebc796172e9a0e32f7b7dcb493cfe04fb31",
+    "originalObjects": 145,
+    "originalTriangles": 212976
+  },
+  "apertureCutForRealtime": false,
+  "distantBackgroundDepthWrite": false,
+  "materialStrategy": "fixed-camera projected baked appearance on genuine full room geometry; bounded parallax, not free-view PBR",
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认"
+}

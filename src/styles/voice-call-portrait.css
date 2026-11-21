@@ -1,0 +1,53 @@
+/* Portrait, light and dust occupy separate planes. Only transform/opacity move. */
+.vg-voice-portrait{--portrait-width:clamp(200px,60vw,256px);position:relative;width:min(100%,340px);height:calc(var(--portrait-width)*1.16 + 48px);margin:0 auto 18px;perspective:900px;pointer-events:none}
+.vg-voice-portrait-aura,.vg-voice-portrait-response{position:absolute;inset:-14% -12%;background:radial-gradient(ellipse 38% 40% at 40% 42%,color-mix(in srgb,var(--chat-cyan,var(--vg-cyan)) 38%,transparent),transparent 100%),radial-gradient(ellipse 30% 34% at 62% 60%,color-mix(in srgb,var(--chat-glow,var(--vg-accent)) 20%,transparent),transparent 100%);opacity:.7;animation:vg-portrait-breathe 8s ease-in-out infinite alternate}
+.vg-voice-portrait-response{inset:-6% -8%;background:radial-gradient(ellipse 48% 48% at 50% 50%,color-mix(in srgb,var(--chat-cyan,var(--vg-cyan)) 50%,transparent),transparent 100%);opacity:.24;animation:none;transition:opacity 180ms linear}
+.vg-voice-portrait-depth{position:absolute;inset:0;transform-style:preserve-3d;transform:rotateX(2deg) rotateY(-4deg);animation:vg-portrait-float 12s ease-in-out infinite alternate}
+.vg-voice-portrait-frame{position:absolute;left:50%;top:16px;width:var(--portrait-width);height:calc(var(--portrait-width)*1.16);transform:translateX(-50%) translateZ(28px);border-radius:34px;transform-style:preserve-3d;background:var(--bg-panel);box-shadow:1px 2px 0 color-mix(in srgb,var(--chat-cyan,var(--vg-cyan)) 16%,transparent),3px 4px 0 color-mix(in srgb,var(--bg-panel) 97%,#fff),12px 24px 40px -20px #000d,-8px -8px 32px -16px color-mix(in srgb,var(--chat-cyan,var(--vg-cyan)) 48%,transparent)}
+.vg-voice-portrait-image{display:block;width:100%;height:100%;object-fit:cover;object-position:center;border-radius:inherit}
+.vg-voice-portrait-edge{position:absolute;inset:0;border-radius:inherit;pointer-events:none;border:1px solid color-mix(in srgb,var(--chat-cyan,var(--vg-cyan)) 12%,transparent);border-top-color:color-mix(in srgb,var(--chat-highlight,#fff) 48%,transparent);border-left-color:color-mix(in srgb,var(--chat-cyan,var(--vg-cyan)) 44%,transparent);box-shadow:inset 1px 1px 1px #e6f6ff38,inset -1px -2px 2px #0005;background:linear-gradient(135deg,#e8f7ff0d,transparent 24%,transparent 78%,#07121f12);transform:translateZ(1px)}
+.vg-voice-portrait-shadow{position:absolute;left:26%;right:12%;bottom:-2%;height:15%;border-radius:50%;background:radial-gradient(ellipse,#0007,transparent 68%);transform:translateZ(-30px)}
+.vg-voice-portrait-fallback{display:grid;place-items:center;background:radial-gradient(ellipse at 25% 15%,color-mix(in srgb,var(--chat-accent,var(--vg-accent)) 28%,transparent),transparent 80%),var(--bg-panel);font-size:64px;color:var(--text-secondary);letter-spacing:.06em}
+.vg-voice-portrait-particles{position:absolute;inset:0;transform-style:preserve-3d}
+.vg-voice-portrait-particles.is-back{transform:translateZ(-38px);opacity:.48}
+.vg-voice-portrait-particles.is-front{transform:translateZ(58px);opacity:.8}
+.vg-voice-portrait-particles i{position:absolute;width:var(--particle-size);height:var(--particle-size);border-radius:50%;background:color-mix(in srgb,var(--chat-cyan,var(--vg-cyan)) 30%,#fff);box-shadow:0 0 8px 1px color-mix(in srgb,var(--chat-cyan,var(--vg-cyan)) 42%,transparent);animation:vg-portrait-dust var(--particle-time) ease-in-out var(--particle-delay) infinite alternate}
+.vg-voice-portrait-particles.is-front i{box-shadow:0 0 10px 2px color-mix(in srgb,var(--chat-cyan,var(--vg-cyan)) 28%,transparent)}
+.vg-voice-call[data-captions=true] .vg-voice-portrait{--portrait-width:clamp(148px,43vw,184px);margin-bottom:10px}
+.vg-voice-call.is-text-input .vg-voice-portrait{--portrait-width:clamp(156px,45vw,192px)}
+.vg-voice-call[data-call-phase=ready] .vg-voice-portrait,.vg-voice-call[data-call-phase=ended] .vg-voice-portrait{--portrait-width:clamp(164px,48vw,204px);margin-bottom:10px}
+.vg-voice-call[data-captions=false]:not(.is-text-input):not([data-call-phase=ready]):not([data-call-phase=ended]) .vg-voice-call-persona{padding-top:clamp(16px,4dvh,40px)}
+.vg-voice-call-capsule-portrait{width:40px;height:46px;border-radius:13px;box-shadow:inset 0 1px 0 #ffffff29,0 3px 12px #0003;object-fit:cover}
+@keyframes vg-portrait-float{from{transform:rotateX(1.5deg) rotateY(-3deg) translateY(1px)}to{transform:rotateX(-1deg) rotateY(2deg) translateY(-3px)}}
+@keyframes vg-portrait-breathe{from{transform:translate3d(-3px,3px,0) scale(.97);opacity:.58}to{transform:translate3d(4px,-4px,0) scale(1.04);opacity:.84}}
+@keyframes vg-portrait-dust{from{transform:translate3d(0,8px,0);opacity:.25}to{transform:translate3d(var(--particle-drift),-15px,8px);opacity:.9}}
+.vg-voice-portrait[data-motion=false] *{animation-play-state:paused!important;transition:none!important}
+html[data-vg-background] .vg-voice-portrait *,[inert] .vg-voice-portrait *,html[data-vg-reduced-motion=true] .vg-voice-portrait *{animation-play-state:paused!important;transition:none!important}
+@media(prefers-reduced-motion:reduce){.vg-voice-portrait *{animation:none!important;transition:none!important}}
+@media(max-height:700px){.vg-voice-portrait{--portrait-width:clamp(176px,29dvh,220px)}.vg-voice-call[data-captions=true] .vg-voice-portrait,.vg-voice-call.is-text-input .vg-voice-portrait{--portrait-width:136px;height:176px;margin-bottom:8px}.vg-voice-call[data-captions=false]:not(.is-text-input):not([data-call-phase=ready]):not([data-call-phase=ended]) .vg-voice-call-persona{padding-top:8px}}
+@media(max-height:540px){.vg-voice-call.is-text-input .vg-voice-portrait,.vg-voice-call[data-captions=true] .vg-voice-portrait{--portrait-width:108px;height:140px}.vg-voice-portrait-frame{border-radius:24px}}
+.vg-voice-portrait-frame{transform-origin:50% 0}
+.vg-voice-call-caption-area:not([hidden]){animation:vg-call-caption-reveal 280ms cubic-bezier(.2,.8,.2,1) both}
+@keyframes vg-call-caption-reveal{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.vg-voice-call-caption-area:not([hidden]){animation:none}}
+html[data-vg-reduced-motion=true] .vg-voice-call-caption-area:not([hidden]){animation:none}
+
+/* Size the presence from the space left after controls, rather than the screen
+   behind the keyboard. The same light, depth and eighteen particles stay live. */
+.vg-voice-call-modal.is-call-active .vg-voice-portrait{--portrait-width:clamp(120px,44cqh,256px);height:calc(var(--portrait-width)*1.16 + 32px);margin-bottom:12px;flex:none}
+.vg-voice-call-modal.is-call-active .vg-voice-call[data-captions=true] .vg-voice-portrait{--portrait-width:clamp(64px,20cqh,144px);margin-bottom:6px}
+.vg-voice-call-modal.is-call-active .vg-voice-call[data-caption-history=true] .vg-voice-portrait{--portrait-width:104px;grid-column:1;grid-row:1 / 3;width:120px;height:144px;margin:0}
+@container voice-call (max-height:430px){
+  .vg-voice-call-modal.is-call-active .vg-voice-portrait,
+  .vg-voice-call-modal.is-call-active .vg-voice-call[data-captions=true] .vg-voice-portrait,
+  .vg-voice-call-modal.is-call-active .vg-voice-call[data-caption-history=true] .vg-voice-portrait{--portrait-width:64px;grid-column:1;grid-row:1 / 3;width:80px;height:84px;margin:0}
+  .vg-voice-call-modal.is-call-active .vg-voice-portrait-frame{top:4px;border-radius:18px}
+  .vg-voice-call-modal.is-call-active .vg-voice-portrait-fallback{font-size:28px}
+}
+@container voice-call-shell (max-height:540px){
+  .vg-voice-call-modal.is-call-active .vg-voice-call[data-captions=true] .vg-voice-portrait{--portrait-width:64px;width:80px;height:84px;margin:0;grid-column:auto;grid-row:auto}
+}
+@container voice-call-shell (540px < height <= 860px){
+  .vg-voice-call-modal.is-call-active .vg-voice-call[data-call-recovery=true][data-captions=true] .vg-voice-portrait{--portrait-width:64px;width:80px;height:84px;margin:0;grid-column:auto;grid-row:auto}
+  .vg-voice-call-modal.is-call-active .vg-voice-call[data-call-recovery=true][data-captions=true] .vg-voice-portrait-frame{top:4px;border-radius:18px}
+}

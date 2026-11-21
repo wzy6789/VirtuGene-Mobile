@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { confirm, resonate } from '../../lib/haptics';
 import { IS_CAPACITOR } from '../../lib/platform';
 import { AudioRecorder } from '../../lib/recorder';
@@ -6,19 +7,22 @@ import { ensureRecordPermission, startSpeechRecognition, stopSpeechRecognition, 
 import { loadSecret } from '../../lib/api-key-storage';
 import { transcribeWithSiliconFlow, CLOUD_ASR_KEY_NAME } from '../../lib/cloud-asr';
 import type { VoicePayload } from './ChatInput';
+import { AttachmentSheet } from './AttachmentSheet';
 
 type Phase = 'idle' | 'starting' | 'recording' | 'converting' | 'cancelling';
 let nativeOwner: symbol | null = null;
 
 /** One recorder, one pending operation. Late permission/ASR results cannot send. */
-export function VoiceMorphControl({ disabled, onSend, onImage, onActiveChange, onNotice }: {
+export function VoiceMorphControl({ disabled, onSend, onImage, onActiveChange, onNotice, children }: {
   disabled?: boolean; onSend?: (voice: VoicePayload) => void; onImage?: () => void;
   onActiveChange: (active: boolean) => void; onNotice: (message: string) => void;
+  children?: ReactNode;
 }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [level, setLevel] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [cancelHint, setCancelHint] = useState(false);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const state = useRef<Phase>('idle');
   const generation = useRef(0);
   const recorder = useRef<AudioRecorder | null>(null);
@@ -111,19 +115,23 @@ export function VoiceMorphControl({ disabled, onSend, onImage, onActiveChange, o
     };
   }, []);
   useEffect(() => { if (disabled && state.current !== 'idle') cancel(); }, [disabled]);
+  useEffect(() => { if (disabled || phase !== 'idle' || !onImage) setAttachmentsOpen(false); }, [disabled, phase, onImage]);
   const recording = phase === 'recording';
-  return <div className={`vg-voice-tools ${!onSend ? 'is-image-only' : ''} ${recording ? 'is-recording' : ''} ${cancelHint ? 'is-cancelling' : ''}`} data-no-page-swipe data-no-back-swipe>
-    <button type="button" aria-label={recording || phase === 'starting' ? '取消录音' : '发送图片'} disabled={disabled || (!recording && phase !== 'starting' && (!onImage || phase !== 'idle'))}
-      onClick={() => recording || phase === 'starting' ? cancel(true) : onImage?.()}>
-      <svg className="vg-voice-plus" style={phase === 'starting' ? { transform: 'rotate(45deg)' } : undefined} aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+  return <div className={`vg-voice-tools ${children ? 'has-input' : ''} ${!onSend ? 'is-image-only' : ''} ${recording ? 'is-recording' : ''} ${cancelHint ? 'is-cancelling' : ''}`} data-no-page-swipe data-no-back-swipe>
+    <button type="button" aria-label={recording || phase === 'starting' ? '取消录音' : '添加附件'} aria-haspopup={recording || phase === 'starting' ? undefined : 'dialog'} aria-expanded={attachmentsOpen}
+      disabled={disabled || (!recording && phase !== 'starting' && (!onImage || phase !== 'idle'))}
+      onClick={() => recording || phase === 'starting' ? cancel(true) : setAttachmentsOpen(true)}>
+      <svg className="vg-voice-plus" style={phase === 'starting' ? { transform: 'rotate(45deg)' } : undefined} aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><circle cx="12" cy="12" r="9.25" /><path d="M12 7v10M7 12h10" /></svg>
     </button>
+    <div className={children ? 'vg-voice-field' : 'vg-voice-field-standalone'}>
+    {children}
     {recording && <div className="vg-voice-live" role="status" aria-live="off">
       <span className="vg-voice-wave" aria-label="录音音量">{[.45,.7,1,.8,.5,.85,.55].map((v,i) => <i key={i} style={{ height: `${3 + Math.min(1, Math.max(0, level)) * v * 21}px` }} />)}</span>
       <time>{`${String(Math.floor(elapsed / 60000)).padStart(2,'0')}:${String(Math.floor(elapsed / 1000) % 60).padStart(2,'0')}`}</time>
       <span>{cancelHint ? '松手取消' : pointer.current?.held ? '松手发送' : '点话筒发送'}</span>
     </div>}
     {onSend && <button type="button" aria-label={recording ? '停止并发送录音' : phase === 'idle' ? '长按录音，也可点击开始' : phase === 'converting' ? '语音识别中' : '准备录音'}
-      disabled={disabled || phase === 'converting' || phase === 'cancelling'} style={{ touchAction: 'none' }}
+      disabled={disabled || attachmentsOpen || phase === 'converting' || phase === 'cancelling'} style={{ touchAction: 'none' }}
       onContextMenu={e => e.preventDefault()}
       onPointerDown={e => {
         if (e.button !== 0 || state.current !== 'idle') return;
@@ -143,5 +151,10 @@ export function VoiceMorphControl({ disabled, onSend, onImage, onActiveChange, o
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" /></svg> :
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4" /></svg>}
     </button>}
+    </div>
+    <AttachmentSheet open={attachmentsOpen && !disabled && phase === 'idle' && !!onImage} onClose={() => setAttachmentsOpen(false)} onImage={() => {
+      if (!mounted.current || disabled || state.current !== 'idle') return;
+      try { onImage?.(); } catch { callbacks.current.onNotice('图片选择暂时无法打开，请重试'); }
+    }} />
   </div>;
 }

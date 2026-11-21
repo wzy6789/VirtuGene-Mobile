@@ -18,6 +18,8 @@ const MEMORY_EXTRACTION_PROMPT =
   '示例输出：["用户喜欢喝咖啡，尤其是拿铁", "用户在学日语，目前 N3 水平", "用户下个月要去东京旅行"]';
 
 export interface ConsolidateParams {
+  /** Local lease/evidence guard, never serialized to a provider. */
+  beforeRequest?:()=>Promise<void>;
   /** Optional scoped transport. Parsing and evidence rules stay shared. */
   transport?: (messages: { role: 'system' | 'user'; content: string }[]) => Promise<string>;
   apiKey: string;
@@ -40,6 +42,7 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
     : '');
   const sourceText = history.map(m => `${m.role}${m.sourceId ? ` [sourceId=${m.sourceId}]` : ''}: ${m.content}`).join('\n');
   const viaGateway = async (): Promise<ConsolidateResult> => {
+    await params.beforeRequest?.();
     const result = await gatewayChat({
       apiKey: '', systemPrompt,
       message: `${userMessage}\n\n${sourceText}`,
@@ -67,7 +70,7 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
     }
   };
   if (params.transport) {
-    try { return parse(await params.transport([{ role: 'system', content: systemPrompt }, { role: 'user', content: `${userMessage}\n\n${sourceText}` }])); }
+    try { await params.beforeRequest?.();return parse(await params.transport([{ role: 'system', content: systemPrompt }, { role: 'user', content: `${userMessage}\n\n${sourceText}` }])); }
     catch { return { error: 'memory:scoped-transport-failed' }; }
   }
   if (taskUsesGateway(apiKey)) {
@@ -84,7 +87,7 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
   ];
 
   try {
-    const result = await taskChat({ apiKey, messages, maxTokens: 1000, temperature: .3, disableThinking: true, timeoutMs: 30_000 });
+    const result = await taskChat({ apiKey, messages, maxTokens: 1000, temperature: .3, disableThinking: true, timeoutMs: 30_000,beforeRequest:params.beforeRequest });
     const text = result.content;
     const parsed = parse(text);
     if (parsed.error === 'parse:error' && taskUsesGateway('')) {
@@ -92,6 +95,7 @@ export async function extractMemories(params: ConsolidateParams): Promise<Consol
     }
     return parsed;
   } catch (error) {
+    if(error instanceof Error&&error.message.startsWith('memory:'))return {error:error.message};
     if (error instanceof Error && ['auth:invalid_key', 'billing:insufficient', 'rate:limited'].includes(error.message)) return { error: error.message };
     if (taskUsesGateway('')) {
       try {

@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "sceneId": "guofeng-tea-room",
+  "file": "scene.glb",
+  "bytes": 52612,
+  "sha256": "1c42c2e3752947b93d970ee79dd7c29c9c24b8d9533ac53e581f975478b473bb",
+  "triangles": 1160,
+  "vertices": 794,
+  "drawCalls": 2,
+  "geometryBoundsBlender": {
+    "min": [
+      -3.1076877117156982,
+      2.9100000858306885,
+      -6.3035101890563965
+    ],
+    "max": [
+      3.188837766647339,
+      12.3100004196167,
+      6.898180961608887
+    ]
+  },
+  "effectQuad": [
+    [
+      0.092887,
+      -0.778915,
+      -9.92
+    ],
+    [
+      2.642128,
+      -0.778915,
+      -9.92
+    ],
+    [
+      2.642128,
+      2.703293,
+      -9.92
+    ],
+    [
+      0.092887,
+      2.703293,
+      -9.92
+    ]
+  ],
+  "lightPoint": [
+    -1.409228,
+    0.545596,
+    -6.3
+  ],
+  "cup": [
+    -0.422404,
+    -0.689818,
+    -2.9
+  ],
+  "camera": {
+    "verticalFovDegrees": 60
+  },
+  "materialStrategy": "Generated photographic art projected on independently authored volumetric depth geometry; fixed-view bounded parallax. Not original Cycles baking or a freely navigable PBR room.",
+  "source": {
+    "file": "design/chat-scenes/lived-in-20261020/guofeng-tea-room-depth.blend",
+    "sha256": "15edc53387c7dbd43c16d3d740757072ffb37f379d582f6b6245572e7b3bd15e",
+    "art": {
+      "file": "design/chat-scenes/lived-in-20261020/guofeng-tea-room-source.png",
+      "width": 842,
+      "height": 1869,
+      "sha256": "00df87f4bfcc92393905ecd60d73e890f642a9e8fc8443e08ccca224e24c8600",
+      "origin": "Built-in image generation, task-authorized original environment asset. Not a Blender render.",
+      "nativeResolution": true,
+      "upscaled": false,
+      "model": "未确认",
+      "reasoning": "未确认"
+    }
+  },
+  "externalResources": [],
+  "model": "未确认",
+  "reasoning": "未确认",
+  "ambientVolume": {
+    "origin": [
+      -1.1964649880284959,
+      -1.4433756729740643,
+      -5
+    ],
+    "across": [
+      2.3929299760569913,
+      0.0,
+      0
+    ],
+    "up": [
+      0.0,
+      2.367136103677465,
+      0
+    ],
+    "depth": [
+      0,
+      0,
+      -2
+    ]
+  }
+}

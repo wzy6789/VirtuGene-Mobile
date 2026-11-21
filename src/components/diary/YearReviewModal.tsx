@@ -1,6 +1,6 @@
 import { useAiAvailability } from '../settings/useAiAvailability';
 import { useEffect, useMemo, useState } from 'react';
-import { Modal } from '../ui/Modal';
+import { DiaryToolModal, DiaryAiFeedback } from './DiaryToolModal';
 import { FilterSelect } from '../ui/FilterSelect';
 import { useAuthStore } from '../../store/auth-store';
 import { useDiaryStore } from '../../store/diary-store';
@@ -74,12 +74,12 @@ export function YearReviewModal({ open, onClose }: Props) {
         `- 正文：\n${joined}`;
       const r = await ipc.diary.assist({ apiKey, mode: 'annual', text: statsText });
       if (r.error || !r.text) {
-        setError('生成失败，请稍后重试');
+        setError(r.error || 'server:error');
       } else {
         setText(r.text);
       }
-    } catch {
-      setError('生成失败，请稍后重试');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'server:error');
     } finally {
       setLoading(false);
     }
@@ -115,8 +115,8 @@ export function YearReviewModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="✨ 年度灵魂回顾" width="max-w-xl" closeOnBackdrop={false}>
-      <div className="p-6 space-y-4">
+    <DiaryToolModal open={open} onClose={onClose} title="年度灵魂回顾">
+      <div className="vg-diary-tool-content space-y-4">
         {/* 年份选择 */}
         <div className="flex items-center gap-2">
           <span className="text-sm text-sub shrink-0">年份</span>
@@ -124,28 +124,23 @@ export function YearReviewModal({ open, onClose }: Props) {
             value={year}
             onChange={(v) => { setYear(v); void run(v); }}
             options={years.map((y) => ({ value: y, label: `${y} 年` }))}
-            className="flex-1"
-            buttonClassName="flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-surface border border-line text-sm text-ink hover:border-gene-purple/40 transition-colors"
+            className="vg-diary-tool-filter flex-1 min-w-0"
+            buttonClassName="flex items-center gap-1.5 w-full px-3 py-2 rounded-lg bg-surface border border-line text-sm text-ink hover:border-[color:var(--vg-accent)] transition-colors"
           />
           {stats && (
-            <span className="text-[11px] text-gray-500 shrink-0">{stats.count} 篇 · {stats.words} 字</span>
+            <span className="text-xs text-gray-500 shrink-0">{stats.count} 篇 · {stats.words} 字</span>
           )}
         </div>
 
         {loading ? (
           <div className="py-8 text-center">
-            <svg className="animate-spin w-6 h-6 mx-auto mb-3 text-gene-purple" viewBox="0 0 16 16" fill="none">
+            <svg className="animate-spin w-6 h-6 mx-auto mb-3 text-[color:var(--vg-accent)]" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="20" />
             </svg>
             <p className="text-sm text-gray-500">正在回看 {year} 年的日记…</p>
           </div>
-        ) : error ? (
-          <div className="py-8 text-center">
-            <p className="text-sm text-red-400 mb-3">{error}</p>
-            <button onClick={() => void run()} className="px-4 py-2 rounded-lg text-sm bg-gene-purple text-white hover:bg-[#5B4BD4] transition-colors">
-              重试
-            </button>
-          </div>
+        ) : error || !hasAiAccess ? (
+          <DiaryAiFeedback error={error} onRetry={() => void run()} />
         ) : (
           <>
             {/* 年度统计 */}
@@ -154,37 +149,37 @@ export function YearReviewModal({ open, onClose }: Props) {
                 {stats.moodDist.map((n, i) => (
                   <div key={i} className="rounded-lg bg-surface border border-line px-2 py-1.5 text-center">
                     <div className="text-sm font-bold text-ink tabular-nums">{n}</div>
-                    <div className="text-[10px] text-gray-500">{['很差', '低落', '一般', '开心', '很棒'][i]}</div>
+                    <div className="text-xs text-gray-500">{['很差', '低落', '一般', '开心', '很棒'][i]}</div>
                   </div>
                 ))}
               </div>
             )}
             {stats && stats.topTags.length > 0 && (
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] text-gray-500">年度高频</span>
+                <span className="text-xs text-gray-500">年度高频</span>
                 {stats.topTags.map((t) => (
-                  <span key={t} className="px-2 py-0.5 rounded-full bg-gene-purple/10 text-gene-purple text-[11px]">#{t}</span>
+                  <span key={t} className="px-2 py-0.5 rounded-full bg-gene-purple/10 text-gene-purple text-xs">#{t}</span>
                 ))}
               </div>
             )}
-            <div className="rounded-xl bg-surface border border-line px-4 py-3 text-sm text-ink leading-relaxed whitespace-pre-wrap max-h-80 overflow-y-auto">
+            <div className="vg-diary-tool-reading rounded-xl px-4 py-3 text-sm text-ink leading-relaxed whitespace-pre-wrap max-h-80 overflow-y-auto">
               {text}
             </div>
-            <div className="flex justify-end gap-2">
-              <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-gray-400 hover:bg-surface transition-colors">关闭</button>
-              <button onClick={() => void copy()} className="px-4 py-2 rounded-lg text-sm text-life-cyan hover:bg-life-cyan/10 transition-colors">
-                {copied ? '✅ 已复制' : '📋 复制'}
+            <div className="vg-diary-tool-actions">
+              <button onClick={onClose} className="vg-button vg-button-ghost">关闭</button>
+              <button onClick={() => void copy()} className="vg-button vg-button-secondary">
+                {copied ? '已复制' : '复制'}
               </button>
               <button
                 onClick={() => void saveToToday()}
-                className="px-4 py-2 rounded-lg text-sm bg-gene-purple hover:bg-[#5B4BD4] text-white transition-all"
+                className="vg-button vg-button-primary"
               >
-                💾 存为今天的日记
+                存为今天的日记
               </button>
             </div>
           </>
         )}
       </div>
-    </Modal>
+    </DiaryToolModal>
   );
 }

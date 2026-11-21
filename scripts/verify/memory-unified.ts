@@ -39,13 +39,15 @@ async function run() {
   await db.worldEvents.put({ id: eventId, userId: U, worldId: original.id, type: 'pulse', title: 'UNIFIED_EVENT 山顶赏月', summary: '一起谈起天文学', participants: [`c:${A}`, `c:${B}`], sourceType: 'user', sourceId: eventId, visibility: 'selected', visibleTo: [A, B], timestamp: now, createdAt: now, updatedAt: now, memoryIds: [], importance: 0.8, tags: [] } as any);
   for (const id of [A, B]) await knowledgeRepo.grantForEvent({ userId: U, worldId: original.id, characterId: id, eventId, knowledgeLevel: 'full', canMention: true });
   for (const mode of modes) {
-    const recall = await buildCharacterMemoryContext({ userId: U, characterId: A, topic: '桂花糕、陶艺、山顶赏月', mode, worldId: other.id, budget: 4000, withCatalog: true });
-    check(recall.text.includes('UNIFIED_FACT') && recall.text.includes('UNIFIED_PROMISE') && recall.text.includes('UNIFIED_EVENT'), `${mode}: same character carries facts, promises and events across worlds`);
+    const recall = await buildCharacterMemoryContext({ userId: U, characterId: A, topic: '桂花糕、陶艺、山顶赏月', mode, budget: 4000, withCatalog: true });
+    check(recall.text.includes('UNIFIED_FACT') && recall.text.includes('UNIFIED_PROMISE') && recall.text.includes('UNIFIED_EVENT'), `${mode}: same character carries facts, promises and events across worlds: ${JSON.stringify({ text: recall.text, retrieval: recall.retrieval })}`);
     check(recall.catalog?.events.some(row => row.id === eventId), `${mode}: catalog follows character across worlds`);
     const denied = await buildCharacterMemoryContext({ userId: U, characterId: B, topic: '桂花糕、陶艺', mode });
     check(!denied.text.includes('UNIFIED_FACT') && !denied.text.includes('UNIFIED_PROMISE'), `${mode}: another character never inherits personal memory`);
   }
-  const publicRecall = await buildCharacterMemoryContext({ userId: U, characterId: A, audience: [A, B], topic: '山顶赏月', worldId: other.id, mode: 'world-scene', withCatalog: true });
+  const scopedRecall = await buildCharacterMemoryContext({ userId: U, characterId: A, topic: '山顶赏月', worldId: other.id, mode: 'world-scene', withCatalog: true });
+  check(!scopedRecall.text.includes('UNIFIED_EVENT'), 'explicit world scope does not import another world event');
+  const publicRecall = await buildCharacterMemoryContext({ userId: U, characterId: A, audience: [A, B], topic: '山顶赏月', mode: 'world-scene', withCatalog: true });
   check(publicRecall.text.includes('UNIFIED_EVENT') && publicRecall.catalog?.events.some(row => row.id === eventId), 'shared known event survives audience intersection');
   check(!publicRecall.text.includes('UNIFIED_FACT') && !publicRecall.text.includes('UNIFIED_PROMISE'), 'personal memories stay out of shared prompt');
   await knowledgeRepo.grantForEvent({ userId: U, worldId: original.id, characterId: B, eventId, knowledgeLevel: 'none', canMention: false });

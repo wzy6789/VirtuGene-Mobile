@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "sceneId": "urban-window-seat",
+  "designWidth": 1440,
+  "designHeight": 3201.9024970273485,
+  "thumbnail": {
+    "file": "thumbnail.webp",
+    "width": 360,
+    "height": 800,
+    "bytes": 63550,
+    "sha256": "1a607983f9545454e15a3164feed32cda96090fe091cabd2dfe672d86196bc42",
+    "decodedRgbaBytes": 1152000
+  },
+  "qualities": {
+    "841": {
+      "poster": {
+        "file": "poster-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 460188,
+        "sha256": "682a6baab67277d3df089024f8bf21d7a5a0279249146be175515888de814f89",
+        "decodedRgbaBytes": 6290680
+      },
+      "cleanPlate": {
+        "file": "poster-841.webp",
+        "width": 841,
+        "height": 1870,
+        "bytes": 460188,
+        "sha256": "682a6baab67277d3df089024f8bf21d7a5a0279249146be175515888de814f89",
+        "decodedRgbaBytes": 6290680
+      },
+      "layers": [],
+      "windowMask": {
+        "rect": [
+          652.3662306777645,
+          635.243757431629,
+          787.6337693222355,
+          1748.20451843044
+        ],
+        "file": "window-mask-841.webp",
+        "width": 460,
+        "height": 1021,
+        "bytes": 4068,
+        "sha256": "6967c5e879acf0c7f5011d838a2552c2d51f84347e1b5d6dd3fac46450faf874",
+        "decodedRgbaBytes": 1878640
+      },
+      "decodedBytesWithPoster": 8169320
+    }
+  },
+  "windowPolygon": [],
+  "lightRect": [
+    0,
+    1200,
+    600,
+    1200
+  ],
+  "provenance": "Built-in image generation, task-authorized original environment asset. Not a Blender render.",
+  "compositeStrategy": "One complete photographic artwork, no detached foreground layers; actual geometry supplies realtime depth and exported compatibility mask.",
+  "cupMouth": [
+    275,
+    2600
+  ]
+}
