@@ -1,0 +1,103 @@
+/* Pearl paper studies: native, local examples for memory and everyday life. */
+.memory .memory-grid { gap: clamp(32px, 6vw, 96px); }
+.memory .body-copy { max-width: 30em; }
+.memory-source { margin-top: 26px; max-width: 35em; border-top: 1px solid #d9cddd; border-bottom: 1px solid #d9cddd; }
+.memory-source > summary { display: grid; gap: 9px; padding: 19px 1px 17px; list-style: none; cursor: pointer; }
+.memory-source > summary::-webkit-details-marker,
+.world-entry > summary::-webkit-details-marker { display: none; }
+.memory-source-label { color: #78667f; font-size: 13px; line-height: 1.7; letter-spacing: .035em; }
+.memory-statement { color: #3f2b4b; font-size: 17px; line-height: 1.9; }
+.memory-source-action { display: flex; align-items: center; gap: 12px; min-height: 28px; color: #664575; font-size: 14px; line-height: 1.6; }
+.memory-source-action i { position: relative; display: block; width: 12px; height: 12px; }
+.memory-source-action i::before,
+.memory-source-action i::after { content: ""; position: absolute; left: 1px; top: 5px; width: 10px; height: 1px; background: currentColor; }
+.memory-source-action i::after { transform: rotate(90deg); }
+.memory-source[open] .memory-source-action i::after { display: none; }
+.memory-source .when-open,
+.memory-source[open] .when-closed { display: none; }
+.memory-source[open] .when-open { display: inline; }
+.memory-original { padding: 15px 0 21px 16px; margin-left: 1px; border-left: 2px solid #ccb8d8; }
+.memory-original > p { color: #82708a; font-size: 13px; line-height: 1.7; }
+.memory-original blockquote { margin-top: 7px; color: #55415e; font: 16px/1.95 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; }
+.memory .folio-entry > span { font-size: 13px; line-height: 1.6; }
+.life-pair { align-items: start; }
+.life-pair .life-plate { position: relative; padding: clamp(24px, 3vw, 42px); min-height: 450px; isolation: isolate; }
+.life-pair .life-plate p { margin: 0; line-height: 1.8; }
+.life-pair .life-plate h3 { margin: 0; font:500 clamp(25px,2.1vw,34px)/1.35 var(--serif); letter-spacing:-.035em; }
+.life-pair .life-sample-mark { color: #786281; font-size: 13px; letter-spacing: .06em; }
+.assistant-plate { background: radial-gradient(ellipse at 12% 6%, #fffdfd 0, transparent 64%), linear-gradient(135deg, #eee5f2, #dbccE5); overflow: hidden; }
+.assistant-plate::before { content: ""; position: absolute; z-index: -1; width: 72%; height: 64%; top: 29%; left: 22%; transform: rotate(5deg); border: 1px solid #f8f4fb; background: #f3ebf6; box-shadow: 0 16px 40px #6449710d; }
+.assistant-paper { position: relative; margin: 22px 2% 0; padding: 26px 25px 23px; background: linear-gradient(118deg, #fffefd, #faf7fc); border: 1px solid #fffefd; box-shadow: 0 14px 36px #52365f0e, 0 1px 2px #52365f0a; }
+.assistant-paper-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 21px; border-bottom: 1px solid #e5dbe9; }
+.today-sample { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 13px; align-items: start; padding-top: 24px; }
+.today-sample input { appearance: none; -webkit-appearance: none; position: relative; display: grid; place-items: center; width: 24px; height: 24px; margin: 3px 0 0; padding: 0; border: 1px solid #aa91b5; border-radius: 50%; background: #fff; color: #fff; cursor: pointer; }
+.today-sample input:checked { background: #684876; border-color: #684876; }
+.today-sample input:checked::before { content: ""; width: 10px; height: 6px; margin-top: -2px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); }
+.today-sample input:focus-visible { outline: 3px solid #9d72be; outline-offset: 5px; }
+.today-sample label { display: grid; gap: 5px; padding-bottom: 5px; cursor: pointer; }
+.today-sample label strong { font-size: 16px; font-weight: 520; color: #44304d; line-height: 1.8; }
+.today-sample label > span { color: #87738f; font-size: 13px; line-height: 1.8; }
+.today-sample input:checked + label strong { color: #8b7b91; text-decoration: line-through; text-decoration-thickness: 1px; text-decoration-color: #aa98b2; }
+.life-pair .life-plate .today-sample-state { grid-column: 2; margin-top: 8px; color: #80618c; font-size: 13px; }
+.today-sample .when-checked,
+.today-sample input:checked ~ .today-sample-state .when-unchecked { display: none; }
+.today-sample input:checked ~ .today-sample-state .when-checked { display: inline; }
+.assistant-paper-lines { display: grid; gap: 12px; margin-top: 24px; }
+.assistant-paper-lines i { display: block; height: 1px; background: #ece5ef; }
+.assistant-paper-lines i:last-child { width: 67%; }
+.life-pair .life-plate .life-example-note { position: relative; margin-top: 24px; color: #796280; font-size: 13px; line-height: 1.8; }
+.world-plate { color:#faf2fb; background:radial-gradient(ellipse at 95% 0%,#63406a 0%,transparent 60%),linear-gradient(122deg,#34203e,#402849 64%,#302035); box-shadow:inset 1px 0 #b794a3, inset 5px 0 #6d526e; }
+.world-plate::before { content:""; position:absolute; inset:13px; z-index:-1; border:1px solid #d6b5bd40; pointer-events:none; }
+.world-plate-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.world-pages { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 24px; margin-top:clamp(28px,3.6vw,52px); }
+.world-entry { min-width:0; border-top:1px solid #d8b9ce59; }
+.world-entry > summary { position: relative; display: grid; gap: 10px; min-height: 112px; padding: 19px 18px 18px; list-style: none; cursor: pointer; }
+.world-entry > summary > span { color:#fff4fb; font:500 21px/1.6 var(--serif); }
+.world-entry > summary > small { color:#deccdf; font-size:13px; line-height:1.7; }
+.world-entry > summary::after { content:"+"; position:absolute; right:14px; top:16px; color:#dfc6c0; font:17px/1.6 system-ui,sans-serif; }
+.world-entry[open] > summary::after { content: "−"; }
+.life-pair .world-entry > p { margin:0 18px 18px; padding-top:8px; color:#f1e4f2; font-size:14px; line-height:1.85; }
+.life-pair .life-caption-title { margin-top: 19px; }
+.life-pair .life-caption { margin-top: 5px; font-size: 15px; }
+.memory-source > summary:focus-visible,
+.world-entry > summary:focus-visible { outline: 3px solid #9d72be; outline-offset: 5px; }
+@media (hover: hover) {
+  .memory-source > summary:hover .memory-source-action { color: #482055; }
+  .world-entry > summary:hover { background:#f3e5f00f; }
+  .today-sample label:hover strong { color: #684876; }
+}
+@media (max-width: 1040px) and (min-width: 761px) {
+  .life-pair .life-plate { padding: 24px; }
+  .assistant-paper { padding-inline: 19px; }
+  .world-entry > summary { padding-inline: 14px; }
+  .world-entry > summary > span { font-size: 16px; }
+  .world-plate-head { align-items: start; flex-direction: column; gap: 7px; }
+}
+@media (max-width: 760px) {
+  .memory .memory-grid { gap: 34px; }
+  .memory-source { margin-top: 22px; }
+  .memory-statement { font-size: 16px; }
+  .memory-original blockquote { font-size: 15px; }
+  .memory .folio { margin-inline: -6px; width: calc(100% + 12px); }
+  .life-pair { gap: 32px; }
+  .life-pair .life-plate { padding: 23px 22px 22px; min-height: 0; }
+  .life-pair .life-plate h3 { font-size: 25px; }
+  .assistant-paper { margin: 19px 0 0; padding: 24px 21px 21px; }
+  .assistant-paper-head { padding-bottom: 18px; }
+  .today-sample { padding-top: 21px; gap: 9px 12px; }
+  .today-sample label strong { font-size: 15px; }
+  .assistant-paper-lines { margin-top: 19px; }
+  .world-plate-head { align-items: start; flex-direction: column; gap: 5px; }
+  .world-pages { gap: 10px; margin-top: 20px; }
+  .world-entry > summary { min-height: 108px; padding: 17px 13px 15px; gap: 8px; }
+  .world-entry > summary > span { font-size: 16px; }
+  .world-entry > summary > small { font-size: 13px; }
+  .world-entry > summary::after { top: 14px; right: 12px; }
+  .life-pair .world-entry > p { margin-inline: 13px; margin-bottom: 15px; font-size: 14px; }
+  .life-pair .life-plate .life-example-note { margin-top: 20px; }
+}
+@media (forced-colors: active) {
+  .today-sample input { appearance: auto; -webkit-appearance: checkbox; }
+  .today-sample input:checked::before { display: none; }
+  .memory-source, .world-entry, .assistant-paper { border-color: CanvasText; }
+}

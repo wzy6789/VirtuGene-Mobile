@@ -2,3 +2,6 @@
 *.html text eol=crlf
 atelier.css text eol=lf
 atelier.js text eol=lf
+scene.css text eol=lf
+scene.js text eol=lf
+life.css text eol=lf

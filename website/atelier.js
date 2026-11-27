@@ -199,32 +199,18 @@
       });
     }
 
-    var film = document.getElementById('film-viewer');
-    var video = film && film.querySelector('video');
-    var filmOpener = null;
-    if (canEnhance(film) && video) {
-      video.autoplay = false;
-      video.controls = true;
-      video.preload = 'none';
-      document.querySelectorAll('a[data-film]').forEach(function (link) {
+    var references = document.querySelector('#gallery details');
+    if (references) {
+      function openReferences() {
+        if (location.hash === '#gallery') references.open = true;
+      }
+      document.querySelectorAll('a[href="#gallery"]').forEach(function (link) {
         link.addEventListener('click', function (event) {
-          if (!isPlainClick(event)) return;
-          event.preventDefault();
-          filmOpener = link;
-          setMenu(false);
-          video.pause();
-          // Keep an existing source untouched so repeat opens preserve position.
-          if (!video.getAttribute('src') && !video.querySelector('source[src]')) video.src = link.href;
-          film.showModal();
+          if (isPlainClick(event)) references.open = true;
         });
       });
-      wireDialog(film, function () {
-        video.pause();
-        restoreFocus(filmOpener);
-      });
-      document.addEventListener('visibilitychange', function () {
-        if (document.hidden) video.pause();
-      });
+      window.addEventListener('hashchange', openReferences);
+      openReferences();
     }
 
     var motionButton = document.getElementById('motion-toggle');
