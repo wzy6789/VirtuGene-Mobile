@@ -18,6 +18,15 @@
 
     if (menuButton && menu) {
       setMenu(false);
+      var pocketLayout = window.matchMedia('(max-width: 760px), (max-width: 950px) and (max-height: 520px) and (pointer: coarse)');
+      function closeMenuOnDesktop(event) {
+        if (event.matches || menu.hidden) return;
+        var focusWasInMenu = menu.contains(document.activeElement) || document.activeElement === menuButton;
+        setMenu(false);
+        if (focusWasInMenu) document.querySelector('.brand').focus({ preventScroll: true });
+      }
+      if (pocketLayout.addEventListener) pocketLayout.addEventListener('change', closeMenuOnDesktop);
+      else pocketLayout.addListener(closeMenuOnDesktop);
       menuButton.addEventListener('click', function () { setMenu(menu.hidden); });
       menu.addEventListener('click', function (event) {
         if (event.target.closest('a')) setMenu(false);

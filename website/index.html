@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" media="(max-width: 760px), (max-width: 950px) and (max-height: 520px) and (pointer: coarse)" content="#170e1b">
   <meta name="theme-color" content="#faf8fc">
   <title>逢星之境 · 逢星 VirtuGene</title>
   <meta name="description" content="认识逢星 VirtuGene。为 AI 角色设定性格与背景，聊日常、走进故事，亲手管理共同记忆，在生活助理和日记里整理今天。">
@@ -17,7 +18,10 @@
   <link rel="stylesheet" href="./atelier.css?v=20261127-scenes">
   <link rel="stylesheet" href="./scene.css?v=20261127-scenes">
   <link rel="stylesheet" href="./life.css?v=20261127-scenes">
-  <script defer src="./atelier.js?v=20261127-scenes"></script>
+  <link rel="stylesheet" media="(max-width: 760px), (max-width: 950px) and (max-height: 520px) and (pointer: coarse)" href="./pocket.css?v=20261127-night">
+  <link rel="stylesheet" media="(max-width: 760px), (max-width: 950px) and (max-height: 520px) and (pointer: coarse)" href="./pocket-scene.css?v=20261127-night">
+  <link rel="stylesheet" media="(max-width: 760px), (max-width: 950px) and (max-height: 520px) and (pointer: coarse)" href="./pocket-life.css?v=20261127-night">
+  <script defer src="./atelier.js?v=20261127-night"></script>
   <script defer src="./scene.js?v=20261127-scenes"></script>
 </head>
 <body>
@@ -33,16 +37,16 @@
   <main id="content">
     <section id="hero" class="hero" aria-labelledby="hero-title">
       <picture class="hero-art">
-        <source media="(max-width: 760px)" srcset="./assets/atelier/amethyst-mobile.webp">
+        <source media="(max-width: 760px), (max-width: 950px) and (max-height: 520px) and (pointer: coarse)" srcset="./assets/atelier/amethyst-night.webp" width="1000" height="1500">
         <img src="./assets/atelier/amethyst.webp" width="1920" height="819" alt="" fetchpriority="high">
       </picture>
       <div class="wrap hero-inner">
         <div class="hero-copy">
           <h1 id="hero-title"><span>让数字灵魂，</span><span>走进你的日常。</span></h1>
-          <p>逢星是一款 AI 角色陪伴应用。<br class="wide-break">为角色写下性格和来历，从一场雨夜的对话开始。</p>
+          <p>逢星是一款 AI 角色陪伴应用。<br class="wide-break"><span class="cover-intro-wide">为角色写下性格和来历，从一场雨夜的对话开始。</span><span class="cover-intro-pocket" hidden>和你设定的角色，从一场雨夜聊起。</span></p>
           <div class="actions"><a class="button primary" href="#experience">进入互动演示</a><a class="button outline" href="#memory">了解共同记忆</a></div>
         </div>
-        <p class="edition"><span lang="en">VirtuGene</span><i aria-hidden="true"></i>7.0.0 Android 体验展示</p>
+        <p class="edition"><span lang="en">VirtuGene</span><i aria-hidden="true"></i>Android 产品体验</p>
       </div>
     </section>
 
@@ -50,7 +54,7 @@
       <div class="wrap experience-grid">
         <div class="experience-head">
           <p class="section-label">相处方式</p>
-          <h2 id="experience-title">说句话，<br>或一起走进故事。</h2>
+          <h2 id="experience-title"><span class="scene-title-wide">说句话，<br>或一起走进故事。</span><span class="scene-title-pocket" hidden>一封雨夜来信</span></h2>
           <div class="tabs" role="tablist" aria-label="选择相处方式">
             <button role="tab" id="tab-chat" aria-controls="panel-chat" aria-selected="true">聊天</button>
             <button role="tab" id="tab-voice" aria-controls="panel-voice" aria-selected="false" tabindex="-1">通话</button>
@@ -153,7 +157,7 @@
     <section class="gallery wrap" id="gallery" aria-labelledby="gallery-title">
       <details class="reference-fold">
       <summary><h2 id="gallery-title">Android 界面参考<span class="fold-action" aria-hidden="true"><span class="fold-show">展开图集</span><span class="fold-hide">收起图集</span></span></h2></summary>
-      <p class="reference-intro">来自逢星 7.0.0 Android 组件的四张示例画面，点击可查看原图。</p>
+      <p class="reference-intro">来自逢星 Android 应用的四张示例画面，点击可查看原图。</p>
       <div class="gallery-grid" data-gallery>
         <figure><a data-view href="./assets/v7/scene.webp" data-caption="沉浸聊天 · 竹林茶室"><img src="./assets/v7/scene.webp" width="780" height="1688" loading="lazy" alt="竹林茶室聊天示例"></a><figcaption>沉浸聊天<span class="caption-detail">换到竹林茶室，继续眼前的对话。</span></figcaption></figure>
         <figure><a data-view href="./assets/v7/memory.webp" data-caption="共同记忆 · 记忆碎片"><img src="./assets/v7/memory.webp" width="780" height="1688" loading="lazy" alt="角色记忆条目"></a><figcaption>记忆碎片<span class="caption-detail">打开一条记忆，看看角色记下了什么。</span></figcaption></figure>
@@ -164,7 +168,7 @@
     </section>
     <section class="notes" id="download" aria-labelledby="notes-title">
       <div class="wrap notes-grid"><h2 id="notes-title">关于这次体验</h2><div>
-        <details open><summary>展示的是什么版本？</summary><p>本页以逢星 Android 7.0.0 的功能为蓝本。互动场景使用预写内容，你可以在浏览器里自由尝试，操作仅对当前页面生效。</p></details>
+        <details open><summary>在官网可以体验什么？</summary><p>你可以接着聊一轮、查看通话字幕、续读故事，也能回看记忆原话和勾选一件待办。演示使用预写内容，操作仅在当前页面生效。</p></details>
         <details><summary>聊天与语音如何使用模型服务？</summary><p>应用会按实际配置连接你选择的模型服务或可用网关。使用 AI 时，必要的输入、角色资料和相关上下文会发给对应服务；语音另需配置识别与合成服务，费用依服务商规则而定。</p></details>
         <details><summary>我能管理自己的资料吗？</summary><p>聊天、角色和记忆等资料以本机保存为主。你可以管理记忆，按应用提供的入口导出或删除资料。<a href="./privacy.html">了解数据如何处理</a></p></details>
       </div></div>

@@ -1,0 +1,180 @@
+/* A single mobile composition over the same tabs and scene state. */
+@media (max-width:760px), (max-width:950px) and (max-height:520px) and (pointer:coarse) {
+  #experience.scene-experience {
+    color: #f6edfb;
+    border-top: 0;
+    border-bottom-color: #81618b38;
+    background: linear-gradient(180deg,#1c0e26ed,#2b1732d9 62%,#28162eec),url('./assets/atelier/window.webp') center top/auto 100% no-repeat;
+  }
+  #experience.scene-experience::before {
+    background: radial-gradient(ellipse at 78% 5%,#b792da1f,transparent 51%),linear-gradient(180deg,#1b0d23b0,transparent 29%,#25122c52);
+  }
+  #experience.scene-experience::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    pointer-events: none;
+    inset: 0 0 auto;
+    height: 180px;
+    background: radial-gradient(ellipse at 50% 0,#c3a0e523,transparent 70%);
+  }
+  #experience .experience-grid {
+    width: min(100%,600px);
+    padding: 26px clamp(18px,5.6vw,36px) 42px;
+    grid-template-columns: minmax(0,1fr);
+    grid-template-rows: auto auto auto;
+    gap: 0;
+  }
+  .js #experience .experience-head { grid-column:1; grid-row:1; align-self:start; }
+  #experience .section-label { color:#bda6cc; font-size:12px; line-height:1.75; letter-spacing:.13em; margin-bottom:9px; }
+  #experience h2 { color:#f1e3f8; font-size:32px; line-height:1.36; letter-spacing:.015em; }
+  #experience .scene-disclosure { margin-top:9px; color:#ad97b9; font-size:12px; line-height:1.75; letter-spacing:.055em; }
+  .js #experience .tabs {
+    width:100%;
+    min-height:54px;
+    margin-top:18px;
+    padding:4px;
+    gap:4px;
+    border:1px solid #d1b5e64d;
+    border-radius:17px;
+    background:linear-gradient(150deg,#8e6a9f24,#170d2273);
+    box-shadow:inset 0 1px 0 #f4ddff14,0 5px 16px #10071721;
+  }
+  #experience .tabs button {
+    position:relative;
+    z-index:1;
+    flex:1;
+    min-width:0;
+    min-height:44px;
+    padding:7px 10px;
+    border:0;
+    border-radius:12px;
+    color:#cbb7d8;
+    font-size:15px;
+    font-weight:500;
+    line-height:1.8;
+  }
+  #experience .tabs button[aria-selected=true] { color:#40234e; }
+  .js #experience .tabs::after {
+    top:4px;
+    bottom:4px;
+    height:auto;
+    border:1px solid #f6e5ff9c;
+    border-radius:12px;
+    background:linear-gradient(140deg,#ead9f4,#c5a5d9);
+    box-shadow:inset 0 1px 0 #fff9,0 3px 11px #08021038;
+  }
+  #experience .tabs button:focus-visible { outline:2px solid #dfc6f0; outline-offset:3px; }
+  .js #experience .scene-stage {
+    grid-column:1;
+    grid-row:2;
+  }
+  #experience .scene-stage {
+    min-height:390px;
+    width:100%;
+    margin-top:18px;
+    padding:22px;
+    border:1px solid #d5bef07a;
+    border-radius:23px 23px 10px 23px;
+    color:#efe1f8;
+    background:radial-gradient(ellipse at 4% 0%,#d4bbef27,transparent 53%),linear-gradient(145deg,#755d899e,#35233fe6 57%,#74577c8a);
+    box-shadow:inset 0 1px 0 #f5e7ff5c,inset -1px -1px 0 #d5b5ee20,0 18px 38px -17px #07030b99,0 0 24px #b18cd70b;
+    -webkit-backdrop-filter:blur(10px);
+    backdrop-filter:blur(10px);
+  }
+  #experience .scene-stage::before { inset:7px; border-color:#ead8fb24; border-radius:17px 17px 5px 17px; }
+  #experience .scene-stage::after { background:linear-gradient(145deg,#d9c3f50c,transparent 43%,#b491d20d); }
+  #experience .scene-meta { min-height:30px; padding-bottom:12px; color:#c4aed3; border-color:#c6a4df30; font-size:12px; line-height:1.7; letter-spacing:.09em; }
+  #experience .scene-content { padding-block:16px; }
+  #experience .scene-speaker { color:#baa5ca; font-size:12px; line-height:1.7; letter-spacing:.09em; margin-bottom:5px; }
+  #experience .scene-line { margin-bottom:20px; }
+  #experience .scene-line:last-child { margin-bottom:0; }
+  #experience .scene-line p { color:#f5eafc; font-size:20px; line-height:1.72; letter-spacing:.015em; }
+  #experience .scene-line-role { border-color:#d1b2e344; padding-left:15px; }
+  #experience .scene-line-role p { color:#e8d6f2; }
+  #experience .scene-footer { padding-top:13px; border-color:#c6a4df30; }
+  #experience .scene-control {
+    min-height:48px;
+    width:100%;
+    padding:10px 22px;
+    border:1px solid #e8d4faab;
+    border-radius:14px;
+    color:#40234e;
+    background:linear-gradient(145deg,#ead9f3,#bc9ad0);
+    box-shadow:inset 0 1px 0 #fff9,0 6px 18px #1006193b;
+    font-size:15px;
+    font-weight:600;
+  }
+  #experience .scene-control:hover { color:#32173f; background:linear-gradient(145deg,#f2e3fa,#caaddc); border-color:#f3e3ff; }
+  #experience .scene-control:active { color:#32173f; background:linear-gradient(145deg,#d9bfe7,#b18ac7); transform:translateY(1px); }
+  html.motion-off #experience .scene-control:active { transform:none; }
+  #experience .scene-control:focus-visible { outline:2px solid #ead4ff; outline-offset:4px; }
+  #experience .scene-quiet { color:#cfb7dd; border-color:#d4b5e539; padding:2px 9px; }
+  #experience .scene-voice-title { color:#eee0f7; font-size:30px; line-height:1.5; }
+  #experience .scene-wave { height:124px; }
+  #experience .scene-wave i { background:linear-gradient(#e0c4f5,#b080d0); box-shadow:0 3px 14px #d8b7ed20; }
+  #experience .scene-wave i:nth-child(9) { background:linear-gradient(#f0dbff,#b68ed5); }
+  #experience .scene-caption p { color:#ead9f6; font-size:21px; line-height:1.8; }
+  #experience .scene-chapter { color:#c6a7d5; font-size:12px; margin-bottom:14px; }
+  #experience .scene-narrative h3 { color:#f1e0fa; font-size:27px; line-height:1.5; margin-bottom:20px; }
+  #experience .scene-story-line { color:#d2bddf; font-size:16px; line-height:1.9; }
+  #experience .scene-narrative blockquote { color:#f0def9; font-size:24px; line-height:1.65; margin-top:18px; }
+  .js #experience .feature-note {
+    grid-column:1;
+    grid-row:3;
+    margin-top:25px;
+    padding-top:19px;
+    border-top:1px solid #b99aca24;
+  }
+  #experience .feature-note h3 { color:#d8c4e4; font-size:16px; line-height:1.7; font-weight:500; }
+  #experience .feature-note p { color:#ae97bb; max-width:none; margin-top:7px; font-size:14px; line-height:1.9; }
+  html:not(.js) #experience .feature-panel { display:flex; flex-direction:column; align-items:stretch; gap:0; }
+  html:not(.js) #experience .scene-stage { order:1; }
+  html:not(.js) #experience .feature-note { order:2; margin-block:20px 18px; }
+}
+
+@media(max-width:360px) {
+  #experience h2 { font-size:30px; }
+  #experience .scene-stage { padding:20px; }
+  #experience .scene-line p { font-size:19px; }
+}
+
+@media(max-width:950px) and (max-height:520px) and (pointer:coarse) {
+  #experience .experience-grid {
+    width:100%;
+    padding:16px 24px 28px;
+    grid-template-columns:minmax(190px,.72fr) minmax(0,1.28fr);
+    grid-template-rows:auto auto;
+    gap:0 24px;
+  }
+  .js #experience .experience-head { grid-column:1; grid-row:1; align-self:center; }
+  #experience .section-label { margin-bottom:6px; }
+  #experience h2 { font-size:28px; }
+  .js #experience .tabs { margin-top:14px; }
+  #experience .scene-disclosure { margin-top:9px; }
+  .js #experience .scene-stage { grid-column:2; grid-row:1; }
+  #experience .scene-stage { min-height:284px; margin-top:0; padding:15px 18px; }
+  #experience .scene-meta { min-height:24px; padding-bottom:7px; }
+  #experience .scene-content { padding-block:4px; }
+  #experience .scene-line { margin-bottom:11px; }
+  #experience .scene-line p { font-size:18px; line-height:1.6; }
+  #experience .scene-speaker { margin-bottom:3px; }
+  #experience .scene-footer { padding-top:9px; }
+  #experience .scene-control { min-height:44px; padding-block:7px; }
+  #experience .scene-voice-title { font-size:27px; }
+  #experience .scene-wave { height:82px; }
+  #experience .scene-wave i:nth-child(9) { height:78px; }
+  #experience .scene-caption p { font-size:19px; }
+  #experience .scene-chapter { margin-bottom:4px; }
+  #experience .scene-narrative h3 { margin-bottom:6px; font-size:23px; line-height:1.4; }
+  #experience .scene-story-line { font-size:16px; line-height:1.75; }
+  #experience .scene-narrative blockquote { margin-top:8px; font-size:22px; line-height:1.5; }
+  .js #experience .feature-note { grid-column:1/-1; grid-row:2; margin-top:18px; padding-top:14px; }
+}
+
+@media(max-width:760px) and (prefers-reduced-motion:no-preference), (max-width:950px) and (max-height:520px) and (pointer:coarse) and (prefers-reduced-motion:no-preference) {
+  html:not(.motion-off) #experience .scene-control { transition:background .18s ease,box-shadow .18s ease,transform .16s ease; }
+}
+@media(max-width:760px) and (prefers-reduced-motion:reduce), (max-width:950px) and (max-height:520px) and (pointer:coarse) and (prefers-reduced-motion:reduce) {
+  #experience .scene-control:active { transform:none; }
+}
