@@ -23,7 +23,7 @@
   var pointer = {x:0,y:0,fx:0,fy:0,hx:0,hy:0,nx:0,ny:0,on:false,quiet:false,speed:0,lastX:0,lastY:0};
   var W=0,H=0,dpr=1,coarse=false,quality=1,frameId=0,last=0,elapsed=0,frameCount=0;
   var measureNeeded=true,scrollY=window.scrollY,maxScroll=1,overlay=false,scene='hero';
-  var boxes=[],artBox=null,memoryBox=null,lifeW=0,lifeH=0,heroVisible=true,memoryVisible=false;
+  var boxes=[],artBox=null,memoryBox=null,navHeight=0,lifeW=0,lifeH=0,heroVisible=true,memoryVisible=false;
   var budget={stars:200,motes:48,trails:24},stars=[],motes=[];
   var trails=Array.from({length:24},function(){return {life:0,x:0,y:0,px:0,py:0,vx:0,vy:0,r:1};});
   var pulses=Array.from({length:4},function(){return {life:0,x:0,y:0};});
@@ -64,7 +64,8 @@
     if(canvas&&(oldW!==W||oldH!==H||canvas.width===0)){canvas.width=Math.round(W*dpr);canvas.height=Math.round(H*dpr);ctx&&ctx.setTransform(dpr,0,0,dpr,0,0);}
     if(nearCanvas&&nearCtx&&(oldW!==W||oldH!==H||!nearCanvas.width)){nearCanvas.width=Math.round(W*dpr);nearCanvas.height=Math.round(H*dpr);nearCtx.setTransform(dpr,0,0,dpr,0,0);}
     // Cached document rectangles protect reading and actual product screens. No layout reads in the clock.
-    readingBoxes=Array.from(document.querySelectorAll('header,footer,main h1,main h2,main h3,main p,main dl,main figcaption,main a,main strong,main .v7-platform-head>span,main .v7-media-caption,main .v7-hero-facts,main .v7-shot,main .btn,main .v7-feature-tab,main summary,input,textarea')).map(function(el){var b=absoluteBox(el);b.pad=el.matches('.v7-shot')?32:24;return b;}).filter(function(b){return b.w>0&&b.h>0;});
+    navHeight=nav?nav.offsetHeight:0;
+    readingBoxes=Array.from(document.querySelectorAll('footer,main h1,main h2,main h3,main p,main dl,main figcaption,main a,main strong,main .v7-platform-head>span,main .v7-media-caption,main .v7-hero-facts,main .v7-shot,main .btn,main .v7-feature-tab,main summary,input,textarea')).map(function(el){var b=absoluteBox(el);b.pad=el.matches('.v7-shot')?32:24;return b;}).filter(function(b){return b.w>0&&b.h>0;});
     boxes=sections.map(function(el){var b=absoluteBox(el);b.id=el.id;return b;});
     artBox=absoluteBox(art);memoryBox=absoluteBox(document.querySelector('.v7-memory-media'));
     maxScroll=Math.max(1,document.documentElement.scrollHeight-H);
@@ -74,7 +75,7 @@
     updateScene();updateChrome();
   }
   function requestMeasure(){measureNeeded=true;if(!canRun()){measure();draw(0,false);}}
-  function updateChrome(){if(progress)progress.style.transform='scaleX('+Math.min(1,Math.max(0,scrollY/maxScroll)).toFixed(4)+')';if(nav)nav.classList.toggle('is-scrolled',scrollY>8);}
+  function updateChrome(){if(progress)progress.style.transform='scaleX('+Math.min(1,Math.max(0,scrollY/maxScroll)).toFixed(4)+')';}
   function updateScene(){
     var focus=scrollY+H*.48,chosen=boxes[0];
     for(var i=0;i<boxes.length;i++){if(focus>=boxes[i].y)chosen=boxes[i];}
@@ -186,6 +187,8 @@
       g.strokeStyle='#cab4ff';g.lineWidth=1.25;g.globalAlpha=p.life*.7;g.beginPath();g.arc(p.x,p.y,radius,0,Math.PI*2);g.stroke();g.strokeStyle='#a3d5ff';g.globalAlpha=p.life*.35;g.beginPath();g.arc(p.x,p.y,radius*.72,0,Math.PI*2);g.stroke();glow(g,p.x,p.y,90*p.life,p.life*.35,0);
       for(var j=0;j<6;j++){var angle=j*Math.PI/3+.3;glow(g,p.x+Math.cos(angle)*radius,p.y+Math.sin(angle)*radius,12*p.life,p.life*.8,j%3);}
     });
+    // The sticky header stays at the top of the viewport as the document scrolls.
+    if(navHeight)g.clearRect(0,0,W,navHeight+24);
     // Clearing overlapping exclusions is stable, unlike even/odd clipping which can reopen overlaps.
     readingBoxes.forEach(function(b){var top=b.y-scrollY;if(top+b.h+b.pad<0||top-b.pad>H)return;g.clearRect(b.x-b.pad,top-b.pad,b.w+b.pad*2,b.h+b.pad*2);});g.globalAlpha=1;
   }
