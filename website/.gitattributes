@@ -1,0 +1,4 @@
+# Keep published page and code bytes consistent on Windows and GitHub Pages.
+*.html text eol=crlf
+atelier.css text eol=lf
+atelier.js text eol=lf
