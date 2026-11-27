@@ -6,6 +6,7 @@ on:
     paths:
       - 'website/**'
       - '.github/workflows/deploy-pages.yml'
+      - 'scripts/website-export.mjs'
   workflow_dispatch:
 
 permissions:
@@ -25,10 +26,12 @@ jobs:
         uses: actions/checkout@v4
       - name: Configure Pages
         uses: actions/configure-pages@v5
+      - name: Export public website
+        run: node scripts/website-export.mjs "$RUNNER_TEMP/virtugene-website"
       - name: Upload website
         uses: actions/upload-pages-artifact@v4
         with:
-          path: website
+          path: ${{ runner.temp }}/virtugene-website
 
   deploy:
     needs: build

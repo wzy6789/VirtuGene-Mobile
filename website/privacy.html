@@ -2,36 +2,70 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#080611">
-  <meta name="description" content="VirtuGene 隐私说明">
-  <title>隐私说明 · VirtuGene</title>
-  <link rel="stylesheet" href="./styles.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="了解逢星之境官网与逢星应用如何处理本地资料、模型请求、语音服务和访问数据。">
+  <title>隐私说明 · 逢星之境</title>
+  <link rel="icon" type="image/png" href="./assets/selected/app-mark.png">
+  <link rel="stylesheet" href="./atelier.css?v=20261127-v1">
 </head>
-<body>
-  <main class="document shell">
-    <a href="./index.html">返回 VirtuGene</a>
+<body class="policy">
+  <header class="policy-nav">
+    <a class="policy-brand" href="./index.html" aria-label="逢星之境官网首页"><img src="./assets/selected/app-mark.png" width="36" height="36" alt=""><span>逢星之境</span></a>
+    <a href="./index.html">返回官网</a>
+  </header>
+
+  <main class="policy-main" id="main-content">
     <h1>隐私说明</h1>
-    <p class="updated">LAST UPDATED / 2026.10.25</p>
-    <p>VirtuGene 是一个用于数字角色创作、私人记录和长期记忆整理的本地优先应用。本说明解释应用当前如何处理数据。</p>
-    <h2>数据保存在何处</h2>
-    <p>角色资料、聊天记录、记忆条目、情绪状态、手帐内容和本地登录资料默认保存在你的设备中。你主动使用导出、备份或同步时，所选内容会按照该功能及你的设置，保存或发送到相应位置。</p>
-    <h2>你使用自己的 AI 服务时</h2>
-    <p>使用 AI 功能时，应用会根据你的请求或已启用的主动互动设置，将当前输入、必要的角色设定、相关记忆与对话等资料发送给所配置的模型服务，以生成回复。API Key 使用设备本地加密存储；服务提供商会按其自身规则处理收到的请求。</p>
-    <h2>语音输入与通话</h2>
-    <p>使用语音功能需要相应的识别和语音合成服务。根据你选择的识别方式，音频或识别文字可能发送至对应服务；生成语音时，待朗读文字会发送至语音合成服务。相关费用、数据处理和保留规则由服务提供商决定。</p>
-    <h2>应用权限</h2>
-    <ul>
-      <li><strong>网络：</strong>用于你启用的 AI、语音、备份同步、检查更新及其他在线服务。</li>
-      <li><strong>通知：</strong>仅在你授权后发送本地提醒。</li>
-      <li><strong>麦克风：</strong>在你主动使用语音输入或语音通话并授予权限时调用。</li>
-      <li><strong>照片或文件：</strong>仅在你主动选择图片或导出内容时访问。</li>
-    </ul>
-    <h2>你的控制权</h2>
-    <p>你可以在应用内删除聊天、角色、手帐和本地资料，也可以在系统设置中撤销权限。卸载应用或清除应用数据会删除设备上的本地内容；请在操作前自行备份需要保留的信息。</p>
-    <h2>本官网</h2>
-    <p>本网站为 GitHub Pages 托管的静态介绍页，不提供注册、支付或信息提交表单。网站更新和问题反馈可通过项目页面处理。</p>
-    <p><a href="https://github.com/wzy6789/VirtuGene-Mobile/issues" target="_blank" rel="noreferrer">提交问题反馈</a></p>
+    <p class="policy-updated">更新于 <time datetime="2026-11-27">2026 年 11 月 27 日</time></p>
+    <p>逢星（VirtuGene）用于 AI 角色互动、记忆整理与生活记录。本页分别说明官网浏览和应用使用中的数据处理方式；具体功能以你使用的版本及服务配置为准。</p>
+
+    <section aria-labelledby="website-data">
+      <h2 id="website-data">浏览本官网</h2>
+      <p>逢星之境的正式域名由阿里云 ECS 托管，项目网站也提供 GitHub Pages 镜像。浏览页面不会调用模型、启用麦克风，或读取你在应用中保存的聊天、角色和日记。</p>
+      <p>打开网页时，浏览器会向网站服务器请求页面、图片等文件，并传递 IP 地址、请求路径及浏览器相关信息。托管与网络服务可能按其配置处理访问日志。打开外部链接后，相关数据处理适用目标服务的说明。</p>
+    </section>
+
+    <section aria-labelledby="local-data">
+      <h2 id="local-data">应用中的本地资料</h2>
+      <p>角色、聊天记录、记忆、日记、事项与偏好设置等资料主要保存在你使用应用的设备中。使用在线模型、语音、网关、备份或同步能力时，相关内容会根据具体功能和你的配置在设备之外处理。</p>
+      <p>你主动导出、备份或分享资料时，所选内容会保存到指定位置，或发送到你选择的服务。请留意导出文件的存放位置及接收方。</p>
+    </section>
+
+    <section aria-labelledby="model-services">
+      <h2 id="model-services">模型服务与网关</h2>
+      <p>自行配置模型服务和 API Key 时，应用会向你选定的服务发送本次生成所需的输入、角色设定、相关历史对话、记忆或其他已选资料；使用图片能力时，也可能发送你选择的图片。</p>
+      <p>使用已配置且可用的网关时，请求会先经过网关，再由网关调用模型服务。网关若提供账户功能，还会处理登录所需的账户信息及访问凭证。具体可用能力、额度和数据处理方式取决于该服务的实际配置。</p>
+      <p>模型服务或网关对请求内容的使用、保存与删除，适用其自身说明。启用服务前，请核对服务地址、隐私政策和费用；妥善保管 API Key 与访问凭证。</p>
+    </section>
+
+    <section aria-labelledby="voice-services">
+      <h2 id="voice-services">语音与设备权限</h2>
+      <p>应用中的语音输入和通话需要相应的识别、合成服务及设备权限。根据所选识别方式，音频或识别文字可能发送给对应服务；生成语音时，待朗读文字会发送给语音合成服务。</p>
+      <ul>
+        <li><strong>麦克风：</strong>用于你主动使用的语音输入或通话，是否授权由系统提示和你的选择决定。</li>
+        <li><strong>通知：</strong>用于你启用并授权的提醒。</li>
+        <li><strong>图片与文件：</strong>用于选择附件、导入资料或导出备份，具体访问范围以系统选择器或权限提示为准。</li>
+      </ul>
+      <p>你可以在系统设置中撤销权限。模型与语音服务的费用和内容处理规则由相应服务提供方确定。</p>
+    </section>
+
+    <section aria-labelledby="data-controls">
+      <h2 id="data-controls">管理、备份与删除</h2>
+      <p>你可以通过应用已有的资料管理、备份和导出入口管理内容。删除角色、聊天或其他资料前，请确认影响范围；卸载应用或清除应用数据可能使设备上的资料无法恢复，建议先备份需要保留的内容。</p>
+      <p>本地删除与第三方服务的数据删除分别处理。对于模型服务、网关、同步服务或已分享的副本，请通过对应服务的管理入口或联系渠道处理。</p>
+    </section>
+
+    <section aria-labelledby="privacy-contact">
+      <h2 id="privacy-contact">说明更新与问题反馈</h2>
+      <p>本页会随实际功能及数据处理方式更新。使用新增在线能力前，请阅读该功能的说明与授权提示。</p>
+      <p>如需反馈问题，可以前往<a href="https://github.com/wzy6789/VirtuGene-Mobile/issues" target="_blank" rel="noopener noreferrer">项目问题页面</a>。该页面公开可见，请勿附上 API Key、访问凭证、完整私人对话或身份证明等敏感资料。</p>
+    </section>
   </main>
+
+  <footer class="policy-footer">
+    <p>逢星之境 · VirtuGene</p>
+    <nav aria-label="说明页面导航"><a href="./privacy.html" aria-current="page">隐私说明</a><a href="./terms.html">使用条款</a><a href="./index.html">返回官网</a></nav>
+    <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">湘ICP备2026040502号-1</a>
+  </footer>
 </body>
 </html>
