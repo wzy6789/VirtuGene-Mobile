@@ -5,6 +5,8 @@
     var root = document.documentElement;
     var menuButton = document.querySelector('.menu-toggle');
     var menu = document.getElementById('mobile-menu');
+    var updateTabIndicators = [];
+    var stopTabMotion = [];
 
     function setMenu(open, restoreFocus) {
       if (!menuButton || !menu) return;
@@ -34,21 +36,53 @@
         return tab.closest('[role="tablist"]') === list && panel && panel.getAttribute('role') === 'tabpanel';
       });
       if (!tabs.length) return;
+      var animations = [];
 
-      function select(selected, focus) {
+      function cancelMotion() {
+        animations.forEach(function (animation) { animation.cancel(); });
+        animations = [];
+      }
+      stopTabMotion.push(cancelMotion);
+
+      function updateIndicator() {
+        var selected = tabs.find(function (tab) { return tab.getAttribute('aria-selected') === 'true'; });
+        if (!selected) return;
+        list.style.setProperty('--tab-x', selected.offsetLeft + 'px');
+        list.style.setProperty('--tab-width', selected.getBoundingClientRect().width + 'px');
+      }
+      updateTabIndicators.push(updateIndicator);
+      if (window.ResizeObserver) new ResizeObserver(updateIndicator).observe(list);
+
+      function select(selected, focus, animate) {
+        var changed = selected.getAttribute('aria-selected') !== 'true';
+        cancelMotion();
         tabs.forEach(function (tab) {
           var active = tab === selected;
           tab.disabled = false;
           tab.setAttribute('aria-selected', String(active));
           tab.tabIndex = active ? 0 : -1;
-          document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
+          var panel = document.getElementById(tab.getAttribute('aria-controls'));
+          panel.hidden = !active;
+          panel.inert = !active;
+          panel.setAttribute('aria-hidden', String(!active));
         });
-        if (focus) selected.focus();
+        updateIndicator();
+        if (changed && animate && root.dataset.motion === 'on') {
+          var panel = document.getElementById(selected.getAttribute('aria-controls'));
+          Array.from(panel.children).forEach(function (content) {
+            if (!content.animate) return;
+            animations.push(content.animate([
+              { opacity: 0, transform: 'translateY(7px)' },
+              { opacity: 1, transform: 'translateY(0)' }
+            ], { duration: 220, easing: 'cubic-bezier(.2,.75,.25,1)' }));
+          });
+        }
+        if (focus) selected.focus({ preventScroll: true });
       }
 
       select(tabs.find(function (tab) { return tab.getAttribute('aria-selected') === 'true'; }) || tabs[0]);
       tabs.forEach(function (tab, index) {
-        tab.addEventListener('click', function () { select(tab); });
+        tab.addEventListener('click', function () { select(tab, false, true); });
         tab.addEventListener('keydown', function (event) {
           var next;
           if (event.key === 'Home') next = 0;
@@ -57,7 +91,7 @@
           else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index + tabs.length - 1) % tabs.length;
           if (next === undefined) return;
           event.preventDefault();
-          select(tabs[next], true);
+          select(tabs[next], true, true);
         });
       });
     });
@@ -201,6 +235,7 @@
       var enabled = motionWanted && !reduced.matches;
       root.dataset.motion = enabled ? 'on' : 'off';
       root.classList.toggle('motion-off', !enabled);
+      if (!enabled) stopTabMotion.forEach(function (stop) { stop(); });
       if (!motionButton) return;
       motionButton.setAttribute('aria-pressed', String(enabled));
       motionButton.disabled = reduced.matches;
@@ -218,6 +253,10 @@
     applyMotion();
 
     root.classList.add('js');
+    updateTabIndicators.forEach(function (update) { update(); });
+    if (document.fonts) document.fonts.ready.then(function () {
+      updateTabIndicators.forEach(function (update) { update(); });
+    });
     var aliases = { '#release-6': '#experience', '#meet': '#experience', '#world': '#daily' };
     function resolveLegacyAnchor() {
       var destination = aliases[location.hash];
